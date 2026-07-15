@@ -318,3 +318,32 @@ Priority mapping:
 8. Localization: support RTL (Arabic) where needed
 9. Testing: auto-detect setup, verify with user before running
 10. Typing: never use `any` — use `unknown` or proper types
+
+---
+
+## 🤖 Model Auto-Selection (HishamAbulfeilat)
+
+Automatically pick the best model based on task complexity. Enabled models:
+
+### Selection Rules
+- **Quick tasks** (explain, lint, commit, mock): use `claude-haiku-4.5` or `gpt-5-mini`, low effort
+- **Standard tasks** (features, tests, optimize, SQL): use `claude-sonnet-4.6` or `gpt-5.4`, medium effort
+- **Complex tasks** (security, architecture, review): use `claude-opus-4.8`, high effort
+- **Large codebase / docs**: use `gemini-3.1-pro`, medium effort
+- **Production context detected**: bump effort up one level automatically
+
+### Available Model Tiers
+| Tier | Models |
+|------|--------|
+| Fast | `claude-haiku-4.5`, `gpt-5-mini`, `gpt-5.4-mini`, `gemini-3.5-flash` |
+| Balanced | `claude-sonnet-4.6` ⭐, `claude-sonnet-4.5`, `gpt-5.4` ⭐, `gpt-5.5` |
+| Deep | `claude-opus-4.8` 🏆, `claude-opus-4.7`, `claude-opus-4.6`, `claude-opus-4.5` |
+| Large context | `gemini-3.1-pro`, `gemini-2.5-pro` |
+
+### Keyword Signals
+- "quick", "briefly", "short" → fast model, low effort
+- "thorough", "full audit", "detailed" → deep model, high effort
+- "think step by step" → claude-opus-4.8, max effort
+- "large codebase", "all files" → gemini-3.1-pro
+
+Use `/model list` to see all enabled models. Use `/model deep|fast|balanced|max` to override.

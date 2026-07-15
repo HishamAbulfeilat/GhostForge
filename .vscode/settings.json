@@ -23,6 +23,7 @@
   "github.copilot.chat.codeGeneration.instructions": [
     { "file": ".github/copilot-instructions.md" },
     { "file": "ghostforge-agents/.github/copilot-instructions.md" },
+    { "file": "ghostforge-agents/instructions/model-selection.md" },
     { "file": "ghostforge-agents/instructions/react-native.md" },
     { "file": "ghostforge-agents/instructions/react-web.md" },
     { "file": "ghostforge-agents/instructions/nextjs.md" },
