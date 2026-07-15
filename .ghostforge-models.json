@@ -1,0 +1,222 @@
+{
+  "syncedAt": "2026-07-15 17:30 UTC",
+  "count": 24,
+  "models": [
+    {
+      "id": "claude-opus-4.6",
+      "family": "claude-opus",
+      "tier": "deep",
+      "thinking": true,
+      "vision": true,
+      "maxCtx": 264000,
+      "bestFor": "Security, architecture, deep analysis, system design"
+    },
+    {
+      "id": "claude-opus-4.7",
+      "family": "claude-opus",
+      "tier": "deep",
+      "thinking": true,
+      "vision": true,
+      "maxCtx": 264000,
+      "bestFor": "Security, architecture, deep analysis, system design"
+    },
+    {
+      "id": "claude-opus-4.8",
+      "family": "claude-opus",
+      "tier": "deep",
+      "thinking": true,
+      "vision": true,
+      "maxCtx": 264000,
+      "bestFor": "Security, architecture, deep analysis, system design"
+    },
+    {
+      "id": "claude-sonnet-4.6",
+      "family": "claude-sonnet",
+      "tier": "balanced",
+      "thinking": true,
+      "vision": true,
+      "maxCtx": 264000,
+      "bestFor": "Features, testing, refactoring, CMS, reliable code gen"
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "family": "gemini-3",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 264000,
+      "bestFor": "Large codebase analysis, documentation"
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "family": "other",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 264000,
+      "bestFor": "General purpose"
+    },
+    {
+      "id": "gpt-5.3-codex",
+      "family": "gpt-5",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 400000,
+      "bestFor": "SQL, APIs, structured output, deployments"
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "family": "gpt-5",
+      "tier": "fast",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 400000,
+      "bestFor": "Commit messages, lint, formatting"
+    },
+    {
+      "id": "gpt-5.4",
+      "family": "gpt-5",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 400000,
+      "bestFor": "SQL, APIs, structured output, deployments"
+    },
+    {
+      "id": "gpt-5.5",
+      "family": "gpt-5",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 400000,
+      "bestFor": "SQL, APIs, structured output, deployments"
+    },
+    {
+      "id": "gpt-5-mini",
+      "family": "gpt-5",
+      "tier": "fast",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 264000,
+      "bestFor": "Commit messages, lint, formatting"
+    },
+    {
+      "id": "gpt-4o-mini-2024-07-18",
+      "family": "gpt-4o",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": false,
+      "maxCtx": 128000,
+      "bestFor": "General code gen, legacy support"
+    },
+    {
+      "id": "gpt-4o-2024-11-20",
+      "family": "gpt-4o",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": false,
+      "maxCtx": 128000,
+      "bestFor": "General code gen, legacy support"
+    },
+    {
+      "id": "gpt-4o-2024-08-06",
+      "family": "gpt-4o",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": false,
+      "maxCtx": 128000,
+      "bestFor": "General code gen, legacy support"
+    },
+    {
+      "id": "claude-sonnet-4.5",
+      "family": "claude-sonnet",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 200000,
+      "bestFor": "Features, testing, refactoring, CMS, reliable code gen"
+    },
+    {
+      "id": "claude-opus-4.5",
+      "family": "claude-opus",
+      "tier": "deep",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 200000,
+      "bestFor": "Security, architecture, deep analysis, system design"
+    },
+    {
+      "id": "claude-haiku-4.5",
+      "family": "claude-haiku",
+      "tier": "fast",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 200000,
+      "bestFor": "Quick edits, explanations, simple tasks"
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "family": "gemini-2.5",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 128000,
+      "bestFor": "Multimodal, diagrams, visual tasks"
+    },
+    {
+      "id": "gpt-4.1-2025-04-14",
+      "family": "gpt-4.1",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 128000,
+      "bestFor": "Code generation, general tasks"
+    },
+    {
+      "id": "gpt-4",
+      "family": "other",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": false,
+      "maxCtx": 32768,
+      "bestFor": "General purpose"
+    },
+    {
+      "id": "gpt-4o-2024-05-13",
+      "family": "gpt-4o",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 128000,
+      "bestFor": "General code gen, legacy support"
+    },
+    {
+      "id": "gpt-4.1",
+      "family": "gpt-4.1",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 128000,
+      "bestFor": "Code generation, general tasks"
+    },
+    {
+      "id": "gpt-4o-mini",
+      "family": "gpt-4o",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": false,
+      "maxCtx": 128000,
+      "bestFor": "General code gen, legacy support"
+    },
+    {
+      "id": "gpt-4o",
+      "family": "gpt-4o",
+      "tier": "balanced",
+      "thinking": false,
+      "vision": true,
+      "maxCtx": 128000,
+      "bestFor": "General code gen, legacy support"
+    }
+  ]
+}
