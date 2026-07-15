@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build
+dist/
+build/
+.vercel/
+
+# Cache
+.eslintcache
+*.tsbuildinfo
+
+# Session / local only
+.ghostforge-health-cache
+.registered-projects
