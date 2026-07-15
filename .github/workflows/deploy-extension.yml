@@ -10,12 +10,24 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    outputs:
-      deployment-url: ${{ steps.vercel-deploy.outputs.preview-url }}
+    # Only run if Vercel secrets are configured
+    if: secrets.VERCEL_TOKEN != '' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check Vercel secrets
+        id: check-secrets
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "⚠️  VERCEL_TOKEN secret not set — skipping deploy."
+            echo "See EXTENSION_SETUP.md for setup instructions."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Deploy to Vercel
+        if: steps.check-secrets.outputs.skip == 'false'
         id: vercel-deploy
         uses: amondnet/vercel-action@v25
         with:
@@ -26,7 +38,17 @@ jobs:
           vercel-args: '--prod'
 
       - name: Show deployment URL
+        if: steps.check-secrets.outputs.skip == 'false'
         run: |
-          echo "### @ghostforge deployment" >> "$GITHUB_STEP_SUMMARY"
-          echo "${{ steps.vercel-deploy.outputs.preview-url }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "Deployment URL: ${{ steps.vercel-deploy.outputs.preview-url }}"
+          echo "### @ghostforge deployed ✅" >> "$GITHUB_STEP_SUMMARY"
+          echo "URL: ${{ steps.vercel-deploy.outputs.preview-url }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup instructions
+        if: steps.check-secrets.outputs.skip == 'true'
+        run: |
+          echo "### @ghostforge Extension — Setup Required" >> "$GITHUB_STEP_SUMMARY"
+          echo "Add these GitHub secrets to enable auto-deploy:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- VERCEL_TOKEN" >> "$GITHUB_STEP_SUMMARY"
+          echo "- VERCEL_ORG_ID" >> "$GITHUB_STEP_SUMMARY"
+          echo "- VERCEL_PROJECT_ID" >> "$GITHUB_STEP_SUMMARY"
+          echo "See EXTENSION_SETUP.md for full instructions." >> "$GITHUB_STEP_SUMMARY"

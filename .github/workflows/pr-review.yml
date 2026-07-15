@@ -1,5 +1,10 @@
 name: 🤖 Copilot PR Review
 
+# ─────────────────────────────────────────────────────────────
+# TEMPLATE WORKFLOW — copy to your project's .github/workflows/
+# Skipped automatically if no root package.json exists.
+# ─────────────────────────────────────────────────────────────
+
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review]
@@ -11,7 +16,7 @@ permissions:
 jobs:
   automated-review:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
+    if: github.event.pull_request.draft == false && hashFiles('package.json') != ''
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,6 +26,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+          cache-dependency-path: 'package-lock.json'
 
       - name: Install dependencies
         run: npm ci

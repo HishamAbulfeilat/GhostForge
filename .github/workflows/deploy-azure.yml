@@ -1,5 +1,11 @@
 name: 🚀 Deploy to Azure
 
+# ─────────────────────────────────────────────────────────────
+# TEMPLATE WORKFLOW — copy to your project's .github/workflows/
+# This file is part of the GhostForge AI Toolkit.
+# It will be skipped automatically if no root package.json exists.
+# ─────────────────────────────────────────────────────────────
+
 on:
   push:
     branches:
@@ -20,6 +26,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Skip on the toolkit repo itself (no root package.json)
+    if: hashFiles('package.json') != ''
     outputs:
       artifact-path: ${{ steps.build.outputs.path }}
     steps:
@@ -29,6 +37,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+          cache-dependency-path: 'package-lock.json'
 
       - name: Install dependencies
         run: npm ci
