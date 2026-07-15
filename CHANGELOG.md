@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.3.0 — 2026-07-15
+
+b65f825 feat: v2.2.0 — MCP server, Spaces, 8 new commands
+
+---
+
+
+
 ## v2.2.0 — 2026-07-15
 
 - Added a full MCP server with health, tickets, model, security, and snippet tools
