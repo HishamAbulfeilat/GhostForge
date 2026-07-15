@@ -55,6 +55,9 @@
       "file": "ghostforge-agents/instructions/general-knowledge.md"
     },
     {
+      "file": "ghostforge-agents/instructions/react-doctor.md"
+    },
+    {
       "file": "knowledge/gotchas.md"
     },
     {

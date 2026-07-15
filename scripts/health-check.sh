@@ -156,6 +156,23 @@ else
   fi
 fi
 
+# react-doctor (React projects only)
+REACT_DOCTOR_SCORE=-1
+REACT_DOCTOR_LABEL=""
+IS_REACT=false
+if node -e "const fs=require('fs');const p=process.argv[1];const pkg=JSON.parse(fs.readFileSync(p,'utf8'));const deps={...(pkg.dependencies||{}), ...(pkg.devDependencies||{})};process.exit(('react' in deps)?0:1)" "$TARGET/package.json" 2>/dev/null; then
+  IS_REACT=true
+fi
+
+if $IS_REACT && command -v npx >/dev/null 2>&1; then
+  echo -e "${DIM}  Running React Doctor...${NC}"
+  RD_OUTPUT="$(cd "$TARGET" && npx react-doctor@latest --score 2>/dev/null || true)"
+  if [[ "$RD_OUTPUT" =~ ^[0-9]+$ ]]; then
+    REACT_DOCTOR_SCORE="$RD_OUTPUT"
+    REACT_DOCTOR_LABEL="$(status_icon "$REACT_DOCTOR_SCORE") ${REACT_DOCTOR_SCORE}/100"
+  fi
+fi
+
 TOTAL=$(( AUDIT_SCORE + OUTDATED_SCORE + COVERAGE_SCORE + BUNDLE_SCORE + TICKETS_SCORE + LINT_SCORE ))
 ICON="$(status_icon "$TOTAL")"
 CACHE_FILE="$TARGET/.ghostforge-health-cache"
@@ -168,6 +185,7 @@ coverage=$COVERAGE_SCORE
 bundle=$BUNDLE_SCORE
 tickets=$TICKETS_SCORE
 lint=$LINT_SCORE
+react_doctor=$REACT_DOCTOR_SCORE
 CACHE
 
 NOTIFY_HEALTH_THRESHOLD="${NOTIFY_HEALTH_THRESHOLD:-70}"
@@ -195,10 +213,20 @@ printf '    "%s outdatedDeps": { "score": %d, "max": 20, "details": "%s packages
 printf '    "%s testCoverage": { "score": %d, "max": 20, "details": "%s%% lines (%s)" },\n' "$(category_icon "$COVERAGE_SCORE" 20)" "$COVERAGE_SCORE" "$COVERAGE_PCT" "${COVERAGE_FILE##$TARGET/}"
 printf '    "%s bundleSize": { "score": %d, "max": 15, "details": "%s" },\n' "$(category_icon "$BUNDLE_SCORE" 15)" "$BUNDLE_SCORE" "$( [[ -n "$BUNDLE_DIR" ]] && echo "${BUNDLE_DIR##$TARGET/} ${BUNDLE_MB}MB" || echo 'no build artifact found' )"
 printf '    "%s criticalTickets": { "score": %d, "max": 10, "details": "%s open critical tickets" },\n' "$(category_icon "$TICKETS_SCORE" 10)" "$TICKETS_SCORE" "$CRITICAL_TICKETS"
-printf '    "%s lintErrors": { "score": %d, "max": 10, "details": "%s" }\n' "$(category_icon "$LINT_SCORE" 10)" "$LINT_SCORE" "$( (( LINT_SCORE == 10 )) && echo 'lint passed' || (( LINT_SCORE == 3 )) && echo 'no lint script found' || echo 'lint failed' )"
+printf '    "%s lintErrors": { "score": %d, "max": 10, "details": "%s" }%s\n' "$(category_icon "$LINT_SCORE" 10)" "$LINT_SCORE" "$( (( LINT_SCORE == 10 )) && echo 'lint passed' || (( LINT_SCORE == 3 )) && echo 'no lint script found' || echo 'lint failed' )" "$( $IS_REACT && echo ',' || echo '' )"
+if $IS_REACT; then
+if (( REACT_DOCTOR_SCORE >= 0 )); then
+  printf '    "%s reactDoctor": { "score": "%s", "details": "https://www.react.doctor" }\n' "$(status_icon "$REACT_DOCTOR_SCORE")" "$REACT_DOCTOR_LABEL"
+else
+  printf '    "reactDoctor": { "score": "n/a", "details": "install: npx react-doctor@latest" }\n'
+fi
+fi
 printf '  }\n'
 printf '}\n'
 
 divider
 echo -e "${GREEN}${BOLD}Final health score:${NC} ${ICON} ${BOLD}${TOTAL}/100${NC}"
+if $IS_REACT && (( REACT_DOCTOR_SCORE >= 0 )); then
+  echo -e "${BLUE}React Doctor score:${NC}  $(status_icon "$REACT_DOCTOR_SCORE") ${BOLD}${REACT_DOCTOR_SCORE}/100${NC}"
+fi
 echo -e "${DIM}Cached at: $CACHE_FILE${NC}"

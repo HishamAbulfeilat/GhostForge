@@ -201,6 +201,36 @@ Best for: production changes, auth logic, DB migrations, deployments.
 | `/autopilot on/off` | Toggle autopilot mode (no confirmations) |
 | `/safe on/off` | Toggle safe mode (confirm every action) |
 | `/review` | Copilot PR review |
+| `/doctor` | React Doctor — React health scan (0-100), full triage loop |
+
+---
+
+## ⚕️ React Doctor (React Health Scanner)
+
+React Doctor (`npx react-doctor@latest`) is the **official React codebase health tool** at GhostForge. It scores React code from 0-100 and flags: security, performance, correctness, accessibility, bundle size, and architecture issues.
+
+### When you MUST run React Doctor:
+- Before finishing any React feature or bug fix: `npx react-doctor@latest --verbose --scope changed`
+- If score drops, fix the regressions before completing the task
+- When user types `/doctor` — fetch and follow the canonical triage playbook:
+  ```bash
+  curl --fail --silent https://www.react.doctor/prompts/react-doctor-agent.md
+  ```
+
+### GhostForge React Doctor Score Targets:
+| Phase | Minimum |
+|---|---|
+| Development | 60 |
+| PR merge | 75 |
+| Production release | 85 |
+
+### Quick commands:
+```bash
+npx react-doctor@latest --verbose --scope changed  # pre-commit regression check
+npx react-doctor@latest --verbose                  # full scan
+npx react-doctor@latest --category Performance     # single category
+npx react-doctor@latest ci install                  # add GitHub Actions workflow
+```
 
 ---
 

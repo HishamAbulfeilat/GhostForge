@@ -32,6 +32,9 @@ Assess the overall health of a project with a weighted score from **0-100** acro
 | Bundle size | 15 pts | Build artifact size and budget health |
 | Open critical tickets | 10 pts | Blocking GitHub issues / tracker items |
 | Lint errors | 10 pts | Lint command status and code hygiene |
+| React Doctor (bonus) | 0-100 | React-specific: security, perf, a11y, correctness, architecture |
+
+> **React projects only**: For projects that include `react` as a dependency, the health check also runs `npx react-doctor@latest --score` and reports the React Doctor health score alongside the main score. See `/doctor` for the full React Doctor command reference.
 
 ## Output Format
 The AI returns a breakdown table like this:
