@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "ghostforge": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/../ghostforge-agents/mcp/index.js"],
+      "env": {
+        "GITHUB_TOKEN": "${env:GITHUB_TOKEN}"
+      }
+    }
+  }
+}

@@ -1,8 +1,8 @@
-# 🚀 GhostForge AI Developer Toolkit — v2.0.0
+# 🚀 GhostForge AI Developer Toolkit — v2.2.0
 
 The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, and more.
 
-**100+ files · 14 agents · 33 commands · 20 instruction files · Terminal UI (`ghostforge-ai`)**
+**130+ files · 14 agents · 40 commands · 21 instruction files · MCP server · Team knowledge base · Terminal UI (`ghostforge-ai`)**
 
 ---
 
@@ -10,18 +10,19 @@ The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copil
 
 1. [Quick Start](#-quick-start)
 2. [@ghostforge GitHub Copilot Extension](#-ghostforge-github-copilot-extension)
-3. [Terminal UI — `ghostforge-ai`](#-terminal-ui----ghostforge-ai)
-4. [How Copilot Reads Files Automatically](#-how-copilot-reads-files-automatically)
-5. [Setup a New Project](#-setup-a-new-project)
-6. [AI Conversation Mode](#-ai-conversation-mode)
-7. [Commands Reference](#-commands-reference)
-8. [Operating Modes](#-operating-modes)
-9. [Agents & Role Switching](#-agents--role-switching)
-10. [GitHub & Azure Integration](#-github--azure-integration)
-11. [Folder Structure](#-folder-structure)
-12. [SDLC & Security Standards](#-sdlc--security-standards)
-13. [Team Setup & Updates](#-team-setup--updates)
-14. [Contributing](#-contributing)
+3. [MCP Server](#-mcp-server)
+4. [Terminal UI — `ghostforge-ai`](#-terminal-ui----ghostforge-ai)
+5. [How Copilot Reads Files Automatically](#-how-copilot-reads-files-automatically)
+6. [Setup a New Project](#-setup-a-new-project)
+7. [AI Conversation Mode](#-ai-conversation-mode)
+8. [Commands Reference](#-commands-reference)
+9. [Operating Modes](#-operating-modes)
+10. [Agents & Role Switching](#-agents--role-switching)
+11. [GitHub & Azure Integration](#-github--azure-integration)
+12. [Folder Structure](#-folder-structure)
+13. [SDLC & Security Standards](#-sdlc--security-standards)
+14. [Team Setup & Updates](#-team-setup--updates)
+15. [Contributing](#-contributing)
 
 ---
 
@@ -61,8 +62,32 @@ code /your/project
 
 - **Setup guide:** [`EXTENSION_SETUP.md`](./EXTENSION_SETUP.md)
 - **Hosted usage:** `@ghostforge /help`, `@ghostforge /health`, `@ghostforge /tickets`, `@ghostforge /security`, `@ghostforge /review`, `@ghostforge /deploy`, `@ghostforge /optimize`
-- **Full command catalog:** `/setup`, `/create`, `/open`, `/scaffold`, `/add-feature`, `/health`, `/help`, `/docs`, `/snippet`, `/onboard`, `/optimize`, `/perf`, `/lint`, `/explain-error`, `/diagram`, `/security`, `/test`, `/qa`, `/review`, `/tickets`, `/fix-tickets`, `/deploy`, `/release`, `/sql`, `/mock`, `/i18n`, `/storybook`, `/commit`, `/pr-description`, `/upgrade`, `/env`, `/autopilot`, `/safe`
+- **Full command catalog:** `/setup`, `/create`, `/open`, `/scaffold`, `/add-feature`, `/migrate`, `/estimate`, `/tech-debt`, `/explain-codebase`, `/health`, `/help`, `/docs`, `/snippet`, `/onboard`, `/optimize`, `/perf`, `/lint`, `/explain-error`, `/diagram`, `/security`, `/test`, `/a11y`, `/qa`, `/review`, `/tickets`, `/fix-tickets`, `/deploy`, `/release`, `/sql`, `/mock`, `/i18n`, `/storybook`, `/notify`, `/commit`, `/pr-description`, `/upgrade`, `/env`, `/model`, `/autopilot`, `/safe`
 - **Local toolkit stays independent:** `ghostforge-ai`, `scripts/`, copied `.github/` instructions, and existing project flows continue to work exactly as before
+
+---
+
+## 🔌 MCP Server
+
+The toolkit now includes a first-party MCP server in [`mcp/`](./mcp) so GitHub Copilot can call GhostForge tools directly over the Model Context Protocol.
+
+### Available MCP tools
+- `health_check(projectPath)`
+- `get_tickets(provider, repo, owner)`
+- `fix_ticket(provider, repo, owner, issueNumber)`
+- `list_models(tier?)`
+- `get_best_model(taskType)`
+- `security_scan(projectPath)`
+- `list_snippets()`
+- `get_snippet(name)`
+
+### Quick setup
+```bash
+cd ~/ghostforge-agents/mcp
+npm install
+```
+
+VS Code MCP config is included in `.vscode/mcp.json`, and the full setup guide lives in [`mcp/README.md`](./mcp/README.md).
 
 ---
 
@@ -103,9 +128,9 @@ On the first launch, the TUI auto-installs its Node.js dependencies (one time, ~
 | 🚀 **New Project Setup** | AI mode (describe your app) or 14-step wizard |
 | 🗂 **Manage Projects** | Track registered projects, open them, and sync toolkit updates |
 | 💊 **Project Health Check** | Score the current project across security, deps, coverage, bundle, tickets, lint |
-| ⚡ **Run a Command** | Browse all 33 slash commands by category, read full docs |
+| ⚡ **Run a Command** | Browse all 40 slash commands by category, read full docs |
 | 🤖 **Switch Agent / Role** | View all 14 agents, copy their activation prompt |
-| 📚 **Browse Instructions** | Read any of the 20 knowledge-base files inline |
+| 📚 **Browse Instructions** | Read the instruction packs, knowledge base, and team docs inline |
 | 🎫 **Tickets & Issues** | Live fetch from GitHub Issues / Azure DevOps / Jira by priority |
 | 🔒 **Security Audit** | Run `npm audit`, scan secrets, get OWASP checklist |
 | 🧪 **Run Tests** | Auto-detect Jest / Vitest / Playwright / Detox and execute |
@@ -141,7 +166,7 @@ Copilot now reads from:
 |------|---------|
 | `.github/copilot-instructions.md` | 🧠 Main AI brain — roles, stack, rules, all commands |
 | `.github/copilot-setup-steps.yml` | ☁️ Copilot cloud coding agent environment |
-| `.vscode/settings.json` | 10 additional instruction files wired via `codeGeneration.instructions` |
+| `.vscode/settings.json` | 13 additional instruction files wired via `codeGeneration.instructions` |
 
 ### Step 3 — Verify
 Open Copilot Chat (`Cmd+Shift+I`) and type:
@@ -151,7 +176,7 @@ What tech stack do you know for this project?
 Copilot responds with full GhostForge-specific knowledge.
 
 ### What VS Code auto-loads
-The `.vscode/settings.json` wires 10 instruction files for:
+The `.vscode/settings.json` wires 13 instruction files for:
 - **Code generation** — all stack instructions
 - **Test generation** — testing standards
 - **PR review** — review checklist
@@ -236,12 +261,16 @@ Type these in **GitHub Copilot Chat** (`Cmd+Shift+I` / `Ctrl+Shift+I`).
 | `/create [desc]` | Scaffold a complete new project |
 | `/scaffold [type] [name]` | Generate component, hook, screen, service, store, form |
 | `/add-feature [desc]` | Add a feature with full implementation |
+| `/migrate [type]` | Plan and execute framework or architecture migrations |
+| `/explain-codebase` | Explain a project for new developers and reviewers |
 | `/onboard` | Generate developer onboarding guide for existing project |
 
 ### 🔍 Code Quality
 | Command | Description |
 |---------|-------------|
 | `/optimize` | Performance, bundle size, and code quality |
+| `/tech-debt` | Scan and rank technical debt by ROI |
+| `/estimate [ticket]` | Estimate story points, hours, and risk |
 | `/explain-error [error]` | Paste any error — get root cause + fix instantly |
 | `/lint` | Run ESLint + Prettier + TypeScript check |
 | `/lint --fix` | Auto-fix all fixable lint issues |
@@ -263,6 +292,7 @@ Type these in **GitHub Copilot Chat** (`Cmd+Shift+I` / `Ctrl+Shift+I`).
 | `/test unit` | Unit tests only |
 | `/test e2e` | E2E (Playwright / Detox / Maestro) |
 | `/test a11y` | Accessibility audit (WCAG 2.1 AA) |
+| `/a11y` | Full WCAG 2.1 AA accessibility audit and report |
 | `/test performance` | Lighthouse (web) / RN Profiler (mobile) |
 
 ### 🎫 Tickets & Bugs
@@ -311,6 +341,7 @@ Type these in **GitHub Copilot Chat** (`Cmd+Shift+I` / `Ctrl+Shift+I`).
 | `/upgrade --security` | Security patches only |
 | `/env validate` | Check `.env.local` completeness |
 | `/env sync` | Sync env vars from code to `.env.example` |
+| `/notify slack|teams [message]` | Send webhook notifications to Slack or Teams |
 | `/i18n setup` | Set up i18n from scratch |
 | `/i18n extract` | Extract hardcoded strings |
 | `/i18n rtl` | Add Arabic RTL support |

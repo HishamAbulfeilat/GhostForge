@@ -144,6 +144,10 @@ Best for: production changes, auth logic, DB migrations, deployments.
 | `/create [description]` | Scaffold a complete new project |
 | `/scaffold [type] [name]` | Generate a single piece — component, hook, service, screen, store, form |
 | `/add-feature [description]` | Add a feature with full implementation |
+| `/migrate [type]` | Plan and execute framework or architecture migrations |
+| `/estimate [ticket]` | Estimate story points, hours, and confidence |
+| `/tech-debt` | Scan and rank technical debt by ROI |
+| `/explain-codebase` | Explain the full project or a specific file |
 | `/optimize` | Performance, bundle size, code quality improvements |
 | `/refactor` | Refactor selected code to best practices |
 | `/explain` | Explain selected code in detail |
@@ -157,6 +161,7 @@ Best for: production changes, auth logic, DB migrations, deployments.
 | `/test unit` | Unit tests only |
 | `/test e2e` | E2E tests only (Playwright/Detox/Maestro) |
 | `/test a11y` | Accessibility audit (WCAG 2.1) |
+| `/a11y` | Full WCAG 2.1 AA accessibility audit and reporting |
 | `/tickets` | View assigned bugs grouped by 🔴→🟢 priority |
 | `/fix-tickets` | Auto-fix all bugs in priority order |
 | `/fix-tickets dry-run` | Preview fixes without applying |
@@ -340,3 +345,19 @@ Auto-select best model based on task. Available tiers:
 - Production context detected → bump effort +1 level
 
 Use `/model list` to see all models. Use `/model deep|fast|balanced|max` to override.
+
+---
+
+## 🌿 Branch-Aware Model Selection
+
+Auto-adjust model and effort based on current git branch:
+
+| Branch Pattern | Model Tier | Effort | Reason |
+|----------------|-----------|--------|--------|
+| `main`, `master`, `production` | deep (claude-opus-4.8) | high | Production code — maximum care |
+| `hotfix/*`, `bugfix/*` | deep (claude-opus-4.7) | high | Urgent fixes need thorough review |
+| `release/*` | balanced (claude-sonnet-4.6) | high | Release prep — careful but fast |
+| `feature/*`, `feat/*` | balanced (claude-sonnet-4.6) | medium | Normal feature work |
+| `develop`, `dev` | balanced (claude-sonnet-4.6) | medium | Integration branch |
+| `experiment/*`, `spike/*` | fast (claude-haiku-4.5) | low | Exploration — speed over perfection |
+| `chore/*`, `docs/*` | fast (gpt-5-mini) | low | Non-code changes |

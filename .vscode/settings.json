@@ -6,12 +6,13 @@
     "source.organizeImports": "explicit"
   },
   "editor.tabSize": 2,
-  "editor.rulers": [100],
+  "editor.rulers": [
+    100
+  ],
   "editor.bracketPairColorization.enabled": true,
   "editor.guides.bracketPairs": "active",
   "editor.inlineSuggest.enabled": true,
   "editor.suggest.preview": true,
-
   "github.copilot.enable": {
     "*": true,
     "yaml": true,
@@ -19,63 +20,101 @@
     "markdown": true
   },
   "github.copilot.chat.localeOverride": "en",
-
   "github.copilot.chat.codeGeneration.instructions": [
-    { "file": ".github/copilot-instructions.md" },
-    { "file": "ghostforge-agents/.github/copilot-instructions.md" },
-    { "file": "ghostforge-agents/instructions/model-selection.md" },
-    { "file": "ghostforge-agents/instructions/react-native.md" },
-    { "file": "ghostforge-agents/instructions/react-web.md" },
-    { "file": "ghostforge-agents/instructions/nextjs.md" },
-    { "file": "ghostforge-agents/instructions/typescript.md" },
-    { "file": "ghostforge-agents/instructions/tailwind.md" },
-    { "file": "ghostforge-agents/instructions/azure.md" },
-    { "file": "ghostforge-agents/instructions/sql-reporting.md" },
-    { "file": "ghostforge-agents/instructions/general-knowledge.md" }
+    {
+      "file": ".github/copilot-instructions.md"
+    },
+    {
+      "file": "ghostforge-agents/.github/copilot-instructions.md"
+    },
+    {
+      "file": "ghostforge-agents/instructions/model-selection.md"
+    },
+    {
+      "file": "ghostforge-agents/instructions/react-native.md"
+    },
+    {
+      "file": "ghostforge-agents/instructions/react-web.md"
+    },
+    {
+      "file": "ghostforge-agents/instructions/nextjs.md"
+    },
+    {
+      "file": "ghostforge-agents/instructions/typescript.md"
+    },
+    {
+      "file": "ghostforge-agents/instructions/tailwind.md"
+    },
+    {
+      "file": "ghostforge-agents/instructions/azure.md"
+    },
+    {
+      "file": "ghostforge-agents/instructions/sql-reporting.md"
+    },
+    {
+      "file": "ghostforge-agents/instructions/general-knowledge.md"
+    },
+    {
+      "file": "knowledge/gotchas.md"
+    },
+    {
+      "file": "knowledge/decisions.md"
+    },
+    {
+      "file": "knowledge/patterns.md"
+    }
   ],
-
   "github.copilot.chat.testGeneration.instructions": [
-    { "file": ".github/copilot-instructions.md" },
-    { "file": "ghostforge-agents/.github/copilot-instructions.md" }
+    {
+      "file": ".github/copilot-instructions.md"
+    },
+    {
+      "file": "ghostforge-agents/.github/copilot-instructions.md"
+    }
   ],
-
   "github.copilot.chat.reviewSelection.instructions": [
-    { "file": ".github/copilot-instructions.md" },
-    { "file": "ghostforge-agents/.github/copilot-instructions.md" }
+    {
+      "file": ".github/copilot-instructions.md"
+    },
+    {
+      "file": "ghostforge-agents/.github/copilot-instructions.md"
+    }
   ],
-
   "github.copilot.chat.commitMessageGeneration.instructions": [
-    { "text": "Use Conventional Commits format: type(scope): description. Types: feat, fix, chore, docs, style, refactor, test, ci. Keep under 72 chars. Reference ticket number if available." }
+    {
+      "text": "Use Conventional Commits format: type(scope): description. Types: feat, fix, chore, docs, style, refactor, test, ci. Keep under 72 chars. Reference ticket number if available."
+    }
   ],
-
   "typescript.preferences.importModuleSpecifier": "non-relative",
   "typescript.suggest.autoImports": true,
   "typescript.updateImportsOnFileMove.enabled": "always",
   "javascript.updateImportsOnFileMove.enabled": "always",
-
   "tailwindCSS.experimental.classRegex": [
-    ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
-    ["cx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
+    [
+      "cva\\(([^)]*)\\)",
+      "[\"'`]([^\"'`]*).*?[\"'`]"
+    ],
+    [
+      "cx\\(([^)]*)\\)",
+      "(?:'|\"|`)([^']*)(?:'|\"|`)"
+    ]
   ],
   "tailwindCSS.includeLanguages": {
     "typescript": "javascript",
     "typescriptreact": "javascript"
   },
-
   "eslint.validate": [
     "javascript",
     "javascriptreact",
     "typescript",
     "typescriptreact"
   ],
-
   "files.exclude": {
     "**/.git": true,
     "**/node_modules": true,
     "**/.expo": true,
     "**/.next": true
   },
-
   "search.exclude": {
     "**/node_modules": true,
     "**/.next": true,
@@ -83,17 +122,16 @@
     "**/build": true,
     "**/.expo": true
   },
-
   "git.autofetch": true,
   "git.confirmSync": false,
   "gitlens.currentLine.enabled": true,
-
-  "errorLens.enabledDiagnosticLevels": ["error", "warning"],
+  "errorLens.enabledDiagnosticLevels": [
+    "error",
+    "warning"
+  ],
   "errorLens.followCursor": "allLines",
-
   "workbench.iconTheme": "material-icon-theme",
   "workbench.colorTheme": "Default Dark Modern",
-
   "terminal.integrated.defaultProfile.osx": "zsh",
   "terminal.integrated.fontSize": 13
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.2.0 — 2026-07-15
+
+- Added a full MCP server with health, tickets, model, security, and snippet tools
+- Added Copilot Spaces setup assets plus shared Space context
+- Added new slash commands: /migrate, /estimate, /tech-debt, /explain-codebase, /notify, /a11y
+- Added a team knowledge base and wired key files into VS Code Copilot instructions
+- Added Slack/Teams webhook notifications and branch-aware model selection
+
+---
+
 ## v2.1.0 — 2026-07-15
 
 Initial release

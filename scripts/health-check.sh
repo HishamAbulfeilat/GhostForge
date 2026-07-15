@@ -17,6 +17,32 @@ TARGET="$(cd "$TARGET" 2>/dev/null && pwd)"
 
 BLUE='\033[0;34m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
 
+load_env_file() {
+  local env_file="$1"
+  if [[ -f "$env_file" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$env_file"
+    set +a
+  fi
+}
+
+normalize_remote_url() {
+  local remote="$1"
+  if [[ "$remote" =~ ^git@github.com:(.+)\.git$ ]]; then
+    echo "https://github.com/${BASH_REMATCH[1]}"
+  elif [[ "$remote" =~ ^https?:// ]]; then
+    echo "${remote%.git}"
+  else
+    echo "$remote"
+  fi
+}
+
+load_env_file "$GHOSTFORGE_DIR/.env.local"
+if [[ "$TARGET" != "$GHOSTFORGE_DIR" ]]; then
+  load_env_file "$TARGET/.env.local"
+fi
+
 divider() { echo -e "${DIM}══════════════════════════════════════════════════════${NC}"; }
 status_icon() {
   local score="$1"
@@ -143,6 +169,22 @@ bundle=$BUNDLE_SCORE
 tickets=$TICKETS_SCORE
 lint=$LINT_SCORE
 CACHE
+
+NOTIFY_HEALTH_THRESHOLD="${NOTIFY_HEALTH_THRESHOLD:-70}"
+if (( TOTAL < NOTIFY_HEALTH_THRESHOLD )); then
+  ALERT_LEVEL=warning
+  ALERT_MESSAGE="Project health score dropped to ${TOTAL}/100 for ${TARGET}"
+  REMOTE_URL="$(cd "$TARGET" && git config --get remote.origin.url 2>/dev/null || true)"
+  ACTION_URL="$(normalize_remote_url "$REMOTE_URL")"
+
+  if [[ -n "${SLACK_WEBHOOK:-}" ]]; then
+    "$GHOSTFORGE_DIR/scripts/notify.sh" slack "$SLACK_WEBHOOK" "$ALERT_MESSAGE" "$ALERT_LEVEL" "$ACTION_URL" "Open Repository" || true
+  fi
+
+  if [[ -n "${TEAMS_WEBHOOK:-}" ]]; then
+    "$GHOSTFORGE_DIR/scripts/notify.sh" teams "$TEAMS_WEBHOOK" "$ALERT_MESSAGE" "$ALERT_LEVEL" "$ACTION_URL" "Open Repository" || true
+  fi
+fi
 
 printf '{\n'
 printf '  %b"project"%b: "%s",\n' "$BLUE" "$NC" "$TARGET"
