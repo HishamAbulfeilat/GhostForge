@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# ═══════════════════════════════════════════════════════════════
+#  ghostforge  —  GhostForge AI Developer Toolkit  (Terminal UI Launcher)
+# ═══════════════════════════════════════════════════════════════
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TUI_DIR="$SCRIPT_DIR/tui"
+VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo "2.0.0")"
+
+# ── Check Node.js ────────────────────────────────────────────
+if ! command -v node &>/dev/null; then
+  echo "❌  Node.js is required. Install from https://nodejs.org/"
+  exit 1
+fi
+
+NODE_MAJOR=$(node -e "console.log(process.versions.node.split('.')[0])")
+if [ "$NODE_MAJOR" -lt 18 ]; then
+  echo "❌  Node.js 18+ required (you have $(node --version)). Upgrade at https://nodejs.org/"
+  exit 1
+fi
+
+# ── Install dependencies if needed ──────────────────────────
+if [ ! -d "$TUI_DIR/node_modules" ]; then
+  echo "⏳  Installing TUI dependencies (first run only)..."
+  cd "$TUI_DIR" && npm install --silent
+fi
+
+print_help() {
+  cat <<EOF
+GhostForge AI Toolkit v$VERSION
+
+Usage:
+  ghostforge-ai                  Launch the TUI
+  ghostforge-ai -v | --version   Print toolkit version
+  ghostforge-ai -h | --help      Show this help
+  ghostforge-ai --open PATH      Run open-project.sh directly
+  ghostforge-ai --command health [PATH]
+  ghostforge-ai --command security [PATH]
+  ghostforge-ai --digest [PATH]  Run daily digest
+EOF
+}
+
+# ── CLI Flags ────────────────────────────────────────────────
+case "${1:-}" in
+  -v|--version)
+    echo "$VERSION"
+    exit 0
+    ;;
+  -h|--help)
+    print_help
+    exit 0
+    ;;
+  --open)
+    shift
+    bash "$SCRIPT_DIR/scripts/open-project.sh" "${1:-$(pwd)}"
+    exit $?
+    ;;
+  --command)
+    shift
+    command_name="${1:-}"
+    shift || true
+    case "$command_name" in
+      health)
+        bash "$SCRIPT_DIR/scripts/health-check.sh" "${1:-$(pwd)}"
+        ;;
+      security)
+        bash "$SCRIPT_DIR/scripts/security-check.sh" "${1:-$(pwd)}"
+        ;;
+      '')
+        echo "❌  Missing command name after --command"
+        exit 1
+        ;;
+      *)
+        echo "❌  Unsupported command: $command_name"
+        exit 1
+        ;;
+    esac
+    exit $?
+    ;;
+  --digest)
+    shift
+    bash "$SCRIPT_DIR/scripts/daily-digest.sh" "${1:-$(pwd)}"
+    exit $?
+    ;;
+esac
+
+# ── Launch TUI ───────────────────────────────────────────────
+cd "$SCRIPT_DIR"
+node "$TUI_DIR/index.js" "$@"

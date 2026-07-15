@@ -1,0 +1,32 @@
+name: Deploy @ghostforge Copilot Extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'extension/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    outputs:
+      deployment-url: ${{ steps.vercel-deploy.outputs.preview-url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        id: vercel-deploy
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./extension
+          vercel-args: '--prod'
+
+      - name: Show deployment URL
+        run: |
+          echo "### @ghostforge deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.vercel-deploy.outputs.preview-url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployment URL: ${{ steps.vercel-deploy.outputs.preview-url }}"

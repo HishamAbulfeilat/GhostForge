@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ghostforge.local/schemas/ghostforge-config.schema.json",
+  "title": "GhostForge Project Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "defaultAgent": {
+      "type": "string",
+      "enum": ["frontend", "mobile", "backend", "fullstack", "qa", "security", "devops"]
+    },
+    "testRunner": {
+      "type": "string",
+      "enum": ["jest", "vitest", "playwright", "detox"]
+    },
+    "deployTarget": {
+      "type": "string",
+      "enum": ["azure", "vercel", "gh-pages", "custom"]
+    },
+    "issueTracker": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["github", "azure", "jira"]
+        },
+        "projectKey": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["provider", "projectKey"]
+    },
+    "packageManager": {
+      "type": "string",
+      "enum": ["npm", "yarn", "pnpm", "bun"]
+    }
+  },
+  "required": ["defaultAgent", "testRunner", "deployTarget", "issueTracker", "packageManager"]
+}

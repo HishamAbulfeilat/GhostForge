@@ -1,0 +1,42 @@
+# GitHub Copilot Cloud Coding Agent — Environment Setup
+# Runs before Copilot starts working on a task
+# https://docs.github.com/en/copilot/customizing-copilot/customizing-the-development-environment-for-copilot-coding-agent
+
+name: GhostForge Copilot Setup
+
+steps:
+  - name: Setup Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: '20'
+      cache: 'npm'
+
+  - name: Install dependencies
+    run: |
+      if [ -f "package-lock.json" ]; then
+        npm ci
+      elif [ -f "yarn.lock" ]; then
+        yarn install --frozen-lockfile
+      elif [ -f "pnpm-lock.yaml" ]; then
+        npm install -g pnpm && pnpm install --frozen-lockfile
+      fi
+
+  - name: Setup environment
+    run: |
+      if [ -f ".env.example" ] && [ ! -f ".env.local" ]; then
+        cp .env.example .env.local
+        echo "Created .env.local from .env.example"
+      fi
+
+  - name: Validate TypeScript
+    run: |
+      if [ -f "tsconfig.json" ]; then
+        npx tsc --noEmit --skipLibCheck 2>/dev/null || true
+      fi
+
+  - name: Load GhostForge Copilot instructions
+    run: |
+      echo "GhostForge AI Toolkit loaded"
+      echo "Instructions: .github/copilot-instructions.md"
+      echo "Agents: ghostforge-agents/agents/"
+      echo "Commands: ghostforge-agents/commands/"
