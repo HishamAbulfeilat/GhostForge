@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.1.0 — 2026-07-15
+
+Initial release
+
+---
+
+
+
 ## v2.0.0 — 2026-07-15
 
 - Initial GhostForge AI Developer Toolkit release
