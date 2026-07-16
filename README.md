@@ -1,8 +1,8 @@
-# 🚀 GhostForge AI Developer Toolkit — v2.3.0
+# 🚀 GhostForge AI Developer Toolkit — v2.7.0
 
 The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, and more.
 
-**180+ files · 14 agents · 44 commands · 23 instruction files · MCP server · React Doctor · Marketplace · Free models · Terminal UI (`ghostforge-ai`)**
+**200+ files · 14 agents · 48 commands · 25 instruction files · MCP server · React Doctor · Marketplace · Free models · Snippet Library · Project Templates · VS Code Extension · Terminal UI (`ghostforge-ai`)**
 
 ---
 
@@ -14,20 +14,23 @@ The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copil
 4. [React Doctor — React Health Scanner](#-react-doctor--react-health-scanner)
 5. [Terminal UI — `ghostforge-ai`](#-terminal-ui----ghostforge-ai)
 6. [Marketplace, Generators & Free Models](#-marketplace-generators--free-models)
-7. [How Copilot Reads Files Automatically](#-how-copilot-reads-files-automatically)
-8. [Setup a New Project](#-setup-a-new-project)
-9. [AI Conversation Mode](#-ai-conversation-mode)
-10. [Commands Reference](#-commands-reference)
-11. [Operating Modes](#-operating-modes)
-12. [Agents & Role Switching](#-agents--role-switching)
-13. [GitHub & Azure Integration](#-github--azure-integration)
-14. [Team Knowledge Base](#-team-knowledge-base)
-15. [Copilot Spaces](#-copilot-spaces)
-16. [Model Auto-Selection](#-model-auto-selection)
-17. [Folder Structure](#-folder-structure)
-18. [SDLC & Security Standards](#-sdlc--security-standards)
-19. [Team Setup & Updates](#-team-setup--updates)
-20. [Contributing](#-contributing)
+7. [VS Code Extension](#-vs-code-extension)
+8. [Snippet Library](#-snippet-library)
+9. [Project Templates](#️-project-templates)
+10. [How Copilot Reads Files Automatically](#-how-copilot-reads-files-automatically)
+11. [Setup a New Project](#️-setup-a-new-project)
+12. [AI Conversation Mode](#-ai-conversation-mode)
+13. [Commands Reference](#-commands-reference)
+14. [Operating Modes](#️-operating-modes)
+15. [Agents & Role Switching](#-agents--role-switching)
+16. [GitHub & Azure Integration](#-github--azure-integration)
+17. [Team Knowledge Base](#-team-knowledge-base)
+18. [Copilot Spaces](#-copilot-spaces)
+19. [Model Auto-Selection](#-model-auto-selection)
+20. [Folder Structure](#-folder-structure)
+21. [SDLC & Security Standards](#️-sdlc--security-standards)
+22. [Team Setup & Updates](#-team-setup--updates)
+23. [Contributing](#-contributing)
 
 ---
 
@@ -59,6 +62,7 @@ code /your/project
 |--------|-----|----------|
 | **Terminal UI** | `~/ghostforge-agents/ghostforge-ai` | Visual, menu-driven — all features at a glance |
 | **Copilot Chat** | Type `/command` in VS Code (`Cmd+Shift+I`) | AI code generation & assistance |
+| **VS Code Extension** | `Cmd+Shift+E` or click "⚡ GhostForge" in status bar | Right-click menus, snippet insert, command picker |
 | **Shell Scripts** | `bash scripts/create-project.sh` | Automated project scaffolding |
 
 ---
@@ -183,9 +187,12 @@ alias ghostforge-ai='node ~/ghostforge-agents/tui/index.js'
 | 🚀 **New Project Setup** | AI mode (describe your app) or 14-step wizard |
 | 🗂 **Manage Projects** | Track registered projects, open them, and sync toolkit updates |
 | 💊 **Project Health Check** | Score across security, deps, coverage, bundle, tickets, lint + React Doctor |
-| ⚡ **Run a Command** | Browse all 44 slash commands by category, read full docs |
+| ⚡ **Run a Command** | Browse all 48 slash commands by category, read full docs |
 | 🤖 **Switch Agent / Role** | View all 14 agents, copy their activation prompt |
 | 📚 **Browse Instructions** | Read the instruction packs, knowledge base, and team docs inline |
+| 📋 **Snippet Library** | Browse 11 ready-made code snippets — click to copy or insert at cursor |
+| 🔍 **Bundle Analyzer** | Detect heavy deps, lazy-loading opportunities, bundle size |
+| 🌐 **RTL Audit** | Find non-logical Tailwind classes, auto-fix `ml-`/`mr-` → `ms-`/`me-` |
 | 🎫 **Tickets & Issues** | Live fetch from GitHub Issues / Azure DevOps / Jira by priority |
 | 🔒 **Security Audit** | Run `npm audit`, scan secrets, get OWASP checklist |
 | 🧪 **Run Tests** | Auto-detect Jest / Vitest / Playwright / Detox and execute |
@@ -195,6 +202,7 @@ alias ghostforge-ai='node ~/ghostforge-agents/tui/index.js'
 | 🏪 **Marketplace** | Browse/install catalog items, custom agents, and trusted sources |
 | ⚡ **Generate New** | Create a new agent, command, skill, instruction, or plugin |
 | 🆓 **Free Models** | Configure NVIDIA, Groq, Ollama, HuggingFace, and more |
+| 🧩 **Install VS Code Extension** | One-click install of `ghostforge-ai.vsix` into VS Code |
 | ❓ **Help** | Quick reference for all commands and agents |
 
 ### Requirements
@@ -238,6 +246,83 @@ Use `/free-models` or `bash scripts/free-models.sh` to configure:
 - OpenRouter
 
 Credentials are stored in `.env.local`, and custom providers live in `marketplace/custom-models.json`.
+
+---
+
+## 🧩 VS Code Extension
+
+A local VS Code extension (`ghostforge-ai`) that brings the toolkit into your editor without the terminal.
+
+### Install
+```bash
+# Option 1: From TUI (recommended)
+~/ghostforge-agents/ghostforge-ai  # → "🧩 Install VS Code Extension"
+
+# Option 2: Direct
+code --install-extension ~/ghostforge-agents/extension/ghostforge-ai-2.6.0.vsix
+```
+
+After installing, reload VS Code (`Cmd+Shift+P` → "Reload Window").
+
+### Features
+
+| Feature | How |
+|---------|-----|
+| **Command Picker** | `Cmd+Shift+E` — all 17 GhostForge actions in one place |
+| **Command Palette** | `Cmd+Shift+P` → type "GhostForge" |
+| **Snippet Sidebar** | Activity bar → ⚡ icon → click any snippet → inserts at cursor |
+| **Commands Sidebar** | Browse all commands by category, click to copy to Copilot Chat |
+| **Status Bar** | "⚡ GhostForge" bottom-right — click to open picker |
+| **Right-click file** | `/context` (read file as Copilot context), `/storybook` (generate stories) |
+| **Right-click folder** | `/rtl`, `/bundle`, `/health` — run in integrated terminal |
+| **Ticket scaffold** | `Cmd+Shift+P` → "GhostForge: /ticket" → enter `PROJ-123` |
+
+### Build from Source
+```bash
+cd ~/ghostforge-agents/extension
+npm install
+node esbuild.js
+npx @vscode/vsce package --no-dependencies
+```
+
+---
+
+## 📋 Snippet Library
+
+Ready-made code patterns in `snippets/` — copy and adapt for any project.
+
+| Snippet | What it covers |
+|---------|---------------|
+| `tanstack-table.tsx` | TanStack Table v8 — sorting, filtering, pagination, TypeScript |
+| `msal-auth.tsx` | Azure AD MSAL — PublicClientApp, `acquireTokenSilent`, auth guard hook |
+| `next-intl-page.tsx` | Next.js App Router page with `next-intl`, RTL `dir` detection |
+| `apexcharts.tsx` | ApexCharts — line, bar, area charts with RTL + responsive config |
+| `rhf-zod-form.tsx` | React Hook Form + Zod — schema, resolver, fields, submit handler |
+| `zustand-store.ts` | Zustand store with actions, persist middleware, devtools, selectors |
+| `tanstack-query.tsx` | TanStack Query v5 — `useQuery`, `useMutation`, `useInfiniteQuery` |
+| `dnd-kit.tsx` | @dnd-kit sortable list with keyboard accessibility |
+| `tiptap-editor.tsx` | TipTap rich text editor with full toolbar |
+| `file-upload.tsx` | react-dropzone — multi-file, preview, size validation |
+| `export-utils.ts` | Export to PDF (jsPDF), Excel (xlsx), CSV |
+
+Use via TUI (📋 Snippet Library screen), VS Code sidebar, or `/snippet` command.
+
+---
+
+## 🏗️ Project Templates
+
+Starter templates in `templates/projects/` — pre-configured with the full stack.
+
+| Template | Stack |
+|----------|-------|
+| `react-vite` | React 18 + Vite + TypeScript + Tailwind + TanStack Query + Zustand + React Router + path aliases |
+| `nextjs-i18n` | Next.js 15 + next-intl + Arabic default locale + App Router + Tailwind + MSAL-ready |
+
+Copy a template to bootstrap a new project:
+```bash
+cp -r ~/ghostforge-agents/templates/projects/nextjs-i18n ./my-new-app
+cd my-new-app && npm install
+```
 
 ---
 
