@@ -1,0 +1,5 @@
+{
+  "build": "node esbuild.js",
+  "compile": "tsc --noEmit",
+  "package": "npm run build"
+}
