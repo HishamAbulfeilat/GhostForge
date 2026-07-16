@@ -269,6 +269,7 @@ async function screenHome() {
       { name: T.success.bold('⚡  Generate New')              + T.muted('           — create custom agent/command/skill/plugin'), value: 'generate' },
       { name: T.accent.bold('🆓  Free Models')               + T.muted('            — NVIDIA, Groq, Ollama, HuggingFace'), value: 'freemodels' },
       { name: T.muted(`🔖  Version: v${VERSION}`)           + T.muted('          — bump version / run updater'), value: 'version' },
+      { name: T.accent.bold('🧩  Install VS Code Extension')  + T.muted('  — install ghostforge-ai.vsix into VS Code'), value: 'vscode-install' },
       { name: T.muted('❓  Help & Quick Reference')                                                               , value: 'help' },
       { name: T.danger('✖   Exit')                                                                                , value: 'exit' },
     ],
@@ -1347,6 +1348,61 @@ async function screenFreeModels() {
 }
 
 // ─── Main Loop ────────────────────────────────────────────────────────────────
+async function screenVSCodeInstall() {
+  sectionHeader('🧩  Install VS Code Extension', 'Install the ghostforge-ai extension directly into VS Code');
+
+  const { spawnSync } = await import('child_process');
+  const { readdirSync } = await import('fs');
+
+  // Find the .vsix file
+  const extDir = join(BASE, 'extension');
+  let vsixFile;
+  try {
+    vsixFile = readdirSync(extDir).find(f => f.endsWith('.vsix'));
+  } catch { vsixFile = null; }
+
+  if (!vsixFile) {
+    console.log(T.warning('\n  No .vsix file found. Rebuilding extension first...\n'));
+    const build = spawnSync('node', ['esbuild.js'], { stdio: 'inherit', cwd: extDir });
+    if (build.status !== 0) {
+      console.log(T.danger('  ✖  Build failed. Check extension/src/ for errors.'));
+      await anyKey(); return;
+    }
+    const pkg = spawnSync('npx', ['@vscode/vsce', 'package', '--no-dependencies'], { stdio: 'inherit', cwd: extDir });
+    if (pkg.status !== 0) {
+      console.log(T.danger('  ✖  Packaging failed.'));
+      await anyKey(); return;
+    }
+    vsixFile = readdirSync(extDir).find(f => f.endsWith('.vsix'));
+  }
+
+  const vsixPath = join(extDir, vsixFile);
+  console.log(T.muted(`\n  Found: ${vsixPath}\n`));
+
+  // Check if code CLI is available
+  const codeCheck = spawnSync('which', ['code'], { stdio: 'pipe' });
+  if (codeCheck.status !== 0) {
+    console.log(T.warning('  VS Code CLI (code) not found in PATH.'));
+    console.log(T.muted('  Install it: VS Code → Cmd+Shift+P → "Shell Command: Install code in PATH"\n'));
+    console.log(T.white('  Then run manually:'));
+    console.log(T.accent(`  code --install-extension ${vsixPath}\n`));
+    await anyKey(); return;
+  }
+
+  console.log(T.muted('  Installing...\n'));
+  const result = spawnSync('code', ['--install-extension', vsixPath, '--force'], { stdio: 'inherit' });
+
+  if (result.status === 0) {
+    console.log(T.success('\n  ✅ Extension installed successfully!'));
+    console.log(T.muted('  Reload VS Code (Cmd+Shift+P → "Reload Window") to activate.'));
+    console.log(T.muted('  Then press Cmd+Shift+E to open the GhostForge command picker.\n'));
+  } else {
+    console.log(T.danger('\n  ✖  Installation failed.'));
+    console.log(T.muted(`  Try manually: code --install-extension ${vsixPath}\n`));
+  }
+  await anyKey();
+}
+
 async function screenSnippets() {
   sectionHeader('📋  Snippet Library', 'Ready-made code patterns — copy and adapt for your project');
 
@@ -1469,6 +1525,7 @@ async function main() {
         case 'bundle':       await screenBundle(); break;
         case 'rtl':          await screenRTL(); break;
         case 'version':      await screenVersion(); break;
+        case 'vscode-install': await screenVSCodeInstall(); break;
         case 'help':         await screenHelp(); break;
         case 'exit':
           clear();
