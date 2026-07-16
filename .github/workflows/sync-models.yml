@@ -22,9 +22,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Authenticate gh CLI with the Actions token
           echo "$GITHUB_TOKEN" | gh auth login --with-token
-          node scripts/sync-models.js
+          node scripts/sync-models.js || echo "⚠️ Model sync skipped (Copilot API requires user token). Run locally: node scripts/sync-models.js"
 
       - name: Commit updated model files
         run: |

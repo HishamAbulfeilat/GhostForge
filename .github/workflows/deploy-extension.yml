@@ -9,9 +9,8 @@ on:
 
 jobs:
   deploy:
+    # Only run if Vercel secrets are configured — can't use secrets in job-level if, so always run and check inside
     runs-on: ubuntu-latest
-    # Only run if Vercel secrets are configured
-    if: secrets.VERCEL_TOKEN != '' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
