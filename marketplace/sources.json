@@ -50,7 +50,12 @@
       "url": "https://github.com/anthropics/skills",
       "install_command": "/plugin marketplace add anthropics/skills",
       "install_note": "Run in Claude Code: /plugin marketplace add anthropics/skills",
-      "categories": ["documents", "development", "enterprise", "creative"],
+      "categories": [
+        "documents",
+        "development",
+        "enterprise",
+        "creative"
+      ],
       "trusted": true
     },
     {
@@ -101,6 +106,22 @@
       "type": "claude-skills",
       "description": "Curated collection of official Anthropic + community Claude skills: docx/pdf/pptx/xlsx, revealjs, EPUB, research, testing, and more.",
       "url": "https://github.com/obviousworks/Claude-AI-skills-collection-2026",
+      "trusted": true
+    },
+    {
+      "id": "opensourceprojects-dev",
+      "name": "Open Source Projects Discovery",
+      "type": "discovery",
+      "description": "Curated open-source project discovery — hidden gems, trending repos, developer tools. A broadsheet for software that does not ask for your email.",
+      "url": "https://www.opensourceprojects.dev",
+      "rss": "https://www.opensourceprojects.dev/rss",
+      "search_url": "https://www.opensourceprojects.dev/?search={query}",
+      "categories": [
+        "tools",
+        "libraries",
+        "frameworks",
+        "developer-tools"
+      ],
       "trusted": true
     }
   ]

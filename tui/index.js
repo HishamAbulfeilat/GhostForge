@@ -933,6 +933,7 @@ async function screenMarketplace() {
       { name: T.success.bold('🔍  Search Items')        + T.muted(' — search by name, tag, or category'), value: 'search' },
       { name: T.brand.bold('⬇️   Install Item')         + T.muted(' — install from catalog or URL'), value: 'install' },
       { name: T.warning.bold('🌐  Browse aitmpl.com')   + T.muted(' — open AI templates site'), value: 'aitmpl' },
+      { name: T.cyan.bold('🔍  Open Source Discovery') + T.muted(' — hidden gems & trending repos (opensourceprojects.dev)'), value: 'osp-dev' },
       { name: T.success.bold('🎓  Claude Agent Skills') + T.muted(' — Anthropic, SkillsMP, Claude-Flow, Awesome'), value: 'skills' },
       { name: T.white.bold('📦  My Installed Items')   + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')    + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
@@ -1059,7 +1060,23 @@ async function screenMarketplace() {
     await pressEnter();
   }
 
-  if (action === 'skills') {
+  if (action === 'osp-dev') {
+    console.log();
+    console.log(boxen(
+      T.cyan.bold(' 🔍 Open Source Projects Discovery ') + '\n\n' +
+      T.white('Curated open-source repos — no email required.\n') +
+      T.accent('  https://www.opensourceprojects.dev\n\n') +
+      T.muted('  • Hidden gems & trending GitHub repos\n') +
+      T.muted('  • Developer tools, libraries, frameworks\n') +
+      T.muted('  • RSS feed: opensourceprojects.dev/rss\n') +
+      T.muted('  • Search: opensourceprojects.dev/?search=<query>\n\n') +
+      T.dim('  Tip: add their RSS to your daily digest for passive discovery'),
+      { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
+    ));
+    console.log();
+    try { execSync('open https://www.opensourceprojects.dev 2>/dev/null || xdg-open https://www.opensourceprojects.dev 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter();
+  }
     const sourcesPath = resolve(ROOT, 'marketplace/sources.json');
     let allSources = [];
     try {
