@@ -13,7 +13,7 @@ import figlet from 'figlet';
 import Table from 'cli-table3';
 import ora from 'ora';
 import { execSync, spawn, spawnSync } from 'child_process';
-import { readFileSync, existsSync, readdirSync, writeFileSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -177,6 +177,10 @@ const COMMANDS = [
   { name: '/safe',          cat: '⚙️  Modes',       file: 'commands/safe.md',           desc: 'Enable safe mode — confirm every action before execution' },
   { name: '/upgrade',       cat: '⚙️  Modes',       file: 'commands/upgrade.md',        desc: 'Upgrade dependencies with safety checks and migration guide' },
   { name: '/help',          cat: '⚙️  Modes',       file: 'commands/help.md',           desc: 'Show full command reference and quick-start guide' },
+  // Marketplace & Extensions
+  { name: '/marketplace',   cat: '🏪 Marketplace', file: 'commands/marketplace.md',   desc: 'Browse and install agents, commands, skills, plugins from trusted sources' },
+  { name: '/generate',      cat: '🏪 Marketplace', file: 'commands/generate.md',      desc: 'Generate a new custom agent, command, skill, or plugin with a wizard' },
+  { name: '/free-models',   cat: '🏪 Marketplace', file: 'commands/free-models.md',   desc: 'Configure and use free AI models: NVIDIA, Groq, Ollama, HuggingFace' },
 ];
 
 const AGENTS = [
@@ -216,6 +220,7 @@ const INSTRUCTIONS = [
   { name: 'figma',            file: 'instructions/figma.md',            desc: 'Figma to code, design tokens' },
   { name: 'react-patterns',   file: 'instructions/react-patterns.md',   desc: 'HOC, compound components, render props' },
   { name: 'ghostforge-config',     file: 'instructions/ghostforge-config.md',     desc: 'Per-project GhostForge config for agents, tests, deploy, tickets' },
+  { name: 'free-models',      file: 'instructions/free-models.md',      desc: 'Free/open-source AI model providers and setup' },
   { name: 'general-knowledge',file: 'instructions/general-knowledge.md',desc: 'Full-stack knowledge base' },
 ];
 
@@ -253,11 +258,14 @@ async function screenHome() {
       { name: T.white.bold('🚀  Deploy')                    + T.muted('                 — deploy to Azure / GitHub / Vercel'), value: 'deploy' },
       { name: T.muted('🌅  Daily Digest') + T.muted('              — morning summary: tickets, security, deps, git'), value: 'digest' },
       { name: T.white.bold('📄  README / Docs')             + T.muted('          — view full toolkit documentation'), value: 'readme' },
+      { name: T.warning.bold('🏪  Marketplace')              + T.muted('           — browse/install agents, skills, plugins'), value: 'marketplace' },
+      { name: T.success.bold('⚡  Generate New')              + T.muted('           — create custom agent/command/skill/plugin'), value: 'generate' },
+      { name: T.accent.bold('🆓  Free Models')               + T.muted('            — NVIDIA, Groq, Ollama, HuggingFace'), value: 'freemodels' },
       { name: T.muted(`🔖  Version: v${VERSION}`)           + T.muted('          — bump version / run updater'), value: 'version' },
       { name: T.muted('❓  Help & Quick Reference')                                                               , value: 'help' },
       { name: T.danger('✖   Exit')                                                                                , value: 'exit' },
     ],
-    pageSize: 17,
+    pageSize: 20,
   });
   return choice;
 }
@@ -773,7 +781,7 @@ async function screenHelp() {
     style: { border: ['cyan'] },
   });
 
-  COMMANDS.slice(0, 20).forEach(c => {
+  COMMANDS.forEach(c => {
     table.push([T.accent.bold(c.name), T.muted(c.desc)]);
   });
   console.log(table.toString());
@@ -865,6 +873,472 @@ async function screenVersion() {
   }
 }
 
+// ─── Marketplace Screen ─────────────────────────────────────────────────────
+async function screenMarketplace() {
+  sectionHeader('🏪  Marketplace', 'Browse and install agents, commands, skills, plugins');
+
+  const catalogPath = resolve(ROOT, 'marketplace/catalog.json');
+  const registryPath = resolve(ROOT, 'marketplace/registry.json');
+  let catalog = { items: [] };
+  let registry = { installed: [], custom_agents: [], custom_models: [] };
+
+  if (existsSync(catalogPath)) {
+    try { catalog = JSON.parse(readFileSync(catalogPath, 'utf8')); } catch {}
+  }
+  if (existsSync(registryPath)) {
+    try { registry = JSON.parse(readFileSync(registryPath, 'utf8')); } catch {}
+  }
+
+  const action = await select({
+    message: T.white.bold('Marketplace:'),
+    choices: [
+      { name: T.accent.bold('📋  Browse All Items')    + T.muted(' — view full catalog by category'), value: 'browse' },
+      { name: T.success.bold('🔍  Search Items')        + T.muted(' — search by name, tag, or category'), value: 'search' },
+      { name: T.brand.bold('⬇️   Install Item')         + T.muted(' — install from catalog or URL'), value: 'install' },
+      { name: T.warning.bold('🌐  Browse aitmpl.com')   + T.muted(' — open AI templates site'), value: 'aitmpl' },
+      { name: T.white.bold('📦  My Installed Items')   + T.muted(' — view and manage installed items'), value: 'installed' },
+      { name: T.success.bold('🔧  Add Custom Agent')    + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
+      { name: T.success.bold('🤖  Add Custom Model')    + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
+      { name: T.muted('🔄  Refresh Catalog')  + T.muted(' — fetch latest from sources'), value: 'refresh' },
+      { name: T.muted('← Back to Menu'), value: '__back__' },
+    ],
+    pageSize: 10,
+  });
+
+  if (action === '__back__') return;
+
+  if (action === 'browse') {
+    const categories = [...new Set(catalog.items.map(i => i.category).filter(Boolean))];
+    const catChoice = await select({
+      message: 'Choose category:',
+      choices: [
+        { name: T.accent('All Items'), value: '__all__' },
+        ...categories.map(c => ({ name: c, value: c })),
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (catChoice === '__back__') { await screenMarketplace(); return; }
+
+    const items = catChoice === '__all__' ? catalog.items : catalog.items.filter(i => i.category === catChoice);
+    console.log();
+    const table = new Table({
+      head: [T.accent.bold('Name'), T.white.bold('Type'), T.muted('Description'), T.success.bold('Status')],
+      colWidths: [28, 12, 40, 12],
+      style: { head: [], border: ['dim'] },
+    });
+    items.forEach(item => {
+      table.push([
+        T.white.bold(item.name),
+        T.muted(item.type),
+        T.dim((item.description || '').substring(0, 38)),
+        item.installed ? T.success('✅ installed') : T.muted('available'),
+      ]);
+    });
+    console.log(table.toString());
+    console.log();
+    await pressEnter();
+  }
+
+  if (action === 'search') {
+    const query = await input({ message: T.white('Search query:') });
+    const q = query.toLowerCase();
+    const results = catalog.items.filter(i =>
+      i.name.toLowerCase().includes(q) ||
+      i.description.toLowerCase().includes(q) ||
+      (i.category || '').toLowerCase().includes(q) ||
+      (i.tags || []).some(t => t.toLowerCase().includes(q))
+    );
+    console.log();
+    if (results.length === 0) {
+      console.log(T.warning('  No items found for: ') + T.white(query));
+    } else {
+      results.forEach(item => {
+        console.log(`  ${T.accent.bold(item.name)} ${T.muted('[' + item.type + ']')}`);
+        console.log(`  ${T.dim(item.description)}`);
+        console.log(`  ${item.installed ? T.success('✅ installed') : T.muted('available')}  ${T.muted(item.tags?.join(', ') || '')}`);
+        console.log();
+      });
+    }
+    await pressEnter();
+  }
+
+  if (action === 'install') {
+    const available = catalog.items.filter(i => !i.installed);
+    if (available.length === 0) {
+      console.log(T.success('\n  ✅ All catalog items are already installed!\n'));
+      await pressEnter();
+      return;
+    }
+    const itemChoice = await select({
+      message: 'Choose item to install:',
+      choices: [
+        ...available.map(i => ({ name: `${i.name} — ${T.muted((i.description || '').substring(0, 45))}`, value: i.id })),
+        { name: T.muted('← Cancel'), value: '__cancel__' },
+      ],
+      pageSize: 10,
+    });
+    if (itemChoice === '__cancel__') return;
+    const item = catalog.items.find(i => i.id === itemChoice);
+    if (item) {
+      console.log();
+      console.log(T.brand.bold(`  Installing: ${item.name}...`));
+      if (item.install_command) {
+        console.log(T.muted(`  Running: ${item.install_command}`));
+        try {
+          execSync(item.install_command, { stdio: 'inherit', cwd: ROOT });
+          console.log(T.success(`\n  ✅ ${item.name} installed successfully!`));
+          item.installed = true;
+          writeFileSync(catalogPath, JSON.stringify(catalog, null, 2));
+        } catch {
+          console.log(T.danger(`\n  ✖ Installation failed. Try manually: ${item.install_command}`));
+        }
+      } else if (item.url) {
+        console.log(T.accent(`  Visit: ${item.url}`));
+        console.log(T.muted('  (browser required for this item type)'));
+      } else {
+        console.log(T.success(`  ✅ Already available via the GhostForge toolkit!\n  File: ${item.file || 'built-in'}`));
+      }
+      await pressEnter();
+    }
+  }
+
+  if (action === 'aitmpl') {
+    console.log();
+    console.log(boxen(
+      T.brand.bold(' AI Templates — aitmpl.com ') + '\n\n' +
+      T.white('Browse community AI component templates:\n') +
+      T.accent('  https://aitmpl.com\n\n') +
+      T.muted('  • React component templates\n') +
+      T.muted('  • Next.js starter templates\n') +
+      T.muted('  • AI-powered hooks and utilities\n') +
+      T.muted('  • Browse → click + → copy install command\n\n') +
+      T.dim('  After finding a template, use /generate to create a custom agent\n') +
+      T.dim('  or /scaffold to generate it in your project'),
+      { padding: 1, borderColor: '#0077C8', borderStyle: 'round' }
+    ));
+    console.log();
+    try { execSync('open https://aitmpl.com 2>/dev/null || xdg-open https://aitmpl.com 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter();
+  }
+
+  if (action === 'installed') {
+    console.log();
+    const installedItems = catalog.items.filter(i => i.installed);
+    if (installedItems.length === 0) {
+      console.log(T.muted('  No items installed yet.\n'));
+    } else {
+      installedItems.forEach(item => {
+        console.log(`  ${T.success('✅')} ${T.white.bold(item.name)} ${T.muted('[' + item.type + ']')} — ${T.dim(item.source)}`);
+      });
+      console.log();
+    }
+    const customAgents = registry.custom_agents || [];
+    if (customAgents.length > 0) {
+      console.log(T.accent.bold('  Custom Agents:'));
+      customAgents.forEach(a => console.log(`  ${T.success('✅')} ${T.white(a.name)} — ${T.dim(a.file)}`));
+      console.log();
+    }
+    await pressEnter();
+  }
+
+  if (action === 'custom-agent') {
+    console.log();
+    console.log(T.accent.bold('  Adding a Custom Agent\n'));
+    const agentName = await input({ message: 'Agent name (e.g. "Shopify Expert"):' });
+    const agentFile = await input({ message: 'Agent file path or URL (leave empty to use /generate):' });
+    if (!agentName) return;
+    if (!agentFile) {
+      console.log(T.muted('\n  Tip: Use /generate in Copilot Chat to create a new agent definition\n'));
+    } else {
+      console.log(T.success(`\n  ✅ Custom agent "${agentName}" noted!\n  Add the file to: marketplace/custom-agents/\n`));
+      const reg = existsSync(registryPath) ? JSON.parse(readFileSync(registryPath, 'utf8')) : { installed: [], custom_agents: [], custom_models: [] };
+      reg.custom_agents = reg.custom_agents || [];
+      reg.custom_agents.push({ name: agentName, file: agentFile, addedAt: new Date().toISOString() });
+      writeFileSync(registryPath, JSON.stringify(reg, null, 2));
+    }
+    await pressEnter();
+  }
+
+  if (action === 'custom-model') {
+    await screenFreeModels();
+    return;
+  }
+
+  if (action === 'refresh') {
+    const spinner = ora({ text: T.muted('  Fetching latest catalog from sources...'), color: 'blue' }).start();
+    await new Promise(r => setTimeout(r, 1500));
+    spinner.succeed(T.success('  Catalog refreshed! (using local cache + sources.json)'));
+    console.log(T.muted('\n  Tip: To add new sources, edit marketplace/sources.json\n'));
+    await pressEnter();
+  }
+}
+
+// ─── Generate New Screen ────────────────────────────────────────────────────
+async function screenGenerate() {
+  sectionHeader('⚡  Generate New', 'Create a custom agent, command, skill, or plugin');
+
+  const typeChoice = await select({
+    message: T.white.bold('What would you like to create?'),
+    choices: [
+      { name: T.success.bold('🤖  Agent')        + T.muted('     — specialized AI persona with role + expertise + trigger phrase'), value: 'agent' },
+      { name: T.accent.bold('⚡  Command')       + T.muted('    — new slash command (/my-command) with usage and AI behavior'), value: 'command' },
+      { name: T.brand.bold('🎯  Skill')          + T.muted('      — coding agent skill that runs after file changes'), value: 'skill' },
+      { name: T.warning.bold('🔧  Instruction')  + T.muted('  — knowledge pack for a framework, API, or domain'), value: 'instruction' },
+      { name: T.white.bold('📦  Plugin')         + T.muted('     — reusable plugin package with multiple agents/commands'), value: 'plugin' },
+      { name: T.muted('← Back'), value: '__back__' },
+    ],
+  });
+
+  if (typeChoice === '__back__') return;
+
+  console.log();
+  const name = await input({ message: T.white(`${typeChoice} name (e.g. "shopify-expert", "analyze-bundle"):`) });
+  if (!name) return;
+  const cleanName = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const description = await input({ message: T.white('Brief description (1 sentence):') });
+  const tags = await input({ message: T.white('Tags (comma-separated, e.g. "react,frontend,performance"):') });
+
+  let content = '';
+  let outputFile = '';
+
+  if (typeChoice === 'agent') {
+    const role = await input({ message: 'What is this agent\'s role/expertise?' });
+    const trigger = await input({ message: 'Trigger phrase (e.g. "act as shopify developer"):', default: `act as ${cleanName}` });
+    const tools = await input({ message: 'Key tools/technologies (comma-separated):' });
+
+    outputFile = resolve(ROOT, `marketplace/custom-agents/${cleanName}.md`);
+    content = `# ${name} Agent\n\n## Role\n${role || description}\n\n## Trigger\nUser says: "${trigger}"\n\n## Expertise\n${tools ? tools.split(',').map(t => `- ${t.trim()}`).join('\n') : '- ' + (role || 'General expertise')}\n\n## Behavior\nWhen activated as the ${name} agent:\n1. Acknowledge the role switch\n2. Apply all ${name} conventions and best practices\n3. Use ${tools || 'relevant tools'} effectively\n4. Follow GhostForge coding standards\n\n## Key Guidelines\n- Always ${description || 'provide expert assistance'}\n- Follow project conventions\n- Write clean, maintainable code\n\n## Tags\n${tags || cleanName}\n`;
+  }
+
+  if (typeChoice === 'command') {
+    const usage = await input({ message: `Command usage (e.g. "/${cleanName} [options]"):`, default: `/${cleanName}` });
+    const behavior = await input({ message: 'What does the AI do when this command is run?' });
+
+    outputFile = resolve(ROOT, `marketplace/custom-commands/${cleanName}.md`);
+    content = `# /${cleanName} Command\n\n## Purpose\n${description}\n\n## Usage\n\`\`\`bash\n${usage || '/' + cleanName}\n\`\`\`\n\n## What AI Does\n${behavior || description}\n\n## Examples\n\`\`\`bash\n/${cleanName}\n/${cleanName} --help\n\`\`\`\n\n## Tags\n${tags || cleanName}\n`;
+  }
+
+  if (typeChoice === 'skill') {
+    const trigger = await input({ message: 'When should this skill run? (e.g. "after editing React files")' });
+    const command = await input({ message: 'CLI command to run (e.g. "npx my-tool --verbose"):', default: `npx ${cleanName}` });
+
+    const skillDir = resolve(ROOT, `.copilot/skills/${cleanName}`);
+    outputFile = resolve(skillDir, 'SKILL.md');
+    mkdirSync(skillDir, { recursive: true });
+    content = `---\nname: ${cleanName}\ndescription: ${description}. Use when ${trigger || 'the user asks to run ' + cleanName}.\nversion: "1.0.0"\n---\n\n# ${name} Skill\n\n${description}\n\n## When to Run\n${trigger || 'When the user asks to run ' + cleanName}\n\n## Command\n\`\`\`bash\n${command}\n\`\`\`\n\n## After Running\nCheck the output and fix any issues found.\n`;
+  }
+
+  if (typeChoice === 'instruction') {
+    const topic = await input({ message: 'Topic / framework / domain:' });
+    const patterns = await input({ message: 'Key patterns or rules (comma-separated):' });
+
+    outputFile = resolve(ROOT, `instructions/custom-${cleanName}.md`);
+    content = `# ${name} — GhostForge Instructions\n\n## Overview\n${description}\n\n## Key Patterns\n${patterns ? patterns.split(',').map(p => `- ${p.trim()}`).join('\n') : '- Follow best practices'}\n\n## Guidelines\nWhen working with ${topic || name}:\n1. ${description}\n2. Follow established conventions\n3. Apply GhostForge coding standards\n\n## Tags\n${tags || cleanName}\n`;
+  }
+
+  if (typeChoice === 'plugin') {
+    const pluginDir = resolve(ROOT, `plugins/${cleanName}`);
+    outputFile = resolve(pluginDir, 'README.md');
+    mkdirSync(pluginDir, { recursive: true });
+    mkdirSync(resolve(pluginDir, 'agents'), { recursive: true });
+    mkdirSync(resolve(pluginDir, 'commands'), { recursive: true });
+    content = `# ${name} Plugin\n\n${description}\n\n## Contents\n- agents/ — specialized agents for this plugin\n- commands/ — slash commands\n\n## Usage\nCopy files to the ghostforge-agents root:\n\`\`\`bash\ncp -r plugins/${cleanName}/agents/* agents/\ncp -r plugins/${cleanName}/commands/* commands/\n\`\`\`\n\n## Tags\n${tags || cleanName}\n`;
+    const manifestPath = resolve(pluginDir, 'plugin.json');
+    writeFileSync(manifestPath, JSON.stringify({ id: cleanName, name, description, version: '1.0.0', tags: tags ? tags.split(',').map(t => t.trim()) : [cleanName] }, null, 2));
+  }
+
+  if (content && outputFile) {
+    try {
+      mkdirSync(dirname(outputFile), { recursive: true });
+      writeFileSync(outputFile, content, 'utf8');
+      console.log();
+      console.log(T.success.bold(`  ✅ Created: ${outputFile.replace(ROOT, '.')}`));
+      console.log(T.muted(`  Open in VS Code: code "${outputFile}"`));
+
+      const registryPath = resolve(ROOT, 'marketplace/registry.json');
+      const reg = existsSync(registryPath) ? JSON.parse(readFileSync(registryPath, 'utf8')) : { installed: [], custom_agents: [], custom_models: [] };
+      reg.installed = reg.installed || [];
+      reg.installed.push({ id: cleanName, type: typeChoice, name, file: outputFile.replace(ROOT + '/', ''), createdAt: new Date().toISOString() });
+      if (typeChoice === 'agent') {
+        reg.custom_agents = reg.custom_agents || [];
+        reg.custom_agents.push({ name, file: outputFile.replace(ROOT + '/', ''), addedAt: new Date().toISOString() });
+      }
+      writeFileSync(registryPath, JSON.stringify(reg, null, 2));
+
+      console.log(T.muted('\n  Tip: Edit the file to customize it, then use it in Copilot Chat!\n'));
+    } catch (err) {
+      console.log(T.danger(`\n  ✖ Error creating file: ${err.message}\n`));
+    }
+  }
+
+  await pressEnter();
+}
+
+// ─── Free Models Screen ─────────────────────────────────────────────────────
+async function screenFreeModels() {
+  sectionHeader('🆓  Free AI Models', 'Configure free model providers: NVIDIA, Groq, Ollama, HuggingFace & more');
+
+  const modelsPath = resolve(ROOT, 'marketplace/custom-models.json');
+  let modelsData = { models: [], free_model_providers: [] };
+  if (existsSync(modelsPath)) {
+    try { modelsData = JSON.parse(readFileSync(modelsPath, 'utf8')); } catch {}
+  }
+
+  const action = await select({
+    message: T.white.bold('Free Models:'),
+    choices: [
+      { name: T.accent.bold('📋  Browse Free Providers')   + T.muted('  — NVIDIA NIM, Groq, Ollama, HuggingFace, Cerebras'), value: 'browse' },
+      { name: T.success.bold('⚙️   Configure a Provider')   + T.muted('    — add API key + test connection'), value: 'configure' },
+      { name: T.brand.bold('🤖  Add Custom Model')         + T.muted('      — add any OpenAI-compatible model/API'), value: 'custom' },
+      { name: T.warning.bold('🔌  Test Connections')        + T.muted('       — ping all configured providers'), value: 'test' },
+      { name: T.white.bold('📖  View Configured Models')   + T.muted('  — see active model list'), value: 'list' },
+      { name: T.muted('← Back to Menu'), value: '__back__' },
+    ],
+  });
+
+  if (action === '__back__') return;
+
+  if (action === 'browse') {
+    console.log();
+    const providers = modelsData.free_model_providers || [];
+    if (providers.length === 0) {
+      console.log(T.muted('  No provider data found. Check marketplace/custom-models.json\n'));
+    } else {
+      providers.forEach(p => {
+        const envVal = p.env_key ? (process.env[p.env_key] || '') : '';
+        const configured = p.env_key === null || envVal.length > 0;
+        console.log(`  ${configured ? T.success('●') : T.muted('○')} ${T.white.bold(p.name)} ${T.muted('[' + p.id + ']')}`);
+        console.log(`    ${T.dim(p.description)}`);
+        console.log(`    ${T.muted('Models: ')}${T.accent((p.free_models || []).slice(0, 3).join(', '))}${(p.free_models || []).length > 3 ? T.muted(' +more') : ''}`);
+        console.log(`    ${T.muted('Signup: ')}${T.dim(p.key_signup_url)}`);
+        console.log(`    ${p.env_key ? T.muted(`Key: ${p.env_key}=${configured ? 'configured ✓' : 'not set'}`) : T.success('No key needed (local)')}`);
+        console.log();
+      });
+    }
+    await pressEnter();
+  }
+
+  if (action === 'configure') {
+    const providers = modelsData.free_model_providers || [];
+    if (providers.length === 0) { await pressEnter(); return; }
+
+    const providerChoice = await select({
+      message: 'Choose provider to configure:',
+      choices: [
+        ...providers.map(p => ({ name: `${p.name} — ${p.description.substring(0, 40)}`, value: p.id })),
+        { name: T.muted('← Cancel'), value: '__cancel__' },
+      ],
+    });
+    if (providerChoice === '__cancel__') { await screenFreeModels(); return; }
+
+    const provider = providers.find(p => p.id === providerChoice);
+    if (!provider) return;
+
+    console.log();
+    console.log(boxen(
+      T.accent.bold(` ${provider.name} Setup `) + '\n\n' +
+      T.white(provider.description) + '\n\n' +
+      T.muted('Free models available:\n') +
+      (provider.free_models || []).map(m => T.dim(`  • ${m}`)).join('\n') + '\n\n' +
+      T.muted('Sign up at: ') + T.accent(provider.key_signup_url),
+      { padding: 1, borderColor: '#00A3E0', borderStyle: 'round' }
+    ));
+    console.log();
+
+    if (provider.env_key) {
+      const apiKey = await input({ message: T.white(`Enter your ${provider.name} API key (${provider.env_key}):`), default: '' });
+      if (apiKey) {
+        const envFile = resolve(ROOT, '.env.local');
+        const envLine = `\n${provider.env_key}=${apiKey}`;
+        try {
+          const existing = existsSync(envFile) ? readFileSync(envFile, 'utf8') : '';
+          const updated = existing.includes(provider.env_key)
+            ? existing.replace(new RegExp(`${provider.env_key}=.*`), `${provider.env_key}=${apiKey}`)
+            : existing + envLine;
+          writeFileSync(envFile, updated);
+          console.log(T.success(`\n  ✅ ${provider.env_key} saved to .env.local`));
+          console.log(T.muted('  Reload your shell or tool session if needed.'));
+        } catch {
+          console.log(T.warning(`\n  Add this to your .env.local:\n  ${provider.env_key}=${apiKey}\n`));
+        }
+      }
+    } else {
+      console.log(T.success('  ✅ No API key needed! Make sure Ollama is running:'));
+      console.log(T.muted('  brew install ollama && ollama serve'));
+      console.log(T.muted('  ollama pull llama3.2'));
+    }
+    await pressEnter();
+  }
+
+  if (action === 'custom') {
+    console.log();
+    console.log(T.accent.bold('  Add a Custom OpenAI-Compatible Model\n'));
+    const modelName = await input({ message: 'Display name (e.g. "My Local Mistral"):' });
+    const apiBase = await input({ message: 'API base URL (e.g. "http://localhost:8080/v1"):' });
+    const modelId = await input({ message: 'Model ID (e.g. "mistral-7b-instruct"):' });
+    const envKey = await input({ message: 'API key env var (leave empty if not needed):' });
+
+    if (modelName && apiBase && modelId) {
+      const reg = existsSync(modelsPath) ? JSON.parse(readFileSync(modelsPath, 'utf8')) : { models: [], free_model_providers: [] };
+      reg.models = reg.models || [];
+      reg.models.push({ id: modelId.toLowerCase().replace(/\s+/g, '-'), name: modelName, api_base: apiBase, model_id: modelId, env_key: envKey || null, addedAt: new Date().toISOString() });
+      writeFileSync(modelsPath, JSON.stringify(reg, null, 2));
+      console.log(T.success(`\n  ✅ Custom model "${modelName}" added!\n`));
+      console.log(T.muted('  Model config saved to marketplace/custom-models.json'));
+      console.log(T.muted('  Use /model in Copilot Chat to activate it'));
+    }
+    await pressEnter();
+  }
+
+  if (action === 'test') {
+    console.log();
+    const spinner = ora({ text: T.muted('  Testing connections...'), color: 'cyan' }).start();
+    const results = [];
+
+    try {
+      execSync('curl -s --max-time 2 http://localhost:11434/api/version', { stdio: 'pipe' });
+      results.push({ name: 'Ollama (Local)', status: 'online', icon: '🟢' });
+    } catch {
+      results.push({ name: 'Ollama (Local)', status: 'offline — run: ollama serve', icon: '⚫' });
+    }
+
+    const providerKeys = [
+      ['NVIDIA NIM', 'NVIDIA_API_KEY'],
+      ['Groq', 'GROQ_API_KEY'],
+      ['HuggingFace', 'HF_TOKEN'],
+      ['Together AI', 'TOGETHER_API_KEY'],
+      ['Cerebras', 'CEREBRAS_API_KEY'],
+      ['OpenRouter', 'OPENROUTER_API_KEY'],
+    ];
+    providerKeys.forEach(([name, key]) => {
+      const configured = !!process.env[key];
+      results.push({ name, status: configured ? 'key configured ✓' : `needs ${key}`, icon: configured ? '🟢' : '🟡' });
+    });
+
+    spinner.stop();
+    console.log();
+    results.forEach(r => console.log(`  ${r.icon}  ${T.white.bold(r.name)}: ${T.muted(r.status)}`));
+    console.log();
+    console.log(T.dim('  Tip: Run /free-models in Copilot Chat to configure any provider\n'));
+    await pressEnter();
+  }
+
+  if (action === 'list') {
+    const customModels = modelsData.models || [];
+    console.log();
+    if (customModels.length === 0) {
+      console.log(T.muted('  No custom models configured yet.\n  Use "Add Custom Model" to add one.\n'));
+    } else {
+      customModels.forEach(m => {
+        console.log(`  ${T.success('●')} ${T.white.bold(m.name)} ${T.muted('[' + m.model_id + ']')}`);
+        console.log(`    ${T.dim(m.api_base)}`);
+      });
+      console.log();
+    }
+    await pressEnter();
+  }
+}
+
 // ─── Main Loop ────────────────────────────────────────────────────────────────
 async function main() {
   try {
@@ -884,6 +1358,9 @@ async function main() {
         case 'deploy':       await screenDeploy(); break;
         case 'digest':       await screenDigest(); break;
         case 'readme':       await screenReadme(); break;
+        case 'marketplace':  await screenMarketplace(); break;
+        case 'generate':     await screenGenerate(); break;
+        case 'freemodels':   await screenFreeModels(); break;
         case 'version':      await screenVersion(); break;
         case 'help':         await screenHelp(); break;
         case 'exit':

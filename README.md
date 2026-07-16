@@ -2,7 +2,7 @@
 
 The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, and more.
 
-**175+ files · 14 agents · 41 commands · 22 instruction files · MCP server · React Doctor · Team knowledge base · Terminal UI (`ghostforge-ai`)**
+**180+ files · 14 agents · 44 commands · 23 instruction files · MCP server · React Doctor · Marketplace · Free models · Terminal UI (`ghostforge-ai`)**
 
 ---
 
@@ -13,20 +13,21 @@ The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copil
 3. [MCP Server](#-mcp-server)
 4. [React Doctor — React Health Scanner](#-react-doctor--react-health-scanner)
 5. [Terminal UI — `ghostforge-ai`](#-terminal-ui----ghostforge-ai)
-6. [How Copilot Reads Files Automatically](#-how-copilot-reads-files-automatically)
-7. [Setup a New Project](#-setup-a-new-project)
-8. [AI Conversation Mode](#-ai-conversation-mode)
-9. [Commands Reference](#-commands-reference)
-10. [Operating Modes](#-operating-modes)
-11. [Agents & Role Switching](#-agents--role-switching)
-12. [GitHub & Azure Integration](#-github--azure-integration)
-13. [Team Knowledge Base](#-team-knowledge-base)
-14. [Copilot Spaces](#-copilot-spaces)
-15. [Model Auto-Selection](#-model-auto-selection)
-16. [Folder Structure](#-folder-structure)
-17. [SDLC & Security Standards](#-sdlc--security-standards)
-18. [Team Setup & Updates](#-team-setup--updates)
-19. [Contributing](#-contributing)
+6. [Marketplace, Generators & Free Models](#-marketplace-generators--free-models)
+7. [How Copilot Reads Files Automatically](#-how-copilot-reads-files-automatically)
+8. [Setup a New Project](#-setup-a-new-project)
+9. [AI Conversation Mode](#-ai-conversation-mode)
+10. [Commands Reference](#-commands-reference)
+11. [Operating Modes](#-operating-modes)
+12. [Agents & Role Switching](#-agents--role-switching)
+13. [GitHub & Azure Integration](#-github--azure-integration)
+14. [Team Knowledge Base](#-team-knowledge-base)
+15. [Copilot Spaces](#-copilot-spaces)
+16. [Model Auto-Selection](#-model-auto-selection)
+17. [Folder Structure](#-folder-structure)
+18. [SDLC & Security Standards](#-sdlc--security-standards)
+19. [Team Setup & Updates](#-team-setup--updates)
+20. [Contributing](#-contributing)
 
 ---
 
@@ -68,7 +69,7 @@ code /your/project
 
 - **Setup guide:** [`EXTENSION_SETUP.md`](./EXTENSION_SETUP.md)
 - **Hosted usage:** `@ghostforge /help`, `@ghostforge /health`, `@ghostforge /tickets`, `@ghostforge /security`, `@ghostforge /review`, `@ghostforge /deploy`, `@ghostforge /optimize`
-- **Full command catalog:** `/setup`, `/create`, `/open`, `/scaffold`, `/add-feature`, `/migrate`, `/estimate`, `/tech-debt`, `/explain-codebase`, `/health`, `/doctor`, `/help`, `/docs`, `/snippet`, `/onboard`, `/optimize`, `/perf`, `/lint`, `/explain-error`, `/diagram`, `/security`, `/test`, `/a11y`, `/qa`, `/review`, `/tickets`, `/fix-tickets`, `/deploy`, `/release`, `/sql`, `/mock`, `/i18n`, `/storybook`, `/notify`, `/commit`, `/pr-description`, `/upgrade`, `/env`, `/model`, `/autopilot`, `/safe`
+- **Full command catalog:** `/setup`, `/create`, `/open`, `/scaffold`, `/add-feature`, `/migrate`, `/estimate`, `/tech-debt`, `/explain-codebase`, `/health`, `/doctor`, `/marketplace`, `/generate`, `/free-models`, `/help`, `/docs`, `/snippet`, `/onboard`, `/optimize`, `/perf`, `/lint`, `/explain-error`, `/diagram`, `/security`, `/test`, `/a11y`, `/qa`, `/review`, `/tickets`, `/fix-tickets`, `/deploy`, `/release`, `/sql`, `/mock`, `/i18n`, `/storybook`, `/notify`, `/commit`, `/pr-description`, `/upgrade`, `/env`, `/model`, `/autopilot`, `/safe`
 - **Local toolkit stays independent:** `ghostforge-ai`, `scripts/`, copied `.github/` instructions, and existing project flows continue to work exactly as before
 
 ---
@@ -182,7 +183,7 @@ alias ghostforge-ai='node ~/ghostforge-agents/tui/index.js'
 | 🚀 **New Project Setup** | AI mode (describe your app) or 14-step wizard |
 | 🗂 **Manage Projects** | Track registered projects, open them, and sync toolkit updates |
 | 💊 **Project Health Check** | Score across security, deps, coverage, bundle, tickets, lint + React Doctor |
-| ⚡ **Run a Command** | Browse all 41 slash commands by category, read full docs |
+| ⚡ **Run a Command** | Browse all 44 slash commands by category, read full docs |
 | 🤖 **Switch Agent / Role** | View all 14 agents, copy their activation prompt |
 | 📚 **Browse Instructions** | Read the instruction packs, knowledge base, and team docs inline |
 | 🎫 **Tickets & Issues** | Live fetch from GitHub Issues / Azure DevOps / Jira by priority |
@@ -191,11 +192,52 @@ alias ghostforge-ai='node ~/ghostforge-agents/tui/index.js'
 | 🚀 **Deploy** | Guided deploy to Azure / Vercel / GitHub Pages |
 | 🌅 **Daily Digest** | Morning summary for tickets, security, dependency drift, git, and health |
 | 📄 **README / Docs** | Read full documentation without leaving the terminal |
+| 🏪 **Marketplace** | Browse/install catalog items, custom agents, and trusted sources |
+| ⚡ **Generate New** | Create a new agent, command, skill, instruction, or plugin |
+| 🆓 **Free Models** | Configure NVIDIA, Groq, Ollama, HuggingFace, and more |
 | ❓ **Help** | Quick reference for all commands and agents |
 
 ### Requirements
 - Node.js 18+ (`node --version`)
 - macOS / Linux / WSL
+
+---
+
+## 🏪 Marketplace, Generators & Free Models
+
+The toolkit now includes a lightweight marketplace layer for discoverability and extension management.
+
+### Marketplace
+- Browse trusted sources from `marketplace/sources.json`
+- Review the local catalog in `marketplace/catalog.json`
+- Track custom and installed items in `marketplace/registry.json`
+- Open **aitmpl.com** directly from the TUI or `scripts/marketplace.sh`
+
+### Generate New
+Create your own toolkit assets with:
+```bash
+/generate
+bash ~/ghostforge-agents/scripts/generate.sh
+```
+
+Supported outputs:
+- `marketplace/custom-agents/*.md`
+- `marketplace/custom-commands/*.md`
+- `.copilot/skills/*/SKILL.md`
+- `instructions/custom-*.md`
+- `plugins/*`
+
+### Free Models
+Use `/free-models` or `bash scripts/free-models.sh` to configure:
+- NVIDIA NIM
+- Groq
+- Ollama
+- HuggingFace
+- Together AI
+- Cerebras
+- OpenRouter
+
+Credentials are stored in `.env.local`, and custom providers live in `marketplace/custom-models.json`.
 
 ---
 
@@ -398,6 +440,9 @@ Type these in **GitHub Copilot Chat** (`Cmd+Shift+I` / `Ctrl+Shift+I`).
 | `/env sync` | Sync env vars from code to `.env.example` |
 | `/notify slack\|teams [message]` | Send webhook notifications to Slack or Teams |
 | `/model` | Show current AI model selection + sync live models |
+| `/marketplace` | Browse trusted marketplace sources and installable items |
+| `/generate` | Create a custom agent, command, skill, instruction, or plugin |
+| `/free-models` | Configure free hosted/local model providers |
 | `/i18n setup` | Set up i18n from scratch |
 | `/i18n extract` | Extract hardcoded strings |
 | `/i18n rtl` | Add Arabic RTL support |
@@ -540,7 +585,7 @@ node ~/ghostforge-agents/scripts/sync-models.js
 ## 📁 Folder Structure
 
 ```
-ghostforge-agents/                              ← v2.3.0 — 175+ files
+ghostforge-agents/                              ← v2.3.0 — 180+ files
 │
 ├── README.md                              ← You are here
 ├── CONTRIBUTING.md                        ← How to add agents/commands
@@ -586,20 +631,30 @@ ghostforge-agents/                              ← v2.3.0 — 175+ files
 │        security, qa, devops, ui-ux, ticket-checker, ai-integration,
 │        data-viz, architect].md
 │
-├── commands/                              ← 41 slash commands
+├── commands/                              ← 44 slash commands
 │   └── [help, setup, create, scaffold, add-feature, optimize, lint,
 │        security, test, tickets, fix-tickets, sql, mock, commit,
 │        pr-description, release, upgrade, deploy, qa, diagram, i18n,
 │        env, storybook, onboard, explain-error, autopilot, safe, open,
 │        health, review, docs, perf, snippet, model, migrate, estimate,
-│        tech-debt, explain-codebase, notify, a11y, react-doctor].md ← react-doctor NEW
+│        tech-debt, explain-codebase, notify, a11y, react-doctor,
+│        marketplace, generate, free-models].md
 │
-├── instructions/                          ← 22 deep-knowledge files
+├── instructions/                          ← 23 deep-knowledge files
 │   └── [react-native, react-web, nextjs, tailwind, typescript, azure,
 │        sitecore, sitefinity, sql-reporting, api-design, docker,
 │        error-handling, figma, react-patterns, monorepo, state-management,
 │        testing-strategy, git-workflow, general-knowledge, model-selection,
-│        ghostforge-config, react-doctor].md    ← react-doctor NEW
+│        ghostforge-config, react-doctor, free-models].md
+│
+├── marketplace/                           ← Marketplace catalog + registry + custom items
+│   ├── README.md
+│   ├── sources.json
+│   ├── catalog.json
+│   ├── registry.json
+│   ├── custom-models.json
+│   ├── custom-agents/
+│   └── custom-commands/
 │
 ├── knowledge/                             ← 6 team knowledge files
 │   ├── README.md
@@ -627,7 +682,7 @@ ghostforge-agents/                              ← v2.3.0 — 175+ files
 │   └── [create-project, add-feature, security-review, optimize,
 │        deploy, qa-test, sql-report].md
 │
-├── scripts/                               ← 15 automation scripts
+├── scripts/                               ← 16 automation scripts
 │   ├── create-project.sh                  ← 🚀 Interactive project wizard
 │   ├── copy-to-project.sh                 ← Copy toolkit to existing project
 │   ├── deploy-azure.sh                    ← Azure deployment helper
@@ -639,6 +694,9 @@ ghostforge-agents/                              ← v2.3.0 — 175+ files
 │   ├── install-digest-cron.sh             ← Schedule daily digest
 │   ├── snippet-manager.sh                 ← Manage snippet library
 │   ├── init-config.sh                     ← Init .ghostforge-config.json
+│   ├── generate.sh                        ← Custom generator wizard
+│   ├── marketplace.sh                     ← Marketplace browser helper
+│   ├── free-models.sh                     ← Free model provider setup
 │   ├── notify.sh                          ← Slack / Teams webhooks
 │   └── sync-models.js                     ← Live Copilot model sync
 │
@@ -718,4 +776,3 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 *Built for GhostForge · Frontend & Full Stack Developer Toolkit*
 *Powered by GitHub Copilot Business · v2.3.0*
-

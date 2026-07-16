@@ -1,0 +1,100 @@
+{
+  "models": [],
+  "free_model_providers": [
+    {
+      "id": "nvidia-nim",
+      "name": "NVIDIA NIM",
+      "description": "Free tier: Llama 3.3, Mistral, Phi-3, CodeLlama",
+      "api_base": "https://integrate.api.nvidia.com/v1",
+      "key_signup_url": "https://build.nvidia.com",
+      "free_models": [
+        "meta/llama-3.3-70b-instruct",
+        "meta/llama-3.1-8b-instruct",
+        "mistralai/mistral-7b-instruct-v0.3",
+        "microsoft/phi-3-mini-128k-instruct",
+        "codellama/codellama-70b-instruct"
+      ],
+      "env_key": "NVIDIA_API_KEY"
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "description": "Free tier: Llama 3.1 70B, Mixtral, Gemma2 — ultra-fast inference",
+      "api_base": "https://api.groq.com/openai/v1",
+      "key_signup_url": "https://console.groq.com",
+      "free_models": [
+        "llama-3.1-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768",
+        "gemma2-9b-it"
+      ],
+      "env_key": "GROQ_API_KEY"
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama (Local)",
+      "description": "Run models locally — no API key needed. Llama, Mistral, CodeLlama, Phi",
+      "api_base": "http://localhost:11434/v1",
+      "key_signup_url": "https://ollama.com",
+      "free_models": [
+        "llama3.2",
+        "mistral",
+        "codellama",
+        "phi3",
+        "deepseek-coder",
+        "qwen2.5-coder"
+      ],
+      "env_key": null
+    },
+    {
+      "id": "huggingface",
+      "name": "HuggingFace Inference API",
+      "description": "Free tier access to thousands of open-source models",
+      "api_base": "https://api-inference.huggingface.co",
+      "key_signup_url": "https://huggingface.co/settings/tokens",
+      "free_models": [
+        "microsoft/Phi-3-mini-4k-instruct",
+        "google/gemma-7b",
+        "codellama/CodeLlama-7b-hf"
+      ],
+      "env_key": "HF_TOKEN"
+    },
+    {
+      "id": "together",
+      "name": "Together AI",
+      "description": "Free $25 credit on signup. Llama, Mixtral, and more",
+      "api_base": "https://api.together.xyz/v1",
+      "key_signup_url": "https://api.together.ai",
+      "free_models": [
+        "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "mistralai/Mixtral-8x7B-Instruct-v0.1"
+      ],
+      "env_key": "TOGETHER_API_KEY"
+    },
+    {
+      "id": "cerebras",
+      "name": "Cerebras",
+      "description": "Free tier: Llama 3.3 70B at wafer-scale speed",
+      "api_base": "https://api.cerebras.ai/v1",
+      "key_signup_url": "https://cloud.cerebras.ai",
+      "free_models": [
+        "llama-3.3-70b",
+        "llama3.1-8b"
+      ],
+      "env_key": "CEREBRAS_API_KEY"
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "description": "Access many models, some free. Llama, Mistral, Gemma",
+      "api_base": "https://openrouter.ai/api/v1",
+      "key_signup_url": "https://openrouter.ai",
+      "free_models": [
+        "meta-llama/llama-3.2-3b-instruct:free",
+        "google/gemma-3-12b-it:free",
+        "mistralai/mistral-7b-instruct:free"
+      ],
+      "env_key": "OPENROUTER_API_KEY"
+    }
+  ]
+}

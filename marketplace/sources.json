@@ -1,0 +1,46 @@
+{
+  "sources": [
+    {
+      "id": "ghostforge-official",
+      "name": "GhostForge Official",
+      "type": "local",
+      "description": "Built-in GhostForge agents, commands, and skills",
+      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "trusted": true
+    },
+    {
+      "id": "aitmpl",
+      "name": "AI Templates (aitmpl.com)",
+      "type": "web",
+      "description": "Community AI component templates from aitmpl.com",
+      "url": "https://aitmpl.com",
+      "apiBase": "https://aitmpl.com",
+      "trusted": true
+    },
+    {
+      "id": "github-copilot-agents",
+      "name": "GitHub Copilot Community Agents",
+      "type": "github-topic",
+      "description": "GitHub repos tagged with copilot-agent, copilot-extension, copilot-skill",
+      "topic": "copilot-agent",
+      "url": "https://github.com/topics/copilot-agent",
+      "trusted": true
+    },
+    {
+      "id": "awesome-copilot",
+      "name": "Awesome Copilot Extensions",
+      "type": "curated",
+      "description": "Curated list of high-quality Copilot extensions and skills",
+      "url": "https://github.com/collections/github-copilot",
+      "trusted": true
+    },
+    {
+      "id": "nvidia-nim-agents",
+      "name": "NVIDIA NIM Agents",
+      "type": "curated",
+      "description": "AI agents powered by NVIDIA NIM free models",
+      "url": "https://build.nvidia.com/nim",
+      "trusted": true
+    }
+  ]
+}

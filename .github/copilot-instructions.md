@@ -202,6 +202,9 @@ Best for: production changes, auth logic, DB migrations, deployments.
 | `/safe on/off` | Toggle safe mode (confirm every action) |
 | `/review` | Copilot PR review |
 | `/doctor` | React Doctor — React health scan (0-100), full triage loop |
+| `/marketplace` | Browse and install agents, commands, skills, plugins from marketplace |
+| `/generate` | Create a new custom agent, command, skill, or plugin with wizard |
+| `/free-models` | Configure free AI model providers (NVIDIA, Groq, Ollama, HuggingFace) |
 
 ---
 
@@ -231,6 +234,29 @@ npx react-doctor@latest --verbose                  # full scan
 npx react-doctor@latest --category Performance     # single category
 npx react-doctor@latest ci install                  # add GitHub Actions workflow
 ```
+
+## 🏪 Marketplace & Custom Extensions
+
+Users can extend the toolkit with new agents, commands, and skills.
+
+### Adding from Marketplace
+- `/marketplace` — browse catalog, install items, open aitmpl.com
+- Trusted sources: GhostForge Official, aitmpl.com, GitHub Copilot community repos
+
+### Generating Custom Items
+When user says `/generate` or "create a new agent/command/skill":
+1. Ask: type (agent/command/skill/instruction/plugin)
+2. Ask: name, description, tags
+3. Ask type-specific details (role for agent, usage for command, trigger for skill)
+4. Create the file in the correct directory
+5. Confirm creation with file path
+
+### Free AI Models
+When user says `/free-models` or asks to use NVIDIA/Groq/Ollama/free models:
+1. Show available providers with their free model lists
+2. Help configure API keys in `.env.local`
+3. For Ollama: no key needed, just `ollama serve` + `ollama pull <model>`
+4. Available free providers: NVIDIA NIM, Groq, Ollama, HuggingFace, Together AI, Cerebras, OpenRouter
 
 ---
 
