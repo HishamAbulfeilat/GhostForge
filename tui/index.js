@@ -179,6 +179,7 @@ const COMMANDS = [
   // Modes & Misc
   { name: '/autopilot',     cat: '⚙️  Modes',       file: 'commands/autopilot.md',      desc: 'Enable autopilot mode — auto-approve all actions (no prompts)' },
   { name: '/safe',          cat: '⚙️  Modes',       file: 'commands/safe.md',           desc: 'Enable safe mode — confirm every action before execution' },
+  { name: '/dashboard',     cat: '💡 Development', file: 'commands/dashboard.md',      desc: 'Real-time terminal dashboard: tickets, pipelines, health charts, releases, activity' },
   { name: '/api-types',     cat: '💡 Development', file: 'commands/api-types.md',      desc: 'Fetch OpenAPI/Swagger spec → generate TypeScript types + service file' },
   { name: '/changelog',     cat: '🔀 Git',         file: 'commands/changelog.md',      desc: 'Auto-generate CHANGELOG.md from git commits (Conventional Commits)' },
   { name: '/env-check',     cat: '🏗  Setup',      file: 'commands/env-check.md',      desc: 'Compare .env vs .env.example — flag missing, undocumented, exposed secrets' },
@@ -255,6 +256,7 @@ async function screenHome() {
   const choice = await select({
     message: T.white.bold('What would you like to do?'),
     choices: [
+      { name: T.brand.bold('📊  Developer Dashboard')       + T.muted('      — tickets, pipelines, health, releases, charts'), value: 'dashboard' },
       { name: T.brand.bold('🚀  New Project Setup')         + T.muted('   — wizard: choose stack, init repo, scaffold everything'), value: 'setup' },
       { name: T.brand.bold('📂  Open Existing Project')     + T.muted('   — copy AI files into any existing project + open VS Code'), value: 'open' },
       { name: T.brand.bold('🗂  Manage Projects')           + T.muted('        — registry of all your projects'), value: 'projects' },
@@ -1469,6 +1471,57 @@ async function screenFreeModels() {
   }
 }
 
+async function screenDashboard() {
+  sectionHeader('📊  Developer Dashboard', 'Real-time: tickets · pipelines · health · releases · activity');
+  console.log(T.muted('  Launches a full-screen terminal dashboard powered by blessed-contrib.\n'));
+  console.log(`  ${T.muted('Keyboard shortcuts inside dashboard:')}`);
+  console.log(`  ${T.accent('  R')} ${T.muted('— refresh all panels')}`);
+  console.log(`  ${T.accent('  Q')} ${T.muted('— quit dashboard')}`);
+  console.log(`  ${T.accent('  Tab')} ${T.muted('— switch focus between panels')}`);
+  console.log(`  ${T.accent('  ↑↓')} ${T.muted('— scroll within focused panel')}`);
+  console.log();
+
+  const choices = [
+    { name: T.brand.bold('▶  Launch Dashboard'), value: 'launch' },
+    { name: T.white('📖  View dashboard docs'), value: 'docs' },
+    { name: T.muted('← Back'), value: '__back__' },
+  ];
+  const choice = await select({ message: 'Choose:', choices });
+  if (choice === '__back__') return;
+  if (choice === 'docs') {
+    showMdPreview('commands/dashboard.md', 60);
+    await pressEnter();
+    await screenDashboard(); return;
+  }
+
+  // Check gh auth
+  const { spawnSync: sp } = await import('child_process');
+  const ghCheck = sp('gh', ['auth', 'status'], { stdio: 'pipe' });
+  if (ghCheck.status !== 0) {
+    console.log(T.warning('\n  ⚠  gh CLI not authenticated — ticket/pipeline data will be limited.'));
+    console.log(T.muted('  Run: gh auth login\n'));
+  }
+
+  console.log(T.muted('\n  Launching dashboard... (press Q inside to return)\n'));
+  await new Promise(r => setTimeout(r, 400));
+
+  const dashboardPath = resolve(ROOT, 'tui/dashboard.js');
+  if (!existsSync(dashboardPath)) {
+    console.log(T.danger('  ✖  Dashboard file not found: tui/dashboard.js'));
+    console.log(T.muted('  It may still be building. Try again in a moment.'));
+    await pressEnter();
+    return;
+  }
+
+  // Dashboard is a full-screen blessed app — spawn it replacing current process stdin/stdout
+  const result = sp('node', [dashboardPath], {
+    stdio: 'inherit',
+    cwd: ROOT,
+    env: { ...process.env },
+  });
+  // After dashboard closes, TUI resumes
+}
+
 async function screenAPITypes() {
   sectionHeader('🔑  /api-types', 'Generate TypeScript types from an OpenAPI/Swagger spec');
   const choices = [
@@ -1761,6 +1814,7 @@ async function main() {
     while (true) {
       const choice = await screenHome();
       switch (choice) {
+        case 'dashboard':    await screenDashboard(); break;
         case 'setup':        await screenSetup(); break;
         case 'open':         await screenOpenProject(); break;
         case 'projects':     await screenProjects(); break;

@@ -1,8 +1,8 @@
-# 🚀 GhostForge AI Developer Toolkit — v2.8.0
+# 🚀 GhostForge AI Developer Toolkit — v2.9.0
 
 The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, and more.
 
-**200+ files · 14 agents · 53 commands · 25 instruction files · MCP server · React Doctor · Marketplace · Free models · Snippet Library · Project Templates · VS Code Extension · Terminal UI (`ghostforge-ai`)**
+**200+ files · 14 agents · 55 commands · 25 instruction files · MCP server · React Doctor · Marketplace · Free models · Snippet Library · Project Templates · VS Code Extension · Terminal UI (`ghostforge-ai`)**
 
 ---
 
