@@ -10,8 +10,12 @@ npx tailwindcss init -p
 ```js
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
-  darkMode: 'class',
+  content: [
+    './src/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './node_modules/@radix-ui/**/*.{js,ts,jsx,tsx}',
+  ],
+  darkMode: ['false'],
   theme: {
     extend: {
       colors: {
@@ -45,11 +49,8 @@ function Button({ variant = 'primary', children, ...props }) {
 
 ## Dark Mode
 ```tsx
-// Toggle dark mode
-document.documentElement.classList.toggle('dark');
-
-// Use in components
-<div className="bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+// Dark mode is disabled in this setup
+// Avoid adding `dark:` variants or dark-mode toggles
 ```
 
 ## RTL Support (for Arabic)
@@ -60,3 +61,8 @@ document.documentElement.classList.toggle('dark');
 // Tailwind RTL-aware classes (use logical properties)
 <div className="ms-4 me-2 ps-4">  // margin-start, margin-end, padding-start
 ```
+
+## RTL/LTR Support
+- Set the `dir` attribute on the root element (`rtl` for Arabic, `ltr` for English).
+- Prefer logical utilities such as `ms-*`, `me-*`, `ps-*`, and `pe-*` over `ml-*`, `mr-*`, `pl-*`, and `pr-*`.
+- When using component libraries, add their source paths to Tailwind's `content` array so utility classes are not purged.

@@ -10,13 +10,15 @@ When to use which solution and deep patterns for each.
 |----------|------------|
 | Server data (API responses) | **React Query** (TanStack Query) |
 | Simple global UI state | **Zustand** |
-| Complex client state with many actions | **Redux Toolkit** |
+| Complex client state with many actions | **Zustand** (split stores by domain) |
 | Form state | **React Hook Form** |
 | Single component state | **useState** / **useReducer** |
 | Shared state between a few components | **Context API** |
 | Atomic/derived state | **Jotai** |
 
 > **Rule**: Don't put server data in Redux/Zustand. Use React Query for anything that comes from an API.
+>
+> **Preference**: Prefer Zustand over Redux Toolkit for new GhostForge projects.
 
 ---
 

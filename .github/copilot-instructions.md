@@ -36,15 +36,29 @@ The AI defaults to **Full Stack** mode but switches roles when asked:
 ## 🧠 Full Knowledge Base
 
 ### Frontend
-- React 18+, Next.js 14+ (App Router, Pages Router, Server Components, Server Actions)
+- React 18+, Next.js 15+ (App Router, Server Components, Server Actions)
 - TypeScript 5+ (strict), JavaScript ES2024
-- Tailwind CSS 3+, CSS Modules, Styled Components, Emotion
-- State: Redux Toolkit (RTK Query), Zustand, Jotai, React Query v5, MobX, Context
-- UI: shadcn/ui, Radix UI, MUI, Ant Design, Headless UI
-- Forms: React Hook Form + Zod
-- Build tools: Vite, Webpack, Turbopack, esbuild
-- i18n: next-intl, react-i18next (including RTL/Arabic)
-- Testing: Jest, Vitest, React Testing Library, Playwright, Cypress
+- Tailwind CSS 3+ (dark mode **disabled** in projects — prefer logical RTL properties `ms-*`/`me-*`/`ps-*`/`pe-*`)
+- State: Zustand (client), TanStack Query v5 (server), Context API; avoid Redux Toolkit in new projects
+- UI: Radix UI, shadcn/ui, @tabler/icons-react, lucide-react
+- Tables: @tanstack/react-table v8 (headless, highly preferred)
+- Charts: react-apexcharts + apexcharts, recharts
+- Forms: React Hook Form + Zod + @hookform/resolvers
+- Drag & Drop: @dnd-kit/sortable, @dnd-kit/modifiers
+- Rich Text: @tiptap/react (StarterKit, Image, Link, TextAlign, Color)
+- Auth: @azure/msal-browser + @azure/msal-react (Azure AD); always `acquireTokenSilent` first
+- i18n: next-intl (Next.js, [locale] routing, Arabic default), react-i18next (Vite); full RTL support
+- Dates: react-day-picker, react-multi-date-picker, moment-hijri (Hijri calendar)
+- Export: jspdf + jspdf-autotable, html2canvas, xlsx, react-csv, papaparse
+- File/Input: react-dropzone, react-phone-number-input, react-otp-input
+- Notifications: sonner (preferred), react-toastify
+- Maps: @vis.gl/react-google-maps
+- Security: dompurify (always sanitize HTML from API before render)
+- Build: Vite + vite-tsconfig-paths, Bun (newer projects)
+- Path aliases: @components/*, @hooks/*, @utils/*, @types/*, @store/*, @services/*, @constants/*, @providers/*
+- Architecture: Atomic Design + DDD hybrid; barrel exports via index.ts in every folder
+- Quality: Storybook (component docs), Husky + lint-staged, SonarQube, Playwright/Vitest
+- Testing: Jest, Vitest, React Testing Library, Playwright
 
 ### Mobile
 - React Native 0.73+ (New Architecture / Fabric / Hermes)

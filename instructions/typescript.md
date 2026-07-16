@@ -15,7 +15,17 @@
     "moduleResolution": "bundler",
     "jsx": "preserve",
     "baseUrl": ".",
-    "paths": { "@/*": ["./src/*"] }
+    "paths": {
+      "@/*": ["./src/*"],
+      "@components/*": ["./src/components/*"],
+      "@hooks/*": ["./src/hooks/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@types/*": ["./src/types/*"],
+      "@store/*": ["./src/store/*"],
+      "@services/*": ["./src/services/*"],
+      "@constants/*": ["./src/constants/*"],
+      "@providers/*": ["./src/providers/*"]
+    }
   }
 }
 ```
@@ -53,7 +63,24 @@ function useLocalStorage<T>(key: string, initialValue: T) {
   });
   // ...
 }
+
+// Azure MSAL typing pattern
+import type { AccountInfo, PublicClientApplication } from '@azure/msal-browser';
+
+interface AuthState {
+  account: AccountInfo | null;
+  instance: PublicClientApplication;
+}
 ```
+
+## Barrel Exports
+```typescript
+// src/components/user-card/index.ts
+export * from './user-card';
+export * from './user-card.types';
+```
+
+- Every component folder should expose an `index.ts` file for clean imports and consistent barrel exports.
 
 ## Rules
 - Never use `any` — use `unknown` if type is truly unknown

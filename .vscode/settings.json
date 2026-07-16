@@ -58,6 +58,9 @@
       "file": "ghostforge-agents/instructions/react-doctor.md"
     },
     {
+      "file": "ghostforge-agents/instructions/arabic-rtl.md"
+    },
+    {
       "file": "knowledge/gotchas.md"
     },
     {
