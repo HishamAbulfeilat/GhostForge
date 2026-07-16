@@ -26,14 +26,13 @@ jobs:
             echo "⚠️ MIRROR_TOKEN secret not set — skipping."
             exit 0
           fi
-          # Verify token works (read access)
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer ${CLEAN_TOKEN}" \
-            "https://api.github.com/repos/HishamAbulfeilat/GhostForge")
-          echo "API access check: $HTTP_CODE"
-          # Verify token identity
-          curl -s -H "Authorization: Bearer ${CLEAN_TOKEN}" \
-            "https://api.github.com/user" | grep -E '"login"|"type"'
+          echo "Token scopes:"
+          curl -sI -H "Authorization: Bearer ${CLEAN_TOKEN}" "https://api.github.com/user" | grep -i "x-oauth-scopes"
+          echo "Token identity:"
+          curl -s -H "Authorization: Bearer ${CLEAN_TOKEN}" "https://api.github.com/user" | grep '"login"'
+          echo "Repo access:"
+          curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer ${CLEAN_TOKEN}" \
+            "https://api.github.com/repos/HishamAbulfeilat/GhostForge"
           git config --global credential.helper store
           echo "https://x-access-token:${CLEAN_TOKEN}@github.com" > ~/.git-credentials
           git remote add mirror https://github.com/HishamAbulfeilat/GhostForge.git
