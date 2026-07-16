@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.4.0 — 2026-07-16
+
+0dc10d2 feat: add react.doctor integration (v2.3.0)
+
+---
+
+
+
 ## v2.3.0 — 2026-07-15
 
 b65f825 feat: v2.2.0 — MCP server, Spaces, 8 new commands
