@@ -2,7 +2,7 @@
 
 The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, and more.
 
-**200+ files · 14 agents · 55 commands · 25 instruction files · MCP server · React Doctor · Marketplace · Free models · Snippet Library · Project Templates · VS Code Extension · Terminal UI (`ghostforge-ai`)**
+**200+ files · 14 agents · 55 commands · 27 scripts · 24 instruction files · MCP server · React Doctor · Marketplace · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension · Terminal UI (`ghostforge-ai`)**
 
 ---
 
@@ -73,7 +73,7 @@ code /your/project
 
 - **Setup guide:** [`EXTENSION_SETUP.md`](./EXTENSION_SETUP.md)
 - **Hosted usage:** `@ghostforge /help`, `@ghostforge /health`, `@ghostforge /tickets`, `@ghostforge /security`, `@ghostforge /review`, `@ghostforge /deploy`, `@ghostforge /optimize`
-- **Full command catalog:** `/setup`, `/create`, `/open`, `/scaffold`, `/add-feature`, `/migrate`, `/estimate`, `/tech-debt`, `/explain-codebase`, `/health`, `/doctor`, `/marketplace`, `/generate`, `/free-models`, `/help`, `/docs`, `/snippet`, `/onboard`, `/optimize`, `/perf`, `/lint`, `/explain-error`, `/diagram`, `/security`, `/test`, `/a11y`, `/qa`, `/review`, `/tickets`, `/fix-tickets`, `/deploy`, `/release`, `/sql`, `/mock`, `/i18n`, `/storybook`, `/notify`, `/commit`, `/pr-description`, `/upgrade`, `/env`, `/model`, `/autopilot`, `/safe`
+- **Full command catalog:** `/setup`, `/create`, `/open`, `/scaffold`, `/add-feature`, `/migrate`, `/estimate`, `/tech-debt`, `/explain-codebase`, `/health`, `/doctor`, `/marketplace`, `/generate`, `/free-models`, `/help`, `/docs`, `/snippet`, `/onboard`, `/optimize`, `/perf`, `/lint`, `/explain-error`, `/diagram`, `/security`, `/test`, `/a11y`, `/qa`, `/review`, `/tickets`, `/fix-tickets`, `/deploy`, `/release`, `/sql`, `/mock`, `/i18n`, `/storybook`, `/notify`, `/commit`, `/pr-description`, `/upgrade`, `/env`, `/model`, `/autopilot`, `/safe`, `/dashboard`, `/api-types`, `/changelog`, `/env-check`, `/unused`, `/git-hooks`, `/skills`, `/rtl`, `/bundle`, `/context`, `/ticket`
 - **Local toolkit stays independent:** `ghostforge-ai`, `scripts/`, copied `.github/` instructions, and existing project flows continue to work exactly as before
 
 ---
@@ -184,25 +184,32 @@ alias ghostforge-ai='node ~/ghostforge-agents/tui/index.js'
 
 | Screen | What it does |
 |--------|-------------|
+| 📊 **Developer Dashboard** | Real-time: tickets assigned to you, CI/CD pipeline, health charts, releases, activity feed |
 | 🚀 **New Project Setup** | AI mode (describe your app) or 14-step wizard |
 | 🗂 **Manage Projects** | Track registered projects, open them, and sync toolkit updates |
-| 💊 **Project Health Check** | Score across security, deps, coverage, bundle, tickets, lint + React Doctor |
-| ⚡ **Run a Command** | Browse all 48 slash commands by category, read full docs |
+| 💊 **Project Health Check** | Score across security, deps, coverage, bundle, tickets, lint + health badge |
+| ⚡ **Run a Command** | Browse all 55 slash commands by category, read full docs |
 | 🤖 **Switch Agent / Role** | View all 14 agents, copy their activation prompt |
 | 📚 **Browse Instructions** | Read the instruction packs, knowledge base, and team docs inline |
 | 📋 **Snippet Library** | Browse 11 ready-made code snippets — click to copy or insert at cursor |
 | 🔍 **Bundle Analyzer** | Detect heavy deps, lazy-loading opportunities, bundle size |
 | 🌐 **RTL Audit** | Find non-logical Tailwind classes, auto-fix `ml-`/`mr-` → `ms-`/`me-` |
+| 🔑 **/api-types** | Fetch OpenAPI/Swagger spec → generate TypeScript types + service file |
+| 📝 **/changelog** | Auto-generate CHANGELOG.md from Conventional Commits |
+| 🔒 **/env-check** | Compare `.env` vs `.env.example` — flag missing/exposed secrets |
+| 🧹 **/unused** | Find dead code with knip (unused files, exports, dependencies) |
+| 🪝 **/git-hooks** | Install Husky + lint-staged + commitlint in one command |
 | 🎫 **Tickets & Issues** | Live fetch from GitHub Issues / Azure DevOps / Jira by priority |
 | 🔒 **Security Audit** | Run `npm audit`, scan secrets, get OWASP checklist |
 | 🧪 **Run Tests** | Auto-detect Jest / Vitest / Playwright / Detox and execute |
 | 🚀 **Deploy** | Guided deploy to Azure / Vercel / GitHub Pages |
 | 🌅 **Daily Digest** | Morning summary for tickets, security, dependency drift, git, and health |
 | 📄 **README / Docs** | Read full documentation without leaving the terminal |
-| 🏪 **Marketplace** | Browse/install catalog items, custom agents, and trusted sources |
+| 🏪 **Marketplace** | Browse/install catalog items, agents, and Claude Agent Skills |
+| 🎓 **Agent Skills** | Anthropic official, SkillsMP 2M+, Claude-Flow, Awesome Claude Skills |
 | ⚡ **Generate New** | Create a new agent, command, skill, instruction, or plugin |
 | 🆓 **Free Models** | Configure NVIDIA, Groq, Ollama, HuggingFace, and more |
-| 🧩 **Install VS Code Extension** | One-click install of `ghostforge-ai.vsix` into VS Code |
+| 🧩 **Install VS Code Extension** | One-click install + auto-rebuild of `ghostforge-ai.vsix` into VS Code |
 | ❓ **Help** | Quick reference for all commands and agents |
 
 ### Requirements
@@ -220,6 +227,26 @@ The toolkit now includes a lightweight marketplace layer for discoverability and
 - Review the local catalog in `marketplace/catalog.json`
 - Track custom and installed items in `marketplace/registry.json`
 - Open **aitmpl.com** directly from the TUI or `scripts/marketplace.sh`
+
+### 🎓 Claude Agent Skills
+
+Browse and install AI agent skills from 6 trusted sources:
+
+| Source | Skills | Install |
+|---|---|---|
+| **Anthropic Official** | docx, pdf, pptx, xlsx, web-test, MCP gen | `/plugin marketplace add anthropics/skills` in Claude Code |
+| **SkillsMP** | 2M+ community skills, free REST API | `bash scripts/skills.sh search <query>` |
+| **Claude-Flow** | Hive-mind swarm, 87 MCP tools, 84.8% SWE-Bench | `npx claude-flow@alpha init --force` |
+| **Awesome Claude Skills** | Curated free directory | https://awesomeclaude.ai/awesome-claude-skills |
+| **Agent Skills Standard** | Spec: SKILL.md format | https://agentskills.io/home |
+| **Skills Collection 2026** | Community + official index | https://github.com/obviousworks/Claude-AI-skills-collection-2026 |
+
+```bash
+bash ~/ghostforge-agents/scripts/skills.sh              # overview + sources
+bash ~/ghostforge-agents/scripts/skills.sh list         # installed skills
+bash ~/ghostforge-agents/scripts/skills.sh search react # search SkillsMP
+bash ~/ghostforge-agents/scripts/skills.sh claude-flow  # install Claude-Flow
+```
 
 ### Generate New
 Create your own toolkit assets with:
@@ -249,7 +276,34 @@ Credentials are stored in `.env.local`, and custom providers live in `marketplac
 
 ---
 
-## 🧩 VS Code Extension
+## 📊 Developer Dashboard
+
+A real-time, full-screen terminal dashboard with 6 live panels:
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  ⚡ GHOSTFORGE DEVELOPER DASHBOARD  │ user │ 18:26 │ [R] [Q]   │
+├──────────────────┬─────────────────┬──────────────────────  ┤
+│ 📋 MY TICKETS   │ 🏗 PIPELINE      │ 📊 HEALTH BAR         │
+│ GitHub Issues   │ Actions runs     │ per-project scores    │
+│ assigned to @me │ last 12 workflows│ 0–100 bar chart       │
+├──────────────────┼─────────────────┼──────────────────────  ┤
+│ 🚀 RELEASES     │ 📈 HEALTH TREND  │ 🔥 ACTIVITY FEED      │
+│ git tags + dates│ line chart over  │ git log --oneline     │
+│ + release msg   │ version history  │ last 20 commits       │
+└──────────────────┴─────────────────┴──────────────────────  ┘
+```
+
+```bash
+ghostforge-ai                          # → 📊 Developer Dashboard (first item)
+bash ~/ghostforge-agents/scripts/dashboard.sh
+node ~/ghostforge-agents/tui/dashboard.js
+```
+
+**Keyboard:** `R` refresh · `Q` quit · `Tab` switch panel · `↑↓` scroll
+**Auto-refresh** every 60 seconds. Requires `gh auth login` for live GitHub data.
+
+---
 
 A local VS Code extension (`ghostforge-ai`) that brings the toolkit into your editor without the terminal.
 
@@ -859,5 +913,33 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ---
 
+## 📅 What's New
+
+### v2.9.0 — Developer Dashboard
+- **📊 Real-time terminal dashboard** — 6 panels: My Tickets (GitHub Issues), Pipeline Status (Actions), Health Bar Chart, Releases & Tags, Health Trend Line, Activity Feed
+- Powered by `blessed-contrib` — full-screen terminal with live charts
+- Auto-refresh every 60 seconds · keyboard: R=refresh, Q=quit, Tab=focus
+
+### v2.8.1 — Agent Skills Marketplace
+- **6 Claude Agent Skills sources** added to marketplace: Anthropic Official, SkillsMP (2M+), Claude-Flow, Awesome Claude Skills, Agent Skills Standard (agentskills.io), Skills Collection 2026
+- New `/skills` command + `scripts/skills.sh` — list, search, install, browse
+- TUI Marketplace → 🎓 Agent Skills sub-menu with SkillsMP search
+
+### v2.8.0 — Developer Productivity Commands
+- **`/api-types`** — OpenAPI/Swagger URL → TypeScript types + service file
+- **`/changelog`** — auto-generate CHANGELOG.md from Conventional Commits
+- **`/env-check`** — compare `.env` vs `.env.example`, flag secrets/missing keys
+- **`/unused`** — find dead code with knip (files, exports, dependencies)
+- **`/git-hooks`** — one command: Husky + lint-staged + commitlint
+- **Health badge** — shields.io badge output after every `/health` run
+- **VS Code auto-update** — `update.sh` rebuilds + reinstalls extension on version bump
+
+### v2.7.1 — VS Code Extension + Snippet Library
+- VS Code extension with sidebar, command picker, snippet insert (`Cmd+Shift+E`)
+- 11 code snippets: TanStack Table, MSAL Auth, next-intl, ApexCharts, RHF+Zod, Zustand, TanStack Query, dnd-kit, TipTap, file-upload, export utils
+- Project templates: `react-vite`, `nextjs-i18n`
+
+---
+
 *Built for GhostForge · Frontend & Full Stack Developer Toolkit*
-*Powered by GitHub Copilot Business · v2.3.0*
+*Powered by GitHub Copilot Business · v2.9.0*
