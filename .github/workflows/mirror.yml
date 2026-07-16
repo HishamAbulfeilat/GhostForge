@@ -25,7 +25,6 @@ jobs:
             echo "⚠️ MIRROR_TOKEN secret not set — skipping."
             exit 0
           fi
-          echo "$MIRROR_TOKEN" | gh auth login --with-token
-          gh auth setup-git
+          git config --global url."https://${MIRROR_TOKEN}@github.com/".insteadOf "https://github.com/"
           git remote add mirror https://github.com/HishamAbulfeilat/GhostForge.git
           git push mirror --mirror
