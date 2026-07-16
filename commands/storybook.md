@@ -1,58 +1,53 @@
 # /storybook Command
 
-## Description
-Generates Storybook stories for React components, sets up Storybook from scratch, or documents an entire component library.
+## Purpose
+Generate a Storybook 7+ CSF3 `.stories.tsx` file for any React component.
 
 ## Usage
-```
-/storybook setup                    → Install and configure Storybook
-/storybook generate [component]     → Generate stories for a component
-/storybook generate --all           → Generate stories for all components
-```
-
-## Setup
 ```bash
-npx storybook@latest init
-npm install -D @storybook/addon-a11y @storybook/addon-interactions
+/storybook [ComponentName]
 ```
 
-## Generated Story
-```typescript
-// components/ui/Button/Button.stories.tsx
+## What AI should do
+1. Locate the requested component and its TypeScript props interface or type.
+2. Infer the Storybook title from the folder structure.
+3. Generate a CSF3 story file beside the component.
+4. Create `argTypes` for all detected props.
+5. Add these stories by default:
+   - `Default`
+   - `Loading`
+   - `Error`
+   - `Empty`
+   - `RTL`
+6. Add a `play` function for basic interaction testing when the component has clickable or form behavior.
+7. Preserve project aliases, import style, and component conventions.
+
+## Generated story requirements
+- Storybook 7+ format using `Meta` and `StoryObj`
+- `tags: ['autodocs']`
+- Complete `argTypes` based on the TypeScript props
+- Sensible default args
+- RTL story using a `dir: 'rtl'` wrapper or Storybook parameter
+- Loading, error, and empty states tailored to the component shape
+
+## Example
+```bash
+/storybook UserTable
+```
+
+```tsx
 import type { Meta, StoryObj } from '@storybook/react';
-import { Button } from './Button';
+import { expect, userEvent, within } from '@storybook/test';
+import { UserTable } from './UserTable';
 
-const meta: Meta<typeof Button> = {
-  title: 'UI/Button',
-  component: Button,
-  parameters: { layout: 'centered' },
-  tags: ['autodocs'],
-  argTypes: {
-    variant: { control: 'select', options: ['primary', 'secondary', 'danger', 'ghost'] },
-    size: { control: 'select', options: ['sm', 'md', 'lg'] },
-    disabled: { control: 'boolean' },
-  },
-};
+const meta = {
+  title: 'Data Display/UserTable',
+  component: UserTable,
+  tags: ['autodocs']
+} satisfies Meta<typeof UserTable>;
+
 export default meta;
+type Story = StoryObj<typeof meta>;
 
-type Story = StoryObj<typeof Button>;
-
-export const Primary: Story = {
-  args: { children: 'Click me', variant: 'primary' },
-};
-
-export const AllVariants: Story = {
-  render: () => (
-    <div className="flex gap-3">
-      <Button variant="primary">Primary</Button>
-      <Button variant="secondary">Secondary</Button>
-      <Button variant="danger">Danger</Button>
-      <Button variant="ghost">Ghost</Button>
-    </div>
-  ),
-};
-
-export const LoadingState: Story = {
-  args: { children: 'Saving...', disabled: true, isLoading: true },
-};
+export const Default: Story = { args: {} };
 ```

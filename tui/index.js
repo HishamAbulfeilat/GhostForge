@@ -146,13 +146,16 @@ const COMMANDS = [
   { name: '/env',           cat: '🏗  Setup',      file: 'commands/env.md',            desc: 'Manage .env files: generate, validate, sync secrets' },
   // Development
   { name: '/add-feature',   cat: '💡 Development', file: 'commands/add-feature.md',    desc: 'Add a new feature with tests, types, and documentation' },
+  { name: '/context',       cat: '💡 Development', file: 'commands/context.md',         desc: 'Read current file/component and inject as context for next request' },
   { name: '/docs',          cat: '💡 Development', file: 'commands/docs.md',            desc: 'Generate README, API docs, component docs, Storybook docs, changelog' },
   { name: '/optimize',      cat: '💡 Development', file: 'commands/optimize.md',       desc: 'Analyze and optimize performance, bundle size, and code quality' },
+  { name: '/bundle',        cat: '💡 Development', file: 'commands/bundle.md',          desc: 'Analyze bundle size, flag heavy deps, suggest lazy-loading and tree-shaking' },
   { name: '/perf',          cat: '💡 Development', file: 'commands/perf.md',            desc: 'Measure runtime performance with Lighthouse, budgets, and baselines' },
   { name: '/lint',          cat: '💡 Development', file: 'commands/lint.md',           desc: 'Run linters, fix auto-fixable issues, report remaining errors' },
   { name: '/mock',          cat: '💡 Development', file: 'commands/mock.md',           desc: 'Generate mock data, MSW handlers, and test fixtures' },
   { name: '/snippet',       cat: '💡 Development', file: 'commands/snippet.md',        desc: 'Browse, insert, and save reusable snippets from the snippet library' },
-  { name: '/storybook',     cat: '💡 Development', file: 'commands/storybook.md',      desc: 'Generate or update Storybook stories for components' },
+  { name: '/storybook',     cat: '💡 Development', file: 'commands/storybook.md',      desc: 'Generate .stories.tsx for any component — Default, Loading, Error, RTL stories' },
+  { name: '/rtl',           cat: '💡 Development', file: 'commands/rtl.md',            desc: 'RTL audit: find physical Tailwind classes and replace with logical properties' },
   { name: '/i18n',          cat: '💡 Development', file: 'commands/i18n.md',           desc: 'Add or manage internationalization (i18n) translations' },
   { name: '/explain-error', cat: '💡 Development', file: 'commands/explain-error.md',  desc: 'Explain an error message and provide a fix' },
   { name: '/diagram',       cat: '💡 Development', file: 'commands/diagram.md',        desc: 'Generate architecture, flow, or ER diagrams (Mermaid)' },
@@ -164,6 +167,7 @@ const COMMANDS = [
   // Tickets & Git
   { name: '/tickets',       cat: '🎫 Tickets',     file: 'commands/tickets.md',        desc: 'Show assigned tickets (GitHub Issues / Azure DevOps / Jira)' },
   { name: '/fix-tickets',   cat: '🎫 Tickets',     file: 'commands/fix-tickets.md',    desc: 'Auto-fix bugs by priority: critical → high → medium → low' },
+  { name: '/ticket',        cat: '🎫 Tickets',     file: 'commands/ticket.md',         desc: 'Scaffold a feature from a ticket ID — branch, commit template, file structure' },
   { name: '/commit',        cat: '🔀 Git',         file: 'commands/commit.md',         desc: 'Stage, generate conventional commit message, and push' },
   { name: '/pr-description',cat: '🔀 Git',         file: 'commands/pr-description.md', desc: 'Generate a detailed, structured PR description from diff' },
   { name: '/review',        cat: '🔀 Git',         file: 'commands/review.md',         desc: 'Review staged diff for blockers, warnings, suggestions, and PR notes' },
@@ -252,6 +256,9 @@ async function screenHome() {
       { name: T.accent.bold('⚡  Run a Command')             + T.muted('           — browse all slash commands'), value: 'commands' },
       { name: T.success.bold('🤖  Switch Agent / Role')      + T.muted('      — activate a specialized AI agent'), value: 'agents' },
       { name: T.warning.bold('📚  Browse Instructions')      + T.muted('     — view knowledge base / docs'), value: 'instructions' },
+      { name: T.accent.bold('📋  Snippet Library')           + T.muted('         — browse & copy ready-made code snippets'), value: 'snippets' },
+      { name: T.white.bold('🔍  Bundle Analyzer')            + T.muted('        — size, heavy deps, lazy-loading tips'), value: 'bundle' },
+      { name: T.white.bold('🌐  RTL Audit')                  + T.muted('               — find & fix non-logical Tailwind classes'), value: 'rtl' },
       { name: T.white.bold('🎫  Tickets & Issues')          + T.muted('       — view and fix assigned tickets'), value: 'tickets' },
       { name: T.white.bold('🔒  Security Audit')            + T.muted('         — OWASP scan, dep check, secrets'), value: 'security' },
       { name: T.white.bold('🧪  Run Tests')                 + T.muted('              — auto-detect and run test suite'), value: 'test' },
@@ -1340,6 +1347,103 @@ async function screenFreeModels() {
 }
 
 // ─── Main Loop ────────────────────────────────────────────────────────────────
+async function screenSnippets() {
+  sectionHeader('📋  Snippet Library', 'Ready-made code patterns — copy and adapt for your project');
+
+  const { readdirSync, readFileSync } = await import('fs');
+  const snippetsDir = join(BASE, 'snippets');
+  let files = [];
+  try { files = readdirSync(snippetsDir).filter(f => !f.startsWith('README') && f !== '.'); } catch { files = []; }
+
+  if (files.length === 0) {
+    console.log(T.warning('  No snippets found in snippets/'));
+    await anyKey(); return;
+  }
+
+  const choices = files.map(f => ({
+    name: T.brand.bold(f.replace(/\.(tsx?|md)$/, '').padEnd(28)) + T.muted(getSnippetDesc(f)),
+    value: f,
+  }));
+  choices.push({ name: T.muted('← Back'), value: '__back__' });
+
+  const chosen = await select({ message: 'Choose a snippet:', choices, pageSize: 18 });
+  if (chosen === '__back__') return;
+
+  const content = readFileSync(join(snippetsDir, chosen), 'utf8');
+  clear();
+  sectionHeader(`📋  ${chosen}`, 'Press any key to go back');
+  console.log(T.muted('─'.repeat(70)));
+  console.log(content.slice(0, 3000));
+  if (content.length > 3000) console.log(T.muted(`\n  ... (${content.length - 3000} more chars — open file for full content)`));
+  console.log(T.muted('─'.repeat(70)));
+  console.log(T.success(`\n  📁  ${join(snippetsDir, chosen)}`));
+  console.log(T.muted('  Copy the file path above to open in your editor.\n'));
+  await anyKey();
+  await screenSnippets();
+}
+
+function getSnippetDesc(filename) {
+  const descs = {
+    'tanstack-table.tsx':  'TanStack Table v8 — sorting, filtering, pagination',
+    'msal-auth.tsx':       'Azure AD MSAL — PublicClientApp, silent token, auth guard',
+    'next-intl-page.tsx':  'Next.js App Router page with next-intl i18n + RTL',
+    'apexcharts.tsx':      'ApexCharts — line, bar, area with RTL + responsive',
+    'rhf-zod-form.tsx':    'React Hook Form + Zod — schema, resolver, submit',
+    'zustand-store.ts':    'Zustand store — state, actions, persist, devtools',
+    'tanstack-query.tsx':  'TanStack Query v5 — useQuery, useMutation, infinite',
+    'dnd-kit.tsx':         'dnd-kit sortable list with keyboard accessibility',
+    'tiptap-editor.tsx':   'TipTap rich text editor with toolbar',
+    'file-upload.tsx':     'react-dropzone — multi-file, preview, validation',
+    'export-utils.ts':     'Export to PDF, Excel, CSV using jsPDF + xlsx',
+  };
+  return descs[filename] || '';
+}
+
+async function screenBundle() {
+  sectionHeader('🔍  Bundle Analyzer', 'Analyze bundle size, find heavy deps, get optimization tips');
+  console.log(T.muted('  Runs bundle analysis on the current working directory.\n'));
+
+  const choices = [
+    { name: T.accent('▶  Run bundle analysis (current directory)'), value: 'run' },
+    { name: T.white('📖  View bundle command docs (/bundle)'), value: 'docs' },
+    { name: T.muted('← Back'), value: '__back__' },
+  ];
+  const choice = await select({ message: 'Choose:', choices });
+  if (choice === '__back__') return;
+  if (choice === 'docs') {
+    const { readFileSync } = await import('fs');
+    try {
+      const doc = readFileSync(join(BASE, 'commands/bundle.md'), 'utf8');
+      clear(); console.log(doc); await anyKey();
+    } catch { console.log(T.warning('  bundle.md not found')); await anyKey(); }
+    await screenBundle(); return;
+  }
+  console.log(T.muted('\n  Running bundle analysis...\n'));
+  const { spawnSync } = await import('child_process');
+  const result = spawnSync('bash', [join(BASE, 'scripts/bundle.sh')], { stdio: 'inherit', cwd: process.cwd() });
+  if (result.status !== 0) console.log(T.warning('\n  Bundle analysis completed with warnings.'));
+  await anyKey();
+}
+
+async function screenRTL() {
+  sectionHeader('🌐  RTL Audit', 'Find physical Tailwind classes and replace with logical properties');
+  console.log(T.muted('  Scans: ml-/mr-/pl-/pr- → ms-/me-/ps-/pe-  |  text-left/right → text-start/end\n'));
+
+  const choices = [
+    { name: T.accent('🔍  Scan (dry run) — report issues only'), value: 'scan' },
+    { name: T.warning('🔧  Scan + Auto-fix — replace all occurrences'), value: 'fix' },
+    { name: T.muted('← Back'), value: '__back__' },
+  ];
+  const choice = await select({ message: 'Choose:', choices });
+  if (choice === '__back__') return;
+
+  const { spawnSync } = await import('child_process');
+  const args = choice === 'fix' ? [join(BASE, 'scripts/rtl.sh'), '.', '--fix'] : [join(BASE, 'scripts/rtl.sh'), '.'];
+  console.log(T.muted('\n  Scanning...\n'));
+  spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+  await anyKey();
+}
+
 async function main() {
   try {
     while (true) {
@@ -1361,6 +1465,9 @@ async function main() {
         case 'marketplace':  await screenMarketplace(); break;
         case 'generate':     await screenGenerate(); break;
         case 'freemodels':   await screenFreeModels(); break;
+        case 'snippets':     await screenSnippets(); break;
+        case 'bundle':       await screenBundle(); break;
+        case 'rtl':          await screenRTL(); break;
         case 'version':      await screenVersion(); break;
         case 'help':         await screenHelp(); break;
         case 'exit':
