@@ -15,12 +15,16 @@ echo ""
 
 # ── Detect available TTS ───────────────────────────────────────────────────────
 detect_tts() {
-  if command -v say &>/dev/null; then echo "say"         # macOS built-in
+  if command -v edge-tts &>/dev/null; then echo "edge-tts"  # Neural AI voices (best free)
+  elif python3 -c "import edge_tts" &>/dev/null 2>&1; then echo "edge-tts-py"
+  elif command -v say &>/dev/null; then echo "say"          # macOS built-in
   elif command -v espeak-ng &>/dev/null; then echo "espeak-ng"
   elif command -v espeak &>/dev/null; then echo "espeak"
   elif command -v festival &>/dev/null; then echo "festival"
   else echo "none"; fi
 }
+
+VOICE_DEFAULT="${GHOSTFORGE_VOICE:-en-US-AriaNeural}"  # Neural voice — change in .env.local
 
 # ── Detect available STT ───────────────────────────────────────────────────────
 detect_stt() {
@@ -34,14 +38,40 @@ detect_stt() {
 TTS_ENGINE="$(detect_tts)"
 STT_ENGINE="$(detect_stt)"
 
+# ── play audio file ────────────────────────────────────────────────────────────
+play_audio() {
+  local file="$1"
+  if command -v afplay &>/dev/null; then afplay "$file" 2>/dev/null
+  elif command -v mpg123 &>/dev/null; then mpg123 -q "$file" 2>/dev/null
+  elif command -v ffplay &>/dev/null; then ffplay -nodisp -autoexit -loglevel quiet "$file" 2>/dev/null
+  elif command -v aplay &>/dev/null; then aplay -q "$file" 2>/dev/null
+  else echo -e "  ${YELLOW}⚠  No audio player found to play the file.${NC}"; fi
+}
+
 # ── speak ──────────────────────────────────────────────────────────────────────
 speak() {
   local msg="$1"
+  local voice="${2:-$VOICE_DEFAULT}"
   # Strip ANSI escape codes
   msg=$(echo "$msg" | sed 's/\x1B\[[0-9;]*[mK]//g')
   case "$TTS_ENGINE" in
+    edge-tts)
+      local tmp_file="/tmp/ghostforge-voice-$$.mp3"
+      edge-tts --voice "$voice" --text "$msg" --write-media "$tmp_file" 2>/dev/null && \
+        play_audio "$tmp_file" && rm -f "$tmp_file" &
+      ;;
+    edge-tts-py)
+      local tmp_file="/tmp/ghostforge-voice-$$.mp3"
+      python3 -c "
+import asyncio, edge_tts, sys
+async def run():
+    c = edge_tts.Communicate('$msg', '$voice')
+    await c.save('$tmp_file')
+asyncio.run(run())
+" 2>/dev/null && play_audio "$tmp_file" && rm -f "$tmp_file" &
+      ;;
     say)
-      say -r 180 "$msg" 2>/dev/null &
+      say -r 185 -v Samantha "$msg" 2>/dev/null &
       ;;
     espeak-ng)
       espeak-ng -s 160 -v en-us "$msg" 2>/dev/null &
@@ -53,9 +83,7 @@ speak() {
       echo "$msg" | festival --tts 2>/dev/null &
       ;;
     none)
-      echo -e "  ${YELLOW}⚠  No TTS engine found.${NC}"
-      echo -e "  ${DIM}  macOS: built-in 'say' should work${NC}"
-      echo -e "  ${DIM}  Linux: sudo apt install espeak-ng${NC}"
+      echo -e "  ${YELLOW}⚠  No TTS engine found. Run: bash scripts/voice.sh install-voice-model${NC}"
       ;;
   esac
 }
@@ -179,14 +207,80 @@ print(f'Project health score is {score.group(1)} out of 100.' if score else 'Hea
     echo -e "  ${DIM}  Test: bash scripts/voice.sh transcribe /path/to/audio.wav${NC}"
     ;;
 
+  install-voice-model)
+    echo -e "  ${BLUE}${BOLD}Installing edge-tts — Free Neural AI Voice Model${NC}"
+    echo -e "  ${DIM}Microsoft Edge neural voices · No API key · 400+ voices · Neural quality${NC}"
+    echo ""
+    if command -v pip3 &>/dev/null || command -v pip &>/dev/null; then
+      PIP=$(command -v pip3 || command -v pip)
+      echo -e "  ${DIM}Installing edge-tts via pip...${NC}"
+      $PIP install edge-tts --quiet && echo -e "  ${GREEN}✅ edge-tts installed!${NC}" || {
+        echo -e "  ${YELLOW}⚠  pip install failed, trying with --user flag...${NC}"
+        $PIP install --user edge-tts --quiet
+      }
+      echo ""
+      echo -e "  ${GREEN}${BOLD}Done! Neural voices are now active.${NC}"
+      echo -e "  ${DIM}  Default voice: en-US-AriaNeural (female, natural)${NC}"
+      echo -e "  ${DIM}  Change voice: add GHOSTFORGE_VOICE=en-US-GuyNeural to .env.local${NC}"
+      echo -e "  ${DIM}  List all voices: bash scripts/voice.sh voices${NC}"
+      echo ""
+      echo -e "  ${CYAN}Try it now:${NC}"
+      echo -e "  ${DIM}  bash scripts/voice.sh speak \"Hello, I am your AI developer assistant\"${NC}"
+    else
+      echo -e "  ${RED}✖  Python pip not found.${NC}"
+      echo -e "  ${DIM}  Install Python 3: https://python.org/downloads${NC}"
+      echo -e "  ${DIM}  macOS: brew install python3${NC}"
+    fi
+    ;;
+
+  voices|list-voices)
+    echo -e "  ${BOLD}Available neural voices (edge-tts):${NC}"
+    echo ""
+    if command -v edge-tts &>/dev/null || python3 -c "import edge_tts" &>/dev/null 2>&1; then
+      echo -e "  ${DIM}Fetching voice list...${NC}"
+      if command -v edge-tts &>/dev/null; then
+        edge-tts --list-voices 2>/dev/null | grep -E "en-US|en-GB|ar-SA|ar-EG" | head -30
+      else
+        python3 -c "
+import asyncio, edge_tts
+async def run():
+    voices = await edge_tts.list_voices()
+    for v in voices:
+        if v['Locale'].startswith('en-US') or v['Locale'].startswith('en-GB') or v['Locale'].startswith('ar-'):
+            print(f\"  {v['ShortName']:<35} {v['Gender']:<8} {v['Locale']}\")
+asyncio.run(run())
+" 2>/dev/null
+      fi
+      echo ""
+      echo -e "  ${DIM}Set your preferred voice: add GHOSTFORGE_VOICE=<ShortName> to .env.local${NC}"
+      echo -e "  ${DIM}Popular voices:${NC}"
+      echo -e "  ${DIM}  en-US-AriaNeural   — Female, conversational (default)${NC}"
+      echo -e "  ${DIM}  en-US-GuyNeural    — Male, neutral${NC}"
+      echo -e "  ${DIM}  en-US-JennyNeural  — Female, friendly${NC}"
+      echo -e "  ${DIM}  en-GB-SoniaNeural  — Female, British${NC}"
+      echo -e "  ${DIM}  ar-SA-ZariyahNeural — Female, Arabic${NC}"
+      echo -e "  ${DIM}  ar-EG-SalmaNeural  — Female, Egyptian Arabic${NC}"
+    else
+      echo -e "  ${YELLOW}edge-tts not installed. Run: bash scripts/voice.sh install-voice-model${NC}"
+    fi
+    ;;
+
   status)
     echo -e "  ${BOLD}Voice capabilities:${NC}"
     echo ""
     echo -e "  TTS (text-to-speech):"
     case "$TTS_ENGINE" in
-      say) echo -e "    ${GREEN}● macOS 'say' — built-in, no setup needed${NC}" ;;
-      espeak-ng|espeak) echo -e "    ${GREEN}● espeak-ng — available${NC}" ;;
-      none) echo -e "    ${RED}○ No TTS engine found${NC}"; echo -e "    ${DIM}  macOS: built-in 'say' should work${NC}"; echo -e "    ${DIM}  Linux: sudo apt install espeak-ng${NC}" ;;
+      edge-tts|edge-tts-py)
+        echo -e "    ${GREEN}● edge-tts Microsoft Neural AI — active ⭐ best free quality${NC}"
+        echo -e "    ${DIM}    Voice: $VOICE_DEFAULT${NC}"
+        echo -e "    ${DIM}    List voices: bash scripts/voice.sh voices${NC}"
+        ;;
+      say) echo -e "    ${YELLOW}● macOS 'say' — active (robotic)${NC}"; echo -e "    ${DIM}    Upgrade to neural: bash scripts/voice.sh install-voice-model${NC}" ;;
+      espeak-ng|espeak) echo -e "    ${YELLOW}● espeak — active (robotic)${NC}"; echo -e "    ${DIM}    Upgrade to neural: bash scripts/voice.sh install-voice-model${NC}" ;;
+      none)
+        echo -e "    ${RED}○ No TTS engine${NC}"
+        echo -e "    ${DIM}    Install neural AI voice: bash scripts/voice.sh install-voice-model${NC}"
+        ;;
     esac
     echo ""
     echo -e "  STT (speech-to-text):"
@@ -195,37 +289,31 @@ print(f'Project health score is {score.group(1)} out of 100.' if score else 'Hea
       whisper-cpp-local) echo -e "    ${GREEN}● whisper.cpp (local, offline) — installed${NC}" ;;
       groq) echo -e "    ${GREEN}● Groq Whisper API — configured (7200s/day free)${NC}" ;;
       none)
-        echo -e "    ${RED}○ No STT engine found${NC}"
-        echo ""
-        echo -e "  ${BOLD}Free STT options (choose one):${NC}"
-        echo -e "    ${DIM}1. Groq Whisper API (easiest):${NC}"
-        echo -e "    ${DIM}   Sign up free: https://console.groq.com${NC}"
-        echo -e "    ${DIM}   Add to .env.local: GROQ_API_KEY=your_key${NC}"
-        echo -e "    ${DIM}   Free: 7200 seconds/day (2 hours)${NC}"
-        echo -e "    ${DIM}2. whisper.cpp (offline, local):${NC}"
-        echo -e "    ${DIM}   bash scripts/voice.sh install-whisper${NC}"
-        echo -e "    ${DIM}3. Python Whisper (GPU recommended):${NC}"
-        echo -e "    ${DIM}   pip install openai-whisper${NC}"
+        echo -e "    ${RED}○ No STT engine${NC}"
+        echo -e "    ${DIM}    Options: bash scripts/voice.sh install-whisper  OR  set GROQ_API_KEY${NC}"
         ;;
     esac
     ;;
 
   help|*)
     echo -e "  ${BOLD}Usage:${NC}"
-    echo -e "  ${CYAN}bash scripts/voice.sh speak \"Hello world\"${NC}     ${DIM}# TTS: speak text aloud${NC}"
-    echo -e "  ${CYAN}bash scripts/voice.sh listen 5${NC}                ${DIM}# STT: record 5s and transcribe${NC}"
-    echo -e "  ${CYAN}bash scripts/voice.sh read-health${NC}             ${DIM}# Speak last health score${NC}"
-    echo -e "  ${CYAN}bash scripts/voice.sh status${NC}                  ${DIM}# Check TTS/STT engines${NC}"
-    echo -e "  ${CYAN}bash scripts/voice.sh install-whisper${NC}         ${DIM}# Install offline whisper.cpp${NC}"
+    echo -e "  ${CYAN}bash scripts/voice.sh install-voice-model${NC}  ${DIM}# Install neural AI voices (recommended first step)${NC}"
+    echo -e "  ${CYAN}bash scripts/voice.sh speak \"Hello world\"${NC}  ${DIM}# TTS: speak text with neural voice${NC}"
+    echo -e "  ${CYAN}bash scripts/voice.sh voices${NC}               ${DIM}# List all 400+ neural voices${NC}"
+    echo -e "  ${CYAN}bash scripts/voice.sh listen 5${NC}             ${DIM}# STT: record 5s and transcribe${NC}"
+    echo -e "  ${CYAN}bash scripts/voice.sh read-health${NC}          ${DIM}# Speak last health score${NC}"
+    echo -e "  ${CYAN}bash scripts/voice.sh status${NC}               ${DIM}# Check TTS/STT engines${NC}"
+    echo -e "  ${CYAN}bash scripts/voice.sh install-whisper${NC}      ${DIM}# Install offline whisper.cpp (STT)${NC}"
     echo ""
-    echo -e "  ${BOLD}Free TTS engines:${NC}"
-    echo -e "  ${DIM}  macOS: 'say' (built-in, zero setup)${NC}"
-    echo -e "  ${DIM}  Linux: espeak-ng (sudo apt install espeak-ng)${NC}"
+    echo -e "  ${BOLD}⭐ Best free neural AI voice (recommended):${NC}"
+    echo -e "  ${DIM}  edge-tts — Microsoft Edge neural voices, zero cost, no API key${NC}"
+    echo -e "  ${DIM}  400+ voices · English, Arabic, 100+ languages${NC}"
+    echo -e "  ${DIM}  Same engine as Azure Cognitive Services TTS (normally \$16/million chars)${NC}"
+    echo -e "  ${DIM}  Install: bash scripts/voice.sh install-voice-model${NC}"
     echo ""
-    echo -e "  ${BOLD}Free STT options:${NC}"
-    echo -e "  ${DIM}  Groq Whisper API  — 7200s/day free (GROQ_API_KEY)${NC}"
-    echo -e "  ${DIM}  whisper.cpp       — 100% local, offline, free forever${NC}"
-    echo -e "  ${DIM}  openai-whisper    — pip install, local, GPU recommended${NC}"
+    echo -e "  ${BOLD}Customise voice:${NC}"
+    echo -e "  ${DIM}  Add to .env.local: GHOSTFORGE_VOICE=en-US-GuyNeural${NC}"
+    echo -e "  ${DIM}  Arabic female: GHOSTFORGE_VOICE=ar-SA-ZariyahNeural${NC}"
     ;;
 esac
 echo ""
