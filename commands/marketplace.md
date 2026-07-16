@@ -25,6 +25,12 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 | **GitHub Copilot Community** | GitHub topic | https://github.com/topics/copilot-agent |
 | **Awesome Copilot** | Curated | https://github.com/collections/github-copilot |
 | **NVIDIA NIM Agents** | Model agents | https://build.nvidia.com/nim |
+| **Anthropic Official Skills** | Claude Skills | https://github.com/anthropics/skills |
+| **SkillsMP** | Claude Skills (2M+) | https://skillsmp.com |
+| **Awesome Claude Skills** | Curated skills | https://awesomeclaude.ai/awesome-claude-skills |
+| **Skills Collection 2026** | Community skills | https://github.com/obviousworks/Claude-AI-skills-collection-2026 |
+| **Agent Skills Standard** | Skills spec | https://agentskills.io/home |
+| **Claude-Flow** | AI orchestration | https://github.com/edwincummins/claude-flow |
 
 ## Catalog Item Types
 

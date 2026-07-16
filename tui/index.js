@@ -187,6 +187,7 @@ const COMMANDS = [
   { name: '/upgrade',       cat: '⚙️  Modes',       file: 'commands/upgrade.md',        desc: 'Upgrade dependencies with safety checks and migration guide' },
   { name: '/help',          cat: '⚙️  Modes',       file: 'commands/help.md',           desc: 'Show full command reference and quick-start guide' },
   // Marketplace & Extensions
+  { name: '/skills',        cat: '🏪 Marketplace', file: 'commands/skills.md',        desc: 'Browse & install Claude Agent Skills from Anthropic, SkillsMP, Claude-Flow and more' },
   { name: '/marketplace',   cat: '🏪 Marketplace', file: 'commands/marketplace.md',   desc: 'Browse and install agents, commands, skills, plugins from trusted sources' },
   { name: '/generate',      cat: '🏪 Marketplace', file: 'commands/generate.md',      desc: 'Generate a new custom agent, command, skill, or plugin with a wizard' },
   { name: '/free-models',   cat: '🏪 Marketplace', file: 'commands/free-models.md',   desc: 'Configure and use free AI models: NVIDIA, Groq, Ollama, HuggingFace' },
@@ -914,6 +915,7 @@ async function screenMarketplace() {
       { name: T.success.bold('🔍  Search Items')        + T.muted(' — search by name, tag, or category'), value: 'search' },
       { name: T.brand.bold('⬇️   Install Item')         + T.muted(' — install from catalog or URL'), value: 'install' },
       { name: T.warning.bold('🌐  Browse aitmpl.com')   + T.muted(' — open AI templates site'), value: 'aitmpl' },
+      { name: T.success.bold('🎓  Claude Agent Skills') + T.muted(' — Anthropic, SkillsMP, Claude-Flow, Awesome'), value: 'skills' },
       { name: T.white.bold('📦  My Installed Items')   + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')    + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
       { name: T.success.bold('🤖  Add Custom Model')    + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
@@ -1037,6 +1039,116 @@ async function screenMarketplace() {
     console.log();
     try { execSync('open https://aitmpl.com 2>/dev/null || xdg-open https://aitmpl.com 2>/dev/null', { stdio: 'ignore' }); } catch {}
     await pressEnter();
+  }
+
+  if (action === 'skills') {
+    const sourcesPath = resolve(ROOT, 'marketplace/sources.json');
+    let allSources = [];
+    try {
+      const s = JSON.parse(readFileSync(sourcesPath, 'utf8'));
+      allSources = (s.sources || []).filter(src => src.type === 'claude-skills');
+    } catch {}
+
+    const skillAction = await select({
+      message: T.white.bold('Agent Skills:'),
+      choices: [
+        { name: T.accent.bold('📋  View all skill sources')              + T.muted(' — 6 trusted sources'), value: 'view' },
+        { name: T.success.bold('🔍  Search SkillsMP')                   + T.muted(' — 2M+ community skills'), value: 'search' },
+        { name: T.brand.bold('⚡  Install Claude-Flow')                 + T.muted(' — AI orchestration swarm'), value: 'claude-flow' },
+        { name: T.white.bold('📦  Install Anthropic official skills')   + T.muted(' — docx, pdf, pptx, xlsx…'), value: 'anthropic' },
+        { name: T.warning.bold('🌐  Open Awesome Claude Skills')         + T.muted(' — curated free directory'), value: 'awesome' },
+        { name: T.muted('🌐  Open SkillsMP marketplace'), value: 'open-skillsmp' },
+        { name: T.muted('📖  View /skills command docs'), value: 'docs' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 10,
+    });
+
+    if (skillAction === '__back__') return;
+
+    if (skillAction === 'view') {
+      console.log();
+      allSources.forEach(src => {
+        console.log(`  ${T.success('●')} ${T.white.bold(src.name)}`);
+        console.log(`    ${T.dim(src.description)}`);
+        console.log(`    ${T.muted(src.url)}`);
+        if (src.install_command) console.log(`    ${T.accent('Install: ')}${T.dim(src.install_command)}`);
+        if (src.install_note) console.log(`    ${T.muted(src.install_note)}`);
+        console.log();
+      });
+      await pressEnter();
+    }
+
+    if (skillAction === 'search') {
+      const q = await input({ message: T.white('Search SkillsMP (e.g. "react", "typescript", "auth"):'), default: '' });
+      if (q) {
+        console.log(T.muted('\n  Searching...\n'));
+        const { spawnSync } = await import('child_process');
+        spawnSync('bash', [resolve(ROOT, 'scripts/skills.sh'), 'search', q], { stdio: 'inherit' });
+        console.log();
+      }
+      await pressEnter();
+    }
+
+    if (skillAction === 'claude-flow') {
+      console.log();
+      console.log(boxen(
+        T.brand.bold(' Claude-Flow — AI Orchestration ') + '\n\n' +
+        T.white('Hive-mind swarm intelligence for complex development tasks:\n\n') +
+        T.success('  ✅ 87 MCP tools\n') +
+        T.success('  ✅ 84.8% SWE-Bench solve rate\n') +
+        T.success('  ✅ 2.8–4.4× speed vs single agent\n') +
+        T.success('  ✅ Persistent memory via SQLite\n\n') +
+        T.muted('  Quick start:\n') +
+        T.accent('  npx claude-flow@alpha init --force\n') +
+        T.accent('  npx claude-flow@alpha swarm "refactor auth system"\n\n') +
+        T.dim('  Requires: @anthropic-ai/claude-code'),
+        { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
+      ));
+      const doInstall = await input({ message: T.white('Run install now? (yes/no):'), default: 'no' });
+      if (doInstall.toLowerCase() === 'yes') {
+        const { spawnSync } = await import('child_process');
+        spawnSync('bash', [resolve(ROOT, 'scripts/skills.sh'), 'claude-flow'], { stdio: 'inherit' });
+      }
+      await pressEnter();
+    }
+
+    if (skillAction === 'anthropic') {
+      console.log();
+      console.log(boxen(
+        T.brand.bold(' Anthropic Official Skills ') + '\n\n' +
+        T.white('Official skills by Anthropic — production-tested:\n\n') +
+        T.muted('  • docx — Create/edit Word documents\n') +
+        T.muted('  • pdf  — Extract, split, merge PDFs\n') +
+        T.muted('  • pptx — Generate PowerPoint presentations\n') +
+        T.muted('  • xlsx — Manipulate Excel files\n') +
+        T.muted('  • web-test — Playwright/Puppeteer testing\n') +
+        T.muted('  • mcp-server-gen — Generate MCP servers\n\n') +
+        T.cyan('  In Claude Code, run:\n') +
+        T.accent('  /plugin marketplace add anthropics/skills\n\n') +
+        T.dim('  Or: bash scripts/skills.sh anthropic'),
+        { padding: 1, borderColor: '#0077C8', borderStyle: 'round' }
+      ));
+      await pressEnter();
+    }
+
+    if (skillAction === 'awesome') {
+      try { execSync('open https://awesomeclaude.ai/awesome-claude-skills 2>/dev/null || xdg-open https://awesomeclaude.ai/awesome-claude-skills 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      console.log(T.muted('\n  Opened: https://awesomeclaude.ai/awesome-claude-skills\n'));
+      await pressEnter();
+    }
+
+    if (skillAction === 'open-skillsmp') {
+      try { execSync('open https://skillsmp.com 2>/dev/null || xdg-open https://skillsmp.com 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      console.log(T.muted('\n  Opened: https://skillsmp.com\n'));
+      await pressEnter();
+    }
+
+    if (skillAction === 'docs') {
+      showMdPreview('commands/skills.md', 60);
+      console.log();
+      await pressEnter();
+    }
   }
 
   if (action === 'installed') {

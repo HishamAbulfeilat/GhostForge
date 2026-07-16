@@ -41,6 +41,67 @@
       "description": "AI agents powered by NVIDIA NIM free models",
       "url": "https://build.nvidia.com/nim",
       "trusted": true
+    },
+    {
+      "id": "anthropics-skills",
+      "name": "Anthropic Official Skills",
+      "type": "claude-skills",
+      "description": "Official Anthropic skills: docx, pdf, pptx, xlsx, web testing, MCP generation, creative, enterprise workflows",
+      "url": "https://github.com/anthropics/skills",
+      "install_command": "/plugin marketplace add anthropics/skills",
+      "install_note": "Run in Claude Code: /plugin marketplace add anthropics/skills",
+      "categories": ["documents", "development", "enterprise", "creative"],
+      "trusted": true
+    },
+    {
+      "id": "skillsmp",
+      "name": "SkillsMP — Community Marketplace",
+      "type": "claude-skills",
+      "description": "2M+ open-source Agent Skills for Claude Code, Codex CLI, ChatGPT. Browse by category, occupation, keyword. Free REST API + MCP server.",
+      "url": "https://skillsmp.com",
+      "apiBase": "https://skillsmp.com",
+      "mcp_endpoint": "https://skillsmp.com/mcp",
+      "openapi_spec": "https://skillsmp.com/openapi.json",
+      "docs": "https://skillsmp.com/docs/api",
+      "trusted": true
+    },
+    {
+      "id": "agentskills-io",
+      "name": "Agent Skills Standard (agentskills.io)",
+      "type": "claude-skills",
+      "description": "The Agent Skills standard — SKILL.md format used by Claude Code, Junie, Gemini CLI, ZeroClaw. Install skills under .claude/skills/<name>/SKILL.md",
+      "url": "https://agentskills.io/home",
+      "docs": "https://agentskills.io/llms.txt",
+      "install_note": "Copy SKILL.md into ~/.claude/skills/<name>/ or .claude/skills/<name>/ in your project",
+      "trusted": true
+    },
+    {
+      "id": "claude-flow",
+      "name": "Claude-Flow — AI Orchestration",
+      "type": "claude-skills",
+      "description": "Enterprise AI orchestration with hive-mind swarm intelligence, 87 MCP tools, 84.8% SWE-Bench solve rate. Queen-led AI coordination, WASM-accelerated neural models.",
+      "url": "https://github.com/edwincummins/claude-flow",
+      "install_command": "npx claude-flow@alpha init --force",
+      "quick_start": "npx claude-flow@alpha swarm \"your task here\"",
+      "requires": "Claude Code (@anthropic-ai/claude-code)",
+      "trusted": true
+    },
+    {
+      "id": "awesome-claude-skills",
+      "name": "Awesome Claude Skills Directory",
+      "type": "claude-skills",
+      "description": "Free curated directory of Claude skills. Install by adding SKILL.md to .claude/skills/<name>/. Skills load on-demand unlike CLAUDE.md.",
+      "url": "https://awesomeclaude.ai/awesome-claude-skills",
+      "install_note": "Browse → copy SKILL.md → place in ~/.claude/skills/<name>/SKILL.md",
+      "trusted": true
+    },
+    {
+      "id": "claude-skills-collection-2026",
+      "name": "Claude AI Skills Collection 2026",
+      "type": "claude-skills",
+      "description": "Curated collection of official Anthropic + community Claude skills: docx/pdf/pptx/xlsx, revealjs, EPUB, research, testing, and more.",
+      "url": "https://github.com/obviousworks/Claude-AI-skills-collection-2026",
+      "trusted": true
     }
   ]
 }
