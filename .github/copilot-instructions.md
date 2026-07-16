@@ -396,26 +396,25 @@ Priority mapping:
 
 ---
 
-## 🤖 Model Auto-Selection (auto-synced 2026-07-15)
+## 🤖 Model Auto-Selection (auto-synced 2026-07-16)
 
 Auto-select best model based on task. Available tiers:
 
 | Tier | Models | Use For |
 |------|--------|---------|
 | Fast | `gpt-5.4-mini`, `gpt-5-mini`, `claude-haiku-4.5` | Quick tasks, lint, commit |
-| Balanced | `claude-sonnet-4.6`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`, `gpt-5.3-codex` | Features, tests, SQL, deploy |
+| Balanced | `claude-sonnet-4.6`, `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.5` | Features, tests, SQL, deploy |
 | Deep 🧠 | `claude-opus-4.6`, `claude-opus-4.7`, `claude-opus-4.8` | Security, architecture, design |
 
 **Rules:**
 - Keywords "quick"/"briefly" → fast tier, low effort
-- Keywords "thorough"/"full audit" → deep tier, high effort  
+- Keywords "thorough"/"full audit" → deep tier, high effort
 - `/security`, `/review`, architecture → `claude-opus-4.6`, high effort
 - `/add-feature`, `/test` → `claude-sonnet-4.6`, medium effort
 - `/sql`, `/deploy` → `gpt-5.3-codex`, medium effort
 - Production context detected → bump effort +1 level
 
 Use `/model list` to see all models. Use `/model deep|fast|balanced|max` to override.
-
 ---
 
 ## 🌿 Branch-Aware Model Selection

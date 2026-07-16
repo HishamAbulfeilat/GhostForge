@@ -179,6 +179,11 @@ const COMMANDS = [
   // Modes & Misc
   { name: '/autopilot',     cat: '⚙️  Modes',       file: 'commands/autopilot.md',      desc: 'Enable autopilot mode — auto-approve all actions (no prompts)' },
   { name: '/safe',          cat: '⚙️  Modes',       file: 'commands/safe.md',           desc: 'Enable safe mode — confirm every action before execution' },
+  { name: '/api-types',     cat: '💡 Development', file: 'commands/api-types.md',      desc: 'Fetch OpenAPI/Swagger spec → generate TypeScript types + service file' },
+  { name: '/changelog',     cat: '🔀 Git',         file: 'commands/changelog.md',      desc: 'Auto-generate CHANGELOG.md from git commits (Conventional Commits)' },
+  { name: '/env-check',     cat: '🏗  Setup',      file: 'commands/env-check.md',      desc: 'Compare .env vs .env.example — flag missing, undocumented, exposed secrets' },
+  { name: '/unused',        cat: '💡 Development', file: 'commands/unused.md',         desc: 'Find unused components, exports, and dependencies with knip' },
+  { name: '/git-hooks',     cat: '🏗  Setup',      file: 'commands/git-hooks.md',      desc: 'Install Husky + lint-staged + commitlint in one command' },
   { name: '/upgrade',       cat: '⚙️  Modes',       file: 'commands/upgrade.md',        desc: 'Upgrade dependencies with safety checks and migration guide' },
   { name: '/help',          cat: '⚙️  Modes',       file: 'commands/help.md',           desc: 'Show full command reference and quick-start guide' },
   // Marketplace & Extensions
@@ -252,13 +257,18 @@ async function screenHome() {
       { name: T.brand.bold('🚀  New Project Setup')         + T.muted('   — wizard: choose stack, init repo, scaffold everything'), value: 'setup' },
       { name: T.brand.bold('📂  Open Existing Project')     + T.muted('   — copy AI files into any existing project + open VS Code'), value: 'open' },
       { name: T.brand.bold('🗂  Manage Projects')           + T.muted('        — registry of all your projects'), value: 'projects' },
-      { name: T.success.bold('💊  Project Health Check')    + T.muted(' — score /100: deps, tests, security, lint'), value: 'health' },
+      { name: T.success.bold('💊  Project Health Check')    + T.muted(' — score /100: deps, tests, security, lint + badge'), value: 'health' },
       { name: T.accent.bold('⚡  Run a Command')             + T.muted('           — browse all slash commands'), value: 'commands' },
       { name: T.success.bold('🤖  Switch Agent / Role')      + T.muted('      — activate a specialized AI agent'), value: 'agents' },
       { name: T.warning.bold('📚  Browse Instructions')      + T.muted('     — view knowledge base / docs'), value: 'instructions' },
       { name: T.accent.bold('📋  Snippet Library')           + T.muted('         — browse & copy ready-made code snippets'), value: 'snippets' },
       { name: T.white.bold('🔍  Bundle Analyzer')            + T.muted('        — size, heavy deps, lazy-loading tips'), value: 'bundle' },
       { name: T.white.bold('🌐  RTL Audit')                  + T.muted('               — find & fix non-logical Tailwind classes'), value: 'rtl' },
+      { name: T.accent.bold('🔑  /api-types')                + T.muted('               — OpenAPI/Swagger → TypeScript types'), value: 'api-types' },
+      { name: T.accent.bold('📝  /changelog')                + T.muted('              — generate CHANGELOG from git commits'), value: 'changelog' },
+      { name: T.accent.bold('🔒  /env-check')                + T.muted('               — validate .env vs .env.example'), value: 'env-check' },
+      { name: T.accent.bold('🧹  /unused')                   + T.muted('                  — find dead code with knip'), value: 'unused' },
+      { name: T.accent.bold('🪝  /git-hooks')                + T.muted('              — install husky + lint-staged'), value: 'git-hooks' },
       { name: T.white.bold('🎫  Tickets & Issues')          + T.muted('       — view and fix assigned tickets'), value: 'tickets' },
       { name: T.white.bold('🔒  Security Audit')            + T.muted('         — OWASP scan, dep check, secrets'), value: 'security' },
       { name: T.white.bold('🧪  Run Tests')                 + T.muted('              — auto-detect and run test suite'), value: 'test' },
@@ -1347,6 +1357,140 @@ async function screenFreeModels() {
   }
 }
 
+async function screenAPITypes() {
+  sectionHeader('🔑  /api-types', 'Generate TypeScript types from an OpenAPI/Swagger spec');
+  const choices = [
+    { name: T.accent('▶  Run /api-types (enter URL or path)'), value: 'run' },
+    { name: T.white('▶  Run with --service flag (also generate API service file)'), value: 'run-service' },
+    { name: T.white('📖  View command docs'), value: 'docs' },
+    { name: T.muted('← Back'), value: '__back__' },
+  ];
+  const choice = await select({ message: 'Choose:', choices });
+  if (choice === '__back__') return;
+  if (choice === 'docs') {
+    showMdPreview('commands/api-types.md');
+    await pressEnter();
+    await screenAPITypes(); return;
+  }
+  const spec = await input({ message: T.white('OpenAPI spec URL or local file path:'), default: '' });
+  if (!spec) { console.log(T.warning('\n  No spec provided.')); await pressEnter(); return; }
+  const outFile = await input({ message: T.white('Output file:'), default: 'src/types/api.generated.ts' });
+  const args = [spec, `--out=${outFile}`];
+  if (choice === 'run-service') args.push('--service');
+  console.log(T.muted('\n  Running...\n'));
+  const { spawnSync } = await import('child_process');
+  spawnSync('bash', [resolve(ROOT, 'scripts/api-types.sh'), ...args], { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
+async function screenChangelog() {
+  sectionHeader('📝  /changelog', 'Auto-generate CHANGELOG.md from git conventional commits');
+  const choices = [
+    { name: T.accent('▶  Generate changelog (since last tag)'), value: 'run' },
+    { name: T.white('▶  Dry run (print to console only)'), value: 'dry' },
+    { name: T.white('▶  Show unreleased commits only'), value: 'unreleased' },
+    { name: T.white('📖  View command docs'), value: 'docs' },
+    { name: T.muted('← Back'), value: '__back__' },
+  ];
+  const choice = await select({ message: 'Choose:', choices });
+  if (choice === '__back__') return;
+  if (choice === 'docs') {
+    showMdPreview('commands/changelog.md');
+    await pressEnter();
+    await screenChangelog(); return;
+  }
+  const args = [];
+  if (choice === 'dry') args.push('--dry-run');
+  if (choice === 'unreleased') args.push('--unreleased');
+  console.log(T.muted('\n  Generating changelog...\n'));
+  const { spawnSync } = await import('child_process');
+  spawnSync('bash', [resolve(ROOT, 'scripts/changelog.sh'), ...args], { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
+async function screenEnvCheck() {
+  sectionHeader('🔒  /env-check', 'Validate .env vs .env.example — find missing, undocumented, exposed secrets');
+  const choices = [
+    { name: T.accent('▶  Run env-check (current directory)'), value: 'run' },
+    { name: T.warning('▶  Run with --fix (auto-add undocumented keys to .env.example)'), value: 'fix' },
+    { name: T.danger('▶  Run in strict mode (exit non-zero on any issue — for CI)'), value: 'strict' },
+    { name: T.white('📖  View command docs'), value: 'docs' },
+    { name: T.muted('← Back'), value: '__back__' },
+  ];
+  const choice = await select({ message: 'Choose:', choices });
+  if (choice === '__back__') return;
+  if (choice === 'docs') {
+    showMdPreview('commands/env-check.md');
+    await pressEnter();
+    await screenEnvCheck(); return;
+  }
+  const args = [];
+  if (choice === 'fix') args.push('--fix');
+  if (choice === 'strict') args.push('--strict');
+  console.log(T.muted('\n  Scanning environment variables...\n'));
+  const { spawnSync } = await import('child_process');
+  spawnSync('bash', [resolve(ROOT, 'scripts/env-check.sh'), ...args], { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
+async function screenUnused() {
+  sectionHeader('🧹  /unused', 'Find unused components, exports, and dependencies with knip');
+  const choices = [
+    { name: T.accent('▶  Full scan (files + exports + dependencies)'), value: 'run' },
+    { name: T.white('▶  Unused dependencies only'), value: 'deps' },
+    { name: T.white('▶  Unused exports only'), value: 'exports' },
+    { name: T.white('▶  Unused files only'), value: 'files' },
+    { name: T.warning('▶  Scan + auto-fix (removes safe unused items)'), value: 'fix' },
+    { name: T.white('📖  View command docs'), value: 'docs' },
+    { name: T.muted('← Back'), value: '__back__' },
+  ];
+  const choice = await select({ message: 'Choose:', choices });
+  if (choice === '__back__') return;
+  if (choice === 'docs') {
+    showMdPreview('commands/unused.md');
+    await pressEnter();
+    await screenUnused(); return;
+  }
+  const args = [];
+  if (choice === 'deps') args.push('--deps');
+  if (choice === 'exports') args.push('--exports');
+  if (choice === 'files') args.push('--files');
+  if (choice === 'fix') args.push('--fix');
+  console.log(T.muted('\n  Scanning for dead code...\n'));
+  const { spawnSync } = await import('child_process');
+  spawnSync('bash', [resolve(ROOT, 'scripts/unused.sh'), ...args], { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
+async function screenGitHooks() {
+  sectionHeader('🪝  /git-hooks', 'Install Husky + lint-staged + commitlint in one command');
+  const choices = [
+    { name: T.accent('▶  Install git hooks (current directory)'), value: 'run' },
+    { name: T.white('▶  Install minimal (husky + lint-staged, no commitlint)'), value: 'minimal' },
+    { name: T.danger('▶  Remove all hooks'), value: 'remove' },
+    { name: T.white('📖  View command docs'), value: 'docs' },
+    { name: T.muted('← Back'), value: '__back__' },
+  ];
+  const choice = await select({ message: 'Choose:', choices });
+  if (choice === '__back__') return;
+  if (choice === 'docs') {
+    showMdPreview('commands/git-hooks.md');
+    await pressEnter();
+    await screenGitHooks(); return;
+  }
+  if (choice === 'remove') {
+    const confirmed = await input({ message: T.danger('Type "yes" to remove all git hooks:'), default: '' });
+    if (confirmed !== 'yes') { console.log(T.muted('\n  Cancelled.')); await pressEnter(); return; }
+  }
+  const args = [];
+  if (choice === 'minimal') args.push('--minimal');
+  if (choice === 'remove') args.push('--remove');
+  console.log(T.muted('\n  Setting up git hooks...\n'));
+  const { spawnSync } = await import('child_process');
+  spawnSync('bash', [resolve(ROOT, 'scripts/git-hooks.sh'), ...args], { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
 // ─── Main Loop ────────────────────────────────────────────────────────────────
 async function screenVSCodeInstall() {
   sectionHeader('🧩  Install VS Code Extension', 'Install the ghostforge-ai extension directly into VS Code');
@@ -1524,6 +1668,11 @@ async function main() {
         case 'snippets':     await screenSnippets(); break;
         case 'bundle':       await screenBundle(); break;
         case 'rtl':          await screenRTL(); break;
+        case 'api-types':    await screenAPITypes(); break;
+        case 'changelog':    await screenChangelog(); break;
+        case 'env-check':    await screenEnvCheck(); break;
+        case 'unused':       await screenUnused(); break;
+        case 'git-hooks':    await screenGitHooks(); break;
         case 'version':      await screenVersion(); break;
         case 'vscode-install': await screenVSCodeInstall(); break;
         case 'help':         await screenHelp(); break;

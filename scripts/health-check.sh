@@ -230,3 +230,25 @@ if $IS_REACT && (( REACT_DOCTOR_SCORE >= 0 )); then
   echo -e "${BLUE}React Doctor score:${NC}  $(status_icon "$REACT_DOCTOR_SCORE") ${BOLD}${REACT_DOCTOR_SCORE}/100${NC}"
 fi
 echo -e "${DIM}Cached at: $CACHE_FILE${NC}"
+
+# ── Health badge ─────────────────────────────────────────────
+BADGE_COLOR="brightgreen"
+if (( TOTAL >= 90 )); then BADGE_COLOR="brightgreen"
+elif (( TOTAL >= 70 )); then BADGE_COLOR="yellow"
+elif (( TOTAL >= 50 )); then BADGE_COLOR="orange"
+else BADGE_COLOR="red"; fi
+
+BADGE_LABEL="health"
+BADGE_MESSAGE="${TOTAL}%2F100"
+BADGE_URL="https://img.shields.io/badge/${BADGE_LABEL}-${BADGE_MESSAGE}-${BADGE_COLOR}?style=flat-square&logo=github"
+BADGE_MD="![Health ${TOTAL}/100](${BADGE_URL})"
+
+divider
+echo ""
+echo -e "${BOLD}  📛 Health Badge (copy into your README):${NC}"
+echo ""
+echo -e "  ${DIM}${BADGE_MD}${NC}"
+echo ""
+echo -e "  ${DIM}Shields.io URL:${NC}"
+echo -e "  ${DIM}${BADGE_URL}${NC}"
+echo ""

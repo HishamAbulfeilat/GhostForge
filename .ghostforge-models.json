@@ -1,6 +1,12 @@
 {
-  "syncedAt": "2026-07-15 17:30 UTC",
-  "count": 24,
+  "syncedAt": "2026-07-16 08:10 UTC",
+  "count": 22,
+  "branchRecommendation": {
+    "tier": "deep",
+    "effort": "high",
+    "model": "claude-opus-4.8",
+    "reason": "Production code — maximum care"
+  },
   "models": [
     {
       "id": "claude-opus-4.6",
@@ -37,24 +43,6 @@
       "vision": true,
       "maxCtx": 264000,
       "bestFor": "Features, testing, refactoring, CMS, reliable code gen"
-    },
-    {
-      "id": "gemini-3.1-pro-preview",
-      "family": "gemini-3",
-      "tier": "balanced",
-      "thinking": false,
-      "vision": true,
-      "maxCtx": 264000,
-      "bestFor": "Large codebase analysis, documentation"
-    },
-    {
-      "id": "gemini-3.5-flash",
-      "family": "other",
-      "tier": "balanced",
-      "thinking": false,
-      "vision": true,
-      "maxCtx": 264000,
-      "bestFor": "General purpose"
     },
     {
       "id": "gpt-5.3-codex",

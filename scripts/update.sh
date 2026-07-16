@@ -197,6 +197,52 @@ fi
 
 echo ""
 divider
+
+# ── VS Code extension auto-rebuild & reinstall ───────────────
+EXT_DIR="$GHOSTFORGE_DIR/extension"
+if [[ -d "$EXT_DIR" ]] && [[ "$NEW_VERSION" != "$CURRENT_VERSION" ]]; then
+  echo ""
+  echo -e "  ${BLUE}Rebuilding VS Code extension for v${NEW_VERSION}...${NC}"
+
+  # Update version in extension/package.json
+  if command -v node &>/dev/null && [[ -f "$EXT_DIR/package.json" ]]; then
+    node -e "
+      const fs = require('fs');
+      const pkg = JSON.parse(fs.readFileSync('$EXT_DIR/package.json', 'utf8'));
+      pkg.version = '$NEW_VERSION';
+      fs.writeFileSync('$EXT_DIR/package.json', JSON.stringify(pkg, null, 2) + '\n');
+    " 2>/dev/null && echo -e "  ${GREEN}✔${NC} extension/package.json version → $NEW_VERSION"
+  fi
+
+  # Rebuild bundle
+  if [[ -f "$EXT_DIR/esbuild.js" ]]; then
+    node "$EXT_DIR/esbuild.js" 2>/dev/null \
+      && echo -e "  ${GREEN}✔${NC} Extension rebuilt" \
+      || echo -e "  ${YELLOW}⚠  Extension rebuild skipped (check extension/src/)${NC}"
+  fi
+
+  # Repackage .vsix
+  if command -v npx &>/dev/null; then
+    # Remove old vsix files
+    rm -f "$EXT_DIR"/*.vsix 2>/dev/null || true
+    npx @vscode/vsce package --no-dependencies --out "$EXT_DIR/ghostforge-ai-${NEW_VERSION}.vsix" 2>/dev/null \
+      && echo -e "  ${GREEN}✔${NC} Packaged: ghostforge-ai-${NEW_VERSION}.vsix" \
+      || echo -e "  ${YELLOW}⚠  VSIX packaging skipped${NC}"
+  fi
+
+  # Auto-reinstall if code CLI available
+  VSIX_FILE="$EXT_DIR/ghostforge-ai-${NEW_VERSION}.vsix"
+  if command -v code &>/dev/null && [[ -f "$VSIX_FILE" ]]; then
+    code --install-extension "$VSIX_FILE" --force &>/dev/null \
+      && echo -e "  ${GREEN}✔${NC} Extension reinstalled in VS Code (reload window to activate)" \
+      || echo -e "  ${YELLOW}⚠  Auto-install skipped — run: code --install-extension $VSIX_FILE${NC}"
+  elif [[ -f "$VSIX_FILE" ]]; then
+    echo -e "  ${DIM}  Install manually: code --install-extension $VSIX_FILE${NC}"
+  fi
+fi
+
+echo ""
+divider
 echo ""
 echo -e "  ${GREEN}${BOLD}✅ GhostForge AI Toolkit v${NEW_VERSION} ready!${NC}"
 echo ""
