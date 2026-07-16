@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.7.1 — 2026-07-16
+
+9e35d33 docs: update README for v2.7.0
+0d36eb4 feat(tui): add VS Code extension install screen
+
+---
+
+
+
 ## v2.7.0 — 2026-07-16
 
 f182873 feat: add ghostforge-ai VS Code extension (v2.6.0)
