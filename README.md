@@ -915,6 +915,12 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.0.1 — Marketplace Expansion
+- **🧠 Hermes Agent (Nous Research)** — self-improving AI agent with learning loop, persistent memory, cron scheduler, Telegram/Discord/Slack/WhatsApp/Signal gateway, agentskills.io compatible. Install from TUI Marketplace.
+- **🔊 edge-tts neural AI voice** — Microsoft Edge neural voices (400+), zero cost, no API key. `bash scripts/voice.sh install-voice-model`. Arabic voices included (`ar-SA-ZariyahNeural`, `ar-EG-SalmaNeural`).
+- **🔍 opensourceprojects.dev** — curated open-source discovery added to marketplace (hidden gems, trending repos, RSS feed)
+- **13 marketplace sources** total
+
 ### v3.0.0 — Major Feature Release
 - **🔊 Voice features (free)** — TTS via macOS `say`/`espeak-ng`; STT via Groq Whisper API (7200s/day free) or local `whisper.cpp` (offline, forever free)
 - **💬 `@ghostforge` Copilot Chat Participant** — VS Code chat with `/health`, `/review`, `/test`, `/rtl`, `/bundle`, `/commit`, `/security`, `/optimize`, `/estimate` slash commands
