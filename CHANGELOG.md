@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.7.0 — 2026-07-16
+
+f182873 feat: add ghostforge-ai VS Code extension (v2.6.0)
+
+---
+
+
+
 ## v2.6.0 — 2026-07-16
 
 e8d84fc feat: add context, snippet library, RTL audit, storybook gen, ticket scaffold, bundle analyzer, project templates
