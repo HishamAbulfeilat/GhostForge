@@ -18,11 +18,14 @@ jobs:
           fetch-depth: 0
 
       - name: Push mirror to HishamAbulfeilat/GhostForge
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
         run: |
-          if [ -z "${{ secrets.MIRROR_TOKEN }}" ]; then
-            echo "⚠️ MIRROR_TOKEN secret not set — skipping mirror push."
-            echo "Add a PAT from HishamAbulfeilat account with repo scope as MIRROR_TOKEN secret."
+          if [ -z "$MIRROR_TOKEN" ]; then
+            echo "⚠️ MIRROR_TOKEN secret not set — skipping."
             exit 0
           fi
-          git remote add mirror https://x-access-token:${{ secrets.MIRROR_TOKEN }}@github.com/HishamAbulfeilat/GhostForge.git
+          echo "$MIRROR_TOKEN" | gh auth login --with-token
+          gh auth setup-git
+          git remote add mirror https://github.com/HishamAbulfeilat/GhostForge.git
           git push mirror --mirror
