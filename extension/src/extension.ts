@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { registerCommands } from './commands';
+import { registerChatParticipant } from './chatParticipant';
 import { SnippetTreeProvider } from './snippetProvider';
 import { CommandTreeProvider } from './commandProvider';
 import { StatusBarManager } from './statusBar';
@@ -8,6 +9,7 @@ export function activate(context: vscode.ExtensionContext) {
   const toolkitRoot = findToolkitRoot();
 
   registerCommands(context, toolkitRoot);
+  registerChatParticipant(context, toolkitRoot);
 
   const snippetProvider = new SnippetTreeProvider(toolkitRoot);
   vscode.window.registerTreeDataProvider('ghostforge.snippets', snippetProvider);

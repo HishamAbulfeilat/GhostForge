@@ -1,8 +1,8 @@
-# 🚀 GhostForge AI Developer Toolkit — v2.9.0
+# 🚀 GhostForge AI Developer Toolkit — v3.0.0
 
 The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, and more.
 
-**200+ files · 14 agents · 55 commands · 27 scripts · 24 instruction files · MCP server · React Doctor · Marketplace · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension · Terminal UI (`ghostforge-ai`)**
+**230+ files · 14 agents · 60 commands · 35 scripts · 24 instruction files · MCP server · React Doctor · Marketplace · Agent Skills · Developer Dashboard (7 panels) · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge-ai`) · Voice Features · PR Auto-Check**
 
 ---
 
@@ -915,6 +915,20 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.0.0 — Major Feature Release
+- **🔊 Voice features (free)** — TTS via macOS `say`/`espeak-ng`; STT via Groq Whisper API (7200s/day free) or local `whisper.cpp` (offline, forever free)
+- **💬 `@ghostforge` Copilot Chat Participant** — VS Code chat with `/health`, `/review`, `/test`, `/rtl`, `/bundle`, `/commit`, `/security`, `/optimize`, `/estimate` slash commands
+- **🔀 Dashboard Open PRs panel** — 7th panel added: Open Pull Requests with author, review status (✅/⚠/⏳)
+- **⚡ PR Auto-Check GitHub Actions** — `.github/workflows/pr-check.yml` posts quality report on every PR (ESLint, env-check, unused, RTL, React Doctor, npm audit)
+- **🌐 `/health-all`** — scan all registered projects, combined health report
+- **⚡ `/perf`** — Lighthouse performance audit (mobile/desktop)
+- **⬆️ `/upgrade`** — interactive npm package upgrade wizard (npm-check-updates)
+- **🔌 `/mock-api`** — generate MSW handlers from OpenAPI spec
+- **🎓 `/onboard-dev`** — automated new developer setup wizard
+- **📋 `/ado`** — Azure DevOps work items, pipelines, releases
+- **🎯 `/estimate`** — AI story point estimator with codebase analysis
+- **📜 Interactive CHANGELOG viewer** — browse CHANGELOG.md by release in TUI
+
 ### v2.9.0 — Developer Dashboard
 - **📊 Real-time terminal dashboard** — 6 panels: My Tickets (GitHub Issues), Pipeline Status (Actions), Health Bar Chart, Releases & Tags, Health Trend Line, Activity Feed
 - Powered by `blessed-contrib` — full-screen terminal with live charts
@@ -942,4 +956,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 ---
 
 *Built for GhostForge · Frontend & Full Stack Developer Toolkit*
-*Powered by GitHub Copilot Business · v2.9.0*
+*Powered by GitHub Copilot Business · v3.0.0*

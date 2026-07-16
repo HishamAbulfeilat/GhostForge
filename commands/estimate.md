@@ -1,47 +1,27 @@
 # /estimate Command
 
 ## Purpose
-Estimate delivery effort for a ticket, bug, feature request, or pasted requirement.
+Estimate story points for a ticket or feature by analyzing the codebase and complexity.
 
 ## Usage
-| Command | Description |
-|---|---|
-| `/estimate [ticket description or paste ticket]` | Generate a quick effort estimate |
-| `/estimate --detailed [ticket]` | Provide a deeper phase-by-phase breakdown |
-| `/estimate --compare [ticket]` | Compare against similar past tickets or related work patterns |
-
-## Examples
 ```bash
-/estimate Add audit trail to admin actions
-/estimate --detailed Paste the full Jira ticket here...
-/estimate --compare Enable Azure AD SSO for mobile and web
+/estimate "Add user authentication"
+/estimate "Refactor database layer"
+/estimate --ticket PROJ-123      # Estimate from ADO/JIRA ticket title
 ```
 
-## Output format
-```text
-📊 Effort Estimate
+## How It Works
+1. Analyzes your codebase structure (file count, complexity)
+2. Identifies affected areas based on description keywords
+3. Checks similar past changes via git log
+4. Produces a Fibonacci story point estimate (1, 2, 3, 5, 8, 13)
+5. Explains reasoning with breakdown
 
-Story Points: 5
-Hours: 6-8h
-Confidence: 75%
-
-Breakdown:
-  Analysis & design:  1h
-  Implementation:     4h
-  Tests:              1.5h
-  PR review/fixes:    0.5h
-
-Complexity factors:
-  ⚠️  Touches authentication layer (+1 sp)
-  ⚠️  Requires mobile + web changes (+1 sp)
-  ✅  Has existing similar component (-0.5 sp)
-
-Risk: Medium — auth changes need extra testing
+## Output
 ```
-
-## What AI does
-1. Parses the ticket scope, affected platforms, integrations, and acceptance criteria.
-2. Detects uncertainty, missing details, and hidden complexity factors.
-3. Produces story points, hours, confidence, and a phase-by-phase breakdown.
-4. Highlights risks such as auth, payments, production data, mobile parity, or migration work.
-5. When `--compare` is used, relates the estimate to similar tickets, modules, or past implementation patterns.
+Estimate: 5 story points
+Complexity: Medium
+Affected areas: auth/, api/users/, components/forms/
+Reasoning: Touches 3+ areas, requires new API endpoint + UI changes
+Similar past work: "Add role system" (8pts, 3 days)
+```

@@ -150,7 +150,7 @@ const COMMANDS = [
   { name: '/docs',          cat: '💡 Development', file: 'commands/docs.md',            desc: 'Generate README, API docs, component docs, Storybook docs, changelog' },
   { name: '/optimize',      cat: '💡 Development', file: 'commands/optimize.md',       desc: 'Analyze and optimize performance, bundle size, and code quality' },
   { name: '/bundle',        cat: '💡 Development', file: 'commands/bundle.md',          desc: 'Analyze bundle size, flag heavy deps, suggest lazy-loading and tree-shaking' },
-  { name: '/perf',          cat: '💡 Development', file: 'commands/perf.md',            desc: 'Measure runtime performance with Lighthouse, budgets, and baselines' },
+  { name: '/perf',          cat: '💡 Development', file: 'commands/perf.md',            desc: 'Lighthouse performance audit' },
   { name: '/lint',          cat: '💡 Development', file: 'commands/lint.md',           desc: 'Run linters, fix auto-fixable issues, report remaining errors' },
   { name: '/mock',          cat: '💡 Development', file: 'commands/mock.md',           desc: 'Generate mock data, MSW handlers, and test fixtures' },
   { name: '/snippet',       cat: '💡 Development', file: 'commands/snippet.md',        desc: 'Browse, insert, and save reusable snippets from the snippet library' },
@@ -161,17 +161,21 @@ const COMMANDS = [
   { name: '/diagram',       cat: '💡 Development', file: 'commands/diagram.md',        desc: 'Generate architecture, flow, or ER diagrams (Mermaid)' },
   // Quality & Security
   { name: '/health',        cat: '🔒 Security',    file: 'commands/health.md',         desc: 'Score project health across audit, deps, coverage, bundle, tickets, lint' },
+  { name: '/health-all',    cat: '🔒 Security',    file: 'commands/health-all.md',     desc: 'Scan all registered projects for health scores' },
   { name: '/security',      cat: '🔒 Security',    file: 'commands/security.md',       desc: 'Full security audit: OWASP, dependency scan, secrets check' },
   { name: '/test',          cat: '🧪 QA',          file: 'commands/test.md',           desc: 'Auto-detect test framework and run tests with coverage' },
   { name: '/qa',            cat: '🧪 QA',          file: 'commands/qa.md',             desc: 'End-to-end QA: functional, UI, accessibility, performance' },
   // Tickets & Git
   { name: '/tickets',       cat: '🎫 Tickets',     file: 'commands/tickets.md',        desc: 'Show assigned tickets (GitHub Issues / Azure DevOps / Jira)' },
+  { name: '/ado',           cat: '🎫 Tickets',     file: 'commands/ado.md',            desc: 'Azure DevOps work items & pipelines' },
+  { name: '/estimate',      cat: '🎫 Tickets',     file: 'commands/estimate.md',       desc: 'AI story point estimator' },
   { name: '/fix-tickets',   cat: '🎫 Tickets',     file: 'commands/fix-tickets.md',    desc: 'Auto-fix bugs by priority: critical → high → medium → low' },
   { name: '/ticket',        cat: '🎫 Tickets',     file: 'commands/ticket.md',         desc: 'Scaffold a feature from a ticket ID — branch, commit template, file structure' },
   { name: '/commit',        cat: '🔀 Git',         file: 'commands/commit.md',         desc: 'Stage, generate conventional commit message, and push' },
   { name: '/pr-description',cat: '🔀 Git',         file: 'commands/pr-description.md', desc: 'Generate a detailed, structured PR description from diff' },
   { name: '/review',        cat: '🔀 Git',         file: 'commands/review.md',         desc: 'Review staged diff for blockers, warnings, suggestions, and PR notes' },
   { name: '/release',       cat: '🔀 Git',         file: 'commands/release.md',        desc: 'Cut a release: changelog, version bump, tag, draft PR' },
+  { name: '/changelog-view',cat: '🔀 Git',         file: 'commands/changelog.md',      desc: 'Interactive CHANGELOG viewer' },
   // Database & Reporting
   { name: '/sql',           cat: '🗄  Data',        file: 'commands/sql.md',            desc: 'Write, optimize, or explain SQL queries and reports' },
   // Deployment
@@ -185,7 +189,10 @@ const COMMANDS = [
   { name: '/env-check',     cat: '🏗  Setup',      file: 'commands/env-check.md',      desc: 'Compare .env vs .env.example — flag missing, undocumented, exposed secrets' },
   { name: '/unused',        cat: '💡 Development', file: 'commands/unused.md',         desc: 'Find unused components, exports, and dependencies with knip' },
   { name: '/git-hooks',     cat: '🏗  Setup',      file: 'commands/git-hooks.md',      desc: 'Install Husky + lint-staged + commitlint in one command' },
-  { name: '/upgrade',       cat: '⚙️  Modes',       file: 'commands/upgrade.md',        desc: 'Upgrade dependencies with safety checks and migration guide' },
+  { name: '/upgrade',       cat: '💡 Development', file: 'commands/upgrade.md',        desc: 'Interactive npm package upgrade wizard' },
+  { name: '/mock-api',      cat: '💡 Development', file: 'commands/mock-api.md',       desc: 'Generate MSW handlers from OpenAPI spec' },
+  { name: '/onboard-dev',   cat: '🏗  Setup',      file: 'commands/onboard-dev.md',    desc: 'New developer onboarding setup' },
+  { name: '/voice',         cat: '⚙️  Modes',       file: 'commands/voice.md',          desc: 'Free TTS/STT voice features' },
   { name: '/help',          cat: '⚙️  Modes',       file: 'commands/help.md',           desc: 'Show full command reference and quick-start guide' },
   // Marketplace & Extensions
   { name: '/skills',        cat: '🏪 Marketplace', file: 'commands/skills.md',        desc: 'Browse & install Claude Agent Skills from Anthropic, SkillsMP, Claude-Flow and more' },
@@ -261,6 +268,15 @@ async function screenHome() {
       { name: T.brand.bold('📂  Open Existing Project')     + T.muted('   — copy AI files into any existing project + open VS Code'), value: 'open' },
       { name: T.brand.bold('🗂  Manage Projects')           + T.muted('        — registry of all your projects'), value: 'projects' },
       { name: T.success.bold('💊  Project Health Check')    + T.muted(' — score /100: deps, tests, security, lint + badge'), value: 'health' },
+      { name: T.success.bold('🌐  /health-all')             + T.muted('          — Scan all projects'), value: 'health-all' },
+      { name: T.accent.bold('⚡  /perf')                    + T.muted('                — Lighthouse audit'), value: 'perf' },
+      { name: T.accent.bold('⬆️   /upgrade')                + T.muted('             — npm upgrade wizard'), value: 'upgrade' },
+      { name: T.accent.bold('🔌  /mock-api')                + T.muted('            — Generate MSW handlers'), value: 'mock-api' },
+      { name: T.brand.bold('🎓  /onboard-dev')              + T.muted('          — New dev setup'), value: 'onboard-dev' },
+      { name: T.white.bold('📋  /ado')                      + T.muted('                 — Azure DevOps'), value: 'ado' },
+      { name: T.warning.bold('🎯  /estimate')               + T.muted('            — Story point estimate'), value: 'estimate' },
+      { name: T.accent.bold('🔊  /voice')                   + T.muted('               — Voice features (TTS/STT)'), value: 'voice' },
+      { name: T.accent.bold('📜  /changelog-view')          + T.muted('      — Browse CHANGELOG'), value: 'changelog-view' },
       { name: T.accent.bold('⚡  Run a Command')             + T.muted('           — browse all slash commands'), value: 'commands' },
       { name: T.success.bold('🤖  Switch Agent / Role')      + T.muted('      — activate a specialized AI agent'), value: 'agents' },
       { name: T.warning.bold('📚  Browse Instructions')      + T.muted('     — view knowledge base / docs'), value: 'instructions' },
@@ -1809,6 +1825,148 @@ async function screenRTL() {
   await anyKey();
 }
 
+async function screenHealthAll() {
+  sectionHeader('Multi-Project Health', 'Scan all registered projects');
+  const { spawnSync } = await import('child_process');
+  spawnSync('bash', [resolve(ROOT, 'scripts/health-all.sh')], { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
+async function screenPerf() {
+  sectionHeader('/perf', 'Lighthouse performance audit');
+  const url = await input({ message: 'URL to audit (leave blank for localhost:3000):', default: 'http://localhost:3000' });
+  const mobile = await confirm({ message: 'Run mobile audit?', default: false });
+  const { spawnSync } = await import('child_process');
+  const args = [resolve(ROOT, 'scripts/perf.sh'), url];
+  if (mobile) args.push('--mobile');
+  spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
+async function screenUpgrade() {
+  sectionHeader('/upgrade', 'Interactive npm package upgrades');
+  const mode = await select({ message: 'Upgrade mode:', choices: [
+    { name: '🔒 Patch only (safest)', value: '--patch' },
+    { name: '↑  Minor + patch', value: '--minor' },
+    { name: '🚀 Latest (all)', value: '--latest' },
+    { name: '◀  Back', value: '__back__' },
+  ]});
+  if (mode === '__back__') return;
+  const { spawnSync } = await import('child_process');
+  spawnSync('bash', [resolve(ROOT, 'scripts/upgrade.sh'), mode], { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
+async function screenMockApi() {
+  sectionHeader('/mock-api', 'Generate MSW handlers from OpenAPI');
+  const spec = await input({ message: 'Path to OpenAPI spec (yaml/json):' });
+  if (!spec) return;
+  const { spawnSync } = await import('child_process');
+  spawnSync('bash', [resolve(ROOT, 'scripts/mock-api.sh'), spec], { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
+async function screenOnboardDev() {
+  sectionHeader('/onboard-dev', 'New developer setup wizard');
+  const mode = await select({ message: 'Setup mode:', choices: [
+    { name: '🚀 Full onboarding', value: '' },
+    { name: '🔍 Check existing setup', value: '--check' },
+    { name: '🛠  Tools only', value: '--tools-only' },
+    { name: '◀  Back', value: '__back__' },
+  ]});
+  if (mode === '__back__') return;
+  const { spawnSync } = await import('child_process');
+  const args = [resolve(ROOT, 'scripts/onboard-dev.sh')];
+  if (mode) args.push(mode);
+  spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
+async function screenAdo() {
+  sectionHeader('Azure DevOps', 'Work items · Pipelines · Releases');
+  const action = await select({ message: 'What to view:', choices: [
+    { name: '🎫 My Work Items', value: 'tickets' },
+    { name: '🏗  Pipeline Runs', value: 'pipelines' },
+    { name: '🚀 Releases', value: 'releases' },
+    { name: '◀  Back', value: '__back__' },
+  ]});
+  if (action === '__back__') return;
+  const { spawnSync } = await import('child_process');
+  spawnSync('bash', [resolve(ROOT, 'scripts/ado.sh'), action], { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
+async function screenEstimate() {
+  sectionHeader('/estimate', 'AI story point estimator');
+  const description = await input({ message: 'Describe the task or feature:' });
+  if (!description) return;
+  const { spawnSync } = await import('child_process');
+  spawnSync('bash', [resolve(ROOT, 'scripts/estimate.sh'), description], { stdio: 'inherit', cwd: process.cwd() });
+  await pressEnter();
+}
+
+async function screenVoice() {
+  sectionHeader('/voice', 'Free Voice Features (TTS + STT)');
+  const action = await select({ message: 'Voice action:', choices: [
+    { name: '🔊 Speak text aloud (TTS)', value: 'speak' },
+    { name: '🎤 Listen & transcribe (STT)', value: 'listen' },
+    { name: '📢 Read health score aloud', value: 'read-health' },
+    { name: '⚙️  Voice status & setup', value: 'status' },
+    { name: '⬇️  Install whisper.cpp (offline STT)', value: 'install-whisper' },
+    { name: '◀  Back', value: '__back__' },
+  ]});
+  if (action === '__back__') return;
+  const { spawnSync } = await import('child_process');
+  if (action === 'speak') {
+    const { input: inputPrompt } = await import('@inquirer/prompts');
+    const text = await inputPrompt({ message: 'Text to speak:' });
+    if (!text) return;
+    spawnSync('bash', [resolve(ROOT, 'scripts/voice.sh'), 'speak', text], { stdio: 'inherit', cwd: process.cwd() });
+  } else if (action === 'listen') {
+    const { input: inputPrompt } = await import('@inquirer/prompts');
+    const secs = await inputPrompt({ message: 'Record duration (seconds):', default: '5' });
+    spawnSync('bash', [resolve(ROOT, 'scripts/voice.sh'), 'listen', secs], { stdio: 'inherit', cwd: process.cwd() });
+  } else {
+    spawnSync('bash', [resolve(ROOT, 'scripts/voice.sh'), action], { stdio: 'inherit', cwd: process.cwd() });
+  }
+  await pressEnter();
+}
+
+async function screenChangelogViewer() {
+  sectionHeader('CHANGELOG Viewer', 'Browse project history interactively');
+  const { spawnSync } = await import('child_process');
+  if (!existsSync(resolve(process.cwd(), 'CHANGELOG.md'))) {
+    const gen = await confirm({ message: 'No CHANGELOG.md found. Generate it now?', default: true });
+    if (gen) {
+      spawnSync('bash', [resolve(ROOT, 'scripts/changelog.sh')], { stdio: 'inherit', cwd: process.cwd() });
+    } else {
+      return;
+    }
+  }
+  const content = readFileSync(resolve(process.cwd(), 'CHANGELOG.md'), 'utf8');
+  const lines = content.split('\n');
+  const releases = lines.filter(line => line.startsWith('## '));
+  if (releases.length === 0) {
+    console.log(chalk.yellow('  No releases found in CHANGELOG.md'));
+    await pressEnter();
+    return;
+  }
+  const chosen = await select({ message: 'View release:', choices: [
+    ...releases.slice(0, 20).map(release => ({ name: release.replace('## ', ''), value: release })),
+    { name: '◀  Back', value: '__back__' },
+  ]});
+  if (chosen === '__back__') return;
+  let printing = false;
+  const section = [];
+  for (const line of lines) {
+    if (line === chosen) printing = true;
+    else if (printing && line.startsWith('## ')) break;
+    if (printing) section.push(line);
+  }
+  console.log('\n' + chalk.cyan(section.join('\n')) + '\n');
+  await pressEnter();
+}
+
 async function main() {
   try {
     while (true) {
@@ -1819,6 +1977,15 @@ async function main() {
         case 'open':         await screenOpenProject(); break;
         case 'projects':     await screenProjects(); break;
         case 'health':       await screenHealth(); break;
+        case 'health-all':   await screenHealthAll(); break;
+        case 'perf':         await screenPerf(); break;
+        case 'upgrade':      await screenUpgrade(); break;
+        case 'mock-api':     await screenMockApi(); break;
+        case 'onboard-dev':  await screenOnboardDev(); break;
+        case 'ado':          await screenAdo(); break;
+        case 'estimate':     await screenEstimate(); break;
+        case 'voice':        await screenVoice(); break;
+        case 'changelog-view': await screenChangelogViewer(); break;
         case 'commands':     await screenCommands(); break;
         case 'agents':       await screenAgents(); break;
         case 'instructions': await screenInstructions(); break;

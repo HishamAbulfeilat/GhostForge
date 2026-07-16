@@ -94,6 +94,20 @@ function fetchPipelines() {
   }
 }
 
+function fetchOpenPRs() {
+  const raw = safeExec('gh pr list --json number,title,author,reviewDecision,createdAt --limit 12 2>/dev/null');
+  if (!raw) return [];
+  try {
+    const prs = JSON.parse(raw);
+    return prs.map(pr => ({
+      number: `#${pr.number}`,
+      title: (pr.title || '').substring(0, 30),
+      author: (pr.author?.login || '?').substring(0, 12),
+      review: pr.reviewDecision === 'APPROVED' ? '✅' : pr.reviewDecision === 'CHANGES_REQUESTED' ? '⚠' : '⏳',
+    }));
+  } catch { return []; }
+}
+
 function fetchReleases() {
   const raw = safeExec(`git -C "${ROOT}" tag -l --sort=-version:refname 2>/dev/null | head -8`);
   if (!raw) {
@@ -225,7 +239,7 @@ function buildDashboard() {
     style: { fg: '#F59E0B' },
   });
 
-  const releasesTable = grid.set(6, 0, 5, 4, contrib.table, {
+  const releasesTable = grid.set(6, 0, 5, 3, contrib.table, {
     keys: true,
     fg: 'white',
     selectedFg: 'black',
@@ -234,20 +248,32 @@ function buildDashboard() {
     label: ' 🚀 Releases & Tags ',
     border: { type: 'line', fg: '#8B5CF6' },
     columnSpacing: 1,
-    columnWidth: [10, 12, 30],
+    columnWidth: [8, 10, 20],
   });
 
-  const healthLine = grid.set(6, 4, 5, 4, contrib.line, {
+  const healthLine = grid.set(6, 3, 5, 3, contrib.line, {
     style: { line: '#00A3E0', text: 'white', baseline: 'black' },
     xLabelPadding: 3,
     xPadding: 5,
     showLegend: true,
-    legend: { width: 14 },
+    legend: { width: 12 },
     label: ' 📈 Health Score Trend ',
     border: { type: 'line', fg: '#00A3E0' },
   });
 
-  const activityLog = grid.set(6, 8, 5, 4, contrib.log, {
+  const openPRsTable = grid.set(6, 6, 5, 3, contrib.table, {
+    keys: true,
+    fg: 'white',
+    selectedFg: 'black',
+    selectedBg: '#10B981',
+    interactive: true,
+    label: ' 🔀 Open Pull Requests ',
+    border: { type: 'line', fg: '#10B981' },
+    columnSpacing: 1,
+    columnWidth: [4, 30, 10, 3],
+  });
+
+  const activityLog = grid.set(6, 9, 5, 3, contrib.log, {
     fg: 'white',
     selectedFg: 'white',
     label: ' 🔥 Activity Feed ',
@@ -332,6 +358,14 @@ function buildDashboard() {
         data: releases.length > 0
           ? releases.map(release => [release.tag, release.date, release.msg])
           : [['—', '—', 'No releases found']],
+      });
+
+      const openPRs = fetchOpenPRs();
+      openPRsTable.setData({
+        headers: ['#', 'Title', 'Author', 'R'],
+        data: openPRs.length > 0
+          ? openPRs.map(pr => [pr.number, pr.title, pr.author, pr.review])
+          : [['—', 'No open pull requests', '—', '—']],
       });
 
       const trend = fetchHealthTrend();
