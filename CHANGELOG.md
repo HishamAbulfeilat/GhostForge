@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.5.0 — 2026-07-16
+
+452d188 feat: optimize toolkit for real GhostForge project stack
+fb85adc ci: add mirror workflow to HishamAbulfeilat/GhostForge
+f9b43a2 feat: marketplace, generator, free models (v2.4.0)
+
+---
+
+
+
 ## v2.4.0 — 2026-07-16
 
 0dc10d2 feat: add react.doctor integration (v2.3.0)
