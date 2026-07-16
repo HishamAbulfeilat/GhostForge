@@ -26,6 +26,6 @@ jobs:
             exit 0
           fi
           git config --global credential.helper store
-          echo "https://HishamAbulfeilat:${MIRROR_TOKEN}@github.com" > ~/.git-credentials
+          echo "https://x-access-token:${MIRROR_TOKEN}@github.com" > ~/.git-credentials
           git remote add mirror https://github.com/HishamAbulfeilat/GhostForge.git
           git push mirror --mirror
