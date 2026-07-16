@@ -934,6 +934,7 @@ async function screenMarketplace() {
       { name: T.brand.bold('⬇️   Install Item')         + T.muted(' — install from catalog or URL'), value: 'install' },
       { name: T.warning.bold('🌐  Browse aitmpl.com')   + T.muted(' — open AI templates site'), value: 'aitmpl' },
       { name: T.cyan.bold('🔍  Open Source Discovery') + T.muted(' — hidden gems & trending repos (opensourceprojects.dev)'), value: 'osp-dev' },
+      { name: T.accent.bold('🧠  Hermes Agent')          + T.muted(' — self-improving AI agent by Nous Research'), value: 'hermes-agent' },
       { name: T.success.bold('🎓  Claude Agent Skills') + T.muted(' — Anthropic, SkillsMP, Claude-Flow, Awesome'), value: 'skills' },
       { name: T.white.bold('📦  My Installed Items')   + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')    + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
@@ -1077,7 +1078,52 @@ async function screenMarketplace() {
     try { execSync('open https://www.opensourceprojects.dev 2>/dev/null || xdg-open https://www.opensourceprojects.dev 2>/dev/null', { stdio: 'ignore' }); } catch {}
     await pressEnter();
   }
-    const sourcesPath = resolve(ROOT, 'marketplace/sources.json');
+
+  if (action === 'hermes-agent') {
+    const hermesAction = await select({
+      message: T.white.bold('Hermes Agent — Nous Research:'),
+      choices: [
+        { name: T.success.bold('⬇️  Install Hermes Agent'),         value: 'install' },
+        { name: T.accent.bold('📖  Open Docs'),                    value: 'docs' },
+        { name: T.cyan.bold('🌐  Open GitHub'),                    value: 'github' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (hermesAction !== '__back__') {
+      console.log();
+      console.log(boxen(
+        T.accent.bold(' 🧠 Hermes Agent — Self-Improving AI ') + '\n\n' +
+        T.white('Built by Nous Research. The only agent with a built-in learning loop.\n\n') +
+        T.success.bold('  Key features:\n') +
+        T.muted('  • Creates skills from experience, self-improves during use\n') +
+        T.muted('  • Persistent memory across sessions (FTS5 search + LLM summarization)\n') +
+        T.muted('  • Cron scheduler — daily reports, nightly backups, audits\n') +
+        T.muted('  • Telegram, Discord, Slack, WhatsApp, Signal + CLI gateway\n') +
+        T.muted('  • Voice memo transcription, cross-platform continuity\n') +
+        T.muted('  • 6 backends: local, Docker, SSH, Modal, Daytona, Singularity\n') +
+        T.muted('  • Any model: Nous Portal, OpenRouter, OpenAI, custom endpoint\n') +
+        T.muted('  • agentskills.io compatible\n\n') +
+        T.success.bold('  Install (macOS/Linux/WSL2):\n') +
+        T.cyan('  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash\n\n') +
+        T.dim('  Docs: https://hermes-agent.nousresearch.com/docs/'),
+        { padding: 1, borderColor: '#8B5CF6', borderStyle: 'round' }
+      ));
+      console.log();
+      if (hermesAction === 'install') {
+        const { confirm: confirmPrompt } = await import('@inquirer/prompts');
+        const go = await confirmPrompt({ message: 'Run the install script now?', default: true });
+        if (go) {
+          const { spawnSync } = await import('child_process');
+          spawnSync('bash', ['-c', 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash'], { stdio: 'inherit' });
+        }
+      } else if (hermesAction === 'docs') {
+        try { execSync('open https://hermes-agent.nousresearch.com/docs/ 2>/dev/null || xdg-open https://hermes-agent.nousresearch.com/docs/ 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      } else if (hermesAction === 'github') {
+        try { execSync('open https://github.com/nousresearch/hermes-agent 2>/dev/null || xdg-open https://github.com/nousresearch/hermes-agent 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }    const sourcesPath = resolve(ROOT, 'marketplace/sources.json');
     let allSources = [];
     try {
       const s = JSON.parse(readFileSync(sourcesPath, 'utf8'));

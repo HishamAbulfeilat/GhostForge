@@ -23,6 +23,7 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 | **GhostForge Official** | Built-in | https://github.com/HishamAbulfeilat/GhostForge |
 | **AI Templates (aitmpl.com)** | Web | https://aitmpl.com |
 | **Open Source Projects** | Discovery | https://www.opensourceprojects.dev |
+| **Hermes Agent (Nous Research)** | AI Agent | https://github.com/nousresearch/hermes-agent |
 | **GitHub Copilot Community** | GitHub topic | https://github.com/topics/copilot-agent |
 | **Awesome Copilot** | Curated | https://github.com/collections/github-copilot |
 | **NVIDIA NIM Agents** | Model agents | https://build.nvidia.com/nim |

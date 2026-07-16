@@ -123,6 +123,36 @@
         "developer-tools"
       ],
       "trusted": true
+    },
+    {
+      "id": "hermes-agent",
+      "name": "Hermes Agent (Nous Research)",
+      "type": "ai-agent",
+      "description": "Self-improving AI agent with built-in learning loop — creates skills from experience, autonomous memory, cron scheduler, Telegram/Discord/Slack gateway, subagents, 6 terminal backends. Compatible with agentskills.io standard.",
+      "url": "https://github.com/nousresearch/hermes-agent",
+      "docs": "https://hermes-agent.nousresearch.com/docs/",
+      "install_command": "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
+      "model_support": [
+        "Nous Portal",
+        "OpenRouter",
+        "OpenAI",
+        "any OpenAI-compatible endpoint"
+      ],
+      "platforms": [
+        "macOS",
+        "Linux",
+        "WSL2",
+        "Termux",
+        "Windows"
+      ],
+      "categories": [
+        "ai-agent",
+        "self-improving",
+        "memory",
+        "automation",
+        "voice"
+      ],
+      "trusted": true
     }
   ]
 }
