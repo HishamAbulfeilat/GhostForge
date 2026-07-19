@@ -2242,55 +2242,190 @@ async function screenMarketplace() {
   }
 
   if (action === 'carbon-monitor') {
-    const carbonAction = await select({
-      message: T.success.bold('🌿 Carbon Monitor — Green Coding Tracker:'),
+    const runCarbon = (args = []) => {
+      spawnSync('bash', [resolve(ROOT, 'scripts/carbon.sh'), ...args], { stdio: 'inherit', cwd: process.cwd() });
+    };
+
+    const carbonCat = await select({
+      message: T.success.bold('🌿 Carbon Monitor — GhostForge:'),
       choices: [
-        { name: T.success.bold('⬇️  Install / Setup')        + T.muted(' — Python 3 + codecarbon + carbontracker + pandas'), value: 'install' },
-        { name: T.cyan.bold('🌍  System-wide Start')          + T.muted(' — track ALL CPU/GPU/RAM on this computer'), value: 'system-start' },
-        { name: T.warning.bold('⏹   System-wide Stop'),       value: 'system-stop' },
-        { name: T.brand.bold('📡  System Status')             + T.muted(' — total machine emissions so far'), value: 'system-status' },
-        { name: T.cyan.bold('▶️   Project Start')              + T.muted(' — monitor current dev session only'), value: 'start' },
-        { name: T.warning.bold('⏹   Project Stop'),           value: 'stop' },
-        { name: T.success.bold('🔍  Track a command')         + T.muted(' — wrap npm run build, tests, etc.'), value: 'track' },
-        { name: T.accent.bold('📊  View threshold'),          value: 'threshold' },
-        { name: T.white.bold('📄  Generate report'),          value: 'report' },
-        { name: T.muted('📋  Session history'),               value: 'history' },
-        { name: T.cyan.bold('ℹ️   About this feature'),       value: 'about' },
+        { name: T.cyan.bold('📊  Monitor & Track'), value: 'monitor' },
+        { name: T.success.bold('🌿  Analysis'), value: 'analysis' },
+        { name: T.white.bold('📄  Reports'), value: 'reports' },
+        { name: T.accent.bold('⚙️   Settings'), value: 'settings' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-      pageSize: 13,
     });
-    if (carbonAction !== '__back__') {
+
+    if (carbonCat !== '__back__') {
       console.log();
-      if (carbonAction === 'about') {
-        console.log(boxen(
-          T.success.bold(' 🌿 Carbon Monitor — About ') + '\n\n' +
-          T.white('Based on Hisham\'s CRP graduation research (2023):\n') +
-          T.yellow.bold('  "Reducing the Carbon Footprint of Laptops and Workstations"\n\n') +
-          T.white('The CFRS (Carbon Footprint Reduction System) achieved\n') +
-          T.white('7–15% energy reduction by tracking emissions in real time\n') +
-          T.white('and throttling CPU/GPU when threshold is exceeded.\n\n') +
-          T.success.bold('  Tools used in research:\n') +
-          T.white('  • CodeCarbon — emissions measurement\n') +
-          T.white('  • CarbonTracker — ML training tracker\n') +
-          T.white('  • Intel PowerLog — hardware power readings\n') +
-          T.white('  • Threshold: avg_emissions/session × 1.1\n\n') +
-          T.success.bold('  Now integrated into GhostForge as:\n') +
-          T.cyan('  ghostforge carbon track npm run build\n') +
-          T.cyan('  ghostforge carbon track npx playwright test\n') +
-          T.cyan('  ghostforge carbon report\n'),
-          { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
-        ));
-      } else if (carbonAction === 'track') {
-        const { input } = await import('@inquirer/prompts');
-        const cmd = await input({ message: 'Command to track (e.g. npm run build):' });
-        if (cmd) {
-          const { spawnSync } = await import('child_process');
-          spawnSync('bash', [resolve(ROOT, 'scripts/carbon.sh'), 'track', ...cmd.split(' ')], { stdio: 'inherit', cwd: process.cwd() });
+
+      if (carbonCat === 'monitor') {
+        const monitorAction = await select({
+          message: T.cyan.bold('📊 Monitor & Track:'),
+          choices: [
+            { name: T.success.bold('⬇️  Install / Setup'), value: 'install' },
+            { name: T.cyan.bold('▶️   Project Start'), value: 'start' },
+            { name: T.warning.bold('⏹   Project Stop'), value: 'stop' },
+            { name: T.success.bold('🔍  Track a command'), value: 'track' },
+            { name: T.brand.bold('🌍  System-wide Start'), value: 'system-start' },
+            { name: T.warning.bold('🛑  System-wide Stop'), value: 'system-stop' },
+            { name: T.brand.bold('📡  System Status'), value: 'system-status' },
+            { name: T.accent.bold('🌱  Git-linked tracking'), value: 'git-track' },
+            { name: T.white.bold('📺  Live dashboard'), value: 'live' },
+            { name: T.muted('← Back'), value: '__back__' },
+          ],
+        });
+
+        if (monitorAction === 'track') {
+          const cmd = await input({ message: 'Command to track (e.g. npm run build):' });
+          if (cmd?.trim()) runCarbon(['track', ...cmd.trim().split(/\s+/)]);
+        } else if (monitorAction === 'git-track') {
+          const gitTrackAction = await select({
+            message: T.accent.bold('🌱 Git-linked tracking:'),
+            choices: [
+              { name: T.success.bold('▶️   Start'), value: 'start' },
+              { name: T.warning.bold('⏹   Stop'), value: 'stop' },
+              { name: T.white.bold('📋  Branch emissions log'), value: 'log' },
+              { name: T.muted('← Back'), value: '__back__' },
+            ],
+          });
+          if (gitTrackAction !== '__back__') runCarbon(['git-track', gitTrackAction]);
+        } else if (monitorAction !== '__back__') {
+          runCarbon([monitorAction]);
         }
-      } else {
-        const { spawnSync } = await import('child_process');
-        spawnSync('bash', [resolve(ROOT, 'scripts/carbon.sh'), carbonAction], { stdio: 'inherit', cwd: process.cwd() });
+      }
+
+      if (carbonCat === 'analysis') {
+        const analysisAction = await select({
+          message: T.success.bold('🌿 Analysis:'),
+          choices: [
+            { name: T.accent.bold('📊  Threshold'), value: 'threshold' },
+            { name: T.success.bold('🏆  Leaderboard'), value: 'leaderboard' },
+            { name: T.white.bold('🔄  Equivalencies'), value: 'equiv' },
+            { name: T.white.bold('📋  Session history'), value: 'history' },
+            { name: T.cyan.bold('☁️   Compare cloud providers'), value: 'compare-cloud' },
+            { name: T.muted('← Back'), value: '__back__' },
+          ],
+        });
+
+        if (analysisAction === 'equiv') {
+          const equivMode = await select({
+            message: T.white.bold('Equivalencies:'),
+            choices: [
+              { name: T.success.bold('Use latest session'), value: 'latest' },
+              { name: T.cyan.bold('Enter custom kg CO₂'), value: 'custom' },
+              { name: T.muted('← Back'), value: '__back__' },
+            ],
+          });
+          if (equivMode === 'latest') runCarbon(['equiv']);
+          if (equivMode === 'custom') {
+            const kg = await input({ message: 'kg CO₂ value:' });
+            if (kg?.trim()) runCarbon(['equiv', kg.trim()]);
+          }
+        } else if (analysisAction === 'compare-cloud') {
+          const provider = await select({
+            message: T.cyan.bold('Select provider:'),
+            choices: [
+              { name: T.success.bold('All providers'), value: 'all' },
+              { name: 'Vercel', value: 'vercel' },
+              { name: 'GitHub Actions', value: 'github-actions' },
+              { name: 'Netlify', value: 'netlify' },
+              { name: 'AWS Lambda', value: 'aws-lambda' },
+              { name: T.muted('← Back'), value: '__back__' },
+            ],
+          });
+          if (provider !== '__back__') runCarbon(provider === 'all' ? ['compare-cloud'] : ['compare-cloud', provider]);
+        } else if (analysisAction !== '__back__') {
+          runCarbon([analysisAction]);
+        }
+      }
+
+      if (carbonCat === 'reports') {
+        const reportsAction = await select({
+          message: T.white.bold('📄 Reports:'),
+          choices: [
+            { name: T.white.bold('📄  Generate report'), value: 'report' },
+            { name: T.success.bold('📤  Export'), value: 'export' },
+            { name: T.accent.bold('💸  Carbon budget'), value: 'budget' },
+            { name: T.muted('← Back'), value: '__back__' },
+          ],
+        });
+
+        if (reportsAction === 'export') {
+          const exportFormat = await select({
+            message: T.success.bold('Export format:'),
+            choices: [
+              { name: 'Markdown (.md)', value: 'md' },
+              { name: 'HTML (.html)', value: 'html' },
+              { name: T.muted('← Back'), value: '__back__' },
+            ],
+          });
+          if (exportFormat !== '__back__') runCarbon(['export', exportFormat]);
+        } else if (reportsAction === 'budget') {
+          const budgetAction = await select({
+            message: T.accent.bold('Carbon budget:'),
+            choices: [
+              { name: T.success.bold('Set daily / weekly budget'), value: 'set' },
+              { name: T.white.bold('Today status'), value: 'status' },
+              { name: T.white.bold('Week status'), value: 'week' },
+              { name: T.warning.bold('Reset budget'), value: 'reset' },
+              { name: T.muted('← Back'), value: '__back__' },
+            ],
+          });
+          if (budgetAction === 'set') {
+            const daily = await input({ message: 'Daily budget (kg CO₂):' });
+            const weekly = await input({ message: 'Weekly budget (kg CO₂, optional):', default: '' });
+            if (daily?.trim()) runCarbon(weekly.trim() ? ['budget', 'set', daily.trim(), weekly.trim()] : ['budget', 'set', daily.trim()]);
+          } else if (budgetAction !== '__back__') {
+            runCarbon(['budget', budgetAction]);
+          }
+        } else if (reportsAction !== '__back__') {
+          runCarbon([reportsAction]);
+        }
+      }
+
+      if (carbonCat === 'settings') {
+        const settingsAction = await select({
+          message: T.accent.bold('⚙️ Settings:'),
+          choices: [
+            { name: T.warning.bold('🧠  CPU throttle trigger'), value: 'throttle' },
+            { name: T.cyan.bold('ℹ️   About this feature'), value: 'about' },
+            { name: T.muted('← Back'), value: '__back__' },
+          ],
+        });
+
+        if (settingsAction === 'throttle') {
+          const throttleAction = await select({
+            message: T.warning.bold('Throttle mode:'),
+            choices: [
+              { name: T.success.bold('Enable auto-throttle'), value: 'on' },
+              { name: T.warning.bold('Disable auto-throttle'), value: 'off' },
+              { name: T.white.bold('Status'), value: 'status' },
+              { name: T.muted('← Back'), value: '__back__' },
+            ],
+          });
+          if (throttleAction !== '__back__') runCarbon(['throttle', throttleAction]);
+        } else if (settingsAction === 'about') {
+          console.log(boxen(
+            T.success.bold(' 🌿 Carbon Monitor — About ') + '\n\n' +
+            T.white('Based on Hisham\'s CRP graduation research (2023):\n') +
+            T.yellow.bold('  "Reducing the Carbon Footprint of Laptops and Workstations"\n\n') +
+            T.white('The CFRS (Carbon Footprint Reduction System) achieved\n') +
+            T.white('7–15% energy reduction by tracking emissions in real time\n') +
+            T.white('and throttling CPU/GPU when threshold is exceeded.\n\n') +
+            T.success.bold('  Tools used in research:\n') +
+            T.white('  • CodeCarbon — emissions measurement\n') +
+            T.white('  • CarbonTracker — ML training tracker\n') +
+            T.white('  • Intel PowerLog — hardware power readings\n') +
+            T.white('  • Threshold: avg_emissions/session × 1.1\n\n') +
+            T.success.bold('  Now integrated into GhostForge as:\n') +
+            T.cyan('  ghostforge carbon track npm run build\n') +
+            T.cyan('  ghostforge carbon export html\n') +
+            T.cyan('  ghostforge carbon throttle on\n'),
+            { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
+          ));
+        }
       }
     }
     await pressEnter();

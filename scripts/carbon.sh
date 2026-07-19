@@ -16,6 +16,12 @@ SESSION_FILE="$DATA_DIR/session.json"
 LAST_SESSION_FILE="$DATA_DIR/last-session.json"
 THRESHOLD_FILE="$DATA_DIR/threshold.txt"
 MONITOR_LOG="$DATA_DIR/monitor.log"
+REPORTS_DIR="$DATA_DIR/reports"
+THROTTLE_FLAG="$DATA_DIR/throttle.enabled"
+THROTTLE_PID_FILE="$DATA_DIR/throttle.pid"
+THROTTLE_LOG="$DATA_DIR/throttle.log"
+THROTTLE_WATCHER_SCRIPT="$DATA_DIR/throttle-watcher.sh"
+BUDGET_FILE="$DATA_DIR/budget.json"
 
 ACTION="${1:-help}"
 
@@ -247,7 +253,7 @@ threshold_file = data_dir / "threshold.txt"
 emissions_file = data_dir / "emissions.csv"
 
 tracker = EmissionsTracker(
-    project_name="ghostforge-dev",
+    project_name=label,
     output_dir=str(data_dir),
     output_file="emissions.csv",
     log_level="error",
@@ -281,9 +287,10 @@ def finalize(exit_code: int = 0):
         try:
             df = pd.read_csv(emissions_file)
             if not df.empty:
-                for col in ("session_label", "session_started_at", "session_pid"):
+                for col in ("project_name", "session_label", "session_started_at", "session_pid"):
                     if col not in df.columns:
                         df[col] = ""
+                df.loc[df.index[-1], "project_name"] = label
                 df.loc[df.index[-1], "session_label"] = label
                 df.loc[df.index[-1], "session_started_at"] = started_at or ""
                 df.loc[df.index[-1], "session_pid"] = os.getpid()
@@ -442,6 +449,7 @@ PY
         echo -e "${DIM}Current session emissions: awaiting tracker flush${NC}"
       fi
       echo -e "${BLUE}Threshold status:${NC} $(threshold_label "$live_emissions" "$threshold")"
+      budget_inline_warning_cmd
       return 0
     fi
   fi
@@ -457,6 +465,7 @@ PY
   else
     echo -e "${DIM}No tracked sessions yet.${NC}"
   fi
+  budget_inline_warning_cmd
 }
 
 threshold_cmd() {
@@ -850,7 +859,869 @@ PY
   echo ""
 }
 
+get_current_cpu_limit() {
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "unsupported"
+    return 0
+  fi
 
+  local limit
+  limit="$(pmset -g custom 2>/dev/null | awk '/cpulimitmax/ {print $2; exit}')"
+  echo "${limit:-unknown}"
+}
+
+throttle_cmd() {
+  ensure_data_dir
+  local subcommand="${1:-status}"
+
+  case "$subcommand" in
+    on)
+      touch "$THROTTLE_FLAG"
+      cat > "$THROTTLE_WATCHER_SCRIPT" <<EOF_THROTTLE
+#!/usr/bin/env bash
+set -euo pipefail
+DATA_DIR="${DATA_DIR}"
+EMISSIONS_FILE="${EMISSIONS_FILE}"
+THRESHOLD_FILE="${THRESHOLD_FILE}"
+THROTTLE_FLAG="${THROTTLE_FLAG}"
+THROTTLE_LOG="${THROTTLE_LOG}"
+log_line() {
+  printf '%s %s\n' "\$(date '+%Y-%m-%d %H:%M:%S')" "\$1" >> "$THROTTLE_LOG"
+}
+log_line "INFO watcher-start"
+while [[ -f "$THROTTLE_FLAG" ]]; do
+  if [[ -f "$EMISSIONS_FILE" && -f "$THRESHOLD_FILE" ]]; then
+    result="\$(python3 - <<'PY' "$EMISSIONS_FILE" "$THRESHOLD_FILE" 2>/dev/null || true
+import csv, sys
+from pathlib import Path
+emissions_path = Path(sys.argv[1]).expanduser()
+threshold_path = Path(sys.argv[2]).expanduser()
+if not emissions_path.exists() or not threshold_path.exists():
+    raise SystemExit(0)
+with emissions_path.open('r', encoding='utf-8', newline='') as handle:
+    rows = list(csv.DictReader(handle))
+if not rows:
+    raise SystemExit(0)
+try:
+    threshold = float(threshold_path.read_text(encoding='utf-8').strip())
+except Exception:
+    raise SystemExit(0)
+row = rows[-1]
+try:
+    emissions = float((row.get('emissions') or '0').strip() or 0)
+except Exception:
+    emissions = 0.0
+if emissions > threshold:
+    print(f"trigger:{emissions:.8f}:{threshold:.8f}")
+PY
+)"
+    if [[ "$result" == trigger:* ]]; then
+      IFS=':' read -r _ emissions_value threshold_value <<< "$result"
+      current_limit="\$(pmset -g custom 2>/dev/null | awk '/cpulimitmax/ {print \$2; exit}')"
+      if [[ "\${current_limit:-100}" != "50" ]]; then
+        if sudo pmset -a cpulimitmax 50 >/dev/null 2>&1; then
+          log_line "TRIGGER emissions=\${emissions_value} threshold=\${threshold_value} limit=50"
+        else
+          log_line "WARN sudo-required emissions=\${emissions_value} threshold=\${threshold_value}"
+        fi
+      fi
+    fi
+  fi
+  sleep 30
+done
+log_line "INFO watcher-stop"
+EOF_THROTTLE
+      chmod +x "$THROTTLE_WATCHER_SCRIPT"
+
+      if [[ -f "$THROTTLE_PID_FILE" ]]; then
+        local existing_pid
+        existing_pid="$(tr -d '[:space:]' < "$THROTTLE_PID_FILE")"
+        if is_pid_running "$existing_pid"; then
+          echo -e "${YELLOW}⚠ Auto-throttle already enabled (PID: $existing_pid).${NC}"
+          echo -e "${DIM}Based on Hisham Abulfeilat's CRP CFRS research — 7–15% energy reduction${NC}"
+          return 0
+        fi
+      fi
+
+      nohup bash "$THROTTLE_WATCHER_SCRIPT" >/dev/null 2>&1 &
+      local watcher_pid="$!"
+      echo "$watcher_pid" > "$THROTTLE_PID_FILE"
+
+      echo -e "${GREEN}✅ Auto-throttle enabled.${NC}"
+      echo -e "${YELLOW}⚠ Uses sudo pmset -a cpulimitmax 50 on macOS when threshold is exceeded.${NC}"
+      echo -e "${DIM}Watcher PID: $watcher_pid — checks emissions every 30s${NC}"
+      echo -e "${DIM}Based on Hisham Abulfeilat's CRP CFRS research — 7–15% energy reduction${NC}"
+      ;;
+    off)
+      rm -f "$THROTTLE_FLAG"
+      if [[ -f "$THROTTLE_PID_FILE" ]]; then
+        local watcher_pid
+        watcher_pid="$(tr -d '[:space:]' < "$THROTTLE_PID_FILE")"
+        if is_pid_running "$watcher_pid"; then
+          kill -TERM "$watcher_pid" 2>/dev/null || true
+        fi
+        rm -f "$THROTTLE_PID_FILE"
+      fi
+
+      if [[ "$(uname -s)" == "Darwin" ]]; then
+        if sudo pmset -a cpulimitmax 100 >/dev/null 2>&1; then
+          echo -e "${GREEN}✅ CPU limit restored to 100%.${NC}"
+        else
+          echo -e "${YELLOW}⚠ Could not restore CPU limit automatically. Run: sudo pmset -a cpulimitmax 100${NC}"
+        fi
+      fi
+      echo -e "${GREEN}✅ Auto-throttle disabled.${NC}"
+      ;;
+    status)
+      local enabled="no"
+      local watcher_state="stopped"
+      local watcher_pid="-"
+      if [[ -f "$THROTTLE_FLAG" ]]; then
+        enabled="yes"
+      fi
+      if [[ -f "$THROTTLE_PID_FILE" ]]; then
+        watcher_pid="$(tr -d '[:space:]' < "$THROTTLE_PID_FILE")"
+        if is_pid_running "$watcher_pid"; then
+          watcher_state="running"
+        fi
+      fi
+      local current_limit
+      current_limit="$(get_current_cpu_limit)"
+      local last_trigger="Never triggered"
+      if [[ -f "$THROTTLE_LOG" ]]; then
+        last_trigger="$(awk '/TRIGGER/ {line=$0} END {print line}' "$THROTTLE_LOG")"
+        [[ -z "$last_trigger" ]] && last_trigger="No trigger logged yet"
+      fi
+      echo -e "${BLUE}Auto-throttle enabled:${NC} $enabled"
+      echo -e "${BLUE}Watcher:${NC} $watcher_state${DIM} (PID: $watcher_pid)${NC}"
+      echo -e "${BLUE}Current CPU limit:${NC} ${current_limit}%"
+      echo -e "${BLUE}Last trigger:${NC} $last_trigger"
+      echo -e "${DIM}Based on Hisham Abulfeilat's CRP CFRS research — 7–15% energy reduction${NC}"
+      ;;
+    *)
+      echo -e "${RED}✖ Usage: ghostforge carbon throttle <on|off|status>${NC}"
+      exit 1
+      ;;
+  esac
+}
+
+equiv_cmd() {
+  ensure_data_dir
+  local kg="${1:-}"
+
+  if [[ -z "$kg" ]]; then
+    kg="$(python3 - <<'PY' "$EMISSIONS_FILE" "$LAST_SESSION_FILE" 2>/dev/null || true
+import csv, json, sys
+from pathlib import Path
+emissions_path = Path(sys.argv[1]).expanduser()
+last_session_path = Path(sys.argv[2]).expanduser()
+if last_session_path.exists():
+    try:
+        data = json.loads(last_session_path.read_text(encoding='utf-8'))
+        if data.get('emissions') is not None:
+            print(data['emissions'])
+            raise SystemExit(0)
+    except Exception:
+        pass
+if emissions_path.exists():
+    with emissions_path.open('r', encoding='utf-8', newline='') as handle:
+        rows = list(csv.DictReader(handle))
+    if rows:
+        print(rows[-1].get('emissions', ''))
+PY
+)"
+  fi
+
+  if [[ -z "$kg" ]]; then
+    echo -e "${YELLOW}⚠ No emissions value available. Pass a value, e.g. ghostforge carbon equiv 0.001${NC}"
+    return 0
+  fi
+
+  python3 - <<'PY' "$kg"
+import sys
+kg = float(sys.argv[1])
+rows = [
+    ("🚗", "km driven", kg / 0.21, "km"),
+    ("📱", "phone charges", kg / 0.008778, "charges"),
+    ("🌳", "tree absorption", kg / 0.022, "hours"),
+    ("✈️", "flight time", (kg / 0.255) / 900 * 3600, "seconds"),
+    ("💡", "10W LED bulb", kg / 0.006, "hours"),
+]
+GREEN = "\033[0;32m"
+CYAN = "\033[0;36m"
+YELLOW = "\033[1;33m"
+BOLD = "\033[1m"
+NC = "\033[0m"
+width = 62
+print("")
+print(f"{CYAN}{BOLD}╔{'═' * width}╗{NC}")
+print(f"{CYAN}{BOLD}║ {'🌿 Carbon Equivalencies'.ljust(width - 1)}║{NC}")
+print(f"{CYAN}{BOLD}╠{'═' * width}╣{NC}")
+print(f"  Input: {kg:.8f} kg CO₂")
+print(f"{CYAN}{BOLD}╟{'─' * width}╢{NC}")
+for emoji, label, value, unit in rows:
+    line = f" {emoji} {label:<18} {value:>14.2f} {unit:<12}"
+    print(f"{GREEN}║{NC}{line.ljust(width)}{GREEN}║{NC}")
+print(f"{CYAN}{BOLD}╚{'═' * width}╝{NC}")
+print(f"{YELLOW}Tip:{NC} Translate raw CO₂ into impact you can feel.")
+print("")
+PY
+}
+
+leaderboard_cmd() {
+  ensure_data_dir
+  local subcommand="${1:-show}"
+
+  if [[ "$subcommand" == "reset" ]]; then
+    clean_cmd
+    return 0
+  fi
+
+  if [[ ! -f "$EMISSIONS_FILE" ]]; then
+    echo -e "${YELLOW}⚠ No emissions history found.${NC}"
+    return 0
+  fi
+
+  python3 - <<'PY' "$EMISSIONS_FILE"
+import csv
+import sys
+from collections import defaultdict
+from pathlib import Path
+path = Path(sys.argv[1]).expanduser()
+with path.open('r', encoding='utf-8', newline='') as handle:
+    rows = list(csv.DictReader(handle))
+if not rows:
+    print('No emissions records available yet.')
+    raise SystemExit(0)
+agg = defaultdict(lambda: {'total': 0.0, 'count': 0})
+for row in rows:
+    label = row.get('project_name') or row.get('session_label') or 'session'
+    try:
+        emissions = float((row.get('emissions') or '0').strip() or 0)
+    except Exception:
+        emissions = 0.0
+    agg[label]['total'] += emissions
+    agg[label]['count'] += 1
+ranking = sorted(agg.items(), key=lambda item: item[1]['total'], reverse=True)[:10]
+medals = ['🥇', '🥈', '🥉']
+GREEN = "\033[0;32m"
+CYAN = "\033[0;36m"
+YELLOW = "\033[1;33m"
+BOLD = "\033[1m"
+NC = "\033[0m"
+print('')
+print(f"{CYAN}{BOLD}Per-Command Carbon Leaderboard{NC}")
+print('')
+print(f"{'Rank':<6} {'Command / Label':<34} {'Total kg CO₂':>14} {'Runs':>8} {'Avg/run':>14}")
+print('─' * 82)
+for idx, (label, values) in enumerate(ranking, start=1):
+    total = values['total']
+    count = values['count']
+    avg = total / count if count else 0.0
+    medal = medals[idx - 1] if idx <= len(medals) else f'{idx}.'
+    color = YELLOW if idx == 1 else GREEN if idx <= 3 else NC
+    print(f"{color}{medal:<6} {label[:34]:<34} {total:>14.8f} {count:>8} {avg:>14.8f}{NC}")
+print('')
+PY
+}
+
+export_cmd() {
+  ensure_data_dir
+  require_python3
+  mkdir -p "$REPORTS_DIR"
+  local format="${1:-md}"
+  if [[ "$format" != "md" && "$format" != "html" ]]; then
+    echo -e "${RED}✖ Usage: ghostforge carbon export [md|html]${NC}"
+    exit 1
+  fi
+  local timestamp
+  timestamp="$(date +"%Y%m%d-%H%M%S")"
+  local md_file="$REPORTS_DIR/report-$timestamp.md"
+  local html_file="$REPORTS_DIR/report-$timestamp.html"
+
+  python3 - <<'PY' "$EMISSIONS_FILE" "$SYSTEM_EMISSIONS" "$THRESHOLD_FILE" "$BUDGET_FILE" "$md_file" "$html_file"
+import csv
+import html
+import json
+import platform
+import socket
+import sys
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+
+emissions_path = Path(sys.argv[1]).expanduser()
+system_path = Path(sys.argv[2]).expanduser()
+threshold_path = Path(sys.argv[3]).expanduser()
+budget_path = Path(sys.argv[4]).expanduser()
+md_path = Path(sys.argv[5]).expanduser()
+html_path = Path(sys.argv[6]).expanduser()
+
+def read_csv_rows(path: Path):
+    if not path.exists():
+        return []
+    with path.open('r', encoding='utf-8', newline='') as handle:
+        return list(csv.DictReader(handle))
+
+def as_float(value, default=0.0):
+    try:
+        return float(str(value).strip())
+    except Exception:
+        return default
+
+def build_equiv(kg: float):
+    return {
+        'km driven': kg / 0.21 if kg else 0.0,
+        'phone charges': kg / 0.008778 if kg else 0.0,
+        'tree absorption hours': kg / 0.022 if kg else 0.0,
+        'flight seconds': ((kg / 0.255) / 900 * 3600) if kg else 0.0,
+        'LED hours': kg / 0.006 if kg else 0.0,
+    }
+
+def markdown_to_html(md: str) -> str:
+    lines = md.splitlines()
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip():
+            i += 1
+            continue
+        if line.startswith('# '):
+            out.append(f"<h1>{html.escape(line[2:])}</h1>")
+            i += 1
+            continue
+        if line.startswith('## '):
+            out.append(f"<h2>{html.escape(line[3:])}</h2>")
+            i += 1
+            continue
+        if line.startswith('- '):
+            items = []
+            while i < len(lines) and lines[i].startswith('- '):
+                items.append(f"<li>{html.escape(lines[i][2:])}</li>")
+                i += 1
+            out.append('<ul>' + ''.join(items) + '</ul>')
+            continue
+        if '|' in line and i + 1 < len(lines) and set(lines[i + 1].replace('|', '').replace('-', '').replace(' ', '')) == set():
+            headers = [html.escape(cell.strip()) for cell in line.strip('|').split('|')]
+            rows_html = []
+            i += 2
+            while i < len(lines) and '|' in lines[i]:
+                cells = [html.escape(cell.strip()) for cell in lines[i].strip('|').split('|')]
+                rows_html.append('<tr>' + ''.join(f'<td>{cell}</td>' for cell in cells) + '</tr>')
+                i += 1
+            out.append('<table><thead><tr>' + ''.join(f'<th>{head}</th>' for head in headers) + '</tr></thead><tbody>' + ''.join(rows_html) + '</tbody></table>')
+            continue
+        out.append(f"<p>{html.escape(line)}</p>")
+        i += 1
+    return '\n'.join(out)
+
+rows = read_csv_rows(emissions_path)
+system_rows = read_csv_rows(system_path)
+if not rows:
+    raise SystemExit('No emissions records available yet.')
+threshold = as_float(threshold_path.read_text(encoding='utf-8').strip(), 0.0) if threshold_path.exists() else 0.0
+budget = {}
+if budget_path.exists():
+    try:
+        budget = json.loads(budget_path.read_text(encoding='utf-8'))
+    except Exception:
+        budget = {}
+
+total_emissions = sum(as_float(row.get('emissions')) for row in rows)
+total_energy = sum(as_float(row.get('energy_consumed')) for row in rows)
+count = len(rows)
+avg = total_emissions / count if count else 0.0
+latest = rows[-1]
+last_emissions = as_float(latest.get('emissions'))
+status = '🟢 below threshold' if not threshold or last_emissions <= threshold else '🔴 above threshold'
+
+equiv = build_equiv(total_emissions)
+leaderboard = defaultdict(lambda: {'total': 0.0, 'count': 0})
+for row in rows:
+    label = row.get('project_name') or row.get('session_label') or 'session'
+    leaderboard[label]['total'] += as_float(row.get('emissions'))
+    leaderboard[label]['count'] += 1
+top5 = sorted(leaderboard.items(), key=lambda item: item[1]['total'], reverse=True)[:5]
+
+history_md = ['| When | Label | Energy (kWh) | Emissions (kg CO₂) |', '|---|---|---:|---:|']
+for row in rows[-10:][::-1]:
+    when = (row.get('timestamp') or row.get('session_started_at') or 'unknown')[:19]
+    label = row.get('session_label') or row.get('project_name') or 'session'
+    history_md.append(f"| {when} | {label} | {as_float(row.get('energy_consumed')):.6f} | {as_float(row.get('emissions')):.8f} |")
+
+leader_md = ['| Rank | Label | Total kg CO₂ | Runs | Avg/run |', '|---|---|---:|---:|---:|']
+for idx, (label, values) in enumerate(top5, start=1):
+    total = values['total']
+    runs = values['count']
+    leader_md.append(f"| {idx} | {label} | {total:.8f} | {runs} | {(total / runs if runs else 0.0):.8f} |")
+
+system_total = sum(as_float(row.get('emissions')) for row in system_rows)
+md = f"""# GhostForge Carbon Report — {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+## Summary
+| Metric | Value |
+|---|---|
+| Total sessions | {count} |
+| Total emissions | {total_emissions:.8f} kg CO₂ |
+| Total energy | {total_energy:.6f} kWh |
+| Average per session | {avg:.8f} kg CO₂ |
+| Last session | {last_emissions:.8f} kg CO₂ |
+| Threshold status | {status} |
+| Daily budget | {budget.get('daily_kg', 'not set')} |
+| Weekly budget | {budget.get('weekly_kg', 'not set')} |
+
+## System Info
+| Metric | Value |
+|---|---|
+| Hostname | {socket.gethostname()} |
+| Platform | {platform.platform()} |
+| Python | {platform.python_version()} |
+| Local carbon data dir | {emissions_path.parent} |
+| System monitor emissions | {system_total:.8f} kg CO₂ |
+
+## Session History
+{chr(10).join(history_md)}
+
+## Leaderboard Top-5
+{chr(10).join(leader_md)}
+
+## Equivalencies for Total Emissions
+- 🚗 {equiv['km driven']:.2f} km driven
+- 📱 {equiv['phone charges']:.2f} phone charges
+- 🌳 {equiv['tree absorption hours']:.2f} tree absorption hours
+- ✈️ {equiv['flight seconds']:.2f} seconds of flight
+- 💡 {equiv['LED hours']:.2f} LED bulb hours
+
+## Research Background (Hisham's CRP)
+Based on Hisham Abulfeilat's CRP research on CFRS (Carbon Footprint Reduction System): *Reducing the Carbon Footprint of Laptops and Workstations*. The system combined real-time measurement, thresholding, and adaptive throttling to achieve 7–15% energy reduction.
+
+## Recommendations
+- Keep using `ghostforge carbon track` for heavy builds and tests.
+- Turn on `ghostforge carbon throttle on` when working above your threshold.
+- Review the leaderboard to target the most expensive commands first.
+- Compare local runs against cleaner cloud regions with `ghostforge carbon compare-cloud`.
+"""
+md_path.write_text(md, encoding='utf-8')
+html_body = markdown_to_html(md)
+html_doc = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GhostForge Carbon Report</title>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#f0fdf4; color:#14532d; margin:0; }}
+    main {{ max-width: 980px; margin: 40px auto; background:#ffffff; border:1px solid #bbf7d0; border-radius:18px; padding:32px; box-shadow:0 20px 60px rgba(34,197,94,.12); }}
+    h1,h2 {{ color:#166534; }}
+    table {{ width:100%; border-collapse:collapse; margin:16px 0 24px; }}
+    th,td {{ border:1px solid #bbf7d0; padding:10px; text-align:left; }}
+    th {{ background:#dcfce7; }}
+    ul {{ padding-left:20px; }}
+    p, li {{ line-height:1.65; }}
+  </style>
+</head>
+<body>
+  <main>
+    {html_body}
+  </main>
+</body>
+</html>
+"""
+html_path.write_text(html_doc, encoding='utf-8')
+print(md_path)
+print(html_path)
+PY
+
+  echo -e "${GREEN}✅ Carbon report exported.${NC}"
+  echo -e "${DIM}$md_file${NC}"
+  echo -e "${DIM}$html_file${NC}"
+  if [[ "$format" == "html" ]]; then
+    open "$html_file" >/dev/null 2>&1 || true
+  fi
+}
+
+live_cmd() {
+  ensure_data_dir
+  require_python3
+  tput civis 2>/dev/null || true
+  trap 'tput cnorm 2>/dev/null || true; echo; exit 0' INT TERM
+
+  while true; do
+    tput clear 2>/dev/null || printf '\033[2J\033[H'
+    python3 - <<'PY' "$EMISSIONS_FILE" "$SESSION_FILE" "$THRESHOLD_FILE" "$SYSTEM_PID_FILE" "$THROTTLE_FLAG" "$THROTTLE_PID_FILE"
+import csv
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+emissions_path = Path(sys.argv[1]).expanduser()
+session_path = Path(sys.argv[2]).expanduser()
+threshold_path = Path(sys.argv[3]).expanduser()
+system_pid_path = Path(sys.argv[4]).expanduser()
+throttle_flag = Path(sys.argv[5]).expanduser()
+throttle_pid = Path(sys.argv[6]).expanduser()
+
+def rows_from(path):
+    if not path.exists():
+        return []
+    with path.open('r', encoding='utf-8', newline='') as handle:
+        return list(csv.DictReader(handle))
+
+def as_float(value, default=0.0):
+    try:
+        return float(str(value).strip())
+    except Exception:
+        return default
+
+def parse_dt(value):
+    if not value:
+        return None
+    text = str(value).strip().replace('Z', '+00:00')
+    for candidate in (text, text.replace(' ', 'T')):
+        try:
+            return datetime.fromisoformat(candidate)
+        except Exception:
+            pass
+    return None
+
+def is_pid_running(path):
+    try:
+        pid = int(path.read_text(encoding='utf-8').strip())
+    except Exception:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+rows = rows_from(emissions_path)
+threshold = as_float(threshold_path.read_text(encoding='utf-8').strip(), 0.0) if threshold_path.exists() else 0.0
+session = {}
+if session_path.exists():
+    try:
+        session = json.loads(session_path.read_text(encoding='utf-8'))
+    except Exception:
+        session = {}
+current_emissions = as_float(rows[-1].get('emissions')) if rows else 0.0
+status = '🟢 below' if not threshold or current_emissions <= threshold else '🔴 above'
+started_at = parse_dt(session.get('start_time')) if session.get('status') == 'running' else None
+elapsed = 'n/a'
+if started_at:
+    elapsed_seconds = int((datetime.now(timezone.utc) - started_at.astimezone(timezone.utc)).total_seconds())
+    hours, rem = divmod(max(elapsed_seconds, 0), 3600)
+    minutes, seconds = divmod(rem, 60)
+    elapsed = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+fill_ratio = 0.0 if threshold <= 0 else min(current_emissions / threshold, 1.0)
+filled = int(round(fill_ratio * 10))
+bar = '[' + '█' * filled + '░' * (10 - filled) + ']'
+current_limit = 'unknown'
+try:
+    current_limit = subprocess.check_output("pmset -g custom | awk '/cpulimitmax/ {print $2; exit}'", shell=True, text=True, stderr=subprocess.DEVNULL).strip() or 'unknown'
+except Exception:
+    pass
+last_five = rows[-5:][::-1]
+print('\033[0;36m\033[1m🌿 GhostForge Carbon Live Dashboard\033[0m')
+print('Updated every 10s — Ctrl+C to exit')
+print('')
+print(f"Current session   : elapsed {elapsed} | {current_emissions:.8f} kg CO₂ | {status}")
+print(f"System monitor    : {'RUNNING' if is_pid_running(system_pid_path) else 'STOPPED'}")
+print(f"Threshold bar     : {bar} {fill_ratio * 100:5.1f}%")
+print(f"CPU throttle      : {'ENABLED' if throttle_flag.exists() else 'DISABLED'} | watcher {'RUNNING' if is_pid_running(throttle_pid) else 'STOPPED'} | limit {current_limit}%")
+print('')
+print('Last 5 sessions')
+print(f"{'When':<20} {'Label':<28} {'kg CO₂':>12}")
+print('─' * 64)
+for row in last_five:
+    when = (row.get('timestamp') or row.get('session_started_at') or 'unknown')[:19]
+    label = (row.get('session_label') or row.get('project_name') or 'session')[:28]
+    print(f"{when:<20} {label:<28} {as_float(row.get('emissions')):>12.8f}")
+if not last_five:
+    print('No session history yet.')
+print('')
+PY
+    sleep 10
+  done
+}
+
+git_track_cmd() {
+  local subcommand="${1:-start}"
+  case "$subcommand" in
+    start)
+      if ! git rev-parse --show-toplevel >/dev/null 2>&1; then
+        echo -e "${RED}✖ git-track start must be run inside a git repository.${NC}"
+        exit 1
+      fi
+      local branch commit label
+      branch="$(git branch --show-current 2>/dev/null || true)"
+      commit="$(git rev-parse --short HEAD 2>/dev/null || true)"
+      label="${branch:-detached}@${commit:-unknown}"
+      start_monitor "$label"
+      ;;
+    stop)
+      stop_monitor
+      ;;
+    log)
+      if [[ ! -f "$EMISSIONS_FILE" ]]; then
+        echo -e "${YELLOW}⚠ No emissions history found.${NC}"
+        return 0
+      fi
+      python3 - <<'PY' "$EMISSIONS_FILE"
+import csv
+import sys
+from collections import defaultdict
+from pathlib import Path
+path = Path(sys.argv[1]).expanduser()
+with path.open('r', encoding='utf-8', newline='') as handle:
+    rows = list(csv.DictReader(handle))
+if not rows:
+    print('No emissions records available yet.')
+    raise SystemExit(0)
+agg = defaultdict(lambda: {'total': 0.0, 'count': 0})
+for row in rows:
+    label = row.get('project_name') or row.get('session_label') or ''
+    branch = label.split('@', 1)[0] if '@' in label else label or 'unknown'
+    try:
+        emissions = float((row.get('emissions') or '0').strip() or 0)
+    except Exception:
+        emissions = 0.0
+    agg[branch]['total'] += emissions
+    agg[branch]['count'] += 1
+print('')
+print('Git-linked carbon log')
+print('')
+print(f"{'Branch':<32} {'Total kg CO₂':>14} {'Runs':>8} {'Avg/run':>14}")
+print('─' * 72)
+for branch, values in sorted(agg.items(), key=lambda item: item[1]['total'], reverse=True):
+    total = values['total']
+    count = values['count']
+    print(f"{branch[:32]:<32} {total:>14.8f} {count:>8} {(total / count if count else 0.0):>14.8f}")
+print('')
+PY
+      ;;
+    *)
+      echo -e "${RED}✖ Usage: ghostforge carbon git-track <start|stop|log>${NC}"
+      exit 1
+      ;;
+  esac
+}
+
+budget_inline_warning_cmd() {
+  if [[ ! -f "$BUDGET_FILE" || ! -f "$EMISSIONS_FILE" ]]; then
+    return 0
+  fi
+
+  python3 - <<'PY' "$EMISSIONS_FILE" "$BUDGET_FILE" 2>/dev/null || true
+import csv
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+def parse_dt(value):
+    if not value:
+        return None
+    text = str(value).strip().replace('Z', '+00:00')
+    for candidate in (text, text.replace(' ', 'T')):
+        try:
+            return datetime.fromisoformat(candidate)
+        except Exception:
+            pass
+    return None
+
+def as_float(value, default=0.0):
+    try:
+        return float(str(value).strip())
+    except Exception:
+        return default
+
+emissions_path = Path(sys.argv[1]).expanduser()
+budget_path = Path(sys.argv[2]).expanduser()
+with emissions_path.open('r', encoding='utf-8', newline='') as handle:
+    rows = list(csv.DictReader(handle))
+budget = json.loads(budget_path.read_text(encoding='utf-8'))
+now = datetime.now().date()
+week = now.isocalendar()[:2]
+daily_total = 0.0
+weekly_total = 0.0
+for row in rows:
+    dt = parse_dt(row.get('timestamp') or row.get('session_started_at'))
+    if not dt:
+        continue
+    value = as_float(row.get('emissions'))
+    if dt.date() == now:
+        daily_total += value
+    if dt.isocalendar()[:2] == week:
+        weekly_total += value
+messages = []
+daily_budget = budget.get('daily_kg')
+weekly_budget = budget.get('weekly_kg')
+if daily_budget is not None and daily_total > float(daily_budget):
+    messages.append(f"\033[1;33m⚠ Daily carbon budget exceeded: {daily_total:.8f}/{float(daily_budget):.8f} kg CO₂\033[0m")
+if weekly_budget is not None and weekly_total > float(weekly_budget):
+    messages.append(f"\033[1;33m⚠ Weekly carbon budget exceeded: {weekly_total:.8f}/{float(weekly_budget):.8f} kg CO₂\033[0m")
+if messages:
+    print('\n'.join(messages))
+PY
+}
+
+budget_cmd() {
+  ensure_data_dir
+  local subcommand="${1:-status}"
+  case "$subcommand" in
+    set)
+      local daily="${2:-}"
+      local weekly="${3:-}"
+      if [[ -z "$daily" ]]; then
+        echo -e "${RED}✖ Usage: ghostforge carbon budget set <daily_kg> [weekly_kg]${NC}"
+        exit 1
+      fi
+      if [[ -z "$weekly" ]]; then
+        weekly="$(python3 - <<'PY' "$daily"
+import sys
+print(float(sys.argv[1]) * 7)
+PY
+)"
+      fi
+      python3 - <<'PY' "$BUDGET_FILE" "$daily" "$weekly"
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+path = Path(sys.argv[1]).expanduser()
+payload = {
+    'daily_kg': float(sys.argv[2]),
+    'weekly_kg': float(sys.argv[3]),
+    'updated_at': datetime.utcnow().isoformat() + 'Z',
+}
+path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+PY
+      echo -e "${GREEN}✅ Carbon budget saved.${NC}"
+      echo -e "${DIM}Daily: $daily kg CO₂ | Weekly: $weekly kg CO₂${NC}"
+      ;;
+    status|week)
+      if [[ ! -f "$BUDGET_FILE" ]]; then
+        echo -e "${YELLOW}⚠ No budget set. Use: ghostforge carbon budget set <daily_kg> [weekly_kg]${NC}"
+        return 0
+      fi
+      python3 - <<'PY' "$EMISSIONS_FILE" "$BUDGET_FILE" "$subcommand"
+import csv
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+def parse_dt(value):
+    if not value:
+        return None
+    text = str(value).strip().replace('Z', '+00:00')
+    for candidate in (text, text.replace(' ', 'T')):
+        try:
+            return datetime.fromisoformat(candidate)
+        except Exception:
+            pass
+    return None
+
+def as_float(value, default=0.0):
+    try:
+        return float(str(value).strip())
+    except Exception:
+        return default
+
+emissions_path = Path(sys.argv[1]).expanduser()
+budget_path = Path(sys.argv[2]).expanduser()
+mode = sys.argv[3]
+budget = json.loads(budget_path.read_text(encoding='utf-8'))
+rows = []
+if emissions_path.exists():
+    with emissions_path.open('r', encoding='utf-8', newline='') as handle:
+        rows = list(csv.DictReader(handle))
+now = datetime.now().date()
+week_key = now.isocalendar()[:2]
+total = 0.0
+for row in rows:
+    dt = parse_dt(row.get('timestamp') or row.get('session_started_at'))
+    if not dt:
+        continue
+    if mode == 'status' and dt.date() == now:
+        total += as_float(row.get('emissions'))
+    if mode == 'week' and dt.isocalendar()[:2] == week_key:
+        total += as_float(row.get('emissions'))
+limit = float(budget['daily_kg'] if mode == 'status' else budget['weekly_kg'])
+pct = 0.0 if limit <= 0 else (total / limit) * 100
+filled = min(int(round((min(total / limit, 1.0) if limit > 0 else 0.0) * 20)), 20)
+bar = '[' + '█' * filled + '░' * (20 - filled) + ']'
+color = '\033[0;32m' if pct <= 100 else '\033[0;31m'
+label = 'Today' if mode == 'status' else 'This week'
+print(f"{label}: {total:.8f} / {limit:.8f} kg CO₂")
+print(f"{color}{bar} {pct:.1f}% used\033[0m")
+PY
+      ;;
+    reset)
+      rm -f "$BUDGET_FILE"
+      echo -e "${GREEN}✅ Carbon budget reset.${NC}"
+      ;;
+    *)
+      echo -e "${RED}✖ Usage: ghostforge carbon budget <set|status|week|reset>${NC}"
+      exit 1
+      ;;
+  esac
+}
+
+compare_cloud_cmd() {
+  ensure_data_dir
+  local provider="${1:-all}"
+  if [[ ! -f "$EMISSIONS_FILE" ]]; then
+    echo -e "${YELLOW}⚠ No emissions history found.${NC}"
+    return 0
+  fi
+  python3 - <<'PY' "$EMISSIONS_FILE" "$provider"
+import csv
+import sys
+from pathlib import Path
+PROVIDERS = {
+    'vercel': 0.023,
+    'github-actions': 0.019,
+    'netlify': 0.021,
+    'aws-lambda': 0.028,
+}
+LOCAL_INTENSITY = 0.723
+path = Path(sys.argv[1]).expanduser()
+provider = sys.argv[2]
+with path.open('r', encoding='utf-8', newline='') as handle:
+    rows = list(csv.DictReader(handle))
+if not rows:
+    print('No emissions records available yet.')
+    raise SystemExit(0)
+row = rows[-1]
+try:
+    energy = float((row.get('energy_consumed') or '0').strip() or 0)
+except Exception:
+    energy = 0.0
+if energy <= 0:
+    print('Latest session does not include energy_consumed data yet.')
+    raise SystemExit(0)
+local = energy * LOCAL_INTENSITY
+if provider != 'all' and provider not in PROVIDERS:
+    raise SystemExit('Usage: ghostforge carbon compare-cloud [vercel|github-actions|netlify|aws-lambda]')
+selected = PROVIDERS.items() if provider == 'all' else [(provider, PROVIDERS[provider])]
+print('')
+print(f"Cloud comparison for {energy:.6f} kWh workload")
+print('')
+print(f"{'Provider':<18} {'kg CO₂':>12} {'vs local':>12}")
+print('─' * 46)
+print(f"{'local (Jordan)':<18} {local:>12.8f} {'baseline':>12}")
+for name, intensity in selected:
+    emissions = energy * intensity
+    diff = ((emissions - local) / local * 100) if local else 0.0
+    print(f"{name:<18} {emissions:>12.8f} {diff:>+11.1f}%")
+print('')
+PY
+}
 
 help_cmd() {
   cat <<'EOF_HELP'
@@ -862,13 +1733,21 @@ Commands:
   install | setup         Check Python 3 + pip and install carbon packages
   start [label]           Start a background project-level monitor
   stop                    Stop the active project monitor
-  status                  Show project monitor status and threshold
+  status                  Show project monitor status, threshold, and budget alerts
   system-start            Start system-wide monitor (ALL CPU/GPU/RAM)
   system-stop             Stop system-wide monitor
   system-status           Show system monitor status + total emissions
   threshold               Compute threshold from history (avg × 1.1)
   report                  Generate a Markdown carbon report
+  export [md|html]        Export a rich Markdown/HTML carbon report
   track <command...>      Track emissions while running a command
+  git-track <subcommand>  Track by git branch@commit (start|stop|log)
+  throttle <subcommand>   Auto-throttle CPU on threshold breach (on|off|status)
+  live                    Open the real-time terminal dashboard
+  equiv [kg]              Show human-readable CO₂ equivalencies
+  leaderboard [reset]     Rank commands/projects by total emissions
+  budget <subcommand>     Manage daily/weekly carbon budgets
+  compare-cloud [name]    Compare local workload vs cloud provider CO₂
   history                 Show the last 10 tracked sessions
   clean                   Remove all carbon tracking data
   version                 Print version
@@ -876,11 +1755,15 @@ Commands:
 
 Examples:
   ghostforge carbon install
-  ghostforge carbon system-start         # track whole computer
-  ghostforge carbon system-status        # check total machine emissions
-  ghostforge carbon system-stop          # stop when done
-  ghostforge carbon track npm run build  # track a specific command
-  ghostforge carbon report
+  ghostforge carbon system-start               # track whole computer
+  ghostforge carbon track npm run build        # track a specific command
+  ghostforge carbon git-track start            # label session as branch@commit
+  ghostforge carbon throttle on                # enable auto-throttle watcher
+  ghostforge carbon equiv 0.001                # translate raw CO₂ into impact
+  ghostforge carbon leaderboard                # top emitters
+  ghostforge carbon export html                # rich report + open in browser
+  ghostforge carbon budget set 0.05 0.35       # set daily/weekly budget
+  ghostforge carbon compare-cloud vercel       # local vs cloud estimate
 EOF_HELP
 }
 
@@ -908,10 +1791,49 @@ case "$ACTION" in
     print_header
     report_cmd
     ;;
+  export)
+    print_header
+    shift || true
+    export_cmd "${1:-md}"
+    ;;
   track)
     print_header
     shift || true
     track_cmd "$@"
+    ;;
+  git-track)
+    print_header
+    shift || true
+    git_track_cmd "${1:-start}"
+    ;;
+  throttle)
+    print_header
+    shift || true
+    throttle_cmd "${1:-status}"
+    ;;
+  live)
+    print_header
+    live_cmd
+    ;;
+  equiv)
+    print_header
+    shift || true
+    equiv_cmd "${1:-}"
+    ;;
+  leaderboard)
+    print_header
+    shift || true
+    leaderboard_cmd "${1:-show}"
+    ;;
+  budget)
+    print_header
+    shift || true
+    budget_cmd "${1:-status}" "${2:-}" "${3:-}"
+    ;;
+  compare-cloud)
+    print_header
+    shift || true
+    compare_cloud_cmd "${1:-all}"
     ;;
   history)
     print_header

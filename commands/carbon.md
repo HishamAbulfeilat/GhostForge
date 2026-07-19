@@ -14,8 +14,16 @@ ghostforge carbon <command> [options]
 | start [label] | Start emission tracking for current dev session |
 | stop | Stop active tracker |
 | track <cmd> | Wrap any command with emission tracking |
+| git-track <start\|stop\|log> | Track sessions using `branch@commit` labels and branch summaries |
+| throttle <on\|off\|status> | Enable CPU auto-throttle when emissions exceed threshold |
 | threshold | Compute personal emissions threshold (avg × 1.1) |
+| equiv [kg] | Convert kg CO₂ into car, phone, tree, flight, and LED equivalents |
+| leaderboard [reset] | Rank tracked commands/projects by total emissions |
 | report | Generate Markdown emission report |
+| export [md\|html] | Export rich Markdown/HTML carbon report to `~/.ghostforge/carbon/reports/` |
+| live | Open the real-time terminal carbon dashboard |
+| budget <set\|status\|week\|reset> | Manage daily and weekly carbon budgets |
+| compare-cloud [provider] | Compare local workload CO₂ vs Vercel/GitHub Actions/Netlify/AWS |
 | history | Show last 10 tracked sessions |
 | status | Show tracker status and current emissions |
 | clean | Remove all tracking data |
@@ -26,6 +34,14 @@ ghostforge carbon install                    # First-time setup
 ghostforge carbon track npm run build        # Track a build
 ghostforge carbon track npx playwright test  # Track test run
 ghostforge carbon start "morning-dev"        # Start session
+ghostforge carbon git-track start            # Auto-label with branch@commit
+ghostforge carbon throttle on                # Enable auto-throttle watcher
+ghostforge carbon equiv 0.001                # Show CO₂ equivalencies
+ghostforge carbon leaderboard                # Top 10 emitters
+ghostforge carbon export html                # Save MD + HTML report and open it
+ghostforge carbon live                       # Real-time dashboard
+ghostforge carbon budget set 0.05 0.35       # Set daily/weekly budget
+ghostforge carbon compare-cloud vercel       # Compare local vs cloud
 ghostforge carbon stop && ghostforge carbon threshold
 ghostforge carbon report                     # Generate report
 ```
