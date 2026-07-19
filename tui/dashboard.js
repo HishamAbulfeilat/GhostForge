@@ -322,7 +322,7 @@ function buildDashboard() {
     border: { type: 'line', fg: '#00A3E0' },
   });
 
-  const openPRsTable = grid.set(6, 6, 5, 3, contrib.table, {
+  const openPRsTable = grid.set(6, 6, 5, 2, contrib.table, {
     keys: true,
     fg: 'white',
     selectedFg: 'black',
@@ -331,10 +331,10 @@ function buildDashboard() {
     label: ' 🔀 Open Pull Requests ',
     border: { type: 'line', fg: '#10B981' },
     columnSpacing: 1,
-    columnWidth: [4, 30, 10, 3],
+    columnWidth: [4, 22, 10, 3],
   });
 
-  const activityLog = grid.set(6, 9, 5, 2, contrib.log, {
+  const activityLog = grid.set(6, 8, 5, 2, contrib.log, {
     fg: 'white',
     selectedFg: 'white',
     label: ' 🔥 Activity Feed ',
@@ -345,12 +345,12 @@ function buildDashboard() {
     scrollbar: { bg: '#EF4444' },
   });
 
-  const carbonGauge = grid.set(6, 11, 5, 1, contrib.lcd, {
+  const carbonGauge = grid.set(6, 10, 5, 2, contrib.lcd, {
     label: ' 🌿 CO₂ ',
     segmentWidth: 0.06,
     segmentInterval: 0.11,
     strokeWidth: 0.1,
-    elements: 4,
+    elements: 6,
     display: 0,
     elementSpacing: 4,
     elementPadding: 2,

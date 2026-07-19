@@ -14,11 +14,12 @@ import Table from 'cli-table3';
 import ora from 'ora';
 import { execSync, spawn, spawnSync } from 'child_process';
 import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
+const BASE = ROOT;
 const VERSION = existsSync(resolve(ROOT, 'VERSION'))
   ? readFileSync(resolve(ROOT, 'VERSION'), 'utf8').trim()
   : '4.0.0';
@@ -121,7 +122,7 @@ function runScriptSync(scriptPath, args = []) {
     console.log(T.danger(`\n  ✖  Script not found: ${scriptPath}`));
     return false;
   }
-  const result = spawnSync('bash', [full, ...args], { stdio: 'inherit', shell: false });
+  const result = spawnSync('bash', [full, ...args], { stdio: 'inherit', cwd: process.cwd(), shell: false });
   return result.status === 0;
 }
 
@@ -129,7 +130,7 @@ function runScript(scriptPath, args = []) {
   const full = resolve(ROOT, scriptPath);
   if (!existsSync(full)) { console.log(T.danger(`\n  ✖  Script not found: ${scriptPath}`)); return; }
   try {
-    const child = spawn('bash', [full, ...args], { stdio: 'inherit', shell: false });
+    const child = spawn('bash', [full, ...args], { stdio: 'inherit', cwd: process.cwd(), shell: false });
     child.on('exit', () => pressEnter());
   } catch (e) {
     console.log(T.danger(`\n  ✖  ${e.message}`));
@@ -139,6 +140,8 @@ function runScript(scriptPath, args = []) {
 async function pressEnter() {
   await input({ message: T.muted('  Press ENTER to go back...') });
 }
+
+const anyKey = pressEnter;
 
 function showMdPreview(filePath, maxLines = 40) {
   const content = readFile(filePath);
@@ -164,6 +167,7 @@ const COMMANDS = [
   { name: '/onboard',       cat: '🏗  Setup',      file: 'commands/onboard.md',        desc: 'Onboard an existing project: add eslint, prettier, CI/CD, agents' },
   { name: '/open',          cat: '🏗  Setup',      file: 'commands/open.md',          desc: 'Open existing project and wire up all GhostForge toolkit files' },
   { name: '/env',           cat: '🏗  Setup',      file: 'commands/env.md',            desc: 'Manage .env files: generate, validate, sync secrets' },
+  { name: '/env-manager',   cat: '🏗  Setup',      file: 'commands/env-manager.md',    desc: 'Validate, diff, sync, and audit environment files' },
   // Development
   { name: '/add-feature',   cat: '💡 Development', file: 'commands/add-feature.md',    desc: 'Add a new feature with tests, types, and documentation' },
   { name: '/context',       cat: '💡 Development', file: 'commands/context.md',         desc: 'Read current file/component and inject as context for next request' },
@@ -175,16 +179,23 @@ const COMMANDS = [
   { name: '/mock',          cat: '💡 Development', file: 'commands/mock.md',           desc: 'Generate mock data, MSW handlers, and test fixtures' },
   { name: '/snippet',       cat: '💡 Development', file: 'commands/snippet.md',        desc: 'Browse, insert, and save reusable snippets from the snippet library' },
   { name: '/storybook',     cat: '💡 Development', file: 'commands/storybook.md',      desc: 'Generate .stories.tsx for any component — Default, Loading, Error, RTL stories' },
+  { name: '/component-gen', cat: '💡 Development', file: 'commands/component-gen.md',  desc: 'Generate a typed React component folder with tests, stories, and exports' },
   { name: '/rtl',           cat: '💡 Development', file: 'commands/rtl.md',            desc: 'RTL audit: find physical Tailwind classes and replace with logical properties' },
   { name: '/i18n',          cat: '💡 Development', file: 'commands/i18n.md',           desc: 'Add or manage internationalization (i18n) translations' },
   { name: '/explain-error', cat: '💡 Development', file: 'commands/explain-error.md',  desc: 'Explain an error message and provide a fix' },
+  { name: '/explain',       cat: '💡 Development', file: 'commands/explain.md',        desc: 'Explain runtime errors, logs, and stack traces with exact fixes' },
+  { name: '/ai-review',     cat: '💡 Development', file: 'commands/ai-review.md',      desc: 'Review staged diffs, branches, files, or full changes with AI' },
+  { name: '/graphql-sync',  cat: '💡 Development', file: 'commands/graphql-sync.md',   desc: 'Introspect GraphQL APIs and generate schema and TypeScript types' },
   { name: '/diagram',       cat: '💡 Development', file: 'commands/diagram.md',        desc: 'Generate architecture, flow, or ER diagrams (Mermaid)' },
   // Quality & Security
   { name: '/health',        cat: '🔒 Security',    file: 'commands/health.md',         desc: 'Score project health across audit, deps, coverage, bundle, tickets, lint' },
   { name: '/health-all',    cat: '🔒 Security',    file: 'commands/health-all.md',     desc: 'Scan all registered projects for health scores' },
+  { name: '/tech-debt',     cat: '🔒 Security',    file: 'commands/tech-debt.md',      desc: 'Scan TODOs, complexity, and deprecated patterns into a debt score' },
   { name: '/security',      cat: '🔒 Security',    file: 'commands/security.md',       desc: 'Full security audit: OWASP, dependency scan, secrets check' },
   { name: '/test',          cat: '🧪 QA',          file: 'commands/test.md',           desc: 'Auto-detect test framework and run tests with coverage' },
   { name: '/qa',            cat: '🧪 QA',          file: 'commands/qa.md',             desc: 'End-to-end QA: functional, UI, accessibility, performance' },
+  { name: '/coverage',      cat: '🧪 QA',          file: 'commands/coverage.md',       desc: 'Capture and compare test coverage snapshots over time' },
+  { name: '/a11y',          cat: '🧪 QA',          file: 'commands/a11y.md',           desc: 'Run axe-core audits and RTL-focused accessibility checks' },
   // Tickets & Git
   { name: '/tickets',       cat: '🎫 Tickets',     file: 'commands/tickets.md',        desc: 'Show assigned tickets (GitHub Issues / Azure DevOps / Jira)' },
   { name: '/ado',           cat: '🎫 Tickets',     file: 'commands/ado.md',            desc: 'Azure DevOps work items & pipelines' },
@@ -372,7 +383,9 @@ async function screenCommands() {
     console.log();
     await pressEnter();
   }
+}
 
+async function handleMarketplaceToolAction(action) {
   if (action === 'git-autopilot') {
     const gitAction = await select({
       message: T.white.bold('👻  Git Autopilot:'),
@@ -383,7 +396,8 @@ async function screenCommands() {
         { name: T.white.bold('📋  Status'), value: 'status' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (gitAction !== '__back__') {
       const args = [resolve(ROOT, 'scripts/git-autopilot.sh'), gitAction];
       if (gitAction === 'suggest-branch') {
@@ -407,7 +421,8 @@ async function screenCommands() {
         { name: T.danger.bold('🧹  Clean history'), value: 'clean' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (bundleAction !== '__back__') {
       const args = [resolve(ROOT, 'scripts/bundle.sh'), bundleAction];
       if (bundleAction === 'track') {
@@ -434,7 +449,8 @@ async function screenCommands() {
         { name: T.brand.bold('📄  Open last report'), value: 'report' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (lighthouseAction !== '__back__') {
       const args = [resolve(ROOT, 'scripts/lighthouse.sh'), lighthouseAction];
       if (lighthouseAction === 'run') {
@@ -456,7 +472,8 @@ async function screenCommands() {
         { name: T.success.bold('🧾  Extract hardcoded strings'), value: 'extract' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (i18nAction !== '__back__') {
       const args = [resolve(ROOT, 'scripts/i18n.sh'), i18nAction];
       if (i18nAction === 'translate') {
@@ -483,7 +500,8 @@ async function screenCommands() {
         { name: T.success.bold('🏷  Bump version'), value: 'bump' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (changelogAction !== '__back__') {
       const args = [resolve(ROOT, 'scripts/changelog.sh'), changelogAction];
       if (changelogAction === 'generate' || changelogAction === 'preview') {
@@ -498,7 +516,8 @@ async function screenCommands() {
             { name: 'minor', value: 'minor' },
             { name: 'patch', value: 'patch' },
           ],
-        });
+        
+          pageSize: 15,});
         args.push(bump);
       }
       const { spawnSync } = await import('child_process');
@@ -517,7 +536,8 @@ async function screenCommands() {
         { name: T.success.bold('📊  Full scorecard'), value: 'full' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (depAction !== '__back__') {
       const { spawnSync } = await import('child_process');
       spawnSync('bash', [resolve(ROOT, 'scripts/dep-health.sh'), depAction], { stdio: 'inherit', cwd: process.cwd() });
@@ -534,7 +554,8 @@ async function screenCommands() {
         { name: T.white.bold('📂  List generated files'), value: 'list' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (mockAction !== '__back__') {
       const args = [resolve(ROOT, 'scripts/api-mock.sh'), mockAction];
       if (mockAction === 'generate') {
@@ -556,7 +577,8 @@ async function screenCommands() {
         { name: T.success.bold('🔄  Sync tokens'), value: 'sync' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (figmaAction !== '__back__') {
       const args = [resolve(ROOT, 'scripts/figma-tokens.sh'), figmaAction];
       if (figmaAction === 'preview' || figmaAction === 'sync') {
@@ -579,7 +601,8 @@ async function screenCommands() {
         { name: T.brand.bold('🏗  Build Storybook'), value: 'build' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (storyAction !== '__back__') {
       const args = [resolve(ROOT, 'scripts/storybook.sh'), storyAction];
       if (storyAction === 'scaffold') {
@@ -591,6 +614,272 @@ async function screenCommands() {
       await pressEnter();
     }
   }
+
+  if (action === 'ai-review') {
+    const subAction = await select({
+      message: T.white.bold('🔍  AI Code Review:'),
+      choices: [
+        { name: T.accent.bold('📌  Review staged diff'), value: 'staged' },
+        { name: T.success.bold('🌿  Review branch diff'), value: 'branch' },
+        { name: T.white.bold('📄  Review one file'), value: 'file' },
+        { name: T.brand.bold('🧠  Review all changed files'), value: 'full' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/ai-review.sh'), subAction];
+      if (subAction === 'branch') {
+        const base = await input({ message: T.white('Base branch:'), default: 'main' });
+        if (base) args.push(base);
+      }
+      if (subAction === 'file') {
+        const file = await input({ message: T.white('File path to review:'), default: '' });
+        if (file) args.push(file);
+      }
+      const { spawnSync } = await import('child_process'); // lazy
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'explain') {
+    const subAction = await select({
+      message: T.white.bold('💡  AI Error Explainer:'),
+      choices: [
+        { name: T.accent.bold('📝  Paste an error message'), value: 'error' },
+        { name: T.white.bold('📄  Explain a log file'), value: 'log' },
+        { name: T.success.bold('📥  Read from stdin / pipe'), value: 'pipe' },
+        { name: T.brand.bold('🕘  Explain latest logs'), value: 'last' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/explain.sh'), subAction];
+      if (subAction === 'error') {
+        const message = await input({ message: T.white('Error message:'), default: '' });
+        if (message) args.push(message);
+      }
+      if (subAction === 'log') {
+        const file = await input({ message: T.white('Log file path:'), default: '' });
+        if (file) args.push(file);
+      }
+      const { spawnSync } = await import('child_process'); // lazy
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'release') {
+    const subAction = await select({
+      message: T.white.bold('🚀  Release Manager:'),
+      choices: [
+        { name: T.accent.bold('🛠  Prepare release'), value: 'prepare' },
+        { name: T.success.bold('🏷  Create tag'), value: 'tag' },
+        { name: T.white.bold('📝  Generate notes'), value: 'notes' },
+        { name: T.brand.bold('📤  Publish tags'), value: 'publish' },
+        { name: T.white.bold('📋  Status'), value: 'status' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/release.sh'), subAction];
+      if (subAction === 'prepare') {
+        const bump = await select({
+          message: T.white('Version bump:'),
+          choices: [
+            { name: 'patch', value: 'patch' },
+            { name: 'minor', value: 'minor' },
+            { name: 'major', value: 'major' },
+          ],
+          pageSize: 15,
+        });
+        args.push(bump);
+      }
+      const { spawnSync } = await import('child_process'); // lazy
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'env-manager') {
+    const subAction = await select({
+      message: T.white.bold('🔐  Environment Manager:'),
+      choices: [
+        { name: T.accent.bold('✅  Validate file'), value: 'validate' },
+        { name: T.white.bold('🧮  Diff two env files'), value: 'diff' },
+        { name: T.success.bold('📄  Generate .env.example'), value: 'example' },
+        { name: T.brand.bold('🔄  Sync missing keys'), value: 'sync' },
+        { name: T.warning.bold('🕵️  Audit project env files'), value: 'audit' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/env-manager.sh'), subAction];
+      if (subAction === 'validate' || subAction === 'example') {
+        const file = await input({ message: T.white('Env file (leave blank for default):'), default: '' });
+        if (file) args.push(file);
+      }
+      if (subAction === 'diff') {
+        const file1 = await input({ message: T.white('First env file:'), default: '.env.example' });
+        const file2 = await input({ message: T.white('Second env file:'), default: '.env.local' });
+        if (file1) args.push(file1);
+        if (file2) args.push(file2);
+      }
+      if (subAction === 'sync') {
+        const source = await input({ message: T.white('Source env file:'), default: '.env.example' });
+        const target = await input({ message: T.white('Target env file:'), default: '.env.local' });
+        if (source) args.push(source);
+        if (target) args.push(target);
+      }
+      const { spawnSync } = await import('child_process'); // lazy
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'coverage') {
+    const subAction = await select({
+      message: T.white.bold('📈  Coverage Tracker:'),
+      choices: [
+        { name: T.accent.bold('📸  Snapshot coverage'), value: 'snapshot' },
+        { name: T.white.bold('🕘  History'), value: 'history' },
+        { name: T.success.bold('📉  Compare latest runs'), value: 'compare' },
+        { name: T.warning.bold('🚨  Alert threshold'), value: 'alert' },
+        { name: T.brand.bold('📄  Markdown report'), value: 'report' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/coverage.sh'), subAction];
+      if (subAction === 'alert') {
+        const threshold = await input({ message: T.white('Minimum coverage threshold:'), default: '80' });
+        if (threshold) args.push(threshold);
+      }
+      const { spawnSync } = await import('child_process'); // lazy
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'a11y') {
+    const subAction = await select({
+      message: T.white.bold('♿  A11y Deep Auditor:'),
+      choices: [
+        { name: T.accent.bold('🌐  Audit URL'), value: 'audit' },
+        { name: T.success.bold('⬇️  Install axe CLI'), value: 'install' },
+        { name: T.white.bold('↔️  RTL scan'), value: 'rtl' },
+        { name: T.brand.bold('📄  Markdown report'), value: 'report' },
+        { name: T.white.bold('🕘  History'), value: 'history' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/a11y.sh'), subAction];
+      if (subAction === 'audit') {
+        const url = await input({ message: T.white('URL to audit:'), default: 'http://localhost:3000' });
+        if (url) args.push(url);
+      }
+      if (subAction === 'rtl') {
+        const dir = await input({ message: T.white('Directory to scan:'), default: 'src' });
+        if (dir) args.push(dir);
+      }
+      const { spawnSync } = await import('child_process'); // lazy
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'graphql-sync') {
+    const subAction = await select({
+      message: T.white.bold('🔷  GraphQL Type Sync:'),
+      choices: [
+        { name: T.accent.bold('🔄  Sync from endpoint'), value: 'sync' },
+        { name: T.success.bold('👀  Watch endpoint'), value: 'watch' },
+        { name: T.white.bold('🧮  Diff remote schema'), value: 'diff' },
+        { name: T.brand.bold('🧹  Clean generated files'), value: 'clean' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/graphql-sync.sh'), subAction];
+      if (subAction === 'sync' || subAction === 'watch') {
+        const endpoint = await input({ message: T.white('GraphQL endpoint:'), default: 'http://localhost:4000/graphql' });
+        if (endpoint) args.push(endpoint);
+      }
+      const { spawnSync } = await import('child_process'); // lazy
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'component-gen') {
+    const subAction = await select({
+      message: T.white.bold('🧩  Component Generator:'),
+      choices: [
+        { name: T.accent.bold('✨  Create component bundle'), value: 'create' },
+        { name: T.white.bold('📂  List generated components'), value: 'list' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/component-gen.sh'), subAction];
+      if (subAction === 'create') {
+        const name = await input({ message: T.white('Component name (PascalCase):'), default: '' });
+        const dir = await input({ message: T.white('Target directory (optional):'), default: '' });
+        const type = await select({
+          message: T.white('Component type:'),
+          choices: [
+            { name: 'UI Component', value: 'ui' },
+            { name: 'Form Component', value: 'form' },
+            { name: 'Layout Component', value: 'layout' },
+            { name: 'Page Component', value: 'page' },
+          ],
+          pageSize: 15,
+        });
+        if (name) args.push(name);
+        if (dir) args.push(dir); else args.push('');
+        args.push(type);
+      }
+      const { spawnSync } = await import('child_process'); // lazy
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'tech-debt') {
+    const subAction = await select({
+      message: T.white.bold('🏚️  Tech Debt Scanner:'),
+      choices: [
+        { name: T.accent.bold('📊  Full scan'), value: 'scan' },
+        { name: T.white.bold('📝  TODO / FIXME / HACK'), value: 'todos' },
+        { name: T.warning.bold('📏  Complexity warnings'), value: 'complexity' },
+        { name: T.red.bold('🧨  Deprecated patterns'), value: 'deprecated' },
+        { name: T.success.bold('🧮  Debt score'), value: 'score' },
+        { name: T.brand.bold('📄  Markdown report'), value: 'report' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/tech-debt.sh'), subAction];
+      if (subAction === 'scan' || subAction === 'todos' || subAction === 'complexity' || subAction === 'deprecated' || subAction === 'score' || subAction === 'report') {
+        const dir = await input({ message: T.white('Directory to scan:'), default: 'src' });
+        if (dir) args.push(dir);
+      }
+      const { spawnSync } = await import('child_process'); // lazy
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
 }
 
 async function screenAgents() {
@@ -673,7 +962,8 @@ async function screenSetup() {
       },
       { name: T.muted('← Back'), value: '__back__' },
     ],
-  });
+  
+    pageSize: 15,});
 
   if (mode === '__back__') return;
 
@@ -700,7 +990,8 @@ async function screenTickets() {
       { name: T.muted('📄  View tickets command docs'), value: 'docs' },
       { name: T.muted('← Back'), value: '__back__' },
     ],
-  });
+  
+    pageSize: 15,});
 
   if (action === '__back__') return;
   if (action === 'docs') {
@@ -715,7 +1006,8 @@ async function screenTickets() {
       { name: T.accent('Azure DevOps Boards'), value: 'azure' },
       { name: T.accent('Jira'),               value: 'jira' },
     ],
-  });
+  
+    pageSize: 15,});
 
   const spinner = ora({ text: T.accent(`Fetching ${provider} tickets...`), color: 'cyan' }).start();
   await new Promise(r => setTimeout(r, 1200));
@@ -769,7 +1061,8 @@ async function screenSecurity() {
       { name: T.accent('💬  Get Copilot security prompt'),         value: 'prompt' },
       { name: T.muted('← Back'),                                  value: '__back__' },
     ],
-  });
+  
+    pageSize: 15,});
 
   if (action === '__back__') return;
 
@@ -815,7 +1108,8 @@ async function screenTest() {
       { name: T.accent('💬  Get Copilot test generation prompt'), value: 'prompt' },
       { name: T.muted('← Back'),                                 value: '__back__' },
     ],
-  });
+  
+    pageSize: 15,});
 
   if (action === '__back__') return;
 
@@ -867,7 +1161,8 @@ async function screenDeploy() {
       { name: T.accent('📋  View deploy docs'),            value: 'docs' },
       { name: T.muted('← Back'),                           value: '__back__' },
     ],
-  });
+  
+    pageSize: 15,});
 
   if (target === '__back__') return;
   if (target === 'docs') {
@@ -882,7 +1177,8 @@ async function screenDeploy() {
       { name: T.warning('production'), value: 'production' },
       { name: T.accent('dev'),         value: 'dev' },
     ],
-  });
+  
+    pageSize: 15,});
 
   if (target === 'azure') {
     const ok = await confirm({ message: T.warning(`Deploy to Azure ${env}?`), default: false });
@@ -959,7 +1255,8 @@ async function screenProjects() {
         { name: T.brand('[Sync all]'), value: 'sync' },
         { name: T.muted('[← Back]'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
 
     if (action === '__back__') return;
 
@@ -987,7 +1284,8 @@ async function screenProjects() {
       const toRemove = await select({
         message: T.white('Remove which project?'),
         choices: projects.map(project => ({ name: project, value: project })).concat({ name: T.muted('← Cancel'), value: '__cancel__' }),
-      });
+      
+        pageSize: 15,});
       if (toRemove !== '__cancel__') {
         saveRegisteredProjects(projects.filter(project => project !== toRemove));
         console.log(T.success(`\n  ✔  Removed: ${toRemove}`));
@@ -1001,7 +1299,8 @@ async function screenProjects() {
       const toOpen = await select({
         message: T.white('Open which project?'),
         choices: projects.map(project => ({ name: project, value: project })).concat({ name: T.muted('← Cancel'), value: '__cancel__' }),
-      });
+      
+        pageSize: 15,});
       if (toOpen !== '__cancel__') {
         runScriptSync('scripts/open-project.sh', [toOpen]);
         console.log();
@@ -1091,7 +1390,8 @@ async function screenOpenProject() {
      { name: T.accent.bold('⚙️  Init Project Config') + T.muted(' — create .ghostforge-config.json for this project'), value: 'config' },
      { name: T.muted('← Back'), value: '__back__' },
    ],
-  });
+  
+    pageSize: 15,});
 
   if (action === '__back__') return;
 
@@ -1139,7 +1439,8 @@ async function screenVersion() {
       { name: T.accent.bold('📋  View VERSION file')   + T.muted(' — show raw version history'),                    value: 'view' },
       { name: T.muted('← Back'), value: '__back__' },
     ],
-  });
+  
+    pageSize: 15,});
 
   if (action === '__back__') return;
 
@@ -1190,6 +1491,7 @@ async function screenMarketplace() {
       { name: T.red.bold('🔐  Strix')                     + T.muted(' — autonomous AI penetration testing'), value: 'strix' },
       { name: T.red.bold('🛡️   HackingTool')               + T.muted(' — 185+ pentesting tools · recon, web, AD, cloud, mobile'), value: 'hackingtool' },
       { name: T.red.bold('🔍  Security Scanner')            + T.muted(' — scan project for vulns, secrets, XSS, OWASP Top-10'), value: 'pentest' },
+      { name: T.red.bold('🏚️  Tech Debt Scanner')          + T.muted(' — TODOs, complexity, deprecated APIs, debt score'), value: 'tech-debt' },
       { name: T.cyan.bold('🎯  Career Helper')             + T.muted(' — CV, LinkedIn, interview prep, job scout (14 skills)'), value: 'career-helper' },
       { name: T.success.bold('🗂️   Career-Ops')             + T.muted(' — multi-agent job search · 740+ listings · WIRED / BI'), value: 'career-ops' },
       { name: T.brand.bold('🎨  Awesome Claude Design')   + T.muted(' — DESIGN.md collection · rohitg00'), value: 'awesome-claude-design-rohitg00' },
@@ -1202,13 +1504,21 @@ async function screenMarketplace() {
       { name: T.cyan.bold('🎙️   Meetily')                   + T.muted(' — local AI meeting transcription · Arabic · no cloud'), value: 'meetily' },
       { name: T.success.bold('🌿  Carbon Monitor')           + T.muted(' — track dev session CO₂ emissions · your CRP research'), value: 'carbon-monitor' },
       { name: T.accent.bold('👻  Git Autopilot')             + T.muted(' — AI commit, branch, PR, and status helper'), value: 'git-autopilot' },
+      { name: T.white.bold('🔍  AI Code Review')            + T.muted(' — staged, branch, file, and full Claude review'), value: 'ai-review' },
+      { name: T.cyan.bold('💡  AI Error Explainer')         + T.muted(' — explain errors, logs, and failing stack traces'), value: 'explain' },
       { name: T.white.bold('📦  Bundle Size Tracker')        + T.muted(' — JS size history, compare builds, set alerts'), value: 'bundle-tracker' },
       { name: T.warning.bold('🔦  Lighthouse CI')            + T.muted(' — trend performance, accessibility, and SEO scores'), value: 'lighthouse-ci' },
+      { name: T.success.bold('📈  Coverage Tracker')        + T.muted(' — snapshot, compare, and alert on coverage drift'), value: 'coverage' },
+      { name: T.success.bold('♿  A11y Deep Auditor')        + T.muted(' — axe-core + RTL accessibility auditing'), value: 'a11y' },
       { name: T.success.bold('🌍  i18n / RTL Helper')        + T.muted(' — translation, RTL audit, string extraction'), value: 'i18n-rtl' },
       { name: T.brand.bold('📝  Changelog Generator')        + T.muted(' — conventional commits to release notes'), value: 'changelog-gen' },
+      { name: T.success.bold('🚀  Release Manager')         + T.muted(' — prepare, tag, notes, publish, and status'), value: 'release' },
       { name: T.warning.bold('🩺  Dependency Health')        + T.muted(' — npm audit summary and outdated package score'), value: 'dep-health' },
+      { name: T.warning.bold('🔐  Environment Manager')     + T.muted(' — validate, diff, sync, and audit env files'), value: 'env-manager' },
       { name: T.accent.bold('🔌  API Mock Generator')        + T.muted(' — OpenAPI to MSW handler stubs'), value: 'api-mock-gen' },
+      { name: T.accent.bold('🔷  GraphQL Type Sync')        + T.muted(' — introspect APIs into schema and TS types'), value: 'graphql-sync' },
       { name: T.brand.bold('🎨  Figma Token Sync')           + T.muted(' — variables to CSS custom properties + Tailwind'), value: 'figma-tokens' },
+      { name: T.success.bold('🧩  Component Generator')     + T.muted(' — create React components with tests and stories'), value: 'component-gen' },
       { name: T.success.bold('📚  Storybook Scaffolder')     + T.muted(' — install Storybook and generate stories'), value: 'storybook-scaffold' },
       { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
@@ -1230,7 +1540,8 @@ async function screenMarketplace() {
         ...categories.map(c => ({ name: c, value: c })),
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (catChoice === '__back__') { await screenMarketplace(); return; }
 
     const items = catChoice === '__all__' ? catalog.items : catalog.items.filter(i => i.category === catChoice);
@@ -1362,7 +1673,8 @@ async function screenMarketplace() {
         { name: T.cyan.bold('🌐  Open GitHub'),                    value: 'github' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (hermesAction !== '__back__') {
       console.log();
       console.log(boxen(
@@ -1388,7 +1700,7 @@ async function screenMarketplace() {
         const go = await confirmPrompt({ message: 'Run the install script now?', default: true });
         if (go) {
           const { spawnSync } = await import('child_process');
-          spawnSync('bash', ['-c', 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash'], { stdio: 'inherit' });
+          spawnSync('bash', ['-c', 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash'], { stdio: 'inherit', cwd: process.cwd() });
         }
       } else if (hermesAction === 'docs') {
         try { execSync('open https://hermes-agent.nousresearch.com/docs/ 2>/dev/null || xdg-open https://hermes-agent.nousresearch.com/docs/ 2>/dev/null', { stdio: 'ignore' }); } catch {}
@@ -1451,7 +1763,8 @@ async function screenMarketplace() {
         { name: T.accent.bold('🐙  GitHub'),             value: 'github' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (paAction !== '__back__') {
       console.log();
       if (paAction === 'browser') {
@@ -1492,7 +1805,8 @@ async function screenMarketplace() {
           { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
         ));
         const { spawnSync } = await import('child_process');
-        const yn = await select({ message: 'Install page-agent in current directory?', choices: [{ name: 'Yes — npm install page-agent', value: 'y' }, { name: 'No — just show the instructions', value: 'n' }] });
+        const yn = await select({ message: 'Install page-agent in current directory?', choices: [{ name: 'Yes — npm install page-agent', value: 'y' }, { name: 'No — just show the instructions', value: 'n' }],
+          pageSize: 15,});
         if (yn === 'y') spawnSync('npm', ['install', 'page-agent'], { stdio: 'inherit', cwd: process.cwd() });
       } else if (paAction === 'guide') {
         console.log(boxen(
@@ -1555,7 +1869,8 @@ async function screenMarketplace() {
         { name: T.warning.bold('🌐  Open GitHub (50k+ stars)'),           value: 'github' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (htAction !== '__back__') {
       console.log();
       const cats = [
@@ -1736,7 +2051,8 @@ async function screenMarketplace() {
         { name: T.accent.bold('🌐  GitHub'),                           value: 'github' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (subAction !== '__back__') {
       console.log();
       console.log(boxen(
@@ -1779,7 +2095,8 @@ async function screenMarketplace() {
         { name: T.brand.bold('🎨  Open Claude Design'),   value: 'claude-design' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (subAction !== '__back__') {
       console.log();
       console.log(boxen(
@@ -1816,7 +2133,8 @@ async function screenMarketplace() {
         { name: T.accent.bold('🐙  GitHub'),                     value: 'github' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (impAction !== '__back__') {
       console.log();
       console.log(boxen(
@@ -1844,7 +2162,7 @@ async function screenMarketplace() {
       console.log();
       if (impAction === 'install') {
         const { spawnSync } = await import('child_process');
-        spawnSync('npx', ['impeccable', 'install'], { stdio: 'inherit' });
+        spawnSync('npx', ['impeccable', 'install'], { stdio: 'inherit', cwd: process.cwd() });
       } else if (impAction === 'docs') {
         try { execSync('open https://impeccable.style 2>/dev/null || xdg-open https://impeccable.style 2>/dev/null', { stdio: 'ignore' }); } catch {}
       } else if (impAction === 'github') {
@@ -1863,7 +2181,8 @@ async function screenMarketplace() {
         { name: T.cyan.bold('🌐  Open plugin page'),                value: 'open' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (fdAction !== '__back__') {
       console.log();
       console.log(boxen(
@@ -1891,7 +2210,7 @@ async function screenMarketplace() {
       console.log();
       if (fdAction === 'install') {
         const { spawnSync } = await import('child_process');
-        spawnSync('claude', ['plugin', 'add', 'frontend-design'], { stdio: 'inherit' });
+        spawnSync('claude', ['plugin', 'add', 'frontend-design'], { stdio: 'inherit', cwd: process.cwd() });
       } else if (fdAction === 'open') {
         try { execSync('open https://claude.com/plugins/frontend-design 2>/dev/null || xdg-open https://claude.com/plugins/frontend-design 2>/dev/null', { stdio: 'ignore' }); } catch {}
       }
@@ -2050,7 +2369,8 @@ async function screenMarketplace() {
           { name: 'UI mode (interactive)', value: ['--ui'] },
           { name: 'Headed (watch browser)', value: ['--headed'] },
           { name: 'Debug mode', value: ['--debug'] },
-        ]});
+        ],
+          pageSize: 15,});
         spawnSync('npx', ['playwright', 'test', ...mode], { stdio: 'inherit', cwd: process.cwd() });
       } else if (pwAction === 'trace') {
         const { spawnSync } = await import('child_process');
@@ -2072,7 +2392,8 @@ async function screenMarketplace() {
         { name: T.brand.bold('💻  Use in project')        + T.muted(' — OpenAI-compatible setup snippet'), value: 'code' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (orAction !== '__back__') {
       console.log();
       if (orAction === 'code') {
@@ -2255,7 +2576,8 @@ async function screenMarketplace() {
         { name: T.accent.bold('⚙️   Settings'), value: 'settings' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
 
     if (carbonCat !== '__back__') {
       console.log();
@@ -2275,7 +2597,8 @@ async function screenMarketplace() {
             { name: T.white.bold('📺  Live dashboard'), value: 'live' },
             { name: T.muted('← Back'), value: '__back__' },
           ],
-        });
+        
+          pageSize: 15,});
 
         if (monitorAction === 'track') {
           const cmd = await input({ message: 'Command to track (e.g. npm run build):' });
@@ -2289,7 +2612,8 @@ async function screenMarketplace() {
               { name: T.white.bold('📋  Branch emissions log'), value: 'log' },
               { name: T.muted('← Back'), value: '__back__' },
             ],
-          });
+          
+            pageSize: 15,});
           if (gitTrackAction !== '__back__') runCarbon(['git-track', gitTrackAction]);
         } else if (monitorAction !== '__back__') {
           runCarbon([monitorAction]);
@@ -2307,7 +2631,8 @@ async function screenMarketplace() {
             { name: T.cyan.bold('☁️   Compare cloud providers'), value: 'compare-cloud' },
             { name: T.muted('← Back'), value: '__back__' },
           ],
-        });
+        
+          pageSize: 15,});
 
         if (analysisAction === 'equiv') {
           const equivMode = await select({
@@ -2317,7 +2642,8 @@ async function screenMarketplace() {
               { name: T.cyan.bold('Enter custom kg CO₂'), value: 'custom' },
               { name: T.muted('← Back'), value: '__back__' },
             ],
-          });
+          
+            pageSize: 15,});
           if (equivMode === 'latest') runCarbon(['equiv']);
           if (equivMode === 'custom') {
             const kg = await input({ message: 'kg CO₂ value:' });
@@ -2334,7 +2660,8 @@ async function screenMarketplace() {
               { name: 'AWS Lambda', value: 'aws-lambda' },
               { name: T.muted('← Back'), value: '__back__' },
             ],
-          });
+          
+            pageSize: 15,});
           if (provider !== '__back__') runCarbon(provider === 'all' ? ['compare-cloud'] : ['compare-cloud', provider]);
         } else if (analysisAction !== '__back__') {
           runCarbon([analysisAction]);
@@ -2350,7 +2677,8 @@ async function screenMarketplace() {
             { name: T.accent.bold('💸  Carbon budget'), value: 'budget' },
             { name: T.muted('← Back'), value: '__back__' },
           ],
-        });
+        
+          pageSize: 15,});
 
         if (reportsAction === 'export') {
           const exportFormat = await select({
@@ -2360,7 +2688,8 @@ async function screenMarketplace() {
               { name: 'HTML (.html)', value: 'html' },
               { name: T.muted('← Back'), value: '__back__' },
             ],
-          });
+          
+            pageSize: 15,});
           if (exportFormat !== '__back__') runCarbon(['export', exportFormat]);
         } else if (reportsAction === 'budget') {
           const budgetAction = await select({
@@ -2372,7 +2701,8 @@ async function screenMarketplace() {
               { name: T.warning.bold('Reset budget'), value: 'reset' },
               { name: T.muted('← Back'), value: '__back__' },
             ],
-          });
+          
+            pageSize: 15,});
           if (budgetAction === 'set') {
             const daily = await input({ message: 'Daily budget (kg CO₂):' });
             const weekly = await input({ message: 'Weekly budget (kg CO₂, optional):', default: '' });
@@ -2393,7 +2723,8 @@ async function screenMarketplace() {
             { name: T.cyan.bold('ℹ️   About this feature'), value: 'about' },
             { name: T.muted('← Back'), value: '__back__' },
           ],
-        });
+        
+          pageSize: 15,});
 
         if (settingsAction === 'throttle') {
           const throttleAction = await select({
@@ -2404,7 +2735,8 @@ async function screenMarketplace() {
               { name: T.white.bold('Status'), value: 'status' },
               { name: T.muted('← Back'), value: '__back__' },
             ],
-          });
+          
+            pageSize: 15,});
           if (throttleAction !== '__back__') runCarbon(['throttle', throttleAction]);
         } else if (settingsAction === 'about') {
           console.log(boxen(
@@ -2440,7 +2772,8 @@ async function screenMarketplace() {
         { name: T.cyan.bold('🌐  Open docs'),                          value: 'docs' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (memAction !== '__back__') {
       console.log();
       console.log(boxen(
@@ -2463,7 +2796,7 @@ async function screenMarketplace() {
       console.log();
       if (memAction === 'install') {
         const { spawnSync } = await import('child_process');
-        spawnSync('bash', [resolve(ROOT, 'scripts/setup-memory.sh'), 'install'], { stdio: 'inherit' });
+        spawnSync('bash', [resolve(ROOT, 'scripts/setup-memory.sh'), 'install'], { stdio: 'inherit', cwd: process.cwd() });
       } else if (memAction === 'docs') {
         try { execSync('open https://docs.claude-mem.ai 2>/dev/null || xdg-open https://docs.claude-mem.ai 2>/dev/null', { stdio: 'ignore' }); } catch {}
       }
@@ -2520,7 +2853,7 @@ async function screenMarketplace() {
       if (q) {
         console.log(T.muted('\n  Searching...\n'));
         const { spawnSync } = await import('child_process');
-        spawnSync('bash', [resolve(ROOT, 'scripts/skills.sh'), 'search', q], { stdio: 'inherit' });
+        spawnSync('bash', [resolve(ROOT, 'scripts/skills.sh'), 'search', q], { stdio: 'inherit', cwd: process.cwd() });
         console.log();
       }
       await pressEnter();
@@ -2544,7 +2877,7 @@ async function screenMarketplace() {
       const doInstall = await input({ message: T.white('Run install now? (yes/no):'), default: 'no' });
       if (doInstall.toLowerCase() === 'yes') {
         const { spawnSync } = await import('child_process');
-        spawnSync('bash', [resolve(ROOT, 'scripts/skills.sh'), 'claude-flow'], { stdio: 'inherit' });
+        spawnSync('bash', [resolve(ROOT, 'scripts/skills.sh'), 'claude-flow'], { stdio: 'inherit', cwd: process.cwd() });
       }
       await pressEnter();
     }
@@ -2720,6 +3053,8 @@ async function screenMarketplace() {
     }
   }
 
+  await handleMarketplaceToolAction(action);
+
   if (action === 'installed') {
     console.log();
     const installedItems = catalog.items.filter(i => i.installed);
@@ -2786,7 +3121,8 @@ async function screenGenerate() {
       { name: T.white.bold('📦  Plugin')         + T.muted('     — reusable plugin package with multiple agents/commands'), value: 'plugin' },
       { name: T.muted('← Back'), value: '__back__' },
     ],
-  });
+  
+    pageSize: 15,});
 
   if (typeChoice === '__back__') return;
 
@@ -2893,7 +3229,8 @@ async function screenFreeModels() {
       { name: T.white.bold('📖  View Configured Models')   + T.muted('  — see active model list'), value: 'list' },
       { name: T.muted('← Back to Menu'), value: '__back__' },
     ],
-  });
+  
+    pageSize: 15,});
 
   if (action === '__back__') return;
 
@@ -2927,7 +3264,8 @@ async function screenFreeModels() {
         ...providers.map(p => ({ name: `${p.name} — ${p.description.substring(0, 40)}`, value: p.id })),
         { name: T.muted('← Cancel'), value: '__cancel__' },
       ],
-    });
+    
+      pageSize: 15,});
     if (providerChoice === '__cancel__') { await screenFreeModels(); return; }
 
     const provider = providers.find(p => p.id === providerChoice);
@@ -3053,7 +3391,8 @@ async function screenDashboard() {
     { name: T.white('📖  View dashboard docs'), value: 'docs' },
     { name: T.muted('← Back'), value: '__back__' },
   ];
-  const choice = await select({ message: 'Choose:', choices });
+  const choice = await select({ message: 'Choose:', choices,
+    pageSize: 15,});
   if (choice === '__back__') return;
   if (choice === 'docs') {
     showMdPreview('commands/dashboard.md', 60);
@@ -3063,7 +3402,7 @@ async function screenDashboard() {
 
   // Check gh auth
   const { spawnSync: sp } = await import('child_process');
-  const ghCheck = sp('gh', ['auth', 'status'], { stdio: 'pipe' });
+  const ghCheck = sp('gh', ['auth', 'status'], { stdio: 'pipe', cwd: process.cwd() });
   if (ghCheck.status !== 0) {
     console.log(T.warning('\n  ⚠  gh CLI not authenticated — ticket/pipeline data will be limited.'));
     console.log(T.muted('  Run: gh auth login\n'));
@@ -3097,7 +3436,8 @@ async function screenAPITypes() {
     { name: T.white('📖  View command docs'), value: 'docs' },
     { name: T.muted('← Back'), value: '__back__' },
   ];
-  const choice = await select({ message: 'Choose:', choices });
+  const choice = await select({ message: 'Choose:', choices,
+    pageSize: 15,});
   if (choice === '__back__') return;
   if (choice === 'docs') {
     showMdPreview('commands/api-types.md');
@@ -3124,7 +3464,8 @@ async function screenChangelog() {
     { name: T.white('📖  View command docs'), value: 'docs' },
     { name: T.muted('← Back'), value: '__back__' },
   ];
-  const choice = await select({ message: 'Choose:', choices });
+  const choice = await select({ message: 'Choose:', choices,
+    pageSize: 15,});
   if (choice === '__back__') return;
   if (choice === 'docs') {
     showMdPreview('commands/changelog.md');
@@ -3149,7 +3490,8 @@ async function screenEnvCheck() {
     { name: T.white('📖  View command docs'), value: 'docs' },
     { name: T.muted('← Back'), value: '__back__' },
   ];
-  const choice = await select({ message: 'Choose:', choices });
+  const choice = await select({ message: 'Choose:', choices,
+    pageSize: 15,});
   if (choice === '__back__') return;
   if (choice === 'docs') {
     showMdPreview('commands/env-check.md');
@@ -3176,7 +3518,8 @@ async function screenUnused() {
     { name: T.white('📖  View command docs'), value: 'docs' },
     { name: T.muted('← Back'), value: '__back__' },
   ];
-  const choice = await select({ message: 'Choose:', choices });
+  const choice = await select({ message: 'Choose:', choices,
+    pageSize: 15,});
   if (choice === '__back__') return;
   if (choice === 'docs') {
     showMdPreview('commands/unused.md');
@@ -3203,7 +3546,8 @@ async function screenGitHooks() {
     { name: T.white('📖  View command docs'), value: 'docs' },
     { name: T.muted('← Back'), value: '__back__' },
   ];
-  const choice = await select({ message: 'Choose:', choices });
+  const choice = await select({ message: 'Choose:', choices,
+    pageSize: 15,});
   if (choice === '__back__') return;
   if (choice === 'docs') {
     showMdPreview('commands/git-hooks.md');
@@ -3256,7 +3600,7 @@ async function screenVSCodeInstall() {
   console.log(T.muted(`\n  Found: ${vsixPath}\n`));
 
   // Check if code CLI is available
-  const codeCheck = spawnSync('which', ['code'], { stdio: 'pipe' });
+  const codeCheck = spawnSync('which', ['code'], { stdio: 'pipe', cwd: process.cwd() });
   if (codeCheck.status !== 0) {
     console.log(T.warning('  VS Code CLI (code) not found in PATH.'));
     console.log(T.muted('  Install it: VS Code → Cmd+Shift+P → "Shell Command: Install code in PATH"\n'));
@@ -3266,7 +3610,7 @@ async function screenVSCodeInstall() {
   }
 
   console.log(T.muted('  Installing...\n'));
-  const result = spawnSync('code', ['--install-extension', vsixPath, '--force'], { stdio: 'inherit' });
+  const result = spawnSync('code', ['--install-extension', vsixPath, '--force'], { stdio: 'inherit', cwd: process.cwd() });
 
   if (result.status === 0) {
     console.log(T.success('\n  ✅ Extension installed successfully!'));
@@ -3340,7 +3684,8 @@ async function screenBundle() {
     { name: T.white('📖  View bundle command docs (/bundle)'), value: 'docs' },
     { name: T.muted('← Back'), value: '__back__' },
   ];
-  const choice = await select({ message: 'Choose:', choices });
+  const choice = await select({ message: 'Choose:', choices,
+    pageSize: 15,});
   if (choice === '__back__') return;
   if (choice === 'docs') {
     const { readFileSync } = await import('fs');
@@ -3366,7 +3711,8 @@ async function screenRTL() {
     { name: T.warning('🔧  Scan + Auto-fix — replace all occurrences'), value: 'fix' },
     { name: T.muted('← Back'), value: '__back__' },
   ];
-  const choice = await select({ message: 'Choose:', choices });
+  const choice = await select({ message: 'Choose:', choices,
+    pageSize: 15,});
   if (choice === '__back__') return;
 
   const { spawnSync } = await import('child_process');
@@ -3379,7 +3725,7 @@ async function screenRTL() {
 async function screenHealthAll() {
   sectionHeader('Multi-Project Health', 'Scan all registered projects');
   const { spawnSync } = await import('child_process');
-  spawnSync('bash', [resolve(ROOT, 'scripts/health-all.sh')], { stdio: 'inherit', cwd: process.cwd() });
+  spawnSync('bash', [resolve(ROOT, 'scripts/health-check.sh'), 'all'], { stdio: 'inherit', cwd: process.cwd() });
   await pressEnter();
 }
 
@@ -3401,7 +3747,8 @@ async function screenUpgrade() {
     { name: '↑  Minor + patch', value: '--minor' },
     { name: '🚀 Latest (all)', value: '--latest' },
     { name: '◀  Back', value: '__back__' },
-  ]});
+  ],
+    pageSize: 15,});
   if (mode === '__back__') return;
   const { spawnSync } = await import('child_process');
   spawnSync('bash', [resolve(ROOT, 'scripts/upgrade.sh'), mode], { stdio: 'inherit', cwd: process.cwd() });
@@ -3413,7 +3760,7 @@ async function screenMockApi() {
   const spec = await input({ message: 'Path to OpenAPI spec (yaml/json):' });
   if (!spec) return;
   const { spawnSync } = await import('child_process');
-  spawnSync('bash', [resolve(ROOT, 'scripts/mock-api.sh'), spec], { stdio: 'inherit', cwd: process.cwd() });
+  spawnSync('bash', [resolve(ROOT, 'scripts/api-mock.sh'), 'generate', spec], { stdio: 'inherit', cwd: process.cwd() });
   await pressEnter();
 }
 
@@ -3424,7 +3771,8 @@ async function screenOnboardDev() {
     { name: '🔍 Check existing setup', value: '--check' },
     { name: '🛠  Tools only', value: '--tools-only' },
     { name: '◀  Back', value: '__back__' },
-  ]});
+  ],
+    pageSize: 15,});
   if (mode === '__back__') return;
   const { spawnSync } = await import('child_process');
   const args = [resolve(ROOT, 'scripts/onboard-dev.sh')];
@@ -3440,7 +3788,8 @@ async function screenAdo() {
     { name: '🏗  Pipeline Runs', value: 'pipelines' },
     { name: '🚀 Releases', value: 'releases' },
     { name: '◀  Back', value: '__back__' },
-  ]});
+  ],
+    pageSize: 15,});
   if (action === '__back__') return;
   const { spawnSync } = await import('child_process');
   spawnSync('bash', [resolve(ROOT, 'scripts/ado.sh'), action], { stdio: 'inherit', cwd: process.cwd() });
@@ -3465,7 +3814,8 @@ async function screenVoice() {
     { name: '⚙️  Voice status & setup', value: 'status' },
     { name: '⬇️  Install whisper.cpp (offline STT)', value: 'install-whisper' },
     { name: '◀  Back', value: '__back__' },
-  ]});
+  ],
+    pageSize: 15,});
   if (action === '__back__') return;
   const { spawnSync } = await import('child_process');
   if (action === 'speak') {
@@ -3505,7 +3855,8 @@ async function screenChangelogViewer() {
   const chosen = await select({ message: 'View release:', choices: [
     ...releases.slice(0, 20).map(release => ({ name: release.replace('## ', ''), value: release })),
     { name: '◀  Back', value: '__back__' },
-  ]});
+  ],
+    pageSize: 15,});
   if (chosen === '__back__') return;
   let printing = false;
   const section = [];
@@ -3523,7 +3874,7 @@ async function main() {
     while (true) {
       const choice = await screenHome();
       switch (choice) {
-        case 'dashboard':    await screenDashboard(); break;
+        case 'dashboard':    await screenDashboard(); break; // lazy
         case 'setup':        await screenSetup(); break;
         case 'open':         await screenOpenProject(); break;
         case 'projects':     await screenProjects(); break;
@@ -3546,19 +3897,19 @@ async function main() {
         case 'deploy':       await screenDeploy(); break;
         case 'digest':       await screenDigest(); break;
         case 'readme':       await screenReadme(); break;
-        case 'marketplace':  await screenMarketplace(); break;
-        case 'generate':     await screenGenerate(); break;
-        case 'freemodels':   await screenFreeModels(); break;
-        case 'snippets':     await screenSnippets(); break;
-        case 'bundle':       await screenBundle(); break;
-        case 'rtl':          await screenRTL(); break;
-        case 'api-types':    await screenAPITypes(); break;
-        case 'changelog':    await screenChangelog(); break;
-        case 'env-check':    await screenEnvCheck(); break;
-        case 'unused':       await screenUnused(); break;
-        case 'git-hooks':    await screenGitHooks(); break;
+        case 'marketplace':  await screenMarketplace(); break; // lazy
+        case 'generate':     await screenGenerate(); break; // lazy
+        case 'freemodels':   await screenFreeModels(); break; // lazy
+        case 'snippets':     await screenSnippets(); break; // lazy
+        case 'bundle':       await screenBundle(); break; // lazy
+        case 'rtl':          await screenRTL(); break; // lazy
+        case 'api-types':    await screenAPITypes(); break; // lazy
+        case 'changelog':    await screenChangelog(); break; // lazy
+        case 'env-check':    await screenEnvCheck(); break; // lazy
+        case 'unused':       await screenUnused(); break; // lazy
+        case 'git-hooks':    await screenGitHooks(); break; // lazy
         case 'version':      await screenVersion(); break;
-        case 'vscode-install': await screenVSCodeInstall(); break;
+        case 'vscode-install': await screenVSCodeInstall(); break; // lazy
         case 'help':         await screenHelp(); break;
         case 'exit':
           clear();

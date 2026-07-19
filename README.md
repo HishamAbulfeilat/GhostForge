@@ -1,11 +1,11 @@
-# 🔫 GhostForge — v4.1.0
+# 🔫 GhostForge — v4.2.0
 
 > *Operator-grade dev tools, forged in the shadows.*
 > Developed by **Hisham Abulfeilat**
 
 The ultimate AI developer toolkit supercharging GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, green coding, and more.
 
-**230+ files · 14 agents · 70+ commands · 44 scripts · 24 instruction files · MCP server · React Doctor · Marketplace (43 sources) · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge` / `gf`) · Carbon Monitor v2 · Career Tools · Security Scanner · Git Autopilot · Lighthouse CI · i18n/RTL · Storybook · Figma Tokens**
+**230+ files · 14 agents · 70+ commands · 57 scripts · 24 instruction files · MCP server · React Doctor · Marketplace (52 sources) · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge` / `gf`) · Carbon Monitor v2 · Career Tools · Security Scanner · Git Autopilot · Lighthouse CI · i18n/RTL · Storybook · Figma Tokens**
 
 ---
 
@@ -918,6 +918,21 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+
+### v4.2.0 — AI Tools + Optimization
+
+| Feature | Script | What it adds |
+|---|---|---|
+| AI Code Review | `scripts/ai-review.sh` | Claude-powered reviews for staged diffs, branches, files, and full changes |
+| Component Generator | `scripts/component-gen.sh` | React component + test + story + barrel scaffolding with typed templates |
+| Release Manager | `scripts/release.sh` | Prepare versions, changelogs, tags, notes, and publish workflows |
+| Environment Manager | `scripts/env-manager.sh` | Validate, diff, sanitize, sync, and audit `.env` files |
+| Tech Debt Scanner | `scripts/tech-debt.sh` | TODO, complexity, deprecated-pattern scans with a debt score |
+| AI Error Explainer | `scripts/explain.sh` | Turn errors and logs into root-cause explanations and exact fixes |
+| Test Coverage Tracker | `scripts/coverage.sh` | Coverage history, comparison, thresholds, and markdown reports |
+| A11y Deep Auditor | `scripts/a11y.sh` | axe-core audits plus RTL/Arabic-specific accessibility checks |
+| GraphQL Type Sync | `scripts/graphql-sync.sh` | Introspection-driven schema and TypeScript type generation |
+
 ### v4.1.0 — Carbon Monitor v2 (8 New Features)
 
 Based on **Hisham Abulfeilat's** CRP graduation research: *"Reducing the Carbon Footprint of Laptops and Workstations"*
@@ -1102,4 +1117,4 @@ Based on **Hisham Abulfeilat's** CRP graduation research: *"Reducing the Carbon 
 ---
 
 *Developed by **Hisham Abulfeilat** · Operator-grade dev tools, forged in the shadows.*
-*Powered by GitHub Copilot Business · v4.1.0*
+*Powered by GitHub Copilot Business · v4.2.0*

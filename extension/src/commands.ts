@@ -120,7 +120,7 @@ async function runStorybook(toolkitRoot: string, resource?: vscode.Uri) {
 
   const terminal = getGhostForgeTerminal(toolkitRoot);
   terminal.show(true);
-  terminal.sendText(buildShellCommand(path.join(toolkitRoot, 'scripts', 'storybook-gen.sh'), [targetUri.fsPath]));
+  terminal.sendText(buildShellCommand(path.join(toolkitRoot, 'scripts', 'storybook.sh'), ['generate', targetUri.fsPath]));
 }
 
 async function runTicket(toolkitRoot: string) {

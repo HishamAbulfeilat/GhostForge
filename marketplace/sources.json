@@ -682,6 +682,136 @@
         "docs"
       ],
       "trusted": true
+    },
+    {
+      "id": "ai-review-tool",
+      "name": "AI Code Review",
+      "type": "local",
+      "description": "Built-in GhostForge diff review flow powered by Claude or a manual checklist fallback.",
+      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "categories": [
+        "ai",
+        "code-review",
+        "git",
+        "react",
+        "typescript"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "component-generator-tool",
+      "name": "Component Generator",
+      "type": "local",
+      "description": "Generates React component folders with TypeScript, tests, stories, and barrel exports.",
+      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "categories": [
+        "frontend",
+        "react",
+        "storybook",
+        "testing",
+        "scaffold"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "release-manager-tool",
+      "name": "Release Manager",
+      "type": "local",
+      "description": "Prepare semantic versions, changelogs, tags, release notes, and publish flows.",
+      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "categories": [
+        "release",
+        "git",
+        "changelog",
+        "semver"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "env-manager-tool",
+      "name": "Environment Manager",
+      "type": "local",
+      "description": "Validate, diff, sync, and audit environment files with secret-safety checks.",
+      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "categories": [
+        "env",
+        "security",
+        "devops",
+        "configuration"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "tech-debt-scanner-tool",
+      "name": "Tech Debt Scanner",
+      "type": "local",
+      "description": "Scores TODOs, complexity hotspots, and deprecated patterns across the codebase.",
+      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "categories": [
+        "quality",
+        "refactor",
+        "technical-debt",
+        "analysis"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "ai-error-explainer-tool",
+      "name": "AI Error Explainer",
+      "type": "local",
+      "description": "Explains error messages, logs, and piped stack traces with actionable fixes.",
+      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "categories": [
+        "ai",
+        "debugging",
+        "logs",
+        "developer-experience"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "coverage-tracker-tool",
+      "name": "Test Coverage Tracker",
+      "type": "local",
+      "description": "Captures coverage snapshots, tracks history, compares runs, and enforces thresholds.",
+      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "categories": [
+        "testing",
+        "coverage",
+        "quality",
+        "vitest",
+        "jest"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "a11y-deep-auditor-tool",
+      "name": "A11y Deep Auditor",
+      "type": "local",
+      "description": "Runs axe-core audits plus RTL-specific accessibility checks for Arabic-ready apps.",
+      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "categories": [
+        "accessibility",
+        "rtl",
+        "wcag",
+        "axe",
+        "frontend"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "graphql-type-sync-tool",
+      "name": "GraphQL Type Sync",
+      "type": "local",
+      "description": "Introspects GraphQL endpoints and generates local SDL plus TypeScript types.",
+      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "categories": [
+        "graphql",
+        "typescript",
+        "api",
+        "codegen"
+      ],
+      "trusted": true
     }
   ]
 }
