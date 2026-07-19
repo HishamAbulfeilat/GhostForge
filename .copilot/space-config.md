@@ -1,4 +1,4 @@
-# GhostForge AI Developer Toolkit — Copilot Space Context
+# GhostForge Developer Toolkit — Copilot Space Context
 
 Use this Space as the shared system context for GhostForge developers.
 
@@ -8,8 +8,8 @@ Use this Space as the shared system context for GhostForge developers.
 - **Mission**: Deliver secure, production-grade software across web, mobile, backend, CMS, and Azure cloud platforms.
 - **Core stack**: React, Next.js, React Native, TypeScript, Tailwind CSS, Node.js, NestJS, .NET, Azure, SQL, GitHub Actions, Azure DevOps.
 - **Quality baseline**: WCAG 2.1 AA, strong typing, automated tests, OWASP-aware security, Arabic/RTL readiness where needed.
-- **Primary repo**: `HishamAbulfeilat/GhostForge`
-- **Full instructions**: `https://github.com/HishamAbulfeilat/GhostForge/blob/main/.github/copilot-instructions.md`
+- **Primary repo**: `ghostforge-copilot-business/GhostForge`
+- **Full instructions**: `https://github.com/ghostforge-copilot-business/GhostForge/blob/main/.github/copilot-instructions.md`
 
 ## Agent roles and activation phrases
 

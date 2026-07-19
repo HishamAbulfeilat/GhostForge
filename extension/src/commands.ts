@@ -271,6 +271,6 @@ async function copySlashCommand(slashCommand: string) {
 }
 
 function getToolkitRootFromActiveExtension(): string {
-  const extension = vscode.extensions.getExtension('ghostforge.ghostforge-ai');
+  const extension = vscode.extensions.getExtension('ghostforge.ghostforge');
   return extension?.extensionPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
 }

@@ -15,7 +15,7 @@ echo -e "${BLUE}${BOLD}🔗 GhostForge Toolkit → Copy to existing project${NC}
 echo -e "   Target: ${YELLOW}$TARGET${NC}"
 echo ""
 
-mkdir -p "$TARGET/.github/workflows" "$TARGET/.vscode" "$TARGET/ghostforge-agents"
+mkdir -p "$TARGET/.github/workflows" "$TARGET/.vscode" "$TARGET/ghostforge"
 
 cp "$GHOSTFORGE_DIR/.github/copilot-instructions.md" "$TARGET/.github/"
 echo -e "${GREEN}✅ .github/copilot-instructions.md${NC} — Copilot now reads GhostForge instructions"
@@ -27,13 +27,13 @@ cp "$GHOSTFORGE_DIR/.vscode/settings.json" "$TARGET/.vscode/"
 cp "$GHOSTFORGE_DIR/.vscode/extensions.json" "$TARGET/.vscode/"
 echo -e "${GREEN}✅ .vscode/${NC} — VS Code settings with Copilot auto-read"
 
-cp -r "$GHOSTFORGE_DIR/agents"       "$TARGET/ghostforge-agents/"
-cp -r "$GHOSTFORGE_DIR/commands"     "$TARGET/ghostforge-agents/"
-cp -r "$GHOSTFORGE_DIR/instructions" "$TARGET/ghostforge-agents/"
-cp -r "$GHOSTFORGE_DIR/prompts"      "$TARGET/ghostforge-agents/"
-cp -r "$GHOSTFORGE_DIR/snippets"     "$TARGET/ghostforge-agents/"
+cp -r "$GHOSTFORGE_DIR/agents"       "$TARGET/ghostforge/"
+cp -r "$GHOSTFORGE_DIR/commands"     "$TARGET/ghostforge/"
+cp -r "$GHOSTFORGE_DIR/instructions" "$TARGET/ghostforge/"
+cp -r "$GHOSTFORGE_DIR/prompts"      "$TARGET/ghostforge/"
+cp -r "$GHOSTFORGE_DIR/snippets"     "$TARGET/ghostforge/"
 cp "$GHOSTFORGE_DIR/ghostforge-config.schema.json" "$TARGET/"
-echo -e "${GREEN}✅ ghostforge-agents/${NC} — Agents, commands, instructions, prompts, snippets"
+echo -e "${GREEN}✅ ghostforge/${NC} — Agents, commands, instructions, prompts, snippets"
 echo -e "${GREEN}✅ ghostforge-config.schema.json${NC} — Project config schema"
 
 echo ""

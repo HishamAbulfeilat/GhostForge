@@ -446,7 +446,7 @@ async function handleMarketplaceToolAction(action) {
       T.success.bold(' GhostForge Web UI — Vercel Deploy ') + '\n\n' +
       T.white('Mobile-first Next.js 14 chat UI with AI + Mac Bridge control.\n\n') +
       T.success.bold('  Deploy:\n') +
-      T.cyan('  cd ~/ghostforge-agents/web-ui\n') +
+      T.cyan('  cd ~/ghostforge/web-ui\n') +
       T.cyan('  npm install\n') +
       T.cyan('  npx vercel login\n') +
       T.cyan('  npx vercel --prod\n\n') +
@@ -1340,7 +1340,7 @@ async function screenProjects() {
       projects.forEach((project, index) => {
         const exists = existsSync(project);
         const hasToolkit = exists && (
-          existsSync(resolve(project, 'ghostforge-agents')) ||
+          existsSync(resolve(project, 'ghostforge')) ||
           existsSync(resolve(project, '.github/copilot-instructions.md'))
         );
         table.push([

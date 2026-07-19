@@ -14,10 +14,10 @@ Set up and test **Google Gemini** as a free AI provider for GhostForge, includin
 
 ## Local script
 ```bash
-bash ~/ghostforge-agents/scripts/gemini.sh setup
-bash ~/ghostforge-agents/scripts/gemini.sh test
-bash ~/ghostforge-agents/scripts/gemini.sh models
-bash ~/ghostforge-agents/scripts/gemini.sh ask "Hello from GhostForge"
+bash ~/ghostforge/scripts/gemini.sh setup
+bash ~/ghostforge/scripts/gemini.sh test
+bash ~/ghostforge/scripts/gemini.sh models
+bash ~/ghostforge/scripts/gemini.sh ask "Hello from GhostForge"
 ```
 
 ## Free models

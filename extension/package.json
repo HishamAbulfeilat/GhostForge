@@ -1,6 +1,6 @@
 {
-  "name": "ghostforge-ai",
-  "displayName": "GhostForge AI Developer Toolkit",
+  "name": "ghostforge",
+  "displayName": "GhostForge Developer Toolkit",
   "description": "GitHub Copilot supercharger for React/Next.js/TypeScript — commands, snippets, RTL audit, bundle analyzer, and more",
   "version": "2.6.0",
   "publisher": "ghostforge",
@@ -168,14 +168,14 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "ghostforge-ai",
+          "id": "ghostforge",
           "title": "GhostForge AI",
           "icon": "assets/icon.svg"
         }
       ]
     },
     "views": {
-      "ghostforge-ai": [
+      "ghostforge": [
         {
           "id": "ghostforge.snippets",
           "name": "Snippets"
@@ -259,7 +259,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/HishamAbulfeilat/GhostForge"
+    "url": "https://github.com/ghostforge-copilot-business/GhostForge"
   },
-  "homepage": "https://github.com/HishamAbulfeilat/GhostForge"
+  "homepage": "https://github.com/ghostforge-copilot-business/GhostForge"
 }

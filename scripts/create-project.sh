@@ -450,7 +450,7 @@ esac
 echo ""
 info "Copying GhostForge AI toolkit to project..."
 
-mkdir -p .github/workflows .vscode ghostforge-agents
+mkdir -p .github/workflows .vscode ghostforge
 
 # Copy copilot instructions
 cp "$GHOSTFORGE_DIR/.github/copilot-instructions.md" .github/
@@ -465,12 +465,12 @@ cp "$GHOSTFORGE_DIR/.vscode/settings.json" .vscode/
 cp "$GHOSTFORGE_DIR/.vscode/extensions.json" .vscode/
 success "VS Code settings copied (Copilot auto-read enabled)"
 
-# Copy full ghostforge-agents reference folder
-cp -r "$GHOSTFORGE_DIR/agents" ghostforge-agents/
-cp -r "$GHOSTFORGE_DIR/commands" ghostforge-agents/
-cp -r "$GHOSTFORGE_DIR/instructions" ghostforge-agents/
-cp -r "$GHOSTFORGE_DIR/prompts" ghostforge-agents/
-success "All agents, commands, instructions & prompts copied → ghostforge-agents/"
+# Copy full ghostforge reference folder
+cp -r "$GHOSTFORGE_DIR/agents" ghostforge/
+cp -r "$GHOSTFORGE_DIR/commands" ghostforge/
+cp -r "$GHOSTFORGE_DIR/instructions" ghostforge/
+cp -r "$GHOSTFORGE_DIR/prompts" ghostforge/
+success "All agents, commands, instructions & prompts copied → ghostforge/"
 
 # ── .env files ──────────────────────────────────────────────
 ENV_CONTENT="# API
@@ -480,12 +480,12 @@ $([ -n "${EXISTING_API_URL:-}" ] && echo "NEXT_PUBLIC_API_URL=$EXISTING_API_URL"
 GITHUB_TOKEN=
 
 # Azure DevOps Boards integration (for /tickets command)
-AZURE_DEVOPS_ORG_URL=https://dev.azure.com/ghostforge
+AZURE_DEVOPS_ORG_URL=https://dev.azure.com/your-org
 AZURE_DEVOPS_PROJECT=your-project
 AZURE_DEVOPS_PAT=
 
 # Jira integration (optional)
-JIRA_BASE_URL=https://ghostforge.atlassian.net
+JIRA_BASE_URL=https://your-org.atlassian.net
 JIRA_EMAIL=
 JIRA_API_TOKEN=
 "

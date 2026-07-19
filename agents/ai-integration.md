@@ -191,7 +191,7 @@ OPENAI_API_KEY=sk-...
 
 # Azure OpenAI
 AZURE_OPENAI_API_KEY=...
-AZURE_OPENAI_ENDPOINT=https://ghostforge.openai.azure.com
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
 AZURE_OPENAI_DEPLOYMENT=gpt-4o
 
 # Vector DB (choose one)

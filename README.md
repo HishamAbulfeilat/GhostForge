@@ -12,7 +12,7 @@ The ultimate AI developer toolkit supercharging GitHub Copilot with deep knowled
 ## 📋 Table of Contents
 
 1. [Quick Start](#-quick-start)
-2. [@ghostforge GitHub Copilot Extension](#-ghostforge-github-copilot-extension)
+2. [🤖 @ghostforge GitHub Copilot Extension](#-ghostforge-github-copilot-extension)
 3. [MCP Server](#-mcp-server)
 4. [React Doctor — React Health Scanner](#-react-doctor--react-health-scanner)
 5. [Terminal UI — `ghostforge`](#-terminal-ui----ghostforge)
@@ -41,7 +41,7 @@ The ultimate AI developer toolkit supercharging GitHub Copilot with deep knowled
 
 ```bash
 # 1. Clone the toolkit
-git clone https://github.com/HishamAbulfeilat/GhostForge.git ~/ghostforge
+git clone https://github.com/ghostforge-copilot-business/GhostForge.git ~/ghostforge
 
 # 2. Install VS Code extensions
 bash ~/ghostforge/scripts/setup-env.sh
@@ -63,7 +63,7 @@ code /your/project
 
 | Method | How | Best For |
 |--------|-----|----------|
-| **Terminal UI** | `~/ghostforge-agents/ghostforge` | Visual, menu-driven — all features at a glance |
+| **Terminal UI** | `~/ghostforge/ghostforge` | Visual, menu-driven — all features at a glance |
 | **Copilot Chat** | Type `/command` in VS Code (`Cmd+Shift+I`) | AI code generation & assistance |
 | **VS Code Extension** | `Cmd+Shift+E` or click "⚡ GhostForge" in status bar | Right-click menus, snippet insert, command picker |
 | **Shell Scripts** | `bash scripts/create-project.sh` | Automated project scaffolding |
@@ -77,7 +77,7 @@ code /your/project
 - **TUI + marketplace integration** — launch bridge/tunnel flows, Gemini setup, and web UI deploy guidance directly from GhostForge
 
 ```bash
-cd ~/ghostforge-agents/web-ui
+cd ~/ghostforge/web-ui
 npm install
 npx vercel --prod
 ```
@@ -111,7 +111,7 @@ The toolkit includes a first-party MCP server in [`mcp/`](./mcp) so GitHub Copil
 
 ### Quick setup
 ```bash
-cd ~/ghostforge-agents/mcp
+cd ~/ghostforge/mcp
 npm install
 ```
 
@@ -180,13 +180,13 @@ A clean, interactive terminal dashboard for the entire toolkit. Browse commands,
 
 ```bash
 # Recommended: run from anywhere
-~/ghostforge-agents/ghostforge
+~/ghostforge/ghostforge
 
 # CLI flags
-~/ghostforge-agents/ghostforge --version
-~/ghostforge-agents/ghostforge --command health
-~/ghostforge-agents/ghostforge --open /path/to/project
-~/ghostforge-agents/ghostforge --digest
+~/ghostforge/ghostforge --version
+~/ghostforge/ghostforge --command health
+~/ghostforge/ghostforge --open /path/to/project
+~/ghostforge/ghostforge --digest
 ```
 
 ### Add a Shell Alias (Recommended)
@@ -194,7 +194,7 @@ A clean, interactive terminal dashboard for the entire toolkit. Browse commands,
 Add to `~/.zshrc` or `~/.bashrc`:
 
 ```bash
-alias ghostforge='node ~/ghostforge-agents/tui/index.js'
+alias ghostforge='node ~/ghostforge/tui/index.js'
 ```
 
 ### TUI Screens
@@ -259,17 +259,17 @@ Browse and install AI agent skills from 6 trusted sources:
 | **Skills Collection 2026** | Community + official index | https://github.com/obviousworks/Claude-AI-skills-collection-2026 |
 
 ```bash
-bash ~/ghostforge-agents/scripts/skills.sh              # overview + sources
-bash ~/ghostforge-agents/scripts/skills.sh list         # installed skills
-bash ~/ghostforge-agents/scripts/skills.sh search react # search SkillsMP
-bash ~/ghostforge-agents/scripts/skills.sh claude-flow  # install Claude-Flow
+bash ~/ghostforge/scripts/skills.sh              # overview + sources
+bash ~/ghostforge/scripts/skills.sh list         # installed skills
+bash ~/ghostforge/scripts/skills.sh search react # search SkillsMP
+bash ~/ghostforge/scripts/skills.sh claude-flow  # install Claude-Flow
 ```
 
 ### Generate New
 Create your own toolkit assets with:
 ```bash
 /generate
-bash ~/ghostforge-agents/scripts/generate.sh
+bash ~/ghostforge/scripts/generate.sh
 ```
 
 Supported outputs:
@@ -313,8 +313,8 @@ A real-time, full-screen terminal dashboard with 6 live panels:
 
 ```bash
 ghostforge                          # → 📊 Developer Dashboard (first item)
-bash ~/ghostforge-agents/scripts/dashboard.sh
-node ~/ghostforge-agents/tui/dashboard.js
+bash ~/ghostforge/scripts/dashboard.sh
+node ~/ghostforge/tui/dashboard.js
 ```
 
 **Keyboard:** `R` refresh · `Q` quit · `Tab` switch panel · `↑↓` scroll
@@ -327,10 +327,10 @@ A local VS Code extension (`ghostforge`) that brings the toolkit into your edito
 ### Install
 ```bash
 # Option 1: From TUI (recommended)
-~/ghostforge-agents/ghostforge  # → "🧩 Install VS Code Extension"
+~/ghostforge/ghostforge  # → "🧩 Install VS Code Extension"
 
 # Option 2: Direct
-code --install-extension ~/ghostforge-agents/extension/ghostforge-2.6.0.vsix
+code --install-extension ~/ghostforge/extension/ghostforge-2.6.0.vsix
 ```
 
 After installing, reload VS Code (`Cmd+Shift+P` → "Reload Window").
@@ -350,7 +350,7 @@ After installing, reload VS Code (`Cmd+Shift+P` → "Reload Window").
 
 ### Build from Source
 ```bash
-cd ~/ghostforge-agents/extension
+cd ~/ghostforge/extension
 npm install
 node esbuild.js
 npx @vscode/vsce package --no-dependencies
@@ -391,7 +391,7 @@ Starter templates in `templates/projects/` — pre-configured with the full stac
 
 Copy a template to bootstrap a new project:
 ```bash
-cp -r ~/ghostforge-agents/templates/projects/nextjs-i18n ./my-new-app
+cp -r ~/ghostforge/templates/projects/nextjs-i18n ./my-new-app
 cd my-new-app && npm install
 ```
 
@@ -403,8 +403,8 @@ GitHub Copilot in VS Code **automatically reads** `.github/copilot-instructions.
 
 ### Step 1 — Copy to your project
 ```bash
-cp -r ~/ghostforge-agents/.github /your-project/
-cp -r ~/ghostforge-agents/.vscode /your-project/
+cp -r ~/ghostforge/.github /your-project/
+cp -r ~/ghostforge/.vscode /your-project/
 ```
 
 ### Step 2 — Open in VS Code
@@ -432,7 +432,7 @@ What tech stack do you know for this project?
 ## 🏗️ Setup a New Project
 
 ```bash
-bash ~/ghostforge-agents/scripts/create-project.sh
+bash ~/ghostforge/scripts/create-project.sh
 # OR launch from the TUI:
 ghostforge
 ```
@@ -470,7 +470,7 @@ ghostforge
 - ✅ `README.md` with setup instructions
 - ✅ GitHub / Azure DevOps repo initialized and pushed
 - ✅ CI/CD pipeline file + **React Doctor workflow**
-- ✅ **All ghostforge-agents files copied** → Copilot instantly active
+- ✅ **All ghostforge files copied** → Copilot instantly active
 
 ---
 
@@ -689,10 +689,10 @@ CODECOV_TOKEN             (optional, coverage reporting)
 ### Required `.env.local`
 ```bash
 GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-AZURE_DEVOPS_ORG_URL=https://dev.azure.com/ghostforge
+AZURE_DEVOPS_ORG_URL=https://dev.azure.com/your-org
 AZURE_DEVOPS_PROJECT=your-project
 AZURE_DEVOPS_PAT=xxxxxxxxxxxx
-JIRA_BASE_URL=https://ghostforge.atlassian.net    # optional
+JIRA_BASE_URL=https://your-org.atlassian.net    # optional
 JIRA_EMAIL=your@ghostforge.com                    # optional
 JIRA_API_TOKEN=xxxxxxxxxxxx                  # optional
 SLACK_WEBHOOK=https://hooks.slack.com/...    # optional
@@ -733,7 +733,7 @@ The toolkit automatically selects the best Copilot model for each task type:
 
 Models sync live from the Copilot Business API weekly via `.github/workflows/sync-models.yml`:
 ```bash
-node ~/ghostforge-agents/scripts/sync-models.js
+node ~/ghostforge/scripts/sync-models.js
 ```
 
 ---
@@ -741,7 +741,7 @@ node ~/ghostforge-agents/scripts/sync-models.js
 ## 📁 Folder Structure
 
 ```
-ghostforge-agents/                              ← v2.3.0 — 180+ files
+ghostforge/                              ← v2.3.0 — 180+ files
 │
 ├── README.md                              ← You are here
 ├── CONTRIBUTING.md                        ← How to add agents/commands
@@ -906,19 +906,19 @@ ghostforge-agents/                              ← v2.3.0 — 180+ files
 ### Share with the GhostForge team
 ```bash
 # The repo is already live at:
-git clone https://github.com/HishamAbulfeilat/GhostForge.git ~/ghostforge-agents
-bash ~/ghostforge-agents/scripts/setup-env.sh
-~/ghostforge-agents/ghostforge
+git clone https://github.com/ghostforge-copilot-business/GhostForge.git ~/ghostforge
+bash ~/ghostforge/scripts/setup-env.sh
+~/ghostforge/ghostforge
 ```
 
 ### Get latest updates
 ```bash
-bash ~/ghostforge-agents/scripts/update.sh
+bash ~/ghostforge/scripts/update.sh
 ```
 
 ### Release a new version
 ```bash
-bash ~/ghostforge-agents/scripts/update.sh
+bash ~/ghostforge/scripts/update.sh
 # Choose: patch / minor / major / custom
 ```
 
@@ -986,7 +986,7 @@ Based on **Hisham Abulfeilat's** CRP graduation research: *"Reducing the Carbon 
 
 **GhostForge** — *Operator-grade dev tools, forged in the shadows.* — Developed by Hisham Abulfeilat
 
-- 🔄 Renamed toolkit: `ghostforge` → `ghostforge` (alias `gf`), data dir `~/.ghostforge/`
+- 🔄 Renamed toolkit: `ghostforge-agents` → `ghostforge` (alias `gf`), data dir `~/.ghostforge/`
 - © Copyright: Hisham Abulfeilat — all scripts and TUI
 - **9 new developer tools:**
 

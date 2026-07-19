@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ghostforge.local/schemas/ghostforge-config.schema.json",
+  "$id": "https://ghostforge.dev/schemas/ghostforge-config.schema.json",
   "title": "GhostForge Project Config",
   "type": "object",
   "additionalProperties": false,

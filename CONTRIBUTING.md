@@ -66,13 +66,13 @@ Step-by-step what the AI does when this command is triggered.
 ## Getting Latest Toolkit Updates
 
 ```bash
-cd ~/ghostforge-agents
+cd ~/ghostforge
 git pull origin main
 ```
 
 Or run the update script:
 ```bash
-bash ~/ghostforge-agents/scripts/update.sh
+bash ~/ghostforge/scripts/update.sh
 ```
 
 ---

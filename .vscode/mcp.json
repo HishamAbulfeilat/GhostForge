@@ -3,7 +3,7 @@
     "ghostforge": {
       "type": "stdio",
       "command": "node",
-      "args": ["${workspaceFolder}/../ghostforge-agents/mcp/index.js"],
+      "args": ["${workspaceFolder}/../ghostforge/mcp/index.js"],
       "env": {
         "GITHUB_TOKEN": "${env:GITHUB_TOKEN}"
       }

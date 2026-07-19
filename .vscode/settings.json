@@ -25,40 +25,40 @@
       "file": ".github/copilot-instructions.md"
     },
     {
-      "file": "ghostforge-agents/.github/copilot-instructions.md"
+      "file": "ghostforge/.github/copilot-instructions.md"
     },
     {
-      "file": "ghostforge-agents/instructions/model-selection.md"
+      "file": "ghostforge/instructions/model-selection.md"
     },
     {
-      "file": "ghostforge-agents/instructions/react-native.md"
+      "file": "ghostforge/instructions/react-native.md"
     },
     {
-      "file": "ghostforge-agents/instructions/react-web.md"
+      "file": "ghostforge/instructions/react-web.md"
     },
     {
-      "file": "ghostforge-agents/instructions/nextjs.md"
+      "file": "ghostforge/instructions/nextjs.md"
     },
     {
-      "file": "ghostforge-agents/instructions/typescript.md"
+      "file": "ghostforge/instructions/typescript.md"
     },
     {
-      "file": "ghostforge-agents/instructions/tailwind.md"
+      "file": "ghostforge/instructions/tailwind.md"
     },
     {
-      "file": "ghostforge-agents/instructions/azure.md"
+      "file": "ghostforge/instructions/azure.md"
     },
     {
-      "file": "ghostforge-agents/instructions/sql-reporting.md"
+      "file": "ghostforge/instructions/sql-reporting.md"
     },
     {
-      "file": "ghostforge-agents/instructions/general-knowledge.md"
+      "file": "ghostforge/instructions/general-knowledge.md"
     },
     {
-      "file": "ghostforge-agents/instructions/react-doctor.md"
+      "file": "ghostforge/instructions/react-doctor.md"
     },
     {
-      "file": "ghostforge-agents/instructions/arabic-rtl.md"
+      "file": "ghostforge/instructions/arabic-rtl.md"
     },
     {
       "file": "knowledge/gotchas.md"
@@ -75,7 +75,7 @@
       "file": ".github/copilot-instructions.md"
     },
     {
-      "file": "ghostforge-agents/.github/copilot-instructions.md"
+      "file": "ghostforge/.github/copilot-instructions.md"
     }
   ],
   "github.copilot.chat.reviewSelection.instructions": [
@@ -83,7 +83,7 @@
       "file": ".github/copilot-instructions.md"
     },
     {
-      "file": "ghostforge-agents/.github/copilot-instructions.md"
+      "file": "ghostforge/.github/copilot-instructions.md"
     }
   ],
   "github.copilot.chat.commitMessageGeneration.instructions": [

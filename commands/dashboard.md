@@ -7,7 +7,7 @@ Open a real-time terminal dashboard showing your assigned tickets, CI/CD pipelin
 ```bash
 /dashboard
 ghostforge dashboard
-bash ~/ghostforge-agents/scripts/dashboard.sh
+bash ~/ghostforge/scripts/dashboard.sh
 ```
 
 ## Dashboard Panels

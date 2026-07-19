@@ -1,4 +1,4 @@
-# GhostForge AI Developer Toolkit for VS Code
+# GhostForge Developer Toolkit for VS Code
 
 GhostForge AI brings the GhostForge Developer Toolkit into VS Code with command-palette actions, context-aware editor shortcuts, a snippet sidebar, a commands sidebar, and an integrated terminal runner for the toolkit scripts.
 
@@ -20,7 +20,7 @@ GhostForge AI brings the GhostForge Developer Toolkit into VS Code with command-
 4. Select the generated `.vsix` file.
 
 ### Install from Marketplace
-Once published, search for **GhostForge AI Developer Toolkit** in the VS Code Marketplace.
+Once published, search for **GhostForge Developer Toolkit** in the VS Code Marketplace.
 
 ## Commands
 

@@ -97,7 +97,7 @@ services:
     build: ./apps/api
     ports: ["3001:3001"]
     environment:
-      - DATABASE_URL=postgresql://postgres:password@db:5432/ghostforge
+      - DATABASE_URL=postgres://user:pass@db:5432/ghostforge
       - REDIS_URL=redis://redis:6379
     depends_on: [db, redis]
 

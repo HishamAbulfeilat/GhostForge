@@ -126,8 +126,8 @@ describe('{name}', () => {{
   it('supports typing', () => {{
     render(<{name} label="Email" />);
     const input = screen.getByLabelText('Email');
-    fireEvent.change(input, {{ target: {{ value: 'ghostforge@ghostforge.sa' }} }});
-    expect((input as HTMLInputElement).value).toBe('ghostforge@ghostforge.sa');
+    fireEvent.change(input, {{ target: {{ value: 'hisham@ghostforge.dev' }} }});
+    expect((input as HTMLInputElement).value).toBe('hisham@ghostforge.dev');
   }});
 
   it('matches the snapshot', () => {{

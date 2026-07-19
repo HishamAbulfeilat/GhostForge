@@ -32,14 +32,14 @@ When VS Code starts an MCP server, Copilot can call its registered tools on dema
     "ghostforge": {
       "type": "stdio",
       "command": "node",
-      "args": ["/absolute/path/to/ghostforge-agents/mcp/index.js"],
+      "args": ["/absolute/path/to/ghostforge/mcp/index.js"],
       "env": { "GITHUB_TOKEN": "${env:GITHUB_TOKEN}" }
     }
   }
 }
 ```
 
-This repository also includes a ready-to-copy workspace config in `.vscode/mcp.json` using `${workspaceFolder}/../ghostforge-agents/mcp/index.js`.
+This repository also includes a ready-to-copy workspace config in `.vscode/mcp.json` using `${workspaceFolder}/../ghostforge/mcp/index.js`.
 
 ## Local development
 

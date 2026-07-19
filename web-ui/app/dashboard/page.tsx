@@ -42,7 +42,7 @@ export default function DashboardPage() {
         <div className="mb-3 rounded-xl bg-gray-800 p-3 font-mono text-sm text-emerald-400">
           # On your Mac:
           <br />
-          bash ~/ghostforge-agents/scripts/bridge.sh start
+          bash ~/ghostforge/scripts/bridge.sh start
         </div>
         <p className="text-xs text-gray-500">
           The bridge starts a local server plus optional Cloudflare tunnel. Copy the tunnel URL and add it as
@@ -75,7 +75,7 @@ export default function DashboardPage() {
       <div className="rounded-[28px] border border-gray-800 bg-gray-900/95 p-5 shadow-tactical">
         <h2 className="mb-3 text-white font-semibold">🚀 Deploy to Vercel</h2>
         <div className="space-y-2 text-sm text-gray-300">
-          <p>1. <code className="text-emerald-400">cd ~/ghostforge-agents/web-ui && npm install</code></p>
+          <p>1. <code className="text-emerald-400">cd ~/ghostforge/web-ui && npm install</code></p>
           <p>2. <code className="text-emerald-400">npx vercel login</code></p>
           <p>3. <code className="text-emerald-400">npx vercel --prod</code></p>
           <p>4. Add env vars in Vercel dashboard → Settings → Environment Variables</p>

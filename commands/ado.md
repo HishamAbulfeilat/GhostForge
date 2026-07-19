@@ -12,7 +12,7 @@ Integrate with Azure DevOps — list work items, check pipeline status, view rel
 ```
 
 ## Setup
-Add to `~/ghostforge-agents/.env.local`:
+Add to `~/ghostforge/.env.local`:
 ```bash
 AZURE_DEVOPS_ORG=your-org-name
 AZURE_DEVOPS_PROJECT=your-project

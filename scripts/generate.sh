@@ -282,7 +282,7 @@ plugins/${slug}/
 
 ## Installation
 
-Copy plugin contents to ghostforge-agents root:
+Copy plugin contents to ghostforge root:
 
 \`\`\`bash
 # Install all components

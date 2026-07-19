@@ -131,7 +131,7 @@ export function ChatInterface() {
           ...previous,
           {
             role: 'assistant',
-            content: '🔌 Mac bridge not connected.\n\nStart it on your Mac:\n```\nbash ~/ghostforge-agents/scripts/bridge.sh start\n```',
+            content: '🔌 Mac bridge not connected.\n\nStart it on your Mac:\n```\nbash ~/ghostforge/scripts/bridge.sh start\n```',
             timestamp: new Date(),
           },
         ])

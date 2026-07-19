@@ -192,7 +192,7 @@ if [[ -f "$PROJECTS_FILE" ]] && [[ -s "$PROJECTS_FILE" ]]; then
 else
   echo ""
   echo -e "  ${DIM}Tip: Register projects so updates auto-sync:${NC}"
-  echo -e "  ${DIM}  echo \"/path/to/project\" >> ~/ghostforge-agents/.registered-projects${NC}"
+  echo -e "  ${DIM}  echo \"/path/to/project\" >> ~/ghostforge/.registered-projects${NC}"
 fi
 
 echo ""
@@ -246,6 +246,6 @@ divider
 echo ""
 echo -e "  ${GREEN}${BOLD}✅ GhostForge v${NEW_VERSION} ready!${NC}"
 echo ""
-echo -e "  ${DIM}Launch TUI    : ~/ghostforge-agents/ghostforge${NC}"
-echo -e "  ${DIM}Open project  : bash ~/ghostforge-agents/scripts/open-project.sh${NC}"
+echo -e "  ${DIM}Launch TUI    : ~/ghostforge/ghostforge${NC}"
+echo -e "  ${DIM}Open project  : bash ~/ghostforge/scripts/open-project.sh${NC}"
 echo ""

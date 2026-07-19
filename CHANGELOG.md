@@ -11,7 +11,7 @@
 
 ## v2.7.0 — 2026-07-16
 
-f182873 feat: add ghostforge-ai VS Code extension (v2.6.0)
+f182873 feat: add ghostforge VS Code extension (v2.6.0)
 
 ---
 
@@ -40,7 +40,7 @@ f309a54 fix: resolve all failing GitHub Actions workflows
 ## v2.5.0 — 2026-07-16
 
 452d188 feat: optimize toolkit for real GhostForge project stack
-fb85adc ci: add mirror workflow to HishamAbulfeilat/GhostForge
+fb85adc ci: add mirror workflow to HishamAbulfeilat/GhostForge-Tool
 f9b43a2 feat: marketplace, generator, free models (v2.4.0)
 
 ---
@@ -83,7 +83,7 @@ Initial release
 
 ## v2.0.0 — 2026-07-15
 
-- Initial GhostForge AI Developer Toolkit release
+- Initial GhostForge Developer Toolkit release
 - Terminal UI launcher with setup, project open, commands, agents, instructions, tickets, security, test, deploy, readme, version, and help screens
 - 14 specialized AI agents for frontend, mobile, backend, DevOps, QA, security, data, CMS, and architecture workflows
 - 27 slash command documents covering setup, scaffolding, testing, security, tickets, deployment, SQL, Storybook, i18n, and release workflows

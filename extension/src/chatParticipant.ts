@@ -54,7 +54,7 @@ function getProjectContext(toolkitRoot: string): string {
 
 function buildSystemPrompt(toolkitRoot: string): string {
   return [
-    'You are @ghostforge, an AI developer assistant for the GhostForge AI Developer Toolkit.',
+    'You are @ghostforge, an AI developer assistant for the GhostForge Developer Toolkit.',
     'You help developers with React, Next.js, TypeScript, Tailwind CSS, RTL (right-to-left) support, and Arabic localisation.',
     'You are opinionated about code quality, accessibility, and performance.',
     '',

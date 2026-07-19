@@ -13,7 +13,7 @@
 
 ### 2. Deploy:
 ```bash
-cd ~/ghostforge-agents/web-ui
+cd ~/ghostforge/web-ui
 npm install
 npx vercel login       # login with GitHub
 npx vercel --prod      # deploy
@@ -41,7 +41,7 @@ Open `https://your-app.vercel.app` on phone, tablet, or any browser.
 ## Enable Mac Bridge (optional — for running commands remotely)
 ```bash
 # On your Mac:
-bash ~/ghostforge-agents/scripts/bridge.sh start
+bash ~/ghostforge/scripts/bridge.sh start
 # Copy the tunnel URL and token shown
 # Add to Vercel env vars: WS_BRIDGE_URL + WS_BRIDGE_TOKEN
 # Redeploy

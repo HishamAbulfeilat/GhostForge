@@ -13,9 +13,9 @@ Expose a local service with a temporary **Cloudflare Tunnel** so GhostForge tool
 
 ## Local script
 ```bash
-bash ~/ghostforge-agents/scripts/tunnel.sh start 3000
-bash ~/ghostforge-agents/scripts/tunnel.sh status
-bash ~/ghostforge-agents/scripts/tunnel.sh stop
+bash ~/ghostforge/scripts/tunnel.sh start 3000
+bash ~/ghostforge/scripts/tunnel.sh status
+bash ~/ghostforge/scripts/tunnel.sh stop
 ```
 
 ## Common use cases

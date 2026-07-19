@@ -16,10 +16,10 @@ Open an existing project and automatically wire up all GhostForge AI toolkit fil
 
 ```bash
 # Interactive — asks for path
-bash ~/ghostforge-agents/scripts/open-project.sh
+bash ~/ghostforge/scripts/open-project.sh
 
 # Direct path
-bash ~/ghostforge-agents/scripts/open-project.sh /path/to/my-project
+bash ~/ghostforge/scripts/open-project.sh /path/to/my-project
 
 # Or via the TUI
 ghostforge  →  Open Existing Project

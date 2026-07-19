@@ -20,7 +20,7 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 
 | Source | Type | URL |
 |---|---|---|
-| **GhostForge Official** | Built-in | https://github.com/HishamAbulfeilat/GhostForge |
+| **GhostForge Official** | Built-in | https://github.com/ghostforge-copilot-business/GhostForge |
 | **AI Templates (aitmpl.com)** | Web | https://aitmpl.com |
 | **Open Source Projects** | Discovery | https://www.opensourceprojects.dev |
 | **Hermes Agent (Nous Research)** | AI Agent | https://github.com/nousresearch/hermes-agent |

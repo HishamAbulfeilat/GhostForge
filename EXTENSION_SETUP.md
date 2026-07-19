@@ -1,24 +1,24 @@
 # @ghostforge GitHub Copilot Extension Setup
 
-This guide sets up the GhostForge AI Developer Toolkit as a GitHub Copilot Extension so you can use `@ghostforge /command` in Copilot Chat on VS Code, GitHub.com, and GitHub Mobile.
+This guide sets up the GhostForge Developer Toolkit as a GitHub Copilot Extension so you can use `@ghostforge /command` in Copilot Chat on VS Code, GitHub.com, and GitHub Mobile.
 
 ## What you get
 
 - A hosted Copilot Extension server in `extension/`
 - Free deployment on Vercel
 - Private or public GitHub App options
-- Full compatibility with the existing local toolkit (`ghostforge-ai`, scripts, copied project files)
+- Full compatibility with the existing local toolkit (`ghostforge`, scripts, copied project files)
 
 ---
 
-## Step 1: Push `ghostforge-agents` to GitHub
+## Step 1: Push `ghostforge` to GitHub
 
 ```bash
-cd ~/ghostforge-agents
+cd ~/ghostforge
 git init
 git add .
-git commit -m "feat: initial ghostforge-agents v2.0.0"
-gh repo create YOUR_USERNAME/ghostforge-agents --private --source=. --push
+git commit -m "feat: initial ghostforge v2.0.0"
+gh repo create YOUR_USERNAME/ghostforge --private --source=. --push
 ```
 
 > If this repository already exists on GitHub, just push your latest branch.
@@ -29,14 +29,14 @@ gh repo create YOUR_USERNAME/ghostforge-agents --private --source=. --push
 
 1. Open [vercel.com](https://vercel.com) and sign in.
 2. Click **Add New Project**.
-3. Import your `ghostforge-agents` GitHub repository.
+3. Import your `ghostforge` GitHub repository.
 4. Set **Root Directory** to `extension`.
 5. Keep the default Node.js runtime.
 6. Deploy.
 7. Copy the generated URL, for example:
 
 ```text
-https://ghostforge-agents-xxx.vercel.app
+https://ghostforge-xxx.vercel.app
 ```
 
 You will use this URL as the GitHub App homepage and webhook URL.
@@ -49,7 +49,7 @@ Open [github.com/settings/apps/new](https://github.com/settings/apps/new) and co
 
 - **GitHub App name**: `GhostForge AI Toolkit`
 - **Homepage URL**: your Vercel URL
-- **Webhook URL**: `https://ghostforge-agents-xxx.vercel.app/`
+- **Webhook URL**: `https://ghostforge-xxx.vercel.app/`
 - **Webhook secret**: generate a long random string
 
 ### Repository permissions
@@ -202,7 +202,7 @@ Either install the app in the allowed org or clear/change `ALLOWED_ORG` in Verce
 
 The Copilot Extension is additive. The existing local flows remain unchanged:
 
-- `~/ghostforge-agents/ghostforge-ai`
+- `~/ghostforge/ghostforge`
 - `bash scripts/create-project.sh`
 - `bash scripts/copy-to-project.sh /path/to/project`
 

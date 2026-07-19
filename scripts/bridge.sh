@@ -42,7 +42,7 @@ start_cmd() {
   chmod 600 "$TOKEN_FILE"
 
   BRIDGE_TOKEN_FILE="$TOKEN_FILE" \
-  BRIDGE_ROOT="$HOME/ghostforge-agents" \
+  BRIDGE_ROOT="$HOME/ghostforge" \
   BRIDGE_READY_FILE="$BRIDGE_DIR/server.ready" \
   BRIDGE_PORT="$PORT" \
   nohup node - <<'NODESERVER' >> "$LOG_FILE" 2>&1 &

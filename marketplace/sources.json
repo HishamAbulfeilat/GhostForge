@@ -5,7 +5,7 @@
       "name": "GhostForge Official",
       "type": "local",
       "description": "Built-in GhostForge agents, commands, and skills",
-      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "url": "https://github.com/ghostforge-copilot-business/GhostForge",
       "trusted": true
     },
     {
@@ -688,7 +688,7 @@
       "name": "AI Code Review",
       "type": "local",
       "description": "Built-in GhostForge diff review flow powered by Claude or a manual checklist fallback.",
-      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "url": "https://github.com/ghostforge-copilot-business/GhostForge",
       "categories": [
         "ai",
         "code-review",
@@ -703,7 +703,7 @@
       "name": "Component Generator",
       "type": "local",
       "description": "Generates React component folders with TypeScript, tests, stories, and barrel exports.",
-      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "url": "https://github.com/ghostforge-copilot-business/GhostForge",
       "categories": [
         "frontend",
         "react",
@@ -718,7 +718,7 @@
       "name": "Release Manager",
       "type": "local",
       "description": "Prepare semantic versions, changelogs, tags, release notes, and publish flows.",
-      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "url": "https://github.com/ghostforge-copilot-business/GhostForge",
       "categories": [
         "release",
         "git",
@@ -732,7 +732,7 @@
       "name": "Environment Manager",
       "type": "local",
       "description": "Validate, diff, sync, and audit environment files with secret-safety checks.",
-      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "url": "https://github.com/ghostforge-copilot-business/GhostForge",
       "categories": [
         "env",
         "security",
@@ -746,7 +746,7 @@
       "name": "Tech Debt Scanner",
       "type": "local",
       "description": "Scores TODOs, complexity hotspots, and deprecated patterns across the codebase.",
-      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "url": "https://github.com/ghostforge-copilot-business/GhostForge",
       "categories": [
         "quality",
         "refactor",
@@ -760,7 +760,7 @@
       "name": "AI Error Explainer",
       "type": "local",
       "description": "Explains error messages, logs, and piped stack traces with actionable fixes.",
-      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "url": "https://github.com/ghostforge-copilot-business/GhostForge",
       "categories": [
         "ai",
         "debugging",
@@ -774,7 +774,7 @@
       "name": "Test Coverage Tracker",
       "type": "local",
       "description": "Captures coverage snapshots, tracks history, compares runs, and enforces thresholds.",
-      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "url": "https://github.com/ghostforge-copilot-business/GhostForge",
       "categories": [
         "testing",
         "coverage",
@@ -789,7 +789,7 @@
       "name": "A11y Deep Auditor",
       "type": "local",
       "description": "Runs axe-core audits plus RTL-specific accessibility checks for Arabic-ready apps.",
-      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "url": "https://github.com/ghostforge-copilot-business/GhostForge",
       "categories": [
         "accessibility",
         "rtl",
@@ -804,7 +804,7 @@
       "name": "GraphQL Type Sync",
       "type": "local",
       "description": "Introspects GraphQL endpoints and generates local SDL plus TypeScript types.",
-      "url": "https://github.com/HishamAbulfeilat/GhostForge",
+      "url": "https://github.com/ghostforge-copilot-business/GhostForge",
       "categories": [
         "graphql",
         "typescript",

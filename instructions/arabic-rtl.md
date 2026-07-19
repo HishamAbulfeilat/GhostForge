@@ -307,7 +307,7 @@ import { useRouter } from 'next/navigation';
 import { useRouter, usePathname } from '@/i18n/navigation';
 ```
 
-### `[locale]/[...slug]` catch-all pattern (MOS project)
+### `[locale]/[...slug]` catch-all pattern (example project)
 ```typescript
 // app/[locale]/[...slug]/page.tsx
 // Handles dynamic service routes

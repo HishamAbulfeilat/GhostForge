@@ -34,7 +34,7 @@ macOS users: **nothing to install** — `say` is built into every Mac.
 ### Groq Whisper (Easiest Free Option)
 ```bash
 # 1. Sign up at https://console.groq.com (free)
-# 2. Add to ~/ghostforge-agents/.env.local:
+# 2. Add to ~/ghostforge/.env.local:
 GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxx
 # 3. Now /voice listen works with cloud transcription
 ```
@@ -42,7 +42,7 @@ Free tier: **7,200 seconds/day** (~2 hours of audio) — plenty for daily dev us
 
 ### whisper.cpp (100% Offline)
 ```bash
-bash ~/ghostforge-agents/scripts/voice.sh install-whisper
+bash ~/ghostforge/scripts/voice.sh install-whisper
 # Downloads whisper.cpp + base English model (~140MB)
 # Works completely offline, forever free
 ```
@@ -50,16 +50,16 @@ bash ~/ghostforge-agents/scripts/voice.sh install-whisper
 ## Examples
 ```bash
 # Hear your health score
-bash ~/ghostforge-agents/scripts/voice.sh read-health
+bash ~/ghostforge/scripts/voice.sh read-health
 
 # Speak any message
-bash ~/ghostforge-agents/scripts/voice.sh speak "Build failed on main branch"
+bash ~/ghostforge/scripts/voice.sh speak "Build failed on main branch"
 
 # Transcribe 10 seconds of speech
-bash ~/ghostforge-agents/scripts/voice.sh listen 10
+bash ~/ghostforge/scripts/voice.sh listen 10
 
 # Check what's available
-bash ~/ghostforge-agents/scripts/voice.sh status
+bash ~/ghostforge/scripts/voice.sh status
 ```
 
 ## Notes

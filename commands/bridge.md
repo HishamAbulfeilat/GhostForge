@@ -21,10 +21,10 @@ Start, stop, inspect, and secure the **GhostForge Mac Bridge** so the Vercel web
 
 ## Local script
 ```bash
-bash ~/ghostforge-agents/scripts/bridge.sh start
-bash ~/ghostforge-agents/scripts/bridge.sh status
-bash ~/ghostforge-agents/scripts/bridge.sh token
-bash ~/ghostforge-agents/scripts/bridge.sh stop
+bash ~/ghostforge/scripts/bridge.sh start
+bash ~/ghostforge/scripts/bridge.sh status
+bash ~/ghostforge/scripts/bridge.sh token
+bash ~/ghostforge/scripts/bridge.sh stop
 ```
 
 ## Required Vercel environment variables

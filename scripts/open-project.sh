@@ -99,15 +99,15 @@ toolkit_status() {
   local has_copilot=false; local has_vscode=false; local has_agents=false
   [[ -f "$dir/.github/copilot-instructions.md" ]] && has_copilot=true
   [[ -f "$dir/.vscode/settings.json" ]] && has_vscode=true
-  [[ -d "$dir/ghostforge-agents" ]] && has_agents=true
+  [[ -d "$dir/ghostforge" ]] && has_agents=true
 
   echo -e "  ${BOLD}Current toolkit status:${NC}"
   $has_copilot && echo -e "  ${GREEN}✔${NC} .github/copilot-instructions.md" \
                || echo -e "  ${RED}✖${NC} .github/copilot-instructions.md (missing)"
   $has_vscode  && echo -e "  ${GREEN}✔${NC} .vscode/settings.json" \
                || echo -e "  ${RED}✖${NC} .vscode/settings.json (missing)"
-  $has_agents  && echo -e "  ${GREEN}✔${NC} ghostforge-agents/ folder" \
-               || echo -e "  ${RED}✖${NC} ghostforge-agents/ folder (missing)"
+  $has_agents  && echo -e "  ${GREEN}✔${NC} ghostforge/ folder" \
+               || echo -e "  ${RED}✖${NC} ghostforge/ folder (missing)"
 
   $has_copilot && $has_vscode && $has_agents && echo "full" || echo "partial"
 }
@@ -120,7 +120,7 @@ copy_toolkit() {
   echo -e "  ${BLUE}Copying toolkit files...${NC}"
   echo ""
 
-  mkdir -p "$target/.github/workflows" "$target/.vscode" "$target/ghostforge-agents"
+  mkdir -p "$target/.github/workflows" "$target/.vscode" "$target/ghostforge"
 
   cp "$GHOSTFORGE_DIR/.github/copilot-instructions.md" "$target/.github/"
   echo -e "  ${GREEN}✔${NC} .github/copilot-instructions.md"
@@ -133,18 +133,18 @@ copy_toolkit() {
   cp "$GHOSTFORGE_DIR/.vscode/extensions.json" "$target/.vscode/"
   echo -e "  ${GREEN}✔${NC} .vscode/ (Copilot auto-read settings + extensions)"
 
-  cp -r "$GHOSTFORGE_DIR/agents"       "$target/ghostforge-agents/"
-  cp -r "$GHOSTFORGE_DIR/commands"     "$target/ghostforge-agents/"
-  cp -r "$GHOSTFORGE_DIR/instructions" "$target/ghostforge-agents/"
-  cp -r "$GHOSTFORGE_DIR/prompts"      "$target/ghostforge-agents/"
-  cp -r "$GHOSTFORGE_DIR/snippets"     "$target/ghostforge-agents/"
+  cp -r "$GHOSTFORGE_DIR/agents"       "$target/ghostforge/"
+  cp -r "$GHOSTFORGE_DIR/commands"     "$target/ghostforge/"
+  cp -r "$GHOSTFORGE_DIR/instructions" "$target/ghostforge/"
+  cp -r "$GHOSTFORGE_DIR/prompts"      "$target/ghostforge/"
+  cp -r "$GHOSTFORGE_DIR/snippets"     "$target/ghostforge/"
   cp "$GHOSTFORGE_DIR/ghostforge-config.schema.json" "$target/"
-  echo -e "  ${GREEN}✔${NC} ghostforge-agents/ (14 agents · 33 commands · 20 instructions · 7 prompts · snippets)"
+  echo -e "  ${GREEN}✔${NC} ghostforge/ (14 agents · 33 commands · 20 instructions · 7 prompts · snippets)"
   echo -e "  ${GREEN}✔${NC} ghostforge-config.schema.json"
 
   # Write toolkit version stamp into project
-  echo "$VERSION" > "$target/ghostforge-agents/.version"
-  echo -e "  ${GREEN}✔${NC} ghostforge-agents/.version (v${VERSION})"
+  echo "$VERSION" > "$target/ghostforge/.version"
+  echo -e "  ${GREEN}✔${NC} ghostforge/.version (v${VERSION})"
 }
 
 # ════════════════════════════════════════════════════════════
@@ -193,7 +193,7 @@ divider
 # ── Ask about overwrite if already present ───────────────────
 if echo "$STATUS" | grep -q "full"; then
   echo ""
-  echo -e "  ${YELLOW}⚠  This project already has the full GhostForge toolkit (v$(cat "$TARGET/ghostforge-agents/.version" 2>/dev/null || echo "?")).${NC}"
+  echo -e "  ${YELLOW}⚠  This project already has the full GhostForge toolkit (v$(cat "$TARGET/ghostforge/.version" 2>/dev/null || echo "?")).${NC}"
   echo ""
   echo -e "  What would you like to do?"
   echo -e "  ${BOLD}1)${NC} Update / overwrite with latest (v${VERSION})"

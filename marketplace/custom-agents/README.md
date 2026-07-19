@@ -1,6 +1,6 @@
 # Custom Agents
 
-This directory stores user-created custom agents generated via `/generate` or `ghostforge-ai` → Generate New.
+This directory stores user-created custom agents generated via `/generate` or `ghostforge` → Generate New.
 
 ## What is a Custom Agent?
 
@@ -14,7 +14,7 @@ A custom agent is a specialized AI persona with:
 
 ### Option 1 — TUI
 ```bash
-ghostforge-ai
+ghostforge
 # → Generate New → Agent
 ```
 

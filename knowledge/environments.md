@@ -5,8 +5,8 @@
 | Environment | Typical URL | Notes |
 |---|---|---|
 | Local | `http://localhost:3000` / `http://localhost:5173` | Developer machine; uses `.env.local` |
-| Staging | `https://staging.example.ghostforge.app` | Pre-release validation, QA, stakeholder demos |
-| Production | `https://app.example.ghostforge.com` | Customer-facing environment; restricted changes |
+| Staging | `https://staging.example.com` | Pre-release validation, QA, stakeholder demos |
+| Production | `https://app.example.com` | Customer-facing environment; restricted changes |
 
 ## Environment variable guide
 
