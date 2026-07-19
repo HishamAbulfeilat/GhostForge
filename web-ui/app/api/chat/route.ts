@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { CoreMessage } from 'ai'
 import { isAuthorizedRequest } from '@/lib/auth'
 import { generateGhostforgeReply } from '@/lib/ai'
+import fs from 'fs'
+import path from 'path'
+import os from 'os'
 
 function toCoreMessages(payload: unknown): CoreMessage[] {
   if (!Array.isArray(payload)) {
@@ -28,6 +31,16 @@ function toCoreMessages(payload: unknown): CoreMessage[] {
   })
 }
 
+function getActiveModelSettings() {
+  try {
+    const p = path.join(os.homedir(), '.ghostforge/settings.json')
+    const s = JSON.parse(fs.readFileSync(p, 'utf8')) as { activeModel?: string; activeProvider?: string }
+    return s
+  } catch {
+    return {}
+  }
+}
+
 export async function POST(req: NextRequest) {
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -36,7 +49,8 @@ export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as { messages?: unknown }
     const messages = toCoreMessages(body.messages)
-    const message = await generateGhostforgeReply(messages)
+    const modelSettings = getActiveModelSettings()
+    const message = await generateGhostforgeReply(messages, modelSettings)
     return NextResponse.json({ message })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown AI error'

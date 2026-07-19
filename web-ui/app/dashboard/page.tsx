@@ -386,12 +386,14 @@ export default function DashboardPage() {
 
       <main className="p-4 space-y-3 max-w-7xl mx-auto">
         {/* ── Quick nav cards ── */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {[
             { href: '/chat', icon: '💬', label: 'AI Chat', desc: 'Gemini 2.5 Pro', color: 'border-violet-800/40 hover:border-violet-600/60' },
             { href: '/terminal', icon: '💻', label: 'Terminal', desc: 'Live TUI shell', color: 'border-emerald-800/40 hover:border-emerald-600/60' },
             { href: '/features', icon: '🔧', label: 'Features', desc: 'Run any command', color: 'border-sky-800/40 hover:border-sky-600/60' },
-            { href: '/chat', icon: '🐙', label: 'Copilot', desc: 'GitHub Suggest mode', color: 'border-amber-800/40 hover:border-amber-600/60' },
+            { href: '/marketplace', icon: '🛒', label: 'Marketplace', desc: 'Plugins & agents', color: 'border-rose-800/40 hover:border-rose-600/60' },
+            { href: '/settings', icon: '⚙️', label: 'Models', desc: 'Switch AI model', color: 'border-amber-800/40 hover:border-amber-600/60' },
+            { href: '/chat', icon: '🐙', label: 'Copilot', desc: 'GitHub Suggest', color: 'border-gray-700/40 hover:border-gray-500/60' },
           ].map(item => (
             <a
               key={item.label}

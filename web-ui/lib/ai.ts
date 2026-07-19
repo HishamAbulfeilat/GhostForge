@@ -7,15 +7,28 @@ You are concise, technical, and direct. You speak like a senior developer.
 Available GhostForge commands the user can run on their Mac: ghostforge carbon status, ghostforge carbon track <cmd>, ghostforge ai-review staged, ghostforge standup today, ghostforge dep-health check, ghostforge health-score score, ghostforge bundle track, ghostforge lighthouse run <url>, and many more.
 When user asks to run a command, prefix with [RUN]: ghostforge <command> — the UI will offer to execute it.`
 
-export async function generateGhostforgeReply(messages: CoreMessage[]) {
+export async function generateGhostforgeReply(
+  messages: CoreMessage[],
+  modelOverride?: { activeModel?: string; activeProvider?: string }
+) {
   const openrouterKey = process.env.OPENROUTER_API_KEY
   const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+
+  const activeProvider = modelOverride?.activeProvider
+  const activeModel = modelOverride?.activeModel
+
+  // If user explicitly chose openrouter model
+  if (activeProvider === 'openrouter' && openrouterKey && activeModel) {
+    const openrouter = createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: openrouterKey })
+    const response = await generateText({ model: openrouter(activeModel), system: GHOSTFORGE_SYSTEM, messages })
+    return response.text
+  }
 
   // Gemini first (Google AI Plus = high quota + 2.5 Pro access)
   if (geminiKey) {
     const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
     const google = createGoogleGenerativeAI({ apiKey: geminiKey })
-    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+    const model = (activeProvider === 'google' && activeModel) ? activeModel : (process.env.GEMINI_MODEL || 'gemini-2.5-flash')
     try {
       const response = await generateText({
         model: google(model),
@@ -42,7 +55,7 @@ export async function generateGhostforgeReply(messages: CoreMessage[]) {
       baseURL: 'https://openrouter.ai/api/v1',
       apiKey: openrouterKey,
     })
-    const model = process.env.OPENROUTER_MODEL || 'nvidia/nemotron-3-nano-30b-a3b:free'
+    const model = (activeProvider === 'openrouter' && activeModel) ? activeModel : (process.env.OPENROUTER_MODEL || 'nvidia/nemotron-3-nano-30b-a3b:free')
     const response = await generateText({
       model: openrouter(model),
       system: GHOSTFORGE_SYSTEM,
