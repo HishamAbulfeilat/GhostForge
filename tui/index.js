@@ -4083,6 +4083,19 @@ async function screenChangelogViewer() {
 }
 
 async function main() {
+  // Silently ensure officecli is installed
+  try {
+    const { execSync: _exec } = await import('child_process');
+    try { _exec('officecli --version', { stdio: 'ignore', timeout: 3000 }); }
+    catch {
+      // Not installed — install quietly in background
+      import('child_process').then(({ spawn }) => {
+        const p = spawn('bash', ['-c', 'curl -fsSL https://d.officecli.ai/install.sh | bash'], { stdio: 'ignore', detached: true });
+        p.unref();
+      });
+    }
+  } catch {}
+
   try {
     while (true) {
       const choice = await screenHome();

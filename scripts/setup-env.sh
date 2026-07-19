@@ -66,3 +66,19 @@ done
 
 echo ""
 echo -e "${GREEN}✅ Environment setup complete!${NC}"
+
+# ── OfficeCLI ──────────────────────────────────────────────
+echo ""
+echo "Installing OfficeCLI (Office documents — .docx/.xlsx/.pptx)..."
+if command -v officecli &>/dev/null; then
+  echo -e "${GREEN}✅ officecli $(officecli --version 2>/dev/null | head -1) already installed${NC}"
+else
+  if curl -fsSL https://d.officecli.ai/install.sh | bash 2>/dev/null; then
+    echo -e "${GREEN}✅ officecli installed successfully${NC}"
+  else
+    echo -e "${YELLOW}⚠️  officecli install failed — retry manually: curl -fsSL https://d.officecli.ai/install.sh | bash${NC}"
+  fi
+fi
+
+echo ""
+echo -e "${GREEN}🔫 GhostForge environment ready!${NC}"
