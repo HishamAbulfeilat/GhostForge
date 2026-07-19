@@ -529,6 +529,33 @@
         "discovery"
       ],
       "trusted": true
+    },
+    {
+      "id": "meetily",
+      "name": "Meetily — Privacy-First AI Meeting Assistant (Local)",
+      "type": "ai-agent",
+      "description": "Local AI meeting transcription + summaries. Runs entirely on your machine — no cloud, no data leakage. Real-time transcription via Whisper (supports Arabic + multilingual). Summaries via Ollama (local), Claude, Groq, or OpenRouter. macOS/Windows/Linux. Perfect for GhostForge enterprise/government client meetings.",
+      "url": "https://github.com/Zackriya-Solutions/meetily",
+      "releases": "https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest",
+      "macos_install": "meetily_0.4.0_aarch64.dmg (Apple Silicon) or x64 build",
+      "transcription": "Whisper / Parakeet (local)",
+      "arabic_support": true,
+      "summary_providers": [
+        "Ollama (local)",
+        "Claude",
+        "OpenRouter",
+        "Groq",
+        "OpenAI-compatible"
+      ],
+      "categories": [
+        "productivity",
+        "meeting",
+        "transcription",
+        "arabic",
+        "privacy",
+        "local-ai"
+      ],
+      "trusted": true
     }
   ]
 }

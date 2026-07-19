@@ -959,6 +959,7 @@ async function screenMarketplace() {
       { name: T.accent.bold('🔧  Career Tools')            + T.muted(' — CV versioning, prep, tracker, gap, LinkedIn calendar'), value: 'career-tools' },
       { name: T.success.bold('🎭  Playwright')             + T.muted(' — E2E testing · React/Next.js · codegen · trace viewer'), value: 'playwright' },
       { name: T.warning.bold('🔀  OpenRouter')              + T.muted(' — 300+ AI models · browse free models · one API'), value: 'openrouter' },
+      { name: T.cyan.bold('🎙️   Meetily')                   + T.muted(' — local AI meeting transcription · Arabic · no cloud'), value: 'meetily' },
       { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
       { name: T.success.bold('🤖  Add Custom Model')      + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
@@ -1877,6 +1878,114 @@ async function screenMarketplace() {
           { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
         ));
         try { execSync(`open "${url}" 2>/dev/null || xdg-open "${url}" 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'meetily') {
+    const mtAction = await select({
+      message: T.cyan.bold('🎙️  Meetily — Local AI Meeting Assistant:'),
+      choices: [
+        { name: T.success.bold('⬇️  Install (macOS)')       + T.muted(' — download .dmg from GitHub Releases'), value: 'install-mac' },
+        { name: T.warning.bold('⬇️  Install (Windows)')     + T.muted(' — download .exe installer'), value: 'install-win' },
+        { name: T.cyan.bold('🗣️   Arabic support info')     + T.muted(' — Whisper multilingual, best model for Arabic'), value: 'arabic' },
+        { name: T.brand.bold('🤖  AI providers guide')      + T.muted(' — Ollama (free/local), OpenRouter, Claude, Groq'), value: 'providers' },
+        { name: T.accent.bold('📖  Quick start guide'),     value: 'guide' },
+        { name: T.muted('🐙  GitHub'),                      value: 'github' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 9,
+    });
+    if (mtAction !== '__back__') {
+      console.log();
+      if (mtAction === 'install-mac') {
+        console.log(boxen(
+          T.cyan.bold(' 🎙️  Meetily — Install on macOS ') + '\n\n' +
+          T.success.bold('  Option 1 — Download .dmg (easiest):\n') +
+          T.cyan('  1. Open Releases page (opening now...)\n') +
+          T.cyan('  2. Download meetily_0.4.0_aarch64.dmg (Apple Silicon)\n') +
+          T.cyan('     or the x64 build for Intel Mac\n') +
+          T.cyan('  3. Open .dmg → drag Meetily to Applications\n') +
+          T.cyan('  4. Open Meetily from Applications\n\n') +
+          T.success.bold('  Option 2 — Build from source:\n') +
+          T.cyan('  git clone https://github.com/Zackriya-Solutions/meeting-minutes\n') +
+          T.cyan('  cd meeting-minutes/frontend\n') +
+          T.cyan('  pnpm install\n') +
+          T.cyan('  ./build-gpu.sh\n\n') +
+          T.dim('  Releases: https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest'),
+          { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
+        ));
+        try { execSync('open https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest 2>/dev/null || xdg-open https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      } else if (mtAction === 'install-win') {
+        console.log(boxen(
+          T.warning.bold(' 🎙️  Meetily — Install on Windows ') + '\n\n' +
+          T.success.bold('  Steps:\n') +
+          T.cyan('  1. Open Releases page (opening now...)\n') +
+          T.cyan('  2. Download x64-setup.exe\n') +
+          T.cyan('  3. Run the installer\n') +
+          T.cyan('  4. Launch Meetily from Start Menu\n\n') +
+          T.dim('  Releases: https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest'),
+          { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
+        ));
+        try { execSync('open https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest 2>/dev/null || xdg-open https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      } else if (mtAction === 'arabic') {
+        console.log(boxen(
+          T.cyan.bold(' 🗣️  Meetily — Arabic Language Support ') + '\n\n' +
+          T.success('  ✅ Arabic is fully supported via Whisper (OpenAI multilingual model)\n\n') +
+          T.success.bold('  Best model for Arabic:\n') +
+          T.white('  • whisper-large-v3  — highest accuracy, handles Arabic dialects\n') +
+          T.white('  • whisper-medium    — good balance of speed vs accuracy\n') +
+          T.white('  • whisper-large     — also very good\n\n') +
+          T.warning.bold('  Tips for Arabic meetings:\n') +
+          T.white('  • Select "Arabic" as language in Meetily settings\n') +
+          T.white('  • Use large-v3 model for mixed Arabic-English (code-switching)\n') +
+          T.white('  • Works with Gulf Arabic, Egyptian, Levantine dialects\n') +
+          T.white('  • For summaries: use Ollama with Qwen2.5 (Arabic-capable LLM)\n\n') +
+          T.success.bold('  GhostForge use cases:\n') +
+          T.white('  • Client meetings in Arabic — full transcript, no cloud\n') +
+          T.white('  • Government/enterprise meetings — privacy guaranteed\n') +
+          T.white('  • Mixed Arabic-English technical discussions\n'),
+          { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
+        ));
+      } else if (mtAction === 'providers') {
+        console.log(boxen(
+          T.brand.bold(' 🤖  Meetily — AI Summary Providers ') + '\n\n' +
+          T.success.bold('  🆓 Ollama (fully local, FREE — recommended):\n') +
+          T.cyan('  brew install ollama\n') +
+          T.cyan('  ollama pull qwen2.5  # great for Arabic\n') +
+          T.cyan('  ollama pull llama3.1\n') +
+          T.white('  → In Meetily: select Ollama → pick model\n\n') +
+          T.warning.bold('  🔀 OpenRouter (free tier available):\n') +
+          T.white('  → Use your OPENROUTER_API_KEY\n') +
+          T.white('  → Free models: llama-3.1-8b:free, gemini-2.0-flash:free\n\n') +
+          T.cyan.bold('  🤖 Claude (via direct Anthropic API):\n') +
+          T.white('  → Needs ANTHROPIC_API_KEY (not Copilot)\n\n') +
+          T.accent.bold('  ⚡ Groq (fast, free tier):\n') +
+          T.white('  → console.groq.com → get API key → very fast inference\n'),
+          { padding: 1, borderColor: '#A855F7', borderStyle: 'round' }
+        ));
+      } else if (mtAction === 'guide') {
+        console.log(boxen(
+          T.cyan.bold(' 🎙️  Meetily — Quick Start ') + '\n\n' +
+          T.success.bold('  1. Install\n') +
+          T.white('  Download .dmg (macOS) or .exe (Windows) from Releases\n\n') +
+          T.success.bold('  2. Set up AI provider for summaries\n') +
+          T.white('  Recommended: brew install ollama → ollama pull llama3.1\n') +
+          T.white('  Then in Meetily: Settings → AI Provider → Ollama\n\n') +
+          T.success.bold('  3. Start a meeting\n') +
+          T.white('  Click "New Meeting" → Meetily captures system audio\n') +
+          T.white('  Real-time transcript appears as you speak\n\n') +
+          T.success.bold('  4. Generate summary\n') +
+          T.white('  After meeting → click "Summarise" → AI generates notes\n\n') +
+          T.success.bold('  5. For Arabic meetings\n') +
+          T.white('  Settings → Transcription Language → Arabic\n') +
+          T.white('  Model → whisper-large-v3 for best accuracy\n\n') +
+          T.dim('  GitHub: https://github.com/Zackriya-Solutions/meetily'),
+          { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
+        ));
+      } else if (mtAction === 'github') {
+        try { execSync('open https://github.com/Zackriya-Solutions/meetily 2>/dev/null || xdg-open https://github.com/Zackriya-Solutions/meetily 2>/dev/null', { stdio: 'ignore' }); } catch {}
       }
     }
     await pressEnter();

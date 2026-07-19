@@ -915,6 +915,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.1.3 — Meetily Local AI Meeting Assistant
+- **🎙️ Meetily** (source #34) — privacy-first local AI meeting transcription + summaries. No cloud, no data leakage. Arabic fully supported via Whisper large-v3 (Gulf, Egyptian, Levantine dialects). Summaries via Ollama (free/local), OpenRouter, Groq. Perfect for GhostForge enterprise/government client meetings.
+- TUI: Install macOS/Windows, Arabic tips (whisper-large-v3, dialect support), AI providers guide (Ollama free recommendation), quick start
+- **34 marketplace sources** total
+
 ### v3.1.2 — OpenRouter Free Models Browser
 - **🔀 OpenRouter** (source #33) — 300+ AI models via one OpenAI-compatible API. Browse free models (Llama, Gemini, DeepSeek, Mistral, Qwen), get API key, see project integration snippet. Free models: append `:free` to any model ID.
 - TUI: 🆓 Browse Free Models (opens filtered browser), 💻 Use in project (TypeScript snippet + .env.local), 🔑 Get API Key
