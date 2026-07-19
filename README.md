@@ -915,6 +915,18 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.1.4 — Green Coding Monitor (Carbon Footprint Tracker)
+- **🌿 Carbon Monitor** — integration of Hisham's CRP graduation research: *"Reducing the Carbon Footprint of Laptops and Workstations"*. CFRS system achieved 7–15% energy reduction.
+  - `ghostforge carbon install` — auto-installs Python 3, codecarbon, carbontracker, pandas
+  - `ghostforge carbon track <cmd>` — wrap any command (npm build, playwright tests) with CO₂ tracking
+  - `ghostforge carbon threshold` — compute personal threshold (avg/session × 1.1) from history
+  - `ghostforge carbon report` — Markdown report with session history, total CO₂, km-equivalent
+  - `ghostforge carbon start/stop` — background session monitor with PID management
+  - `ghostforge carbon history` — last 10 sessions in table
+- **Dashboard panel #8** — live CO₂ LCD widget in `tui/dashboard.js` (green when under threshold, red when over)
+- TUI: Marketplace → 🌿 Carbon Monitor sub-menu (9 actions including About with research background)
+- `/carbon` command added to Commands Browser (🌿 Green category)
+
 ### v3.1.3 — Meetily Local AI Meeting Assistant
 - **🎙️ Meetily** (source #34) — privacy-first local AI meeting transcription + summaries. No cloud, no data leakage. Arabic fully supported via Whisper large-v3 (Gulf, Egyptian, Levantine dialects). Summaries via Ollama (free/local), OpenRouter, Groq. Perfect for GhostForge enterprise/government client meetings.
 - TUI: Install macOS/Windows, Arabic tips (whisper-large-v3, dialect support), AI providers guide (Ollama free recommendation), quick start

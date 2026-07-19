@@ -200,6 +200,7 @@ const COMMANDS = [
   { name: '/career-linkedin', cat: '🎯 Career',    file: 'commands/career-linkedin.md',desc: 'Generate 30-day LinkedIn content calendar' },
   { name: '/pentest',        cat: '🔐 Security',  file: 'commands/pentest.md',         desc: 'Security scanner: deps audit, secret detection, XSS, OWASP Top-10' },
   { name: '/playwright',    cat: '🧪 Testing',   file: 'commands/playwright.md',      desc: 'E2E testing: install, codegen, run, trace viewer' },
+  { name: '/carbon',       cat: '🌿 Green',     file: 'commands/carbon.md',          desc: 'Track dev session CO₂ emissions — CodeCarbon + threshold alerts' },
   { name: '/help',          cat: '⚙️  Modes',       file: 'commands/help.md',           desc: 'Show full command reference and quick-start guide' },
   // Marketplace & Extensions
   { name: '/skills',        cat: '🏪 Marketplace', file: 'commands/skills.md',        desc: 'Browse & install Claude Agent Skills from Anthropic, SkillsMP, Claude-Flow and more' },
@@ -960,6 +961,7 @@ async function screenMarketplace() {
       { name: T.success.bold('🎭  Playwright')             + T.muted(' — E2E testing · React/Next.js · codegen · trace viewer'), value: 'playwright' },
       { name: T.warning.bold('🔀  OpenRouter')              + T.muted(' — 300+ AI models · browse free models · one API'), value: 'openrouter' },
       { name: T.cyan.bold('🎙️   Meetily')                   + T.muted(' — local AI meeting transcription · Arabic · no cloud'), value: 'meetily' },
+      { name: T.success.bold('🌿  Carbon Monitor')           + T.muted(' — track dev session CO₂ emissions · your CRP research'), value: 'carbon-monitor' },
       { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
       { name: T.success.bold('🤖  Add Custom Model')      + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
@@ -1986,6 +1988,58 @@ async function screenMarketplace() {
         ));
       } else if (mtAction === 'github') {
         try { execSync('open https://github.com/Zackriya-Solutions/meetily 2>/dev/null || xdg-open https://github.com/Zackriya-Solutions/meetily 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'carbon-monitor') {
+    const carbonAction = await select({
+      message: T.success.bold('🌿 Carbon Monitor — Green Coding Tracker:'),
+      choices: [
+        { name: T.success.bold('⬇️  Install / Setup')      + T.muted(' — Python 3 + codecarbon + carbontracker + pandas'), value: 'install' },
+        { name: T.cyan.bold('▶️   Start tracking')          + T.muted(' — begin monitoring current dev session'), value: 'start' },
+        { name: T.warning.bold('⏹   Stop tracking'),        value: 'stop' },
+        { name: T.brand.bold('🔍  Track a command')         + T.muted(' — wrap npm run build, tests, etc.'), value: 'track' },
+        { name: T.accent.bold('📊  View threshold'),        value: 'threshold' },
+        { name: T.white.bold('📄  Generate report'),        value: 'report' },
+        { name: T.muted.bold('📋  Session history'),        value: 'history' },
+        { name: T.cyan.bold('ℹ️   About this feature'),     value: 'about' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 10,
+    });
+    if (carbonAction !== '__back__') {
+      console.log();
+      if (carbonAction === 'about') {
+        console.log(boxen(
+          T.success.bold(' 🌿 Carbon Monitor — About ') + '\n\n' +
+          T.white('Based on Hisham\'s CRP graduation research (2023):\n') +
+          T.yellow.bold('  "Reducing the Carbon Footprint of Laptops and Workstations"\n\n') +
+          T.white('The CFRS (Carbon Footprint Reduction System) achieved\n') +
+          T.white('7–15% energy reduction by tracking emissions in real time\n') +
+          T.white('and throttling CPU/GPU when threshold is exceeded.\n\n') +
+          T.success.bold('  Tools used in research:\n') +
+          T.white('  • CodeCarbon — emissions measurement\n') +
+          T.white('  • CarbonTracker — ML training tracker\n') +
+          T.white('  • Intel PowerLog — hardware power readings\n') +
+          T.white('  • Threshold: avg_emissions/session × 1.1\n\n') +
+          T.success.bold('  Now integrated into ghostforge-agents as:\n') +
+          T.cyan('  ghostforge carbon track npm run build\n') +
+          T.cyan('  ghostforge carbon track npx playwright test\n') +
+          T.cyan('  ghostforge carbon report\n'),
+          { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
+        ));
+      } else if (carbonAction === 'track') {
+        const { input } = await import('@inquirer/prompts');
+        const cmd = await input({ message: 'Command to track (e.g. npm run build):' });
+        if (cmd) {
+          const { spawnSync } = await import('child_process');
+          spawnSync('bash', [resolve(ROOT, 'scripts/carbon.sh'), 'track', ...cmd.split(' ')], { stdio: 'inherit', cwd: process.cwd() });
+        }
+      } else {
+        const { spawnSync } = await import('child_process');
+        spawnSync('bash', [resolve(ROOT, 'scripts/carbon.sh'), carbonAction], { stdio: 'inherit', cwd: process.cwd() });
       }
     }
     await pressEnter();

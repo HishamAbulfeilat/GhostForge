@@ -128,8 +128,69 @@ function fetchReleases() {
     });
 }
 
-function fetchActivity() {
-  const raw = safeExec(`git -C "${ROOT}" log --oneline -20 --no-merges 2>/dev/null`);
+function fetchCarbonStatus() {
+  const os = require('os');
+  const path = require('path');
+  const carbonDir = path.join(os.homedir(), '.ghostforge', 'carbon');
+  const emissionsFile = path.join(carbonDir, 'emissions.csv');
+  const thresholdFile = path.join(carbonDir, 'threshold.txt');
+  const pidFile = path.join(carbonDir, 'monitor.pid');
+
+  const result = {
+    installed: false, running: false,
+    total: 0, avg: 0, threshold: 0, sessions: 0,
+    status: 'Not set up', statusIcon: '⚫', history: [],
+  };
+
+  try {
+    execSync('python3 -c "import codecarbon" 2>/dev/null', { stdio: 'pipe' });
+    result.installed = true;
+  } catch { return result; }
+
+  if (existsSync(pidFile)) {
+    try {
+      const pid = readFileSync(pidFile, 'utf8').trim();
+      execSync(`kill -0 ${pid} 2>/dev/null`, { stdio: 'pipe' });
+      result.running = true;
+    } catch { /* not running */ }
+  }
+
+  if (existsSync(emissionsFile)) {
+    try {
+      const lines = readFileSync(emissionsFile, 'utf8').trim().split('\n').filter(Boolean);
+      if (lines.length > 1) {
+        const header = lines[0].split(',');
+        const emIdx = header.indexOf('emissions');
+        const tsIdx = header.indexOf('timestamp');
+        result.sessions = lines.length - 1;
+        const vals = lines.slice(1).map(l => {
+          const cols = l.split(',');
+          return { emissions: parseFloat(cols[emIdx]) || 0, timestamp: cols[tsIdx] || '' };
+        });
+        result.total = vals.reduce((s, v) => s + v.emissions, 0);
+        result.avg = result.total / vals.length;
+        result.history = vals.slice(-5).reverse().map(v => ({
+          ts: v.timestamp.substring(0, 16).replace('T', ' '),
+          emissions: v.emissions.toExponential(2),
+        }));
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (existsSync(thresholdFile)) {
+    try { result.threshold = parseFloat(readFileSync(thresholdFile, 'utf8').trim()) || 0; } catch { /* */ }
+  }
+
+  if (!result.installed) { result.status = 'Not installed'; result.statusIcon = '⚫'; }
+  else if (result.running) { result.status = 'Tracking 🟢'; result.statusIcon = '🟢'; }
+  else if (result.sessions === 0) { result.status = 'Ready (no data)'; result.statusIcon = '🟡'; }
+  else if (result.threshold > 0 && result.avg > result.threshold) { result.status = '⚠ Over threshold'; result.statusIcon = '🔴'; }
+  else { result.status = '✅ Under threshold'; result.statusIcon = '🟢'; }
+
+  return result;
+}
+
+function fetchActivity() {  const raw = safeExec(`git -C "${ROOT}" log --oneline -20 --no-merges 2>/dev/null`);
   if (!raw) {
     return ['No commits found'];
   }
@@ -273,7 +334,7 @@ function buildDashboard() {
     columnWidth: [4, 30, 10, 3],
   });
 
-  const activityLog = grid.set(6, 9, 5, 3, contrib.log, {
+  const activityLog = grid.set(6, 9, 5, 2, contrib.log, {
     fg: 'white',
     selectedFg: 'white',
     label: ' 🔥 Activity Feed ',
@@ -282,6 +343,19 @@ function buildDashboard() {
     scrollable: true,
     alwaysScroll: true,
     scrollbar: { bg: '#EF4444' },
+  });
+
+  const carbonGauge = grid.set(6, 11, 5, 1, contrib.lcd, {
+    label: ' 🌿 CO₂ ',
+    segmentWidth: 0.06,
+    segmentInterval: 0.11,
+    strokeWidth: 0.1,
+    elements: 4,
+    display: 0,
+    elementSpacing: 4,
+    elementPadding: 2,
+    color: 'green',
+    border: { type: 'line', fg: '#22C55E' },
   });
 
   const statusBar = blessed.box({
@@ -380,6 +454,14 @@ function buildDashboard() {
       for (const line of fetchActivity()) {
         activityLog.log(line);
       }
+
+      // Carbon CO₂ panel
+      const carbon = fetchCarbonStatus();
+      carbonGauge.setLabel(` 🌿 CO₂ ${carbon.statusIcon} `);
+      const displayVal = carbon.sessions > 0
+        ? Math.round(carbon.total * 1e6)  // micro-kg for display
+        : 0;
+      try { carbonGauge.setDisplay(Math.min(displayVal, 9999)); } catch { /* */ }
 
       lastRefresh = new Date().toLocaleTimeString();
       updateHeader();
