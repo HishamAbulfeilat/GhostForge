@@ -915,6 +915,12 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.0.2 — Skills + Shared Memory
+- **🧠 claude-mem** — persistent shared memory for Claude Code. Context survives across sessions. `npx claude-mem install` or TUI → Marketplace → Shared Memory. `scripts/setup-memory.sh` for setup.
+- **🔍 find-skills (Vercel Labs)** — skill that discovers & installs other skills from skills.sh ecosystem. Installed at `.claude/skills/find-skills/SKILL.md`.
+- **🎨 frontend-design (Anthropic Official)** — distinctive visual design guidance: opinionated palette, typography, anti-template approach, RTL/Arabic section. Installed at `.claude/skills/frontend-design/SKILL.md`.
+- **20 marketplace sources** total
+
 ### v3.0.1 — Marketplace Expansion (17 sources)
 - **🎨 UI/UX Pro Max Skill** — 161 reasoning rules + 84 UI styles for world-class UI/UX. `npx ui-ux-pro-max-cli`
 - **⚡ PocketBase** — open source backend in 1 file: SQLite + realtime + auth + files + Admin UI

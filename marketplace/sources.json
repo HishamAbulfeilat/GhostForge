@@ -225,6 +225,54 @@
         "commands"
       ],
       "trusted": true
+    },
+    {
+      "id": "find-skills",
+      "name": "find-skills (Vercel Labs)",
+      "type": "claude-skills",
+      "description": "Skill that helps discover and install agent skills from the open ecosystem. Searches skills.sh leaderboard, runs npx skills find, recommends quality-verified skills.",
+      "url": "https://github.com/vercel-labs/skills/blob/main/skills/find-skills/SKILL.md",
+      "install_command": "npx skills add vercel-labs/skills@find-skills",
+      "local_path": ".claude/skills/find-skills/SKILL.md",
+      "categories": [
+        "meta",
+        "skills-discovery",
+        "productivity"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "claude-mem",
+      "name": "claude-mem — Persistent Shared Memory",
+      "type": "memory",
+      "description": "Persistent memory compression for Claude Code. Auto-captures tool usage, generates semantic summaries, makes context available across sessions. Web viewer UI, privacy controls with <private> tags, natural language mem-search.",
+      "url": "https://github.com/thedotmack/claude-mem",
+      "docs": "https://docs.claude-mem.ai",
+      "install_command": "npx claude-mem install",
+      "install_claude_code": "/plugin marketplace add thedotmack/claude-mem && /plugin install claude-mem",
+      "categories": [
+        "memory",
+        "persistence",
+        "context"
+      ],
+      "default": true,
+      "trusted": true
+    },
+    {
+      "id": "frontend-design-skill",
+      "name": "frontend-design (Anthropic Official)",
+      "type": "claude-skills",
+      "description": "Guidance for distinctive, intentional visual design. Design-lead mindset: opinionated palette, typography, layout choices specific to each brief. Anti-template approach. Includes RTL/Arabic considerations.",
+      "url": "https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md",
+      "install_command": "npx skills add anthropics/skills@frontend-design",
+      "local_path": ".claude/skills/frontend-design/SKILL.md",
+      "categories": [
+        "design",
+        "frontend",
+        "ui",
+        "typography"
+      ],
+      "trusted": true
     }
   ]
 }

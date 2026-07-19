@@ -935,6 +935,7 @@ async function screenMarketplace() {
       { name: T.warning.bold('🌐  Browse aitmpl.com')     + T.muted(' — open AI templates site'), value: 'aitmpl' },
       { name: T.cyan.bold('🔍  Open Source Discovery')   + T.muted(' — hidden gems & trending repos (opensourceprojects.dev)'), value: 'osp-dev' },
       { name: T.accent.bold('🧠  Hermes Agent')            + T.muted(' — self-improving AI agent by Nous Research'), value: 'hermes-agent' },
+      { name: T.success.bold('🧠  Shared Memory')           + T.muted(' — claude-mem persistent context across sessions'), value: 'claude-mem' },
       { name: T.success.bold('🎓  Claude Agent Skills')   + T.muted(' — Anthropic, SkillsMP, Claude-Flow, scroll-world, UI/UX'), value: 'skills' },
       { name: T.brand.bold('🗂️   Claude Marketplaces')     + T.muted(' — skills, MCP servers, plugins directory'), value: 'claude-marketplaces' },
       { name: T.cyan.bold('⚡  PocketBase')               + T.muted(' — open source backend in 1 file'), value: 'pocketbase' },
@@ -1169,6 +1170,46 @@ async function screenMarketplace() {
     await pressEnter();
   }
 
+  if (action === 'claude-mem') {
+    const memAction = await select({
+      message: T.white.bold('claude-mem Shared Memory:'),
+      choices: [
+        { name: T.success.bold('⬇️  Install claude-mem (recommended)'), value: 'install' },
+        { name: T.accent.bold('📋  Show install instructions'),         value: 'info' },
+        { name: T.cyan.bold('🌐  Open docs'),                          value: 'docs' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (memAction !== '__back__') {
+      console.log();
+      console.log(boxen(
+        T.success.bold(' 🧠 claude-mem — Persistent Shared Memory ') + '\n\n' +
+        T.white('Context survives across Claude Code sessions automatically.\n\n') +
+        T.success.bold('  Install (recommended):\n') +
+        T.cyan('  npx claude-mem install\n\n') +
+        T.success.bold('  Or inside Claude Code:\n') +
+        T.cyan('  /plugin marketplace add thedotmack/claude-mem\n') +
+        T.cyan('  /plugin install claude-mem\n\n') +
+        T.muted('  • Auto-captures tool usage + semantic summaries\n') +
+        T.muted('  • Context appears automatically in new sessions\n') +
+        T.muted('  • Web viewer UI at localhost:3000\n') +
+        T.muted('  • Natural language memory search (mem-search skill)\n') +
+        T.muted('  • Use <private> tags to exclude sensitive content\n') +
+        T.muted('  • Works with Claude Code, OpenCode, Antigravity CLI\n\n') +
+        T.dim('  Docs: https://docs.claude-mem.ai'),
+        { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
+      ));
+      console.log();
+      if (memAction === 'install') {
+        const { spawnSync } = await import('child_process');
+        spawnSync('bash', [resolve(ROOT, 'scripts/setup-memory.sh'), 'install'], { stdio: 'inherit' });
+      } else if (memAction === 'docs') {
+        try { execSync('open https://docs.claude-mem.ai 2>/dev/null || xdg-open https://docs.claude-mem.ai 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }
+
   const sourcesPath = resolve(ROOT, 'marketplace/sources.json');
     let allSources = [];
     try {
@@ -1186,6 +1227,8 @@ async function screenMarketplace() {
         { name: T.warning.bold('🌐  Open Awesome Claude Skills')         + T.muted(' — curated free directory'), value: 'awesome' },
         { name: T.cyan.bold('🌍  scroll-world')                         + T.muted(' — fly-through landing page skill'), value: 'scroll-world' },
         { name: T.accent.bold('🎨  UI/UX Pro Max')                       + T.muted(' — 161 reasoning rules + 84 UI styles'), value: 'ui-ux-pro-max' },
+        { name: T.success.bold('🔍  find-skills')                         + T.muted(' — discover & install skills from ecosystem'), value: 'find-skills' },
+        { name: T.brand.bold('🎨  frontend-design')                      + T.muted(' — Anthropic official design guidance'), value: 'frontend-design' },
         { name: T.muted('🌐  Open SkillsMP marketplace'), value: 'open-skillsmp' },
         { name: T.muted('📖  View /skills command docs'), value: 'docs' },
         { name: T.muted('← Back'), value: '__back__' },
@@ -1310,6 +1353,47 @@ async function screenMarketplace() {
       ));
       console.log();
       try { execSync('open https://github.com/nextlevelbuilder/ui-ux-pro-max-skill 2>/dev/null || xdg-open https://github.com/nextlevelbuilder/ui-ux-pro-max-skill 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      await pressEnter();
+    }
+
+    if (skillAction === 'find-skills') {
+      console.log();
+      console.log(boxen(
+        T.success.bold(' 🔍 find-skills — Skill Discovery Agent ') + '\n\n' +
+        T.white('Helps you find and install skills from the open ecosystem.\n\n') +
+        T.success.bold('  Install globally:\n') +
+        T.cyan('  npx skills add vercel-labs/skills@find-skills -g -y\n\n') +
+        T.success.bold('  Installed locally in this toolkit:\n') +
+        T.cyan('  .claude/skills/find-skills/SKILL.md\n\n') +
+        T.muted('  Once installed, ask your agent:\n') +
+        T.muted('  "find a skill for react performance"\n') +
+        T.muted('  "is there a skill for PR review?"\n') +
+        T.muted('  "can you do X?" → agent searches skills.sh\n\n') +
+        T.dim('  Browse: https://skills.sh/'),
+        { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
+      ));
+      console.log();
+      try { execSync('open https://skills.sh 2>/dev/null || xdg-open https://skills.sh 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      await pressEnter();
+    }
+
+    if (skillAction === 'frontend-design') {
+      console.log();
+      console.log(boxen(
+        T.brand.bold(' 🎨 frontend-design — Anthropic Official Design Skill ') + '\n\n' +
+        T.white('Distinctive, intentional visual design — anti-template approach.\n\n') +
+        T.success.bold('  Install globally:\n') +
+        T.cyan('  npx skills add anthropics/skills@frontend-design -g -y\n\n') +
+        T.success.bold('  Installed locally in this toolkit:\n') +
+        T.cyan('  .claude/skills/frontend-design/SKILL.md\n\n') +
+        T.muted('  Covers: palette, typography, layout, motion, copy\n') +
+        T.muted('  Process: brainstorm → plan → self-critique → build\n') +
+        T.muted('  RTL/Arabic: Cairo, Tajawal, logical CSS, dir="rtl"\n') +
+        T.muted('  Avoids: generic AI design defaults (cream+serif, etc.)\n\n') +
+        T.dim('  Source: https://github.com/anthropics/skills'),
+        { padding: 1, borderColor: '#0077C8', borderStyle: 'round' }
+      ));
+      console.log();
       await pressEnter();
     }
 

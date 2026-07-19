@@ -35,6 +35,9 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 | **UI/UX Pro Max** | Claude Skill (161 rules) | https://github.com/nextlevelbuilder/ui-ux-pro-max-skill |
 | **PocketBase** | Backend tool | https://github.com/pocketbase/pocketbase |
 | **Claude Marketplaces** | Discovery directory | https://claudemarketplaces.com |
+| **find-skills (Vercel Labs)** | Skill discovery | https://github.com/vercel-labs/skills |
+| **claude-mem** | Persistent memory | https://github.com/thedotmack/claude-mem |
+| **frontend-design (Anthropic)** | Design skill | https://github.com/anthropics/skills |
 | **Agent Skills Standard** | Skills spec | https://agentskills.io/home |
 | **Claude-Flow** | AI orchestration | https://github.com/edwincummins/claude-flow |
 
