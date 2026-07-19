@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAuthorizedRequest } from '@/lib/auth'
+import { getLiveBridgeToken, getBridgeUrl } from '@/lib/bridge-token'
 import { executeBridgeCommand } from '@/lib/ws-client'
 
 export async function POST(req: NextRequest) {
@@ -14,12 +15,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Command is required' }, { status: 400 })
   }
 
-  const bridgeUrl = process.env.WS_BRIDGE_URL
-  const bridgeToken = process.env.WS_BRIDGE_TOKEN
+  const bridgeUrl = getBridgeUrl()
+  const bridgeToken = getLiveBridgeToken()
 
-  if (!bridgeUrl || !bridgeToken) {
+  if (!bridgeToken) {
     return NextResponse.json({
-      error: 'Mac bridge not connected. Run: ghostforge bridge start on your Mac.',
+      error: 'Mac bridge not connected. Run: bash ~/GhostForge/scripts/bridge.sh start',
       connected: false,
     })
   }

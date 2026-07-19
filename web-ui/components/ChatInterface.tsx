@@ -33,6 +33,7 @@ export function ChatInterface() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>('unknown')
+  const [copilotMode, setCopilotMode] = useState<'off' | 'suggest' | 'explain'>('off')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
 
@@ -47,6 +48,20 @@ export function ChatInterface() {
       }
     })
   }, [router])
+
+  useEffect(() => {
+    const checkBridge = () => {
+      void fetch('/api/bridge-status').then(async res => {
+        const data = (await res.json()) as { status?: string }
+        if (data.status === 'connected') setBridgeStatus('connected')
+        else if (data.status === 'unconfigured') setBridgeStatus('unknown')
+        else setBridgeStatus('disconnected')
+      }).catch(() => setBridgeStatus('disconnected'))
+    }
+    checkBridge()
+    const interval = setInterval(checkBridge, 15000)
+    return () => clearInterval(interval)
+  }, [])
 
   const payloadMessages = useMemo(
     () => messages.map(message => ({ role: message.role, content: message.content })),
@@ -65,6 +80,28 @@ export function ChatInterface() {
     setInput('')
     setLoading(true)
     setMessages(nextMessages)
+
+    // Copilot CLI mode — route to Mac bridge /copilot
+    if (copilotMode !== 'off') {
+      try {
+        const response = await fetch('/api/copilot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: content, mode: copilotMode }),
+        })
+        if (response.status === 401) { router.push('/login'); return }
+        const data = (await response.json()) as { output?: string; error?: string; connected?: boolean }
+        const reply = data.connected === false
+          ? `🔌 ${data.error}`
+          : `\`\`\`\n${data.output || 'No output'}\n\`\`\``
+        setMessages(previous => [...previous, { role: 'assistant', content: reply, timestamp: new Date() }])
+      } catch {
+        setMessages(previous => [...previous, { role: 'assistant', content: '❌ Error reaching bridge', timestamp: new Date() }])
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
 
     try {
       const response = await fetch('/api/chat', {
@@ -169,6 +206,23 @@ export function ChatInterface() {
           </div>
           <div className="flex items-center gap-2">
             <MacStatus status={bridgeStatus} />
+            <button
+              type="button"
+              title="Toggle Copilot CLI mode (tap to cycle: GhostForge AI → Copilot Suggest → Copilot Explain)"
+              onClick={() => setCopilotMode(m => m === 'off' ? 'suggest' : m === 'suggest' ? 'explain' : 'off')}
+              className={`rounded-full border px-2.5 py-1 text-xs transition ${
+                copilotMode === 'off'
+                  ? 'border-gray-700 text-gray-500 hover:text-gray-300'
+                  : copilotMode === 'suggest'
+                  ? 'border-sky-600 bg-sky-950 text-sky-400'
+                  : 'border-purple-600 bg-purple-950 text-purple-400'
+              }`}
+            >
+              {copilotMode === 'off' ? '🤖 GF AI' : copilotMode === 'suggest' ? '🐙 Suggest' : '🐙 Explain'}
+            </button>
+            <Link href="/terminal" className="text-xs text-gray-400 transition hover:text-emerald-400" title="Open TUI Terminal">
+              💻
+            </Link>
             <Link href="/dashboard" className="text-xs text-gray-400 transition hover:text-white">
               ⚙️
             </Link>

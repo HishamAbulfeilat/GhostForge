@@ -42,7 +42,7 @@ start_cmd() {
   chmod 600 "$TOKEN_FILE"
 
   BRIDGE_TOKEN_FILE="$TOKEN_FILE" \
-  BRIDGE_ROOT="$HOME/ghostforge" \
+  BRIDGE_ROOT="$HOME/GhostForge" \
   BRIDGE_READY_FILE="$BRIDGE_DIR/server.ready" \
   BRIDGE_PORT="$PORT" \
   nohup node - <<'NODESERVER' >> "$LOG_FILE" 2>&1 &
@@ -63,9 +63,10 @@ function respond(res, status, payload) {
 function isAllowedCommand(command) {
   if (typeof command !== 'string') return false;
   const trimmed = command.trim();
-  if (!trimmed.startsWith('ghostforge ')) return false;
   if (FORBIDDEN_PATTERN.test(trimmed)) return false;
-  return true;
+  if (trimmed.startsWith('ghostforge ')) return true;
+  if (trimmed.startsWith('gh copilot -p ')) return true;
+  return false;
 }
 
 const server = http.createServer((req, res) => {
@@ -82,6 +83,48 @@ const server = http.createServer((req, res) => {
 
   if (req.url === '/health' && req.method === 'GET') {
     respond(res, 200, { status: 'online', name: 'GhostForge Mac Bridge' });
+    return;
+  }
+
+  if (req.url === '/copilot' && req.method === 'POST') {
+    const auth = req.headers.authorization;
+    if (auth !== 'Bearer ' + token) {
+      respond(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const prompt = (payload.prompt || '').trim();
+        const mode = (payload.mode || 'suggest').trim();
+        if (!prompt || FORBIDDEN_PATTERN.test(prompt)) {
+          respond(res, 400, { error: 'Invalid prompt' });
+          return;
+        }
+        const escaped = prompt.replace(/"/g, '\\"');
+        const cmd = 'gh copilot -p "' + escaped + '" --allow-all --allow-all-paths --add-dir ' + ROOT + ' -s';
+
+        const output = execSync(cmd, {
+          cwd: ROOT,
+          timeout: 60000,
+          input: 'exit\n',
+          env: Object.assign({}, process.env, {
+            PATH: (process.env.PATH || '') + ':/usr/local/bin:/opt/homebrew/bin',
+            HOME: process.env.HOME || require('os').homedir(),
+            GH_NO_UPDATE_NOTIFIER: '1',
+            NO_COLOR: '1'
+          }),
+        }).toString().trim();
+
+        respond(res, 200, { output: output, mode: mode, prompt: prompt });
+      } catch (error) {
+        const raw = (error && error.stdout) ? error.stdout.toString() : (error instanceof Error ? error.message : String(error));
+        respond(res, 200, { output: raw.trim(), error: true });
+      }
+    });
     return;
   }
 
@@ -131,6 +174,23 @@ NODESERVER
 
   local server_pid=$!
   printf '%s\n' "$server_pid" > "$PID_FILE"
+
+  # Start TTY web terminal for /terminal page
+  local ttyd_bin
+  ttyd_bin="$(which ttyd 2>/dev/null || echo '/opt/homebrew/bin/ttyd')"
+  if command -v ttyd >/dev/null 2>&1; then
+    nohup ttyd \
+      --port 4748 \
+      --credential "ghostforge:$token" \
+      --writable \
+      node "$HOME/GhostForge/tui/index.js" >> "$LOG_FILE" 2>&1 &
+    local ttyd_pid=$!
+    printf '%s\n' "$ttyd_pid" >> "$PID_FILE"
+    sleep 1
+    echo -e "${DIM}  TTY terminal: http://localhost:4748 (PID $ttyd_pid)${NC}"
+  else
+    echo -e "${YELLOW}⚠ ttyd not found — install: brew install ttyd${NC}"
+  fi
 
   local waited=0
   while [[ ! -f "$BRIDGE_DIR/server.ready" ]] && [[ $waited -lt 10 ]]; do
