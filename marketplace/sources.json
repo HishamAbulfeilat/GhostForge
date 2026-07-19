@@ -343,6 +343,39 @@
         "devsecops"
       ],
       "trusted": true
+    },
+    {
+      "id": "career-helper",
+      "name": "Career Helper — End-to-End Career Support",
+      "type": "claude-skills",
+      "description": "14 skills: personal career coach (Tim), CV/ATS rewriting, LinkedIn optimisation, interview prep, job scout, skills radar, career transitions, AI impact assessment, employer footprint, kanban job tracker, NED AI governance, personal brand. Available on all Claude plans including free.",
+      "url": "https://github.com/Zal4DW/career-helper",
+      "install_command": "claude plugin marketplace add Zal4DW/career-helper && claude plugin install career-helper@career-helper",
+      "install_desktop": "Claude Desktop → + → Add plugins → Add marketplace from GitHub → Zal4DW/career-helper",
+      "skills": [
+        "career-coach",
+        "getting-started",
+        "employer-footprint",
+        "social-media-review",
+        "application-optimiser",
+        "linkedin-coach",
+        "interview-master",
+        "career-navigator",
+        "job-scout",
+        "skills-radar",
+        "career-transitions",
+        "ai-impact-assessment",
+        "ned-ai-helper",
+        "personal-brand"
+      ],
+      "categories": [
+        "career",
+        "cv",
+        "linkedin",
+        "interview",
+        "job-search"
+      ],
+      "trusted": true
     }
   ]
 }

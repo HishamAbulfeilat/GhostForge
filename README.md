@@ -915,6 +915,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.0.5 — Career Helper
+- **🎯 Career Helper** — 14-skill end-to-end career support: career coach (Tim), ATS CV rewriting, LinkedIn optimisation, interview prep, job scout, skills radar, career transitions, AI impact assessment, employer footprint, kanban tracker, NED AI governance, personal brand. Free on all Claude plans. `claude plugin marketplace add Zal4DW/career-helper`
+- TUI: Marketplace → 🎯 Career Helper with full 14-skill sub-menu
+- **25 marketplace sources** total
+
 ### v3.0.4 — GUI Agent + Security
 - **🖱️ Page Agent (Alibaba)** — GUI agent living in any webpage. `npm install page-agent`. Chrome extension available. Automates UI interactions, form filling, navigation.
 - **🔐 Strix** — autonomous AI penetration testing agents. Real PoC exploits, multi-agent orchestration, CI/CD integration, auto-fix PRs. `curl -sSL https://strix.ai/install | bash`

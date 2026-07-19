@@ -941,6 +941,7 @@ async function screenMarketplace() {
       { name: T.cyan.bold('⚡  PocketBase')               + T.muted(' — open source backend in 1 file'), value: 'pocketbase' },
       { name: T.warning.bold('🖱️   Page Agent (Alibaba)')    + T.muted(' — GUI agent living in your webpage'), value: 'page-agent' },
       { name: T.red.bold('🔐  Strix')                     + T.muted(' — autonomous AI penetration testing'), value: 'strix' },
+      { name: T.cyan.bold('🎯  Career Helper')             + T.muted(' — CV, LinkedIn, interview prep, job scout (14 skills)'), value: 'career-helper' },
       { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
       { name: T.success.bold('🤖  Add Custom Model')      + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
@@ -1219,6 +1220,120 @@ async function screenMarketplace() {
     ));
     console.log();
     try { execSync('open https://app.strix.ai 2>/dev/null || xdg-open https://app.strix.ai 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter();
+  }
+
+  if (action === 'career-helper') {
+    const careerAction = await select({
+      message: T.cyan.bold('🎯 Career Helper — 14 Skills:'),
+      choices: [
+        { name: T.success.bold('⬇️  Install Career Helper'),                         value: 'install' },
+        { name: T.accent.bold('🧑‍💼  Career Coach (Tim)')       + T.muted(' — guided coaching, recommended first step'), value: 'coach' },
+        { name: T.white.bold('📄  Application Optimiser')      + T.muted(' — ATS CV rewrite, cover letter, research'), value: 'cv' },
+        { name: T.brand.bold('💼  LinkedIn Coach')             + T.muted(' — profile audit, headline, content strategy'), value: 'linkedin' },
+        { name: T.warning.bold('🎤  Interview Master')          + T.muted(' — mock interviews, prep, post-interview coaching'), value: 'interview' },
+        { name: T.cyan.bold('🔍  Job Scout')                   + T.muted(' — live role discovery, batch ranking, kanban tracker'), value: 'scout' },
+        { name: T.success.bold('📊  Skills Radar')              + T.muted(' — skills inventory, gap analysis, learning plans'), value: 'skills-radar' },
+        { name: T.accent.bold('🔄  Career Transitions')         + T.muted(' — fractional, entrepreneurship, non-linear paths'), value: 'transitions' },
+        { name: T.red.bold('🤖  AI Impact Assessment')         + T.muted(' — will AI disrupt your role in 12 months?'), value: 'ai-impact' },
+        { name: T.muted('📋  View all 14 skills'), value: 'list' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 12,
+    });
+
+    if (careerAction === '__back__') { await pressEnter(); return; }
+
+    if (careerAction === 'list') {
+      console.log();
+      const skills = [
+        ['🧑‍💼', 'Career Coach (Tim)',    '/career-helper:career-coach',    'Guided coaching — start here'],
+        ['🚀', 'Getting Started',        '/getting-started',                'Full overview + checklists'],
+        ['🔎', 'Employer Footprint',     '/employer-footprint',             'Digital audit through employer\'s eyes'],
+        ['📱', 'Social Media Review',    '/social-media-review',            'Quick check through recruiter\'s eyes'],
+        ['📄', 'Application Optimiser',  '/application-optimiser',          'ATS CV + cover letter + research'],
+        ['💼', 'LinkedIn Coach',         '/linkedin-coach',                 'Profile audit, content strategy'],
+        ['🎤', 'Interview Master',       '/interview-master',               'Mock interviews + reference prep'],
+        ['🗺️', 'Career Navigator',       '/career-navigator',               'Networking, salary, kanban tracker'],
+        ['🔍', 'Job Scout',              '/job-scout',                      'Live role discovery + ranking'],
+        ['📊', 'Skills Radar',           '/skills-radar',                   'Gap analysis + learning plans'],
+        ['🔄', 'Career Transitions',     '/career-transitions',             'Fractional, startup, public sector'],
+        ['🤖', 'AI Impact Assessment',   '/ai-impact-assessment',           'AI disruption + mitigation plan'],
+        ['📋', 'NED AI Helper',          '/ned-ai-helper',                  'AI governance for board members'],
+        ['✨', 'Personal Brand',         '/personal-brand',                 'Why You, Why Them positioning'],
+      ];
+      console.log(T.bold('\n  All 14 Career Helper Skills:\n'));
+      for (const [icon, name, cmd, desc] of skills) {
+        console.log(`  ${icon} ${T.white.bold(name.padEnd(22))} ${T.cyan(cmd.padEnd(32))} ${T.dim(desc)}`);
+      }
+      console.log();
+    } else {
+      const infoMap = {
+        install: {
+          title: '⬇️  Install Career Helper',
+          body: T.success.bold('  Claude Desktop (recommended):\n') +
+            T.muted('  1. Click + → Add plugins → Add marketplace from GitHub\n') +
+            T.muted('  2. Enter: Zal4DW/career-helper → Sync → Install\n\n') +
+            T.success.bold('  Claude Code CLI:\n') +
+            T.cyan('  claude plugin marketplace add Zal4DW/career-helper\n') +
+            T.cyan('  claude plugin install career-helper@career-helper\n\n') +
+            T.muted('  ✅ Free on all Claude plans including free tier'),
+        },
+        coach: {
+          title: '🧑‍💼  Career Coach (Tim)',
+          body: T.muted('  Personal AI career coach that guides you through the\n  right skills in the right order.\n\n') +
+            T.cyan('  /career-helper:career-coach\n') + T.muted('  /career-helper:quick-start\n') +
+            T.dim('\n  Start here if you\'re new to the plugin'),
+        },
+        cv: {
+          title: '📄  Application Optimiser',
+          body: T.muted('  ATS-optimised CV rewriting, cover letters, company research,\n  verified PDF production with ATS text-layer checks.\n\n') +
+            T.cyan('  /application-optimiser\n'),
+        },
+        linkedin: {
+          title: '💼  LinkedIn Coach',
+          body: T.muted('  Profile audit, headline optimisation, content strategy,\n  post review, video scripts.\n\n') +
+            T.cyan('  /linkedin-coach\n'),
+        },
+        interview: {
+          title: '🎤  Interview Master',
+          body: T.muted('  Mock interviews, interviewer perspective reports,\n  post-interview coaching, reference prep, ageism support.\n\n') +
+            T.cyan('  /interview-master\n'),
+        },
+        scout: {
+          title: '🔍  Job Scout',
+          body: T.muted('  Live role discovery with honest coverage caveats.\n  Batch ranking with deal-breaker vetting + deadline flags.\n  Interactive kanban application tracker.\n\n') +
+            T.cyan('  /job-scout\n') + T.cyan('  /career-navigator\n'),
+        },
+        'skills-radar': {
+          title: '📊  Skills Radar',
+          body: T.muted('  Evidenced skills inventory (including public work),\n  gap analysis vs target role, realistic learning plans.\n\n') +
+            T.cyan('  /skills-radar\n'),
+        },
+        transitions: {
+          title: '🔄  Career Transitions',
+          body: T.muted('  Fractional careers, entrepreneurship, startups, public sector,\n  charity, intrapreneurship, multi-role skilling.\n\n') +
+            T.cyan('  /career-transitions\n'),
+        },
+        'ai-impact': {
+          title: '🤖  AI Impact Assessment',
+          body: T.muted('  Researches whether AI will materially disrupt your role\n  in the next 12 months, with a 6-month mitigation plan.\n\n') +
+            T.cyan('  /ai-impact-assessment\n'),
+        },
+      };
+      const info = infoMap[careerAction];
+      if (info) {
+        console.log();
+        console.log(boxen(
+          T.cyan.bold(` ${info.title} `) + '\n\n' + info.body + T.dim('\n  GitHub: https://github.com/Zal4DW/career-helper'),
+          { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
+        ));
+        console.log();
+        if (careerAction === 'install') {
+          try { execSync('open https://github.com/Zal4DW/career-helper 2>/dev/null || xdg-open https://github.com/Zal4DW/career-helper 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        }
+      }
+    }
     await pressEnter();
   }
 
