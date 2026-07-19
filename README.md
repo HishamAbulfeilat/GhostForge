@@ -1,39 +1,40 @@
-# 🔫 GhostForge — v4.4.0
+# 👻 GhostForge — v4.5.0
 
 > *Operator-grade dev tools, forged in the shadows.*
 > Developed by **Hisham Abulfeilat**
 
 The ultimate AI developer toolkit supercharging GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, green coding, and more.
 
-**230+ files · 14 agents · 70+ commands · 67 scripts · 24 instruction files · MCP server · React Doctor · Marketplace (63 sources) · Vercel Web UI · Mac Bridge · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge` / `gf`) · Carbon Monitor v2 · Career Tools · Security Scanner · Git Autopilot · Lighthouse CI · i18n/RTL · Storybook · Figma Tokens**
+**240+ files · 14 agents · 70+ commands · 67 scripts · 24 instruction files · MCP server · React Doctor · Marketplace (63 sources) · Web UI (6 pages) · Mac Bridge · ttyd Terminal · Gemini 2.5 Pro · Live Model Switcher · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge` / `gf`) · Carbon Monitor v2 · Career Tools · Security Scanner · Git Autopilot · Lighthouse CI · i18n/RTL · Storybook · Figma Tokens**
 
 ---
 
 ## 📋 Table of Contents
 
 1. [Quick Start](#-quick-start)
-2. [🤖 @ghostforge GitHub Copilot Extension](#-ghostforge-github-copilot-extension)
-3. [MCP Server](#-mcp-server)
-4. [React Doctor — React Health Scanner](#-react-doctor--react-health-scanner)
-5. [Terminal UI — `ghostforge`](#-terminal-ui----ghostforge)
-6. [Marketplace, Generators & Free Models](#-marketplace-generators--free-models)
-7. [VS Code Extension](#-vs-code-extension)
-8. [Snippet Library](#-snippet-library)
-9. [Project Templates](#️-project-templates)
-10. [How Copilot Reads Files Automatically](#-how-copilot-reads-files-automatically)
-11. [Setup a New Project](#️-setup-a-new-project)
-12. [AI Conversation Mode](#-ai-conversation-mode)
-13. [Commands Reference](#-commands-reference)
-14. [Operating Modes](#️-operating-modes)
-15. [Agents & Role Switching](#-agents--role-switching)
-16. [GitHub & Azure Integration](#-github--azure-integration)
-17. [Team Knowledge Base](#-team-knowledge-base)
-18. [Copilot Spaces](#-copilot-spaces)
-19. [Model Auto-Selection](#-model-auto-selection)
-20. [Folder Structure](#-folder-structure)
-21. [SDLC & Security Standards](#️-sdlc--security-standards)
-22. [Team Setup & Updates](#-team-setup--updates)
-23. [Contributing](#-contributing)
+2. [🌐 Web UI — Remote Access from Phone](#-web-ui--remote-access-from-phone)
+3. [🤖 @ghostforge GitHub Copilot Extension](#-ghostforge-github-copilot-extension)
+4. [MCP Server](#-mcp-server)
+5. [React Doctor — React Health Scanner](#-react-doctor--react-health-scanner)
+6. [Terminal UI — `ghostforge`](#-terminal-ui----ghostforge)
+7. [Marketplace, Generators & Free Models](#-marketplace-generators--free-models)
+8. [VS Code Extension](#-vs-code-extension)
+9. [Snippet Library](#-snippet-library)
+10. [Project Templates](#️-project-templates)
+11. [How Copilot Reads Files Automatically](#-how-copilot-reads-files-automatically)
+12. [Setup a New Project](#️-setup-a-new-project)
+13. [AI Conversation Mode](#-ai-conversation-mode)
+14. [Commands Reference](#-commands-reference)
+15. [Operating Modes](#️-operating-modes)
+16. [Agents & Role Switching](#-agents--role-switching)
+17. [GitHub & Azure Integration](#-github--azure-integration)
+18. [Team Knowledge Base](#-team-knowledge-base)
+19. [Copilot Spaces](#-copilot-spaces)
+20. [Model Auto-Selection](#-model-auto-selection)
+21. [Folder Structure](#-folder-structure)
+22. [SDLC & Security Standards](#️-sdlc--security-standards)
+23. [Team Setup & Updates](#-team-setup--updates)
+24. [Contributing](#-contributing)
 
 ---
 
@@ -41,50 +42,107 @@ The ultimate AI developer toolkit supercharging GitHub Copilot with deep knowled
 
 ```bash
 # 1. Clone the toolkit
-git clone https://github.com/ghostforge-copilot-business/GhostForge.git ~/ghostforge
+git clone https://github.com/HishamAbulfeilat/GhostForge.git ~/GhostForge
 
 # 2. Install VS Code extensions
-bash ~/ghostforge/scripts/setup-env.sh
+bash ~/GhostForge/scripts/setup-env.sh
 
 # 3a. Launch the Terminal UI  ← recommended!
-~/ghostforge/ghostforge
+~/GhostForge/ghostforge
 
 # 3b. OR start a new project directly
-bash ~/ghostforge/scripts/create-project.sh
+bash ~/GhostForge/scripts/create-project.sh
 
 # 3c. OR add toolkit to an existing project
-bash ~/ghostforge/scripts/copy-to-project.sh /path/to/your/project
+bash ~/GhostForge/scripts/copy-to-project.sh /path/to/your/project
 
 # 4. Open in VS Code — Copilot is instantly powered up
 code /your/project
 ```
 
-### 3 Ways to Use the Toolkit
+### 5 Ways to Use GhostForge
 
 | Method | How | Best For |
 |--------|-----|----------|
-| **Terminal UI** | `~/ghostforge/ghostforge` | Visual, menu-driven — all features at a glance |
+| **Web UI** | `http://your-ip:3001` from any device | Full remote access from phone/tablet |
+| **Terminal UI** | `~/GhostForge/ghostforge` | Visual, menu-driven — all features at a glance |
 | **Copilot Chat** | Type `/command` in VS Code (`Cmd+Shift+I`) | AI code generation & assistance |
 | **VS Code Extension** | `Cmd+Shift+E` or click "⚡ GhostForge" in status bar | Right-click menus, snippet insert, command picker |
 | **Shell Scripts** | `bash scripts/create-project.sh` | Automated project scaffolding |
 
+---
+
+## 🌐 Web UI — Remote Access from Phone
+
+GhostForge includes a full Next.js web app accessible from any device on your network (or globally via Cloudflare tunnel).
+
+### Pages
+
+| Route | Description |
+|-------|-------------|
+| `/chat` | AI chat powered by **Gemini 2.5 Pro** (Google AI Plus) with Copilot 🐙 Suggest mode toggle |
+| `/dashboard` | Live project dashboard — issues, PRs, pipelines, releases, bridge status |
+| `/terminal` | Full **ttyd** web terminal — run TUI and shell directly from browser |
+| `/features` | 24 command cards (Carbon, Health, AI, Git, Generate, System) — run without terminal |
+| `/marketplace` | Browse & install 10+ plugins, agents, templates from catalog |
+| `/settings` | Live AI model switcher — Gemini 2.5 Pro/Flash, OpenRouter free, Groq, NVIDIA NIM |
+
+### Setup
+
+```bash
+# Terminal 1 — start the Mac bridge (port 4747) + ttyd terminal (port 4748)
+bash ~/GhostForge/scripts/bridge.sh start
+
+# Terminal 2 — start the web UI
+cd ~/GhostForge/web-ui
+npm install
+npm run dev -- --hostname 0.0.0.0 --port 3001
+
+# Access from your phone
+open http://$(ipconfig getifaddr en0):3001
+```
+
+### Environment (`.env.local`)
+
+```env
+# Auth
+ACCESS_PIN=your_pin
+AUTH_SECRET=your_pin
+
+# AI — Google AI Plus gives Gemini 2.5 Pro access
+GOOGLE_GENERATIVE_AI_API_KEY=your_key   # aistudio.google.com
+GEMINI_MODEL=gemini-2.5-pro
+
+# Fallback free AI
+OPENROUTER_API_KEY=your_key             # openrouter.ai/keys (free tier)
+
+# Bridge
+WS_BRIDGE_URL=http://localhost:4747
+WS_BRIDGE_TOKEN=auto-read-from-disk     # bridge.sh writes ~/.ghostforge/bridge/token
+```
+
+### v4.5.0 Highlights
+
+- 🧠 **Gemini 2.5 Pro** — Google AI Plus integration, highest quality model
+- 💻 **Web Terminal** — full ttyd xterm.js terminal, works from iPhone
+- 🔧 **Features page** — run any GhostForge command via UI (no terminal needed)
+- 🛒 **Marketplace UI** — browse/install plugins with search + category filters
+- ⚙️ **Live model switcher** — change AI model without restarting
+- 📱 **Responsive terminal** — mobile sidebar overlay, touch-optimized
+- 🐙 **Copilot remote** — GitHub Copilot Suggest mode accessible from phone
+- 🔄 **Auto token sync** — bridge token always read live from disk, no restart needed
+
+---
+
 ### v4.4.0 — Remote Access (Web UI + Mac Bridge)
 
-- **`web-ui/`** — Next.js 14 mobile-first GhostForge chat app for Vercel with PIN auth, OpenRouter/Gemini AI, quick commands, and Mac bridge execution
+- **`web-ui/`** — Next.js 14 mobile-first GhostForge chat app with PIN auth, OpenRouter/Gemini AI, quick commands, and Mac bridge execution
 - **`scripts/bridge.sh`** — secure local Mac bridge with bearer-token auth and optional Cloudflare tunnel
 - **`scripts/gemini.sh`** — Gemini setup, test, and model discovery helper
 - **`scripts/tunnel.sh`** — one-command Cloudflare tunnel helper for local services
 - **TUI + marketplace integration** — launch bridge/tunnel flows, Gemini setup, and web UI deploy guidance directly from GhostForge
 
-```bash
-cd ~/ghostforge/web-ui
-npm install
-npx vercel --prod
-```
-
 ---
-
-## 🤖 @ghostforge GitHub Copilot Extension
 
 `@ghostforge` is a hosted GitHub Copilot Extension server in `extension/` that brings the GhostForge toolkit into Copilot Chat on **VS Code**, **GitHub.com**, and **GitHub Mobile**. It deploys cleanly to **Vercel**, can stay **private for GhostForge only** or be prepared for a **public Marketplace rollout**, and does **not** replace the existing local toolkit.
 

@@ -137,7 +137,7 @@
   ],
   "errorLens.followCursor": "allLines",
   "workbench.iconTheme": "material-icon-theme",
-  "workbench.colorTheme": "Default Dark Modern",
+  "workbench.colorTheme": "Dark Modern",
   "terminal.integrated.defaultProfile.osx": "zsh",
   "terminal.integrated.fontSize": 13
 }
