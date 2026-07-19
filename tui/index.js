@@ -2839,6 +2839,7 @@ async function screenMarketplace() {
         { name: T.accent.bold('🎨  UI/UX Pro Max')                       + T.muted(' — 161 reasoning rules + 84 UI styles'), value: 'ui-ux-pro-max' },
         { name: T.success.bold('🔍  find-skills')                         + T.muted(' — discover & install skills from ecosystem'), value: 'find-skills' },
         { name: T.brand.bold('🎨  frontend-design')                      + T.muted(' — Anthropic official design guidance'), value: 'frontend-design' },
+        { name: T.cyan.bold('📄  OfficeCLI')                             + T.muted(' — create/edit .docx .xlsx .pptx · always-on skill'), value: 'officecli' },
         { name: T.warning.bold('🎨  extract-design-system')               + T.muted(' — reverse-engineer design tokens from any website'), value: 'extract-design-system' },
         { name: T.success.bold('⚡  Superpowers')                          + T.muted(' — full AI dev methodology (TDD, spec, subagents)'), value: 'superpowers' },
         { name: T.muted('🌐  Open SkillsMP marketplace'), value: 'open-skillsmp' },
@@ -3006,6 +3007,38 @@ async function screenMarketplace() {
         { padding: 1, borderColor: '#0077C8', borderStyle: 'round' }
       ));
       console.log();
+      await pressEnter();
+    }
+
+    if (skillAction === 'officecli') {
+      console.log();
+      const { spawnSync: spawnOC } = await import('child_process');
+      console.log(boxen(
+        T.cyan.bold(' 📄 OfficeCLI — Office Documents Skill ') + '\n\n' +
+        T.white('Create, edit, analyze .docx .xlsx .pptx — no Office installation needed.\n') +
+        T.white('Single binary · AI-friendly CLI · always-on in GhostForge.\n\n') +
+        T.success.bold('  ✅ Always-on skill (loaded via CLAUDE.md)\n') +
+        T.cyan('  .claude/skills/officecli/SKILL.md\n\n') +
+        T.success.bold('  Install the binary:\n') +
+        T.cyan('  curl -fsSL https://d.officecli.ai/install.sh | bash\n\n') +
+        T.muted('  Usage examples:\n') +
+        T.muted('  officecli create report.docx\n') +
+        T.muted('  officecli add report.docx /body --type paragraph --prop text="Hello"\n') +
+        T.muted('  officecli create data.xlsx\n') +
+        T.muted('  officecli create slides.pptx\n') +
+        T.muted('  officecli view report.docx outline\n') +
+        T.muted('  officecli validate report.docx\n\n') +
+        T.dim('  Source: https://github.com/iOfficeAI/OfficeCLI'),
+        { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
+      ));
+      console.log();
+      const installOC = await import('@inquirer/prompts').then(m => m.confirm({
+        message: 'Install officecli binary now?',
+        default: false,
+      }));
+      if (installOC) {
+        spawnOC('bash', ['-c', 'curl -fsSL https://d.officecli.ai/install.sh | bash'], { stdio: 'inherit' });
+      }
       await pressEnter();
     }
 

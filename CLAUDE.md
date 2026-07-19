@@ -17,11 +17,13 @@ The following skills are **active by default** for every session in this project
 
 @.claude/skills/find-skills/SKILL.md
 
+@.claude/skills/officecli/SKILL.md
+
 ## Default behaviours
 
 - When asked to build any UI or frontend component, apply the **frontend-design** skill automatically — make opinionated aesthetic choices, avoid templated defaults
 - When a user asks "how do I do X", "find a skill for X", or wants to extend capabilities — apply the **find-skills** skill and suggest `npx skills find <query>`
-- When building for Arabic/RTL, follow the RTL section of the frontend-design skill
+- When a user asks to create, edit, convert, or inspect a Word/Excel/PowerPoint file — apply the **officecli** skill automatically and use the `officecli` CLI tool
 - Always prefer TypeScript over JavaScript
 - Use Tailwind CSS utility classes unless a different CSS approach is specified
 - Follow Conventional Commits for any git operations

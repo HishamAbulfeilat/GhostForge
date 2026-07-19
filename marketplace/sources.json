@@ -60,7 +60,7 @@
     },
     {
       "id": "skillsmp",
-      "name": "SkillsMP \u2014 Community Marketplace",
+      "name": "SkillsMP — Community Marketplace",
       "type": "claude-skills",
       "description": "2M+ open-source Agent Skills for Claude Code, Codex CLI, ChatGPT. Browse by category, occupation, keyword. Free REST API + MCP server.",
       "url": "https://skillsmp.com",
@@ -74,7 +74,7 @@
       "id": "agentskills-io",
       "name": "Agent Skills Standard (agentskills.io)",
       "type": "claude-skills",
-      "description": "The Agent Skills standard \u2014 SKILL.md format used by Claude Code, Junie, Gemini CLI, ZeroClaw. Install skills under .claude/skills/<name>/SKILL.md",
+      "description": "The Agent Skills standard — SKILL.md format used by Claude Code, Junie, Gemini CLI, ZeroClaw. Install skills under .claude/skills/<name>/SKILL.md",
       "url": "https://agentskills.io/home",
       "docs": "https://agentskills.io/llms.txt",
       "install_note": "Copy SKILL.md into ~/.claude/skills/<name>/ or .claude/skills/<name>/ in your project",
@@ -82,7 +82,7 @@
     },
     {
       "id": "claude-flow",
-      "name": "Claude-Flow \u2014 AI Orchestration",
+      "name": "Claude-Flow — AI Orchestration",
       "type": "claude-skills",
       "description": "Enterprise AI orchestration with hive-mind swarm intelligence, 87 MCP tools, 84.8% SWE-Bench solve rate. Queen-led AI coordination, WASM-accelerated neural models.",
       "url": "https://github.com/edwincummins/claude-flow",
@@ -97,7 +97,7 @@
       "type": "claude-skills",
       "description": "Free curated directory of Claude skills. Install by adding SKILL.md to .claude/skills/<name>/. Skills load on-demand unlike CLAUDE.md.",
       "url": "https://awesomeclaude.ai/awesome-claude-skills",
-      "install_note": "Browse \u2192 copy SKILL.md \u2192 place in ~/.claude/skills/<name>/SKILL.md",
+      "install_note": "Browse → copy SKILL.md → place in ~/.claude/skills/<name>/SKILL.md",
       "trusted": true
     },
     {
@@ -112,7 +112,7 @@
       "id": "opensourceprojects-dev",
       "name": "Open Source Projects Discovery",
       "type": "discovery",
-      "description": "Curated open-source project discovery \u2014 hidden gems, trending repos, developer tools. A broadsheet for software that does not ask for your email.",
+      "description": "Curated open-source project discovery — hidden gems, trending repos, developer tools. A broadsheet for software that does not ask for your email.",
       "url": "https://www.opensourceprojects.dev",
       "rss": "https://www.opensourceprojects.dev/rss",
       "search_url": "https://www.opensourceprojects.dev/?search={query}",
@@ -128,7 +128,7 @@
       "id": "hermes-agent",
       "name": "Hermes Agent (Nous Research)",
       "type": "ai-agent",
-      "description": "Self-improving AI agent with built-in learning loop \u2014 creates skills from experience, autonomous memory, cron scheduler, Telegram/Discord/Slack gateway, subagents, 6 terminal backends. Compatible with agentskills.io standard.",
+      "description": "Self-improving AI agent with built-in learning loop — creates skills from experience, autonomous memory, cron scheduler, Telegram/Discord/Slack gateway, subagents, 6 terminal backends. Compatible with agentskills.io standard.",
       "url": "https://github.com/nousresearch/hermes-agent",
       "docs": "https://hermes-agent.nousresearch.com/docs/",
       "install_command": "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
@@ -156,9 +156,9 @@
     },
     {
       "id": "scroll-world",
-      "name": "scroll-world \u2014 Fly-Through Landing Page Skill",
+      "name": "scroll-world — Fly-Through Landing Page Skill",
       "type": "claude-skills",
-      "description": "Agent skill (SKILL.md) that builds immersive scroll-scrubbed \"fly through the world\" landing pages \u2014 camera flies through scenes as you scroll, Apple-style. Works with Claude Code, Codex CLI, Cursor, 20+ agents. Framework-agnostic vanilla JS scrub engine.",
+      "description": "Agent skill (SKILL.md) that builds immersive scroll-scrubbed \"fly through the world\" landing pages — camera flies through scenes as you scroll, Apple-style. Works with Claude Code, Codex CLI, Cursor, 20+ agents. Framework-agnostic vanilla JS scrub engine.",
       "url": "https://github.com/oso95/scroll-world",
       "install_command": "/plugin marketplace add oso95/scroll-world",
       "install_alt": "npx skills add oso95/scroll-world",
@@ -195,7 +195,7 @@
     },
     {
       "id": "pocketbase",
-      "name": "PocketBase \u2014 Open Source Backend in 1 File",
+      "name": "PocketBase — Open Source Backend in 1 File",
       "type": "backend-tool",
       "description": "Open source Go backend: embedded SQLite with realtime subscriptions, file/users management, Admin dashboard UI, REST-ish API. Single portable executable. Perfect for rapid prototyping and small-medium projects.",
       "url": "https://github.com/pocketbase/pocketbase",
@@ -243,7 +243,7 @@
     },
     {
       "id": "claude-mem",
-      "name": "claude-mem \u2014 Persistent Shared Memory",
+      "name": "claude-mem — Persistent Shared Memory",
       "type": "memory",
       "description": "Persistent memory compression for Claude Code. Auto-captures tool usage, generates semantic summaries, makes context available across sessions. Web viewer UI, privacy controls with <private> tags, natural language mem-search.",
       "url": "https://github.com/thedotmack/claude-mem",
@@ -293,7 +293,7 @@
     },
     {
       "id": "superpowers",
-      "name": "Superpowers \u2014 Full AI Development Methodology",
+      "name": "Superpowers — Full AI Development Methodology",
       "type": "claude-skills",
       "description": "Complete software development methodology for coding agents. Spec extraction, subagent-driven TDD, YAGNI/DRY enforcement, autonomous multi-hour execution. Works with Claude Code, Copilot CLI, Cursor, Codex, OpenCode, and more.",
       "url": "https://github.com/obra/superpowers",
@@ -311,9 +311,9 @@
     },
     {
       "id": "page-agent",
-      "name": "Page Agent (Alibaba) \u2014 GUI Agent for Web Pages",
+      "name": "Page Agent (Alibaba) — GUI Agent for Web Pages",
       "type": "ai-agent",
-      "description": "One script gives any web page its own AI agent. GUI agent that lives in your webpage \u2014 automates UI interactions, form filling, navigation, and page tasks. Chrome extension available. By Alibaba.",
+      "description": "One script gives any web page its own AI agent. GUI agent that lives in your webpage — automates UI interactions, form filling, navigation, and page tasks. Chrome extension available. By Alibaba.",
       "url": "https://github.com/alibaba/page-agent",
       "npm": "page-agent",
       "install_command": "npm install page-agent",
@@ -328,9 +328,9 @@
     },
     {
       "id": "strix",
-      "name": "Strix \u2014 AI Autonomous Penetration Testing",
+      "name": "Strix — AI Autonomous Penetration Testing",
       "type": "security",
-      "description": "Autonomous AI pentesters that act like real hackers \u2014 run code dynamically, find vulnerabilities, validate with working PoCs. Multi-agent orchestration, CI/CD integration, auto-fix PRs, compliance reports. Requires Docker + LLM API key.",
+      "description": "Autonomous AI pentesters that act like real hackers — run code dynamically, find vulnerabilities, validate with working PoCs. Multi-agent orchestration, CI/CD integration, auto-fix PRs, compliance reports. Requires Docker + LLM API key.",
       "url": "https://github.com/usestrix/strix",
       "docs": "https://docs.strix.ai",
       "install_command": "curl -sSL https://strix.ai/install | bash",
@@ -346,12 +346,12 @@
     },
     {
       "id": "career-helper",
-      "name": "Career Helper \u2014 End-to-End Career Support",
+      "name": "Career Helper — End-to-End Career Support",
       "type": "claude-skills",
       "description": "14 skills: personal career coach (Tim), CV/ATS rewriting, LinkedIn optimisation, interview prep, job scout, skills radar, career transitions, AI impact assessment, employer footprint, kanban job tracker, NED AI governance, personal brand. Available on all Claude plans including free.",
       "url": "https://github.com/Zal4DW/career-helper",
       "install_command": "claude plugin marketplace add Zal4DW/career-helper && claude plugin install career-helper@career-helper",
-      "install_desktop": "Claude Desktop \u2192 + \u2192 Add plugins \u2192 Add marketplace from GitHub \u2192 Zal4DW/career-helper",
+      "install_desktop": "Claude Desktop → + → Add plugins → Add marketplace from GitHub → Zal4DW/career-helper",
       "skills": [
         "career-coach",
         "getting-started",
@@ -379,9 +379,9 @@
     },
     {
       "id": "career-ops",
-      "name": "Career-Ops \u2014 Multi-Agent Job Search System",
+      "name": "Career-Ops — Multi-Agent Job Search System",
       "type": "ai-agent",
-      "description": "Multi-agent AI job search system featured in WIRED + Business Insider. 740+ job listings evaluated, 100+ personalised CVs. Companies use AI to filter candidates \u2014 this gives candidates AI to choose companies.",
+      "description": "Multi-agent AI job search system featured in WIRED + Business Insider. 740+ job listings evaluated, 100+ personalised CVs. Companies use AI to filter candidates — this gives candidates AI to choose companies.",
       "url": "https://github.com/santifer/career-ops",
       "npm": "@santifer/career-ops",
       "categories": [
@@ -412,9 +412,9 @@
     },
     {
       "id": "awesome-claude-design-voltagent",
-      "name": "Awesome Claude Design (VoltAgent) \u2014 DESIGN.md Collection",
+      "name": "Awesome Claude Design (VoltAgent) — DESIGN.md Collection",
       "type": "curated",
-      "description": "Ready-to-use DESIGN.md files \u2014 upload to Claude Design, get a full design system (colors, type, components, preview cards, UI kit) in one shot. Powered by getdesign.md.",
+      "description": "Ready-to-use DESIGN.md files — upload to Claude Design, get a full design system (colors, type, components, preview cards, UI kit) in one shot. Powered by getdesign.md.",
       "url": "https://github.com/VoltAgent/awesome-claude-design",
       "reference": "https://getdesign.md",
       "categories": [
@@ -428,7 +428,7 @@
     },
     {
       "id": "hackingtool",
-      "name": "HackingTool \u2014 All-in-One Hacking Toolkit (185+ tools)",
+      "name": "HackingTool — All-in-One Hacking Toolkit (185+ tools)",
       "type": "security",
       "description": "185+ curated pentesting + ethical hacking tools across 35 categories: info gathering, web vuln scanning, network scanning, active directory, cloud security, mobile security, post-exploitation, reverse engineering. OS-aware menus, tag filter, search, Docker support.",
       "url": "https://github.com/Z4nzu/hackingtool",
@@ -447,7 +447,7 @@
     },
     {
       "id": "impeccable",
-      "name": "Impeccable \u2014 Design Guidance for AI Coding Agents",
+      "name": "Impeccable — Design Guidance for AI Coding Agents",
       "type": "claude-skills",
       "description": "Design skill for Claude: 1 skill, 23 commands (/polish, /audit, /critique, /animate, /bolder, /quieter...), 46 deterministic detector rules. Writes PRODUCT.md + DESIGN.md. Live browser iteration. Eliminates AI design tells (Inter-for-everything, purple gradients, cards-in-cards). Built on Anthropic frontend-design skill.",
       "url": "https://github.com/pbakaus/impeccable",
@@ -467,12 +467,12 @@
     },
     {
       "id": "claude-plugin-frontend-design",
-      "name": "Frontend Design \u2014 Official Claude Plugin (Anthropic)",
+      "name": "Frontend Design — Official Claude Plugin (Anthropic)",
       "type": "claude-skills",
       "description": "Official Anthropic Claude plugin. Generates distinctive, production-grade frontend interfaces: bold aesthetic choices (brutalist, maximalist, retro-futuristic, luxury, playful), unexpected typography pairings, orchestrated motion, asymmetric composition, gradients/textures/depth. Avoids generic AI tells. Activates automatically when you ask Claude to build UIs.",
       "url": "https://claude.com/plugins/frontend-design",
       "install": "claude plugin add frontend-design",
-      "activation": "Automatic \u2014 just ask Claude to build a frontend interface",
+      "activation": "Automatic — just ask Claude to build a frontend interface",
       "aesthetic_modes": [
         "brutalist",
         "maximalist",
@@ -495,7 +495,7 @@
     },
     {
       "id": "playwright",
-      "name": "Playwright \u2014 End-to-End Testing Framework (Microsoft)",
+      "name": "Playwright — End-to-End Testing Framework (Microsoft)",
       "type": "local",
       "description": "Microsoft end-to-end testing for React/Next.js/TypeScript. Chromium, Firefox, WebKit. Auto-wait, codegen (record tests), API testing, visual comparisons, trace viewer, parallel execution, CI/CD integration. The standard E2E testing tool for modern web apps.",
       "url": "https://playwright.dev",
@@ -514,7 +514,7 @@
     },
     {
       "id": "openrouter",
-      "name": "OpenRouter \u2014 Unified API for 300+ AI Models (Free + Paid)",
+      "name": "OpenRouter — Unified API for 300+ AI Models (Free + Paid)",
       "type": "discovery",
       "description": "One API, one bill, one auth for 300+ LLMs. Free models available (Llama, Mistral, Gemini, DeepSeek, Qwen, etc.). Chat, image generation, embeddings, transcription. OpenAI-compatible API. Browse free models at openrouter.ai/models?supported_parameters=free",
       "url": "https://openrouter.ai",
@@ -532,9 +532,9 @@
     },
     {
       "id": "meetily",
-      "name": "Meetily \u2014 Privacy-First AI Meeting Assistant (Local)",
+      "name": "Meetily — Privacy-First AI Meeting Assistant (Local)",
       "type": "ai-agent",
-      "description": "Local AI meeting transcription + summaries. Runs entirely on your machine \u2014 no cloud, no data leakage. Real-time transcription via Whisper (supports Arabic + multilingual). Summaries via Ollama (local), Claude, Groq, or OpenRouter. macOS/Windows/Linux. Perfect for GhostForge enterprise/government client meetings.",
+      "description": "Local AI meeting transcription + summaries. Runs entirely on your machine — no cloud, no data leakage. Real-time transcription via Whisper (supports Arabic + multilingual). Summaries via Ollama (local), Claude, Groq, or OpenRouter. macOS/Windows/Linux. Perfect for GhostForge enterprise/government client meetings.",
       "url": "https://github.com/Zackriya-Solutions/meetily",
       "releases": "https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest",
       "macos_install": "meetily_0.4.0_aarch64.dmg (Apple Silicon) or x64 build",
@@ -896,6 +896,24 @@
         "docs"
       ],
       "trusted": true
+    },
+    {
+      "id": "officecli",
+      "name": "OfficeCLI",
+      "description": "AI-friendly CLI for .docx, .xlsx, .pptx — create, edit, analyze Office documents with no Office installation needed. Single binary.",
+      "url": "https://github.com/iOfficeAI/OfficeCLI",
+      "type": "claude-skills",
+      "tags": [
+        "office",
+        "documents",
+        "docx",
+        "xlsx",
+        "pptx",
+        "cli"
+      ],
+      "skillFile": ".claude/skills/officecli/SKILL.md",
+      "alwaysOn": true,
+      "install": "curl -fsSL https://d.officecli.ai/install.sh | bash"
     }
   ]
 }
