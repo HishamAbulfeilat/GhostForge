@@ -331,7 +331,7 @@ export default function DashboardPage() {
       style={{ backgroundImage: 'radial-gradient(ellipse 80% 60% at 50% -10%, #00274a33, transparent)' }}
     >
       {/* ── Header ── */}
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-white/[0.06] bg-[#030712]/90 px-4 py-2.5 backdrop-blur">
+      <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-[#030712]/90 px-4 py-2.5 backdrop-blur">
         <button
           type="button"
           onClick={() => router.push('/chat')}
@@ -342,8 +342,8 @@ export default function DashboardPage() {
         </button>
 
         <div className="flex items-center gap-2">
-          <span className="text-sm font-bold tracking-tight text-white">⚡ GhostForge</span>
-          <span className="text-[10px] font-mono text-gray-600">DASHBOARD</span>
+          <span className="text-sm font-bold tracking-tight text-white">👻 GhostForge</span>
+          <span className="text-[10px] font-mono text-gray-600 hidden sm:block">DASHBOARD</span>
           {data?.version && data.version !== '—' && (
             <span className="rounded bg-[#00274a] px-1.5 py-0.5 font-mono text-[10px] text-[#00A3E0]">
               v{data.version}
@@ -351,13 +351,24 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+          {/* Nav links */}
+          <a href="/features" className="rounded border border-violet-800/50 bg-violet-950/30 px-2 py-1 text-[10px] text-violet-300 hover:bg-violet-900/40 transition">
+            🔧 Features
+          </a>
+          <a href="/terminal" className="rounded border border-emerald-800/50 bg-emerald-950/30 px-2 py-1 text-[10px] text-emerald-300 hover:bg-emerald-900/40 transition">
+            💻 Terminal
+          </a>
+          <a href="/chat" className="rounded border border-sky-800/50 bg-sky-950/30 px-2 py-1 text-[10px] text-sky-300 hover:bg-sky-900/40 transition">
+            💬 Chat
+          </a>
+
           {/* Bridge indicator */}
           <div className="flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-[#080d18] px-3 py-1">
             <span
               className={`h-1.5 w-1.5 rounded-full ${bridgeOk ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-gray-600'} ${loading ? 'animate-pulse' : ''}`}
             />
-            <span className="text-[10px] text-gray-400">{bridgeOk ? 'bridge online' : 'bridge offline'}</span>
+            <span className="hidden text-[10px] text-gray-400 sm:block">{bridgeOk ? 'bridge online' : 'bridge offline'}</span>
           </div>
 
           <LiveClock />
@@ -368,12 +379,34 @@ export default function DashboardPage() {
             disabled={loading}
             className="rounded border border-white/[0.06] bg-[#080d18] px-3 py-1 text-[10px] text-gray-400 transition hover:border-[#00A3E0]/40 hover:text-[#00A3E0] disabled:opacity-40"
           >
-            {loading ? '⟳ refreshing…' : '⟳ refresh'}
+            {loading ? '⟳' : '⟳'}
           </button>
         </div>
       </header>
 
-      <main className="p-4 space-y-3">
+      <main className="p-4 space-y-3 max-w-7xl mx-auto">
+        {/* ── Quick nav cards ── */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            { href: '/chat', icon: '💬', label: 'AI Chat', desc: 'Gemini 2.5 Pro', color: 'border-violet-800/40 hover:border-violet-600/60' },
+            { href: '/terminal', icon: '💻', label: 'Terminal', desc: 'Live TUI shell', color: 'border-emerald-800/40 hover:border-emerald-600/60' },
+            { href: '/features', icon: '🔧', label: 'Features', desc: 'Run any command', color: 'border-sky-800/40 hover:border-sky-600/60' },
+            { href: '/chat', icon: '🐙', label: 'Copilot', desc: 'GitHub Suggest mode', color: 'border-amber-800/40 hover:border-amber-600/60' },
+          ].map(item => (
+            <a
+              key={item.label}
+              href={item.href}
+              className={`flex items-center gap-2.5 rounded-lg border bg-[#080d18] p-3 transition hover:bg-white/[0.03] ${item.color}`}
+            >
+              <span className="text-xl shrink-0">{item.icon}</span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-gray-200">{item.label}</p>
+                <p className="truncate text-[11px] text-gray-600">{item.desc}</p>
+              </div>
+            </a>
+          ))}
+        </div>
+
         {/* ── Bridge offline notice ── */}
         {data && !bridgeOk && (
           <div className="rounded-lg border border-amber-800/40 bg-amber-950/30 px-4 py-2.5 text-xs text-amber-300">
@@ -381,7 +414,7 @@ export default function DashboardPage() {
             {data.error ? ` ${data.error}. ` : ' '}
             Run{' '}
             <code className="rounded bg-amber-900/40 px-1.5 py-0.5">
-              bash ~/ghostforge/scripts/bridge.sh start
+              bash ~/GhostForge/scripts/bridge.sh start
             </code>{' '}
             on your Mac to enable live data.
           </div>
