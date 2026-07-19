@@ -939,6 +939,8 @@ async function screenMarketplace() {
       { name: T.success.bold('🎓  Claude Agent Skills')   + T.muted(' — Anthropic, SkillsMP, Claude-Flow, scroll-world, UI/UX'), value: 'skills' },
       { name: T.brand.bold('🗂️   Claude Marketplaces')     + T.muted(' — skills, MCP servers, plugins directory'), value: 'claude-marketplaces' },
       { name: T.cyan.bold('⚡  PocketBase')               + T.muted(' — open source backend in 1 file'), value: 'pocketbase' },
+      { name: T.warning.bold('🖱️   Page Agent (Alibaba)')    + T.muted(' — GUI agent living in your webpage'), value: 'page-agent' },
+      { name: T.red.bold('🔐  Strix')                     + T.muted(' — autonomous AI penetration testing'), value: 'strix' },
       { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
       { name: T.success.bold('🤖  Add Custom Model')      + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
@@ -1167,6 +1169,56 @@ async function screenMarketplace() {
     ));
     console.log();
     try { execSync('open https://pocketbase.io/docs 2>/dev/null || xdg-open https://pocketbase.io/docs 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter();
+  }
+
+  if (action === 'page-agent') {
+    console.log();
+    console.log(boxen(
+      T.warning.bold(' 🖱️  Page Agent (Alibaba) — GUI Agent for Web Pages ') + '\n\n' +
+      T.white('One script gives any web page its own AI agent.\n') +
+      T.muted('Automates UI interactions, form filling, navigation, page tasks.\n\n') +
+      T.success.bold('  Install (npm):\n') +
+      T.cyan('  npm install page-agent\n\n') +
+      T.success.bold('  Chrome Extension:\n') +
+      T.cyan('  https://chromewebstore.google.com/detail/page-agent-ext/\n\n') +
+      T.muted('  Use cases:\n') +
+      T.muted('  • Automate repetitive web UI tasks\n') +
+      T.muted('  • AI-powered form filling and navigation\n') +
+      T.muted('  • Embed an agent directly in your web app\n') +
+      T.muted('  • Browser automation without Playwright/Puppeteer setup\n\n') +
+      T.dim('  GitHub: https://github.com/alibaba/page-agent'),
+      { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
+    ));
+    console.log();
+    try { execSync('open https://github.com/alibaba/page-agent 2>/dev/null || xdg-open https://github.com/alibaba/page-agent 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter();
+  }
+
+  if (action === 'strix') {
+    console.log();
+    console.log(boxen(
+      T.red.bold(' 🔐 Strix — Autonomous AI Penetration Testing ') + '\n\n' +
+      T.white('AI pentesters that act like real hackers.\n') +
+      T.muted('Real exploit validation with working PoCs — not false positives.\n\n') +
+      T.success.bold('  Install:\n') +
+      T.cyan('  curl -sSL https://strix.ai/install | bash\n\n') +
+      T.success.bold('  Configure & run:\n') +
+      T.cyan('  export STRIX_LLM="openai/gpt-5.4"\n') +
+      T.cyan('  export LLM_API_KEY="your-key"\n') +
+      T.cyan('  strix --target ./your-app\n\n') +
+      T.warning('  Requires: Docker (running) + LLM API key\n\n') +
+      T.muted('  Features:\n') +
+      T.muted('  • Multi-agent pentest orchestration\n') +
+      T.muted('  • Working PoC exploits for every finding\n') +
+      T.muted('  • One-click auto-fix PRs\n') +
+      T.muted('  • CI/CD integration (GitHub Actions, GitLab)\n') +
+      T.muted('  • Compliance-ready reports\n\n') +
+      T.dim('  Platform: https://app.strix.ai'),
+      { padding: 1, borderColor: '#EF4444', borderStyle: 'round' }
+    ));
+    console.log();
+    try { execSync('open https://app.strix.ai 2>/dev/null || xdg-open https://app.strix.ai 2>/dev/null', { stdio: 'ignore' }); } catch {}
     await pressEnter();
   }
 

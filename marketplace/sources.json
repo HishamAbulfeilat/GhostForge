@@ -308,6 +308,41 @@
         "development-workflow"
       ],
       "trusted": true
+    },
+    {
+      "id": "page-agent",
+      "name": "Page Agent (Alibaba) — GUI Agent for Web Pages",
+      "type": "ai-agent",
+      "description": "One script gives any web page its own AI agent. GUI agent that lives in your webpage — automates UI interactions, form filling, navigation, and page tasks. Chrome extension available. By Alibaba.",
+      "url": "https://github.com/alibaba/page-agent",
+      "npm": "page-agent",
+      "install_command": "npm install page-agent",
+      "chrome_extension": "https://chromewebstore.google.com/detail/page-agent-ext/akldabonmimlicnjlflnapfeklbfemhj",
+      "categories": [
+        "gui-agent",
+        "browser-automation",
+        "web",
+        "frontend"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "strix",
+      "name": "Strix — AI Autonomous Penetration Testing",
+      "type": "security",
+      "description": "Autonomous AI pentesters that act like real hackers — run code dynamically, find vulnerabilities, validate with working PoCs. Multi-agent orchestration, CI/CD integration, auto-fix PRs, compliance reports. Requires Docker + LLM API key.",
+      "url": "https://github.com/usestrix/strix",
+      "docs": "https://docs.strix.ai",
+      "install_command": "curl -sSL https://strix.ai/install | bash",
+      "platform": "https://app.strix.ai",
+      "categories": [
+        "security",
+        "pentesting",
+        "vulnerability",
+        "ci-cd",
+        "devsecops"
+      ],
+      "trusted": true
     }
   ]
 }

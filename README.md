@@ -915,6 +915,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.0.4 — GUI Agent + Security
+- **🖱️ Page Agent (Alibaba)** — GUI agent living in any webpage. `npm install page-agent`. Chrome extension available. Automates UI interactions, form filling, navigation.
+- **🔐 Strix** — autonomous AI penetration testing agents. Real PoC exploits, multi-agent orchestration, CI/CD integration, auto-fix PRs. `curl -sSL https://strix.ai/install | bash`
+- **24 marketplace sources** total
+
 ### v3.0.3 — Design Tokens + Superpowers
 - **🎨 extract-design-system** — reverse-engineer design tokens (colors, typography, spacing, shadows) from any public website → `tokens.json` + `tokens.css`. `npx skills add arvindrk/extract-design-system`
 - **⚡ Superpowers** — complete AI dev methodology: spec extraction, TDD, YAGNI/DRY, subagent-driven autonomous execution for hours. Works with Claude Code, Copilot CLI, Cursor, Codex. `/plugin install superpowers@claude-plugins-official`

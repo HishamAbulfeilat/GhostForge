@@ -40,6 +40,8 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 | **frontend-design (Anthropic)** | Design skill | https://github.com/anthropics/skills |
 | **extract-design-system** | Design token extractor | https://github.com/arvindrk/extract-design-system |
 | **Superpowers** | AI dev methodology | https://github.com/obra/superpowers |
+| **Page Agent (Alibaba)** | GUI web agent | https://github.com/alibaba/page-agent |
+| **Strix** | AI pentesting | https://github.com/usestrix/strix |
 | **Agent Skills Standard** | Skills spec | https://agentskills.io/home |
 | **Claude-Flow** | AI orchestration | https://github.com/edwincummins/claude-flow |
 
