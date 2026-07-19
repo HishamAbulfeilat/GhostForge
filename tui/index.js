@@ -954,6 +954,7 @@ async function screenMarketplace() {
       { name: T.brand.bold('🎨  Awesome Claude Design')   + T.muted(' — DESIGN.md collection · rohitg00'), value: 'awesome-claude-design-rohitg00' },
       { name: T.brand.bold('🎨  Awesome Claude Design')   + T.muted(' — DESIGN.md collection · VoltAgent'), value: 'awesome-claude-design-voltagent' },
       { name: T.brand.bold('✨  Impeccable')               + T.muted(' — 23 design cmds, 46 detector rules, live browser iteration'), value: 'impeccable' },
+      { name: T.brand.bold('🎨  Frontend Design Plugin')   + T.muted(' — official Anthropic Claude plugin · distinctive production UI'), value: 'claude-plugin-frontend-design' },
       { name: T.accent.bold('🔧  Career Tools')            + T.muted(' — CV versioning, prep, tracker, gap, LinkedIn calendar'), value: 'career-tools' },
       { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
@@ -1539,6 +1540,51 @@ async function screenMarketplace() {
         try { execSync('open https://impeccable.style 2>/dev/null || xdg-open https://impeccable.style 2>/dev/null', { stdio: 'ignore' }); } catch {}
       } else if (impAction === 'github') {
         try { execSync('open https://github.com/pbakaus/impeccable 2>/dev/null || xdg-open https://github.com/pbakaus/impeccable 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'claude-plugin-frontend-design') {
+    const fdAction = await select({
+      message: T.brand.bold('🎨 Frontend Design Plugin (Official Anthropic):'),
+      choices: [
+        { name: T.success.bold('⬇️  Install plugin'),               value: 'install' },
+        { name: T.brand.bold('📖  What it does'),                   value: 'info' },
+        { name: T.cyan.bold('🌐  Open plugin page'),                value: 'open' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (fdAction !== '__back__') {
+      console.log();
+      console.log(boxen(
+        T.brand.bold(' 🎨 Frontend Design — Official Claude Plugin ') + '\n\n' +
+        T.white('Generates distinctive, production-grade frontend interfaces.\n') +
+        T.white('Activates automatically when you ask Claude to build UIs.\n\n') +
+        T.yellow.bold('  Aesthetic modes:\n') +
+        T.white('  brutalist · maximalist · retro-futuristic · luxury\n') +
+        T.white('  playful · editorial · dark-mode · and more\n\n') +
+        T.success.bold('  Install:\n') +
+        T.cyan('  claude plugin add frontend-design\n\n') +
+        T.success.bold('  Example prompts:\n') +
+        T.white('  "Create a dashboard for a music streaming app"\n') +
+        T.white('  "Build a landing page for an AI security startup"\n') +
+        T.white('  "Design a settings panel with dark mode support"\n\n') +
+        T.success.bold('  Design features:\n') +
+        T.white('  • Unexpected typography pairings\n') +
+        T.white('  • Orchestrated motion + scroll-triggered interactions\n') +
+        T.white('  • Asymmetric layouts, grid-breaking elements\n') +
+        T.white('  • Gradients, textures, layered depth effects\n') +
+        T.white('  • Avoids: Inter-for-everything, purple gradients, cookie-cutter components\n\n') +
+        T.dim('  Plugin: https://claude.com/plugins/frontend-design'),
+        { padding: 1, borderColor: '#A855F7', borderStyle: 'round' }
+      ));
+      console.log();
+      if (fdAction === 'install') {
+        const { spawnSync } = await import('child_process');
+        spawnSync('claude', ['plugin', 'add', 'frontend-design'], { stdio: 'inherit' });
+      } else if (fdAction === 'open') {
+        try { execSync('open https://claude.com/plugins/frontend-design 2>/dev/null || xdg-open https://claude.com/plugins/frontend-design 2>/dev/null', { stdio: 'ignore' }); } catch {}
       }
     }
     await pressEnter();

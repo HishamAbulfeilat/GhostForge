@@ -464,6 +464,34 @@
         "skill"
       ],
       "trusted": true
+    },
+    {
+      "id": "claude-plugin-frontend-design",
+      "name": "Frontend Design — Official Claude Plugin (Anthropic)",
+      "type": "claude-skills",
+      "description": "Official Anthropic Claude plugin. Generates distinctive, production-grade frontend interfaces: bold aesthetic choices (brutalist, maximalist, retro-futuristic, luxury, playful), unexpected typography pairings, orchestrated motion, asymmetric composition, gradients/textures/depth. Avoids generic AI tells. Activates automatically when you ask Claude to build UIs.",
+      "url": "https://claude.com/plugins/frontend-design",
+      "install": "claude plugin add frontend-design",
+      "activation": "Automatic — just ask Claude to build a frontend interface",
+      "aesthetic_modes": [
+        "brutalist",
+        "maximalist",
+        "retro-futuristic",
+        "luxury",
+        "playful",
+        "dark-mode",
+        "editorial"
+      ],
+      "categories": [
+        "design",
+        "frontend",
+        "plugin",
+        "official",
+        "anthropic",
+        "ui"
+      ],
+      "official": true,
+      "trusted": true
     }
   ]
 }

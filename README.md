@@ -915,6 +915,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.0.9 — Frontend Design Official Plugin
+- **🎨 Frontend Design Plugin** (source #31) — official Anthropic Claude plugin. Generates distinctive production-grade UIs: brutalist, maximalist, retro-futuristic, luxury, playful aesthetics. Unexpected typography pairings, orchestrated motion, asymmetric layouts, layered depth. Activates automatically. `claude plugin add frontend-design`
+- TUI: Marketplace → 🎨 Frontend Design Plugin with install + example prompts
+- **31 marketplace sources** total
+
 ### v3.0.8 — Impeccable Design Skill
 - **✨ Impeccable** (source #30) — design guidance skill for AI coding agents: 23 commands (`/polish`, `/audit`, `/critique`, `/animate`, `/bolder`, `/quieter`, `/distil`, `/craft`...), 46 deterministic detector rules, live browser iteration. Writes `PRODUCT.md` + `DESIGN.md`. Eliminates AI design tells. Built on Anthropic's frontend-design skill. `npx impeccable install` → `/impeccable init`
 - TUI: Marketplace → ✨ Impeccable with install + command overview
