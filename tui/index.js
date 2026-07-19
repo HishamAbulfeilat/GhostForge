@@ -953,6 +953,7 @@ async function screenMarketplace() {
       { name: T.success.bold('🗂️   Career-Ops')             + T.muted(' — multi-agent job search · 740+ listings · WIRED / BI'), value: 'career-ops' },
       { name: T.brand.bold('🎨  Awesome Claude Design')   + T.muted(' — DESIGN.md collection · rohitg00'), value: 'awesome-claude-design-rohitg00' },
       { name: T.brand.bold('🎨  Awesome Claude Design')   + T.muted(' — DESIGN.md collection · VoltAgent'), value: 'awesome-claude-design-voltagent' },
+      { name: T.brand.bold('✨  Impeccable')               + T.muted(' — 23 design cmds, 46 detector rules, live browser iteration'), value: 'impeccable' },
       { name: T.accent.bold('🔧  Career Tools')            + T.muted(' — CV versioning, prep, tracker, gap, LinkedIn calendar'), value: 'career-tools' },
       { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
@@ -1490,6 +1491,54 @@ async function screenMarketplace() {
         try { execSync(`open ${ghUrl} 2>/dev/null || xdg-open ${ghUrl} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
       } else if (subAction === 'claude-design') {
         try { execSync('open https://claude.ai/design 2>/dev/null || xdg-open https://claude.ai/design 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'impeccable') {
+    const impAction = await select({
+      message: T.brand.bold('✨ Impeccable — AI Design Skill:'),
+      choices: [
+        { name: T.success.bold('⬇️  Install'),                  value: 'install' },
+        { name: T.brand.bold('📖  23 Commands overview'),        value: 'info' },
+        { name: T.cyan.bold('🌐  impeccable.style docs'),        value: 'docs' },
+        { name: T.accent.bold('🐙  GitHub'),                     value: 'github' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (impAction !== '__back__') {
+      console.log();
+      console.log(boxen(
+        T.brand.bold(' ✨ Impeccable — Design Guidance for AI Coding Agents ') + '\n\n' +
+        T.white('Eliminates AI design tells: Inter-for-everything, purple→blue\n') +
+        T.white('gradients, cards-in-cards, gray text on coloured backgrounds.\n\n') +
+        T.yellow.bold('  23 commands  ·  46 detector rules  ·  live browser iteration\n\n') +
+        T.success.bold('  Install:\n') +
+        T.cyan('  npx impeccable install\n\n') +
+        T.success.bold('  Init (writes PRODUCT.md + DESIGN.md):\n') +
+        T.cyan('  /impeccable init\n\n') +
+        T.success.bold('  Key commands:\n') +
+        T.white('  /impeccable craft    — full shape-then-build flow\n') +
+        T.white('  /impeccable polish   — final pass, design system alignment\n') +
+        T.white('  /impeccable audit    — a11y, performance, responsive checks\n') +
+        T.white('  /impeccable critique — UX hierarchy, clarity, emotional resonance\n') +
+        T.white('  /impeccable animate  — add purposeful motion\n') +
+        T.white('  /impeccable bolder   — stronger visual hierarchy\n') +
+        T.white('  /impeccable quieter  — reduce visual noise\n') +
+        T.white('  /impeccable distil   — strip to essentials\n\n') +
+        T.dim('  GitHub: https://github.com/pbakaus/impeccable\n') +
+        T.dim('  Docs: https://impeccable.style'),
+        { padding: 1, borderColor: '#A855F7', borderStyle: 'round' }
+      ));
+      console.log();
+      if (impAction === 'install') {
+        const { spawnSync } = await import('child_process');
+        spawnSync('npx', ['impeccable', 'install'], { stdio: 'inherit' });
+      } else if (impAction === 'docs') {
+        try { execSync('open https://impeccable.style 2>/dev/null || xdg-open https://impeccable.style 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      } else if (impAction === 'github') {
+        try { execSync('open https://github.com/pbakaus/impeccable 2>/dev/null || xdg-open https://github.com/pbakaus/impeccable 2>/dev/null', { stdio: 'ignore' }); } catch {}
       }
     }
     await pressEnter();

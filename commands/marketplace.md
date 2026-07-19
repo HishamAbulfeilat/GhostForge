@@ -47,6 +47,7 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 | **Awesome Claude Design (rohitg00)** | DESIGN.md collection · prompt packs | https://github.com/rohitg00/awesome-claude-design |
 | **Awesome Claude Design (VoltAgent)** | DESIGN.md → full design system scaffolding | https://github.com/VoltAgent/awesome-claude-design |
 | **HackingTool** | 185+ pentesting tools, 35 categories | https://github.com/Z4nzu/hackingtool |
+| **Impeccable** | 23 design cmds, 46 detector rules for AI agents | https://github.com/pbakaus/impeccable |
 | **Agent Skills Standard** | Skills spec | https://agentskills.io/home |
 | **Claude-Flow** | AI orchestration | https://github.com/edwincummins/claude-flow |
 

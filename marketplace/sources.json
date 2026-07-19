@@ -444,6 +444,26 @@
       "stars": "50k+",
       "tools_count": 185,
       "trusted": true
+    },
+    {
+      "id": "impeccable",
+      "name": "Impeccable — Design Guidance for AI Coding Agents",
+      "type": "claude-skills",
+      "description": "Design skill for Claude: 1 skill, 23 commands (/polish, /audit, /critique, /animate, /bolder, /quieter...), 46 deterministic detector rules. Writes PRODUCT.md + DESIGN.md. Live browser iteration. Eliminates AI design tells (Inter-for-everything, purple gradients, cards-in-cards). Built on Anthropic frontend-design skill.",
+      "url": "https://github.com/pbakaus/impeccable",
+      "site": "https://impeccable.style",
+      "install": "npx impeccable install",
+      "init": "/impeccable init",
+      "commands": 23,
+      "rules": 46,
+      "categories": [
+        "design",
+        "frontend",
+        "ai-coding",
+        "design-system",
+        "skill"
+      ],
+      "trusted": true
     }
   ]
 }

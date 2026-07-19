@@ -915,6 +915,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.0.8 — Impeccable Design Skill
+- **✨ Impeccable** (source #30) — design guidance skill for AI coding agents: 23 commands (`/polish`, `/audit`, `/critique`, `/animate`, `/bolder`, `/quieter`, `/distil`, `/craft`...), 46 deterministic detector rules, live browser iteration. Writes `PRODUCT.md` + `DESIGN.md`. Eliminates AI design tells. Built on Anthropic's frontend-design skill. `npx impeccable install` → `/impeccable init`
+- TUI: Marketplace → ✨ Impeccable with install + command overview
+- **30 marketplace sources** total
+
 ### v3.0.7 — HackingTool + Built-in Security Scanner
 - **🛡️ HackingTool** (source #29) — 185+ pentesting tools across 35 categories: info gathering, OSINT, web vuln scanning, password attacks, wireless, exploitation, post-exploitation, reverse engineering, RAT, Active Directory, cloud security, mobile security. 50k+ GitHub stars. `curl -sSL .../install.sh | sudo bash`
 - **🔍 Security Scanner** (`/pentest`) — built-in project security scanner for React/Next.js/TypeScript:
