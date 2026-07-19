@@ -947,6 +947,38 @@
       "url": "https://cloudflare.com",
       "type": "tool",
       "trusted": true
+    },
+    {
+      "id": "ui-tars",
+      "name": "UI-TARS",
+      "description": "ByteDance open-source vision-language model for automated GUI interaction. Sees screenshots, clicks, types — autonomous GUI agent. UI-TARS-2 released Sep 2025.",
+      "url": "https://github.com/bytedance/UI-TARS",
+      "model": "https://huggingface.co/ByteDance-Seed/UI-TARS-1.5-7B",
+      "paper": "https://arxiv.org/abs/2501.12326",
+      "type": "ai-agent",
+      "tags": [
+        "gui-automation",
+        "vision",
+        "vlm",
+        "agent",
+        "screenshot",
+        "computer-use"
+      ]
+    },
+    {
+      "id": "ui-tars-desktop",
+      "name": "UI-TARS Desktop",
+      "description": "Electron desktop app powered by UI-TARS model. Automates GUI tasks on your local machine — browse web, fill forms, extract data, all via natural language instructions.",
+      "url": "https://github.com/bytedance/UI-TARS-desktop",
+      "type": "desktop-app",
+      "tags": [
+        "gui-automation",
+        "desktop",
+        "electron",
+        "local",
+        "computer-use",
+        "vision"
+      ]
     }
   ]
 }

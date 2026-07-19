@@ -1615,6 +1615,7 @@ async function screenMarketplace() {
       { name: T.brand.bold('🎨  Frontend Design Plugin')   + T.muted(' — official Anthropic Claude plugin · distinctive production UI'), value: 'claude-plugin-frontend-design' },
       { name: T.accent.bold('🔧  Career Tools')            + T.muted(' — CV versioning, prep, tracker, gap, LinkedIn calendar'), value: 'career-tools' },
       { name: T.success.bold('🎭  Playwright')             + T.muted(' — E2E testing · React/Next.js · codegen · trace viewer'), value: 'playwright' },
+      { name: T.cyan.bold('👁️   UI-TARS')                  + T.muted(' — ByteDance GUI agent · see screen, click, automate · visual testing'), value: 'ui-tars' },
       { name: T.warning.bold('🔀  OpenRouter')              + T.muted(' — 300+ AI models · browse free models · one API'), value: 'openrouter' },
       { name: T.cyan.bold('🎙️   Meetily')                   + T.muted(' — local AI meeting transcription · Arabic · no cloud'), value: 'meetily' },
       { name: T.success.bold('🌿  Carbon Monitor')           + T.muted(' — track dev session CO₂ emissions · your CRP research'), value: 'carbon-monitor' },
@@ -2496,6 +2497,32 @@ async function screenMarketplace() {
         spawnSync('npx', ['playwright', 'show-report'], { stdio: 'inherit', cwd: process.cwd() });
       } else if (pwAction === 'docs') {
         try { execSync('open https://playwright.dev 2>/dev/null || xdg-open https://playwright.dev 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'ui-tars') {
+    const { spawnSync: spawnUT } = await import('child_process');
+    const utAction = await select({
+      message: T.cyan.bold('👁️  UI-TARS — ByteDance GUI Automation Agent:'),
+      choices: [
+        { name: T.cyan.bold('ℹ️   About UI-TARS')          + T.muted(' — capabilities, models, use cases'), value: 'info' },
+        { name: T.success.bold('🖥️  UI-TARS Desktop')      + T.muted(' — download local desktop app'), value: 'desktop' },
+        { name: T.accent.bold('🤖  Model Setup')            + T.muted(' — run 7B model locally or via API'), value: 'model' },
+        { name: T.brand.bold('🌐  Midscene Browser Auto')   + T.muted(' — Playwright + UI-TARS visual testing'), value: 'midscene' },
+        { name: T.muted('📄  Research Paper'),               value: 'paper' },
+        { name: T.muted('🌐  Website (seed-tars.com)'),      value: 'site' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 8,
+    });
+    if (utAction !== '__back__') {
+      console.log();
+      if (utAction === 'paper' || utAction === 'site' || utAction === 'desktop') {
+        spawnUT('bash', [resolve(ROOT, 'scripts/ui-tars.sh'), 'open', utAction === 'desktop' ? 'desktop' : utAction], { stdio: 'inherit', cwd: process.cwd() });
+      } else {
+        spawnUT('bash', [resolve(ROOT, 'scripts/ui-tars.sh'), utAction], { stdio: 'inherit', cwd: process.cwd() });
       }
     }
     await pressEnter();
