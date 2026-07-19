@@ -249,6 +249,9 @@ tracker = EmissionsTracker(
 )
 tracker.start()
 
+ready_file = data_dir / "monitor.ready"
+ready_file.write_text("1", encoding="utf-8")
+
 session_payload = {
     "pid": os.getpid(),
     "label": label,
@@ -299,6 +302,8 @@ def finalize(exit_code: int = 0):
     session_file.write_text(json.dumps(session_payload, indent=2), encoding="utf-8")
     if pid_file.exists():
         pid_file.unlink()
+    if ready_file.exists():
+        ready_file.unlink()
     print(f"SESSION_EMISSIONS:{emissions}", flush=True)
     raise SystemExit(exit_code)
 
@@ -315,11 +320,21 @@ while True:
 PY
 
   local pid="$!"
-  sleep 1
-  if ! is_pid_running "$pid"; then
-    echo -e "${RED}✖ Failed to start carbon monitor.${NC}"
-    [[ -f "$MONITOR_LOG" ]] && tail -n 20 "$MONITOR_LOG"
-    exit 1
+  # Wait up to 15s for tracker to be ready (writes monitor.ready file)
+  local waited=0
+  local ready_file="$DATA_DIR/monitor.ready"
+  rm -f "$ready_file"
+  while [[ ! -f "$ready_file" ]] && [[ $waited -lt 15 ]]; do
+    sleep 1
+    waited=$((waited + 1))
+    if ! is_pid_running "$pid"; then
+      echo -e "${RED}✖ Failed to start carbon monitor.${NC}"
+      [[ -f "$MONITOR_LOG" ]] && tail -n 20 "$MONITOR_LOG"
+      exit 1
+    fi
+  done
+  if [[ ! -f "$ready_file" ]]; then
+    echo -e "${YELLOW}⚠ Carbon tracker took long to start, proceeding anyway...${NC}"
   fi
 
   echo "$pid" > "$PID_FILE"
@@ -654,6 +669,8 @@ track_cmd() {
   local cmd_exit=$?
   set -e
 
+  # Ensure tracker has at least 3s of data before stopping
+  sleep 3
   stop_monitor >/dev/null || true
 
   local emissions=""
