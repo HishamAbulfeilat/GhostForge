@@ -958,6 +958,7 @@ async function screenMarketplace() {
       { name: T.brand.bold('🎨  Frontend Design Plugin')   + T.muted(' — official Anthropic Claude plugin · distinctive production UI'), value: 'claude-plugin-frontend-design' },
       { name: T.accent.bold('🔧  Career Tools')            + T.muted(' — CV versioning, prep, tracker, gap, LinkedIn calendar'), value: 'career-tools' },
       { name: T.success.bold('🎭  Playwright')             + T.muted(' — E2E testing · React/Next.js · codegen · trace viewer'), value: 'playwright' },
+      { name: T.warning.bold('🔀  OpenRouter')              + T.muted(' — 300+ AI models · browse free models · one API'), value: 'openrouter' },
       { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
       { name: T.success.bold('🤖  Add Custom Model')      + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
@@ -1805,6 +1806,77 @@ async function screenMarketplace() {
         spawnSync('npx', ['playwright', 'show-report'], { stdio: 'inherit', cwd: process.cwd() });
       } else if (pwAction === 'docs') {
         try { execSync('open https://playwright.dev 2>/dev/null || xdg-open https://playwright.dev 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'openrouter') {
+    const orAction = await select({
+      message: T.warning.bold('🔀 OpenRouter — AI Model Hub:'),
+      choices: [
+        { name: T.warning.bold('🆓  Browse Free Models')  + T.muted(' — Llama, Mistral, Gemini, DeepSeek, Qwen...'), value: 'free' },
+        { name: T.cyan.bold('📋  All 300+ Models'),       value: 'all' },
+        { name: T.success.bold('🔑  Get API Key'),         value: 'apikey' },
+        { name: T.brand.bold('💻  Use in project')        + T.muted(' — OpenAI-compatible setup snippet'), value: 'code' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (orAction !== '__back__') {
+      console.log();
+      if (orAction === 'code') {
+        console.log(boxen(
+          T.warning.bold(' 🔀 OpenRouter — Use in Your Project ') + '\n\n' +
+          T.white('OpenAI-compatible API — swap base URL, keep same SDK.\n\n') +
+          T.success.bold('  Install (uses openai package):\n') +
+          T.cyan('  npm install openai\n\n') +
+          T.success.bold('  TypeScript setup:\n') +
+          T.cyan("  import OpenAI from 'openai'\n\n") +
+          T.cyan("  const client = new OpenAI({\n") +
+          T.cyan("    apiKey: process.env.OPENROUTER_API_KEY,\n") +
+          T.cyan("    baseURL: 'https://openrouter.ai/api/v1',\n") +
+          T.cyan("  })\n\n") +
+          T.cyan("  const res = await client.chat.completions.create({\n") +
+          T.cyan("    model: 'meta-llama/llama-3.1-8b-instruct:free', // free!\n") +
+          T.cyan("    messages: [{ role: 'user', content: 'Hello' }],\n") +
+          T.cyan("  })\n\n") +
+          T.success.bold('  .env.local:\n') +
+          T.cyan('  OPENROUTER_API_KEY=sk-or-...\n\n') +
+          T.success.bold('  Popular free models:\n') +
+          T.white('  meta-llama/llama-3.1-8b-instruct:free\n') +
+          T.white('  google/gemini-2.0-flash-exp:free\n') +
+          T.white('  deepseek/deepseek-r1:free\n') +
+          T.white('  mistralai/mistral-7b-instruct:free\n') +
+          T.white('  qwen/qwen-2.5-72b-instruct:free\n\n') +
+          T.dim('  Browse all free: https://openrouter.ai/models?supported_parameters=free'),
+          { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
+        ));
+      } else {
+        const urls = {
+          free: 'https://openrouter.ai/models?order=top-weekly&supported_parameters=free',
+          all:  'https://openrouter.ai/models?order=top-weekly',
+          apikey: 'https://openrouter.ai/settings/keys',
+        };
+        const url = urls[orAction];
+        console.log(boxen(
+          T.warning.bold(' 🔀 OpenRouter ') + '\n\n' +
+          (orAction === 'free'
+            ? T.white('Opening free models browser...\n') + T.muted('Filter: top weekly · free tier · 300+ options\n\n') +
+              T.success.bold('  Popular free models:\n') +
+              T.white('  🦙 Llama 3.1 8B / 70B / 405B (Meta)\n') +
+              T.white('  ✨ Gemini 2.0 Flash Exp (Google)\n') +
+              T.white('  🐋 DeepSeek R1 / V3 (DeepSeek)\n') +
+              T.white('  🌟 Mistral 7B / Mixtral (Mistral AI)\n') +
+              T.white('  🐉 Qwen 2.5 72B (Alibaba)\n') +
+              T.white('  🌺 Gemma 3 (Google)\n\n') +
+              T.cyan('  Append :free to any model ID to use free tier\n')
+            : orAction === 'apikey'
+            ? T.white('Opening API key settings...\n\n') + T.cyan('  Add key to .env.local:\n  OPENROUTER_API_KEY=sk-or-...\n')
+            : T.white('Opening all 300+ models...\n')) +
+          T.dim(`\n  ${url}`),
+          { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
+        ));
+        try { execSync(`open "${url}" 2>/dev/null || xdg-open "${url}" 2>/dev/null`, { stdio: 'ignore' }); } catch {}
       }
     }
     await pressEnter();

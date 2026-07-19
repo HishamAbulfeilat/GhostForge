@@ -915,6 +915,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.1.2 — OpenRouter Free Models Browser
+- **🔀 OpenRouter** (source #33) — 300+ AI models via one OpenAI-compatible API. Browse free models (Llama, Gemini, DeepSeek, Mistral, Qwen), get API key, see project integration snippet. Free models: append `:free` to any model ID.
+- TUI: 🆓 Browse Free Models (opens filtered browser), 💻 Use in project (TypeScript snippet + .env.local), 🔑 Get API Key
+- **33 marketplace sources** total
+
 ### v3.1.1 — Page Agent TUI upgrade + Playwright E2E testing
 - **🖱️ Page Agent** — TUI upgraded to 2-path sub-menu:
   - 🌐 **Use in Browser** → opens Chrome Web Store extension directly

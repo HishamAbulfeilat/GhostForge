@@ -511,6 +511,24 @@
       ],
       "by": "Microsoft",
       "trusted": true
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter — Unified API for 300+ AI Models (Free + Paid)",
+      "type": "discovery",
+      "description": "One API, one bill, one auth for 300+ LLMs. Free models available (Llama, Mistral, Gemini, DeepSeek, Qwen, etc.). Chat, image generation, embeddings, transcription. OpenAI-compatible API. Browse free models at openrouter.ai/models?supported_parameters=free",
+      "url": "https://openrouter.ai",
+      "free_models_url": "https://openrouter.ai/models?order=top-weekly&supported_parameters=free",
+      "api_base": "https://openrouter.ai/api/v1",
+      "compatible_with": "OpenAI SDK",
+      "categories": [
+        "ai-models",
+        "llm",
+        "free-models",
+        "api",
+        "discovery"
+      ],
+      "trusted": true
     }
   ]
 }
