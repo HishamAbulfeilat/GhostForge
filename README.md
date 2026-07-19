@@ -1,11 +1,11 @@
-# 🔫 GhostForge — v4.2.0
+# 🔫 GhostForge — v4.3.0
 
 > *Operator-grade dev tools, forged in the shadows.*
 > Developed by **Hisham Abulfeilat**
 
 The ultimate AI developer toolkit supercharging GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, green coding, and more.
 
-**230+ files · 14 agents · 70+ commands · 57 scripts · 24 instruction files · MCP server · React Doctor · Marketplace (52 sources) · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge` / `gf`) · Carbon Monitor v2 · Career Tools · Security Scanner · Git Autopilot · Lighthouse CI · i18n/RTL · Storybook · Figma Tokens**
+**230+ files · 14 agents · 70+ commands · 63 scripts · 24 instruction files · MCP server · React Doctor · Marketplace (58 sources) · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge` / `gf`) · Carbon Monitor v2 · Career Tools · Security Scanner · Git Autopilot · Lighthouse CI · i18n/RTL · Storybook · Figma Tokens**
 
 ---
 
@@ -919,6 +919,23 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 ## 📅 What's New
 
 
+### v4.3.0 — Carbon Intelligence + 6 New Tools
+
+| Addition | Script / Command | What it adds |
+|---|---|---|
+| Carbon sparkline | `ghostforge carbon sparkline` | 20-session Unicode trend chart, now embedded into `ghostforge carbon status` |
+| Carbon notifications | `ghostforge carbon notify` / `notify-test` | macOS desktop alerts when session emissions breach your threshold |
+| Carbon badge | `ghostforge carbon badge` | Shields.io markdown badge generator for README carbon scoring |
+| Carbon recommendations | `ghostforge carbon recommend` | Per-command optimization advice for the top 3 emitters |
+| Carbon CI workflow | `ghostforge carbon ci` | GitHub Actions workflow with tracked build emissions and PR comment output |
+| Carbon weekly digest | `ghostforge carbon weekly` | Weekly summary box with trend vs last week and saved digest files |
+| Codebase Health Score | `scripts/health-score.sh` | A-F grade using tech debt, coverage, bundle, Lighthouse, and a11y data |
+| Docker Generator | `scripts/docker-gen.sh` | Dockerfile + Compose templates for Next.js, Node.js, and React Vite |
+| API Docs Generator | `scripts/api-docs.sh` | Route scanning plus Markdown and OpenAPI generation |
+| Daily Standup | `scripts/standup.sh` | Git history → standup update with Claude fallback support |
+| Smart Git Hooks | `scripts/git-hooks-setup.sh` | Lightweight native hooks for carbon checks, TS, ESLint, and commits |
+| DB Schema Visualizer | `scripts/schema-viz.sh` | Prisma/Drizzle schema detection with terminal and HTML ER diagrams |
+
 ### v4.2.0 — AI Tools + Optimization
 
 | Feature | Script | What it adds |
@@ -1117,4 +1134,4 @@ Based on **Hisham Abulfeilat's** CRP graduation research: *"Reducing the Carbon 
 ---
 
 *Developed by **Hisham Abulfeilat** · Operator-grade dev tools, forged in the shadows.*
-*Powered by GitHub Copilot Business · v4.2.0*
+*Powered by GitHub Copilot Business · v4.3.0*

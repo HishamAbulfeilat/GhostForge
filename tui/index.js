@@ -1492,6 +1492,12 @@ async function screenMarketplace() {
       { name: T.red.bold('🛡️   HackingTool')               + T.muted(' — 185+ pentesting tools · recon, web, AD, cloud, mobile'), value: 'hackingtool' },
       { name: T.red.bold('🔍  Security Scanner')            + T.muted(' — scan project for vulns, secrets, XSS, OWASP Top-10'), value: 'pentest' },
       { name: T.red.bold('🏚️  Tech Debt Scanner')          + T.muted(' — TODOs, complexity, deprecated APIs, debt score'), value: 'tech-debt' },
+      { name: T.success.bold('🏥  Codebase Health Score')   + T.muted(' — A-F grade across debt, coverage, bundle, lighthouse, a11y'), value: 'health-score' },
+      { name: T.accent.bold('🐳  Docker Generator')         + T.muted(' — Dockerfile + compose templates for app deployment'), value: 'docker-gen' },
+      { name: T.white.bold('📖  API Docs Generator')       + T.muted(' — scan routes into Markdown and OpenAPI docs'), value: 'api-docs' },
+      { name: T.cyan.bold('🗣️  Daily Standup')             + T.muted(' — git activity into concise daily updates'), value: 'standup' },
+      { name: T.warning.bold('🪝  Smart Git Hooks')         + T.muted(' — native git hooks for carbon, TS, lint, commits'), value: 'git-hooks-setup' },
+      { name: T.brand.bold('🗄️  DB Schema Visualizer')      + T.muted(' — Prisma/Drizzle schema to ASCII or HTML ERD'), value: 'schema-viz' },
       { name: T.cyan.bold('🎯  Career Helper')             + T.muted(' — CV, LinkedIn, interview prep, job scout (14 skills)'), value: 'career-helper' },
       { name: T.success.bold('🗂️   Career-Ops')             + T.muted(' — multi-agent job search · 740+ listings · WIRED / BI'), value: 'career-ops' },
       { name: T.brand.bold('🎨  Awesome Claude Design')   + T.muted(' — DESIGN.md collection · rohitg00'), value: 'awesome-claude-design-rohitg00' },
@@ -2583,6 +2589,7 @@ async function screenMarketplace() {
       console.log();
 
       if (carbonCat === 'monitor') {
+        console.log(T.muted('  Note: threshold breaches can trigger macOS desktop alerts via notify / notify-test.\n'));
         const monitorAction = await select({
           message: T.cyan.bold('📊 Monitor & Track:'),
           choices: [
@@ -2625,7 +2632,10 @@ async function screenMarketplace() {
           message: T.success.bold('🌿 Analysis:'),
           choices: [
             { name: T.accent.bold('📊  Threshold'), value: 'threshold' },
+            { name: T.white.bold('📈  Sparkline trend'), value: 'sparkline' },
             { name: T.success.bold('🏆  Leaderboard'), value: 'leaderboard' },
+            { name: T.cyan.bold('💡  Recommendations'), value: 'recommend' },
+            { name: T.brand.bold('📊  Weekly digest'), value: 'weekly' },
             { name: T.white.bold('🔄  Equivalencies'), value: 'equiv' },
             { name: T.white.bold('📋  Session history'), value: 'history' },
             { name: T.cyan.bold('☁️   Compare cloud providers'), value: 'compare-cloud' },
@@ -2674,6 +2684,8 @@ async function screenMarketplace() {
           choices: [
             { name: T.white.bold('📄  Generate report'), value: 'report' },
             { name: T.success.bold('📤  Export'), value: 'export' },
+            { name: T.success.bold('🏷️   Badge markdown'), value: 'badge' },
+            { name: T.accent.bold('🧪  CI workflow'), value: 'ci' },
             { name: T.accent.bold('💸  Carbon budget'), value: 'budget' },
             { name: T.muted('← Back'), value: '__back__' },
           ],
@@ -2720,6 +2732,7 @@ async function screenMarketplace() {
           message: T.accent.bold('⚙️ Settings:'),
           choices: [
             { name: T.warning.bold('🧠  CPU throttle trigger'), value: 'throttle' },
+            { name: T.success.bold('🔔  Test desktop notification'), value: 'notify-test' },
             { name: T.cyan.bold('ℹ️   About this feature'), value: 'about' },
             { name: T.muted('← Back'), value: '__back__' },
           ],
@@ -2738,6 +2751,8 @@ async function screenMarketplace() {
           
             pageSize: 15,});
           if (throttleAction !== '__back__') runCarbon(['throttle', throttleAction]);
+        } else if (settingsAction === 'notify-test') {
+          runCarbon(['notify-test']);
         } else if (settingsAction === 'about') {
           console.log(boxen(
             T.success.bold(' 🌿 Carbon Monitor — About ') + '\n\n' +
@@ -3373,6 +3388,171 @@ async function screenFreeModels() {
       console.log();
     }
     await pressEnter();
+  }
+
+  if (action === 'health-score') {
+    const subAction = await select({
+      message: T.white.bold('🏥  Codebase Health Score:'),
+      choices: [
+        { name: T.accent.bold('📊  Score directory'), value: 'score' },
+        { name: T.white.bold('🧮  Latest breakdown'), value: 'breakdown' },
+        { name: T.success.bold('🕘  History'), value: 'history' },
+        { name: T.brand.bold('🏷️   Badge'), value: 'badge' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/health-score.sh'), subAction];
+      if (subAction === 'score') {
+        const dir = await input({ message: T.white('Directory to score:'), default: '.' });
+        if (dir) args.push(dir);
+      }
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'docker-gen') {
+    const subAction = await select({
+      message: T.white.bold('🐳  Docker Generator:'),
+      choices: [
+        { name: T.accent.bold('📦  Generate Dockerfile'), value: 'generate' },
+        { name: T.white.bold('🧱  Generate docker-compose.yml'), value: 'compose' },
+        { name: T.cyan.bold('⚙️   Generate docker-compose.dev.yml'), value: 'dev' },
+        { name: T.warning.bold('🧹  Clean generated files'), value: 'clean' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/docker-gen.sh'), subAction];
+      if (subAction === 'generate') {
+        const type = await select({
+          message: T.white('Project type:'),
+          choices: [
+            { name: 'Auto-detect from package.json', value: '__auto__' },
+            { name: 'Next.js', value: 'nextjs' },
+            { name: 'Node.js', value: 'node' },
+            { name: 'React Vite', value: 'react-vite' },
+          ],
+          pageSize: 15,
+        });
+        if (type !== '__auto__') args.push(type);
+      }
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'api-docs') {
+    const subAction = await select({
+      message: T.white.bold('📖  API Docs Generator:'),
+      choices: [
+        { name: T.accent.bold('🔍  Scan routes'), value: 'scan' },
+        { name: T.success.bold('📝  Generate Markdown docs'), value: 'markdown' },
+        { name: T.brand.bold('🧩  Generate OpenAPI'), value: 'openapi' },
+        { name: T.cyan.bold('🌐  Serve docs'), value: 'serve' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/api-docs.sh'), subAction];
+      if (subAction === 'scan' || subAction === 'markdown' || subAction === 'openapi') {
+        const dir = await input({ message: T.white('Directory to scan:'), default: '.' });
+        if (dir) args.push(dir);
+      }
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'standup') {
+    const subAction = await select({
+      message: T.white.bold('🗣️  Daily Standup:'),
+      choices: [
+        { name: T.accent.bold('☀️   Today'), value: 'today' },
+        { name: T.white.bold('🌙  Yesterday'), value: 'yesterday' },
+        { name: T.cyan.bold('🗓️   This week'), value: 'week' },
+        { name: T.success.bold('💾  Save today'), value: 'save' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const scriptPath = resolve(ROOT, 'scripts/standup.sh');
+      if (subAction === 'today' || subAction === 'yesterday' || subAction === 'week') {
+        const copy = process.platform === 'darwin'
+          ? await confirm({ message: T.white('Copy output to clipboard?'), default: false })
+          : false;
+        if (copy) {
+          const result = spawnSync('bash', [scriptPath, subAction], { stdio: 'pipe', cwd: process.cwd(), encoding: 'utf8' });
+          process.stdout.write(result.stdout || '');
+          process.stderr.write(result.stderr || '');
+          if (result.status === 0) {
+            try { execSync('pbcopy', { input: result.stdout || '' }); } catch {}
+          }
+        } else {
+          spawnSync('bash', [scriptPath, subAction], { stdio: 'inherit', cwd: process.cwd() });
+        }
+      } else {
+        spawnSync('bash', [scriptPath, subAction], { stdio: 'inherit', cwd: process.cwd() });
+      }
+      await pressEnter();
+    }
+  }
+
+  if (action === 'git-hooks-setup') {
+    const subAction = await select({
+      message: T.white.bold('🪝  Smart Git Hooks:'),
+      choices: [
+        { name: T.accent.bold('⬇️  Install'), value: 'install' },
+        { name: T.warning.bold('🗑️   Uninstall'), value: 'uninstall' },
+        { name: T.white.bold('📋  Status'), value: 'status' },
+        { name: T.cyan.bold('✏️   Customize'), value: 'customize' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/git-hooks-setup.sh'), subAction];
+      if (subAction === 'customize') {
+        const hook = await select({
+          message: T.white('Hook to edit:'),
+          choices: [
+            { name: 'pre-commit', value: 'pre-commit' },
+            { name: 'commit-msg', value: 'commit-msg' },
+          ],
+          pageSize: 15,
+        });
+        args.push(hook);
+      }
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'schema-viz') {
+    const subAction = await select({
+      message: T.white.bold('🗄️  DB Schema Visualizer:'),
+      choices: [
+        { name: T.accent.bold('🧭  Visualize in terminal'), value: 'viz' },
+        { name: T.success.bold('🌐  Generate HTML diagram'), value: 'html' },
+        { name: T.white.bold('📂  List schema files'), value: 'list' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (subAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/schema-viz.sh'), subAction];
+      if (subAction === 'viz' || subAction === 'html') {
+        const schema = await input({ message: T.white('Schema file (leave blank to auto-detect):'), default: '' });
+        if (schema.trim()) args.push(schema.trim());
+      }
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
   }
 }
 

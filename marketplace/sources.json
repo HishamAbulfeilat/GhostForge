@@ -812,6 +812,90 @@
         "codegen"
       ],
       "trusted": true
+    },
+    {
+      "id": "health-score-tool",
+      "name": "Codebase Health Score",
+      "type": "local",
+      "description": "A-F grade across tech debt, coverage, bundle size, Lighthouse, and accessibility.",
+      "file": "scripts/health-score.sh",
+      "command": "bash scripts/health-score.sh score",
+      "categories": [
+        "quality",
+        "health",
+        "reporting"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "docker-generator-tool",
+      "name": "Docker Generator",
+      "type": "local",
+      "description": "Generate Dockerfile and Docker Compose templates for Next.js, Node.js, and React Vite apps.",
+      "file": "scripts/docker-gen.sh",
+      "command": "bash scripts/docker-gen.sh generate",
+      "categories": [
+        "docker",
+        "devops",
+        "deployment"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "api-docs-generator-tool",
+      "name": "API Docs Generator",
+      "type": "local",
+      "description": "Scan API routes and generate Markdown or OpenAPI docs.",
+      "file": "scripts/api-docs.sh",
+      "command": "bash scripts/api-docs.sh scan",
+      "categories": [
+        "api",
+        "docs",
+        "openapi"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "daily-standup-tool",
+      "name": "Daily Standup",
+      "type": "local",
+      "description": "Turn git activity into concise daily standup notes with Claude summarization when available.",
+      "file": "scripts/standup.sh",
+      "command": "bash scripts/standup.sh today",
+      "categories": [
+        "git",
+        "productivity",
+        "communication"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "smart-git-hooks-tool",
+      "name": "Smart Git Hooks",
+      "type": "local",
+      "description": "Install lightweight repo hooks for carbon tracking, linting, type-checking, and commit validation.",
+      "file": "scripts/git-hooks-setup.sh",
+      "command": "bash scripts/git-hooks-setup.sh install",
+      "categories": [
+        "git",
+        "hooks",
+        "quality"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "schema-visualizer-tool",
+      "name": "DB Schema Visualizer",
+      "type": "local",
+      "description": "Detect Prisma or Drizzle schemas and render ASCII or HTML ER diagrams.",
+      "file": "scripts/schema-viz.sh",
+      "command": "bash scripts/schema-viz.sh viz",
+      "categories": [
+        "database",
+        "schema",
+        "docs"
+      ],
+      "trusted": true
     }
   ]
 }

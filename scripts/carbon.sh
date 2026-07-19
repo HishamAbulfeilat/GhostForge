@@ -22,6 +22,8 @@ THROTTLE_PID_FILE="$DATA_DIR/throttle.pid"
 THROTTLE_LOG="$DATA_DIR/throttle.log"
 THROTTLE_WATCHER_SCRIPT="$DATA_DIR/throttle-watcher.sh"
 BUDGET_FILE="$DATA_DIR/budget.json"
+BADGE_FILE="$DATA_DIR/badge.md"
+DIGESTS_DIR="$DATA_DIR/digests"
 
 ACTION="${1:-help}"
 
@@ -174,6 +176,348 @@ threshold_label() {
   else
     echo -e "${GREEN}✅ Under threshold${NC}"
   fi
+}
+
+notify_threshold_cmd() {
+  local emissions="${1:-}"
+  local threshold="${2:-}"
+  [[ "${OSTYPE:-}" == darwin* ]] || return 0
+  [[ -n "$emissions" && -n "$threshold" ]] || return 0
+
+  if awk -v e="$emissions" -v t="$threshold" 'BEGIN { exit !(e > t) }'; then
+    local message escaped
+    message="$(printf 'Emissions exceeded threshold! Current: %.6f kg CO₂ (threshold: %.6f kg)' "$emissions" "$threshold")"
+    escaped="$(python3 - <<'PY' "$message"
+import json, sys
+print(json.dumps(sys.argv[1]))
+PY
+)"
+    osascript -e "display notification ${escaped} with title \"🌿 GhostForge Carbon Alert\" sound name \"Basso\"" >/dev/null 2>&1 || true
+  fi
+}
+
+notify_cmd() {
+  ensure_data_dir
+  local threshold emissions
+  threshold="$(read_threshold_value || true)"
+  emissions="$(get_live_session_emissions)"
+  [[ -n "$emissions" ]] || emissions="$(get_last_session_emissions)"
+
+  if [[ "${OSTYPE:-}" != darwin* ]]; then
+    echo -e "${YELLOW}⚠ Desktop notifications are only supported on macOS.${NC}"
+    return 0
+  fi
+  if [[ -z "$threshold" ]]; then
+    echo -e "${YELLOW}⚠ No threshold set. Run: ghostforge carbon threshold${NC}"
+    return 0
+  fi
+  if [[ -z "$emissions" ]]; then
+    echo -e "${YELLOW}⚠ No emissions value available yet.${NC}"
+    return 0
+  fi
+  if awk -v e="$emissions" -v t="$threshold" 'BEGIN { exit !(e > t) }'; then
+    notify_threshold_cmd "$emissions" "$threshold"
+    echo -e "${GREEN}✅ Carbon alert notification sent.${NC}"
+  else
+    echo -e "${GREEN}✅ Current emissions are under the threshold — no alert sent.${NC}"
+  fi
+}
+
+notify_test_cmd() {
+  if [[ "${OSTYPE:-}" != darwin* ]]; then
+    echo -e "${YELLOW}⚠ Desktop notifications are only supported on macOS.${NC}"
+    return 0
+  fi
+  osascript -e 'display notification "This is a GhostForge Carbon Monitor test notification." with title "🌿 GhostForge Carbon Alert" sound name "Basso"' >/dev/null 2>&1 || true
+  echo -e "${GREEN}✅ Test notification sent.${NC}"
+}
+
+sparkline_cmd() {
+  ensure_data_dir
+  if [[ ! -f "$EMISSIONS_FILE" ]]; then
+    echo -e "${YELLOW}⚠ No emissions history found.${NC}"
+    return 0
+  fi
+
+  python3 - <<'PY' "$EMISSIONS_FILE"
+import csv
+import sys
+from pathlib import Path
+
+blocks = '▁▂▃▄▅▆▇█'
+path = Path(sys.argv[1]).expanduser()
+
+with path.open('r', encoding='utf-8', newline='') as handle:
+    rows = [row for row in csv.DictReader(handle) if row.get('emissions')]
+
+values = []
+for row in rows[-20:]:
+    try:
+        values.append(float(str(row.get('emissions', '0')).strip() or 0))
+    except Exception:
+        pass
+
+if not values:
+    print('No emissions records available yet.')
+    raise SystemExit(0)
+
+lo = min(values)
+hi = max(values)
+span = hi - lo
+line = ''
+for value in values:
+    idx = 0 if span == 0 else min(7, int(((value - lo) / span) * 7))
+    line += blocks[idx]
+
+print('📈 Emissions trend (last 20 sessions):')
+print(f'{line}   min: {lo:.6f} kg  max: {hi:.6f} kg  now: {values[-1]:.6f} kg')
+PY
+}
+
+badge_cmd() {
+  ensure_data_dir
+  if [[ ! -f "$EMISSIONS_FILE" ]]; then
+    echo -e "${YELLOW}⚠ No emissions history found.${NC}"
+    return 0
+  fi
+
+  python3 - <<'PY' "$EMISSIONS_FILE" "$BADGE_FILE"
+import csv
+import sys
+from pathlib import Path
+
+emissions_path = Path(sys.argv[1]).expanduser()
+badge_path = Path(sys.argv[2]).expanduser()
+
+with emissions_path.open('r', encoding='utf-8', newline='') as handle:
+    rows = list(csv.DictReader(handle))
+
+total = 0.0
+for row in rows:
+    try:
+        total += float(str(row.get('emissions', '0')).strip() or 0)
+    except Exception:
+        pass
+
+if total < 0.01:
+    color = 'brightgreen'
+elif total < 0.05:
+    color = 'green'
+elif total < 0.1:
+    color = 'yellow'
+elif total < 0.5:
+    color = 'orange'
+else:
+    color = 'red'
+
+value = f'{total:.3f}'
+url = f'https://img.shields.io/badge/carbon-{value}%20kg%20CO%E2%82%82-{color}?logo=leaflet'
+content = f"""## Carbon Badge
+![Carbon Footprint]({url})
+Copy this into your README.md to show your project's carbon score.
+"""
+badge_path.write_text(content, encoding='utf-8')
+print(content, end='')
+PY
+}
+
+recommend_cmd() {
+  ensure_data_dir
+  if [[ ! -f "$EMISSIONS_FILE" ]]; then
+    echo -e "${YELLOW}⚠ No emissions history found.${NC}"
+    return 0
+  fi
+
+  python3 - <<'PY' "$EMISSIONS_FILE"
+import csv
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+path = Path(sys.argv[1]).expanduser()
+with path.open('r', encoding='utf-8', newline='') as handle:
+    rows = list(csv.DictReader(handle))
+
+agg = defaultdict(float)
+for row in rows:
+    label = row.get('project_name') or row.get('session_label') or 'session'
+    try:
+        agg[label] += float(str(row.get('emissions', '0')).strip() or 0)
+    except Exception:
+        pass
+
+ranked = sorted(agg.items(), key=lambda item: item[1], reverse=True)[:3]
+if not ranked:
+    print('No emissions records available yet.')
+    raise SystemExit(0)
+
+print('🌿 Carbon Recommendations')
+print('')
+for idx, (label, total) in enumerate(ranked, start=1):
+    key = label.lower()
+    if 'build' in key or 'next' in key:
+        advice = 'Consider enabling Next.js incremental builds (`next build --no-lint`) or using Turbopack'
+    elif 'test' in key or 'playwright' in key:
+        advice = 'Run tests in parallel (`--workers=4`) or use `--shard` to split test suites'
+    elif 'install' in key or 'npm' in key:
+        advice = 'Use `npm ci` instead of `npm install`, or switch to pnpm for faster, lighter installs'
+    elif 'lint' in key or 'eslint' in key:
+        advice = 'Use `eslint --cache` to skip unchanged files'
+    else:
+        advice = 'Review this command for unnecessary work — consider caching or parallelization'
+    print(f'{idx}. {label} — {total:.6f} kg CO₂')
+    print(f'   → {advice}')
+
+print('')
+print("Jordan grid: 0.723 kg CO₂/kWh (from Hisham Abulfeilat's CRP research)")
+PY
+}
+
+ci_cmd() {
+  mkdir -p .github/workflows
+  cat > .github/workflows/carbon-monitor.yml <<'EOF_CI'
+name: Carbon Monitor
+on: [push, pull_request]
+jobs:
+  carbon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Install carbon tools
+        run: pip install codecarbon pandas
+      - name: Track build emissions
+        run: |
+          python3 -c "
+from codecarbon import EmissionsTracker
+import subprocess, json
+tracker = EmissionsTracker(project_name='ci-build', save_to_file=True)
+tracker.start()
+subprocess.run(['npm', 'ci'], check=True)
+subprocess.run(['npm', 'run', 'build'], check=True)
+emissions = tracker.stop()
+print(f'::notice title=Carbon::Build emitted {emissions:.6f} kg CO2')
+with open('carbon-report.json', 'w') as f:
+    json.dump({'emissions_kg': emissions}, f)
+          "
+      - name: Upload carbon report
+        uses: actions/upload-artifact@v4
+        with:
+          name: carbon-report
+          path: carbon-report.json
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('carbon-report.json', 'utf8'));
+            const kg = report.emissions_kg.toFixed(6);
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🌿 Carbon Report\n\nThis build emitted **${kg} kg CO₂**\n\n*Tracked by GhostForge Carbon Monitor — research by Hisham Abulfeilat*`
+            });
+EOF_CI
+  echo -e "${GREEN}✅ GitHub Actions workflow generated.${NC}"
+  echo -e "${DIM}$(pwd)/.github/workflows/carbon-monitor.yml${NC}"
+}
+
+weekly_cmd() {
+  ensure_data_dir
+  mkdir -p "$DIGESTS_DIR"
+  if [[ ! -f "$EMISSIONS_FILE" ]]; then
+    echo -e "${YELLOW}⚠ No emissions history found.${NC}"
+    return 0
+  fi
+
+  python3 - <<'PY' "$EMISSIONS_FILE" "$DIGESTS_DIR"
+import csv
+import sys
+from collections import defaultdict
+from datetime import datetime, timedelta
+from pathlib import Path
+
+def parse_dt(value):
+    if not value:
+        return None
+    text = str(value).strip().replace('Z', '+00:00')
+    for candidate in (text, text.replace(' ', 'T')):
+        try:
+            return datetime.fromisoformat(candidate)
+        except Exception:
+            pass
+    return None
+
+path = Path(sys.argv[1]).expanduser()
+digest_dir = Path(sys.argv[2]).expanduser()
+with path.open('r', encoding='utf-8', newline='') as handle:
+    rows = list(csv.DictReader(handle))
+
+now = datetime.now()
+week_start = now - timedelta(days=7)
+last_week_start = now - timedelta(days=14)
+this_week = []
+last_week = []
+
+for row in rows:
+    dt = parse_dt(row.get('timestamp') or row.get('session_started_at'))
+    if not dt:
+        continue
+    dt = dt.replace(tzinfo=None) if dt.tzinfo else dt
+    if dt >= week_start:
+        this_week.append(row)
+    elif dt >= last_week_start:
+        last_week.append(row)
+
+def total(items):
+    out = 0.0
+    for item in items:
+        try:
+            out += float(str(item.get('emissions', '0')).strip() or 0)
+        except Exception:
+            pass
+    return out
+
+this_total = total(this_week)
+last_total = total(last_week)
+change = ((this_total - last_total) / last_total * 100) if last_total else 0.0
+arrow = '↑' if change > 0 else '↓' if change < 0 else '→'
+leaderboard = defaultdict(float)
+for row in this_week:
+    label = row.get('project_name') or row.get('session_label') or 'session'
+    try:
+        leaderboard[label] += float(str(row.get('emissions', '0')).strip() or 0)
+    except Exception:
+        pass
+
+ranked = sorted(leaderboard.items(), key=lambda item: item[1], reverse=True)[:3]
+medals = ['🥇', '🥈', '🥉']
+week_of = (now - timedelta(days=now.weekday())).strftime('%a %b %d')
+lines = [
+    f'📊 Weekly Carbon Digest — Week of {week_of}',
+    '─────────────────────────────────────────────',
+    f'This week:   {this_total:.5f} kg CO₂  ({arrow} {abs(change):.0f}% vs last week)',
+    f'Last week:   {last_total:.5f} kg CO₂',
+    f'Sessions:    {len(this_week)} tracked',
+    'Top emitters:'
+]
+if ranked:
+    for idx, (label, value) in enumerate(ranked):
+        lines.append(f'  {medals[idx]} {label:<16} {value:.5f} kg')
+else:
+    lines.append('  No tracked sessions this week')
+lines += [
+    '─────────────────────────────────────────────',
+    'Tip: Enable throttle to reduce emissions automatically'
+]
+content = '\n'.join(lines) + '\n'
+out = digest_dir / f"digest-{datetime.now().strftime('%Y-W%V')}.txt"
+out.write_text(content, encoding='utf-8')
+print(content, end='')
+PY
 }
 
 install_cmd() {
@@ -449,7 +793,9 @@ PY
         echo -e "${DIM}Current session emissions: awaiting tracker flush${NC}"
       fi
       echo -e "${BLUE}Threshold status:${NC} $(threshold_label "$live_emissions" "$threshold")"
+      notify_threshold_cmd "$live_emissions" "$threshold"
       budget_inline_warning_cmd
+      sparkline_cmd
       return 0
     fi
   fi
@@ -460,12 +806,14 @@ PY
   if [[ -n "$last_emissions" ]]; then
     echo -e "${BLUE}Last session emissions:${NC} $(printf '%.8f' "$last_emissions") kg CO₂"
     echo -e "${BLUE}Threshold status:${NC} $(threshold_label "$last_emissions" "$threshold")"
+    notify_threshold_cmd "$last_emissions" "$threshold"
   elif [[ -n "$threshold" ]]; then
     echo -e "${BLUE}Threshold:${NC} $(printf '%.8f' "$threshold") kg CO₂"
   else
     echo -e "${DIM}No tracked sessions yet.${NC}"
   fi
   budget_inline_warning_cmd
+  sparkline_cmd
 }
 
 threshold_cmd() {
@@ -500,6 +848,12 @@ print(f"Total: {total:.8f} kg CO2")
 print(f"Average/session: {avg:.8f} kg CO2")
 print(f"Threshold (avg×1.1): {threshold:.8f} kg CO2")
 PY
+
+  local latest_emissions current_threshold
+  latest_emissions="$(get_live_session_emissions)"
+  [[ -n "$latest_emissions" ]] || latest_emissions="$(get_last_session_emissions)"
+  current_threshold="$(read_threshold_value || true)"
+  notify_threshold_cmd "$latest_emissions" "$current_threshold"
 }
 
 report_cmd() {
@@ -1744,9 +2098,16 @@ Commands:
   git-track <subcommand>  Track by git branch@commit (start|stop|log)
   throttle <subcommand>   Auto-throttle CPU on threshold breach (on|off|status)
   live                    Open the real-time terminal dashboard
+  sparkline               Show the last 20-session emissions trend
+  notify                  Send a desktop alert if threshold is breached (macOS)
+  notify-test             Send a test desktop alert (macOS)
   equiv [kg]              Show human-readable CO₂ equivalencies
   leaderboard [reset]     Rank commands/projects by total emissions
+  badge                   Generate a Shields.io carbon badge markdown snippet
+  recommend               Suggest optimizations for the top emitters
   budget <subcommand>     Manage daily/weekly carbon budgets
+  ci                      Generate GitHub Actions carbon-monitor workflow
+  weekly                  Generate a weekly carbon digest and save it locally
   compare-cloud [name]    Compare local workload vs cloud provider CO₂
   history                 Show the last 10 tracked sessions
   clean                   Remove all carbon tracking data
@@ -1761,8 +2122,14 @@ Examples:
   ghostforge carbon throttle on                # enable auto-throttle watcher
   ghostforge carbon equiv 0.001                # translate raw CO₂ into impact
   ghostforge carbon leaderboard                # top emitters
+  ghostforge carbon sparkline                  # trend view
+  ghostforge carbon notify-test                # macOS test notification
+  ghostforge carbon badge                      # README badge markdown
+  ghostforge carbon recommend                  # optimization advice
   ghostforge carbon export html                # rich report + open in browser
   ghostforge carbon budget set 0.05 0.35       # set daily/weekly budget
+  ghostforge carbon ci                         # GitHub Actions workflow
+  ghostforge carbon weekly                     # weekly digest
   ghostforge carbon compare-cloud vercel       # local vs cloud estimate
 EOF_HELP
 }
@@ -1815,6 +2182,18 @@ case "$ACTION" in
     print_header
     live_cmd
     ;;
+  sparkline)
+    print_header
+    sparkline_cmd
+    ;;
+  notify)
+    print_header
+    notify_cmd
+    ;;
+  notify-test)
+    print_header
+    notify_test_cmd
+    ;;
   equiv)
     print_header
     shift || true
@@ -1825,10 +2204,26 @@ case "$ACTION" in
     shift || true
     leaderboard_cmd "${1:-show}"
     ;;
+  badge)
+    print_header
+    badge_cmd
+    ;;
+  recommend)
+    print_header
+    recommend_cmd
+    ;;
   budget)
     print_header
     shift || true
     budget_cmd "${1:-status}" "${2:-}" "${3:-}"
+    ;;
+  ci)
+    print_header
+    ci_cmd
+    ;;
+  weekly)
+    print_header
+    weekly_cmd
     ;;
   compare-cloud)
     print_header
