@@ -34,6 +34,7 @@ if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
   console.log(VERSION);
   process.exit(0);
 }
+
 if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
   console.log(`GhostForge v${VERSION}
 Operator-grade dev tools, forged in the shadows.
@@ -238,6 +239,9 @@ const COMMANDS = [
   { name: '/marketplace',   cat: '🏪 Marketplace', file: 'commands/marketplace.md',   desc: 'Browse and install agents, commands, skills, plugins from trusted sources' },
   { name: '/generate',      cat: '🏪 Marketplace', file: 'commands/generate.md',      desc: 'Generate a new custom agent, command, skill, or plugin with a wizard' },
   { name: '/free-models',   cat: '🏪 Marketplace', file: 'commands/free-models.md',   desc: 'Configure and use free AI models: NVIDIA, Groq, Ollama, HuggingFace' },
+  { name: '/bridge',        cat: '🏪 Marketplace', file: 'commands/bridge.md',        desc: 'Run the Mac Bridge for secure remote command execution from GhostForge Web UI' },
+  { name: '/gemini',        cat: '🏪 Marketplace', file: 'commands/gemini.md',        desc: 'Set up and test Google Gemini free-tier access for GhostForge and Vercel Web UI' },
+  { name: '/tunnel',        cat: '🏪 Marketplace', file: 'commands/tunnel.md',        desc: 'Start or stop a Cloudflare tunnel for local GhostForge services' },
 ];
 
 const AGENTS = [
@@ -408,6 +412,111 @@ async function handleMarketplaceToolAction(action) {
       spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
       await pressEnter();
     }
+  }
+
+  if (action === 'bridge') {
+    const bridgeAction = await select({
+      message: T.white.bold('🔌  GhostForge Mac Bridge:'),
+      choices: [
+        { name: T.accent.bold('▶  Start bridge'), value: 'start' },
+        { name: T.danger.bold('■  Stop bridge'), value: 'stop' },
+        { name: T.white.bold('📡  Status'), value: 'status' },
+        { name: T.success.bold('🔑  Show token'), value: 'token' },
+        { name: T.white.bold('📖  View command docs'), value: 'docs' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    
+      pageSize: 15,});
+    if (bridgeAction === '__back__') return;
+    if (bridgeAction === 'docs') {
+      console.log();
+      showMdPreview('commands/bridge.md', 60);
+      console.log();
+      await pressEnter();
+      return;
+    }
+    const { spawnSync } = await import('child_process');
+    spawnSync('bash', [resolve(ROOT, 'scripts/bridge.sh'), bridgeAction], { stdio: 'inherit', cwd: process.cwd() });
+    await pressEnter();
+  }
+
+  if (action === 'web-ui-info') {
+    console.log();
+    console.log(boxen(
+      T.success.bold(' GhostForge Web UI — Vercel Deploy ') + '\n\n' +
+      T.white('Mobile-first Next.js 14 chat UI with AI + Mac Bridge control.\n\n') +
+      T.success.bold('  Deploy:\n') +
+      T.cyan('  cd ~/ghostforge-agents/web-ui\n') +
+      T.cyan('  npm install\n') +
+      T.cyan('  npx vercel login\n') +
+      T.cyan('  npx vercel --prod\n\n') +
+      T.success.bold('  Required env vars:\n') +
+      T.muted('  • ACCESS_PIN\n') +
+      T.muted('  • AUTH_SECRET\n') +
+      T.muted('  • OPENROUTER_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY\n') +
+      T.muted('  • WS_BRIDGE_URL + WS_BRIDGE_TOKEN (optional for remote execution)\n\n') +
+      T.dim('  Full guide: web-ui/DEPLOY.md'),
+      { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
+    ));
+    console.log();
+    showMdPreview('web-ui/DEPLOY.md', 60);
+    console.log();
+    await pressEnter();
+  }
+
+  if (action === 'gemini') {
+    const geminiAction = await select({
+      message: T.white.bold('✨  Google Gemini Integration:'),
+      choices: [
+        { name: T.accent.bold('🧭  Setup guide'), value: 'setup' },
+        { name: T.success.bold('🧪  Test API key'), value: 'test' },
+        { name: T.white.bold('📚  View free models'), value: 'models' },
+        { name: T.white.bold('📖  View command docs'), value: 'docs' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    
+      pageSize: 15,});
+    if (geminiAction === '__back__') return;
+    if (geminiAction === 'docs') {
+      console.log();
+      showMdPreview('commands/gemini.md', 60);
+      console.log();
+      await pressEnter();
+      return;
+    }
+    const { spawnSync } = await import('child_process');
+    spawnSync('bash', [resolve(ROOT, 'scripts/gemini.sh'), geminiAction], { stdio: 'inherit', cwd: process.cwd() });
+    await pressEnter();
+  }
+
+  if (action === 'tunnel') {
+    const tunnelAction = await select({
+      message: T.white.bold('🌐  Cloudflare Tunnel:'),
+      choices: [
+        { name: T.accent.bold('▶  Start tunnel'), value: 'start' },
+        { name: T.danger.bold('■  Stop tunnel'), value: 'stop' },
+        { name: T.white.bold('📡  Status'), value: 'status' },
+        { name: T.white.bold('📖  View command docs'), value: 'docs' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    
+      pageSize: 15,});
+    if (tunnelAction === '__back__') return;
+    if (tunnelAction === 'docs') {
+      console.log();
+      showMdPreview('commands/tunnel.md', 60);
+      console.log();
+      await pressEnter();
+      return;
+    }
+    const args = [resolve(ROOT, 'scripts/tunnel.sh'), tunnelAction];
+    if (tunnelAction === 'start') {
+      const port = await input({ message: T.white('Local port to expose:'), default: '4747' });
+      if (port) args.push(port);
+    }
+    const { spawnSync } = await import('child_process');
+    spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+    await pressEnter();
   }
 
   if (action === 'bundle-tracker') {
@@ -1510,6 +1619,10 @@ async function screenMarketplace() {
       { name: T.cyan.bold('🎙️   Meetily')                   + T.muted(' — local AI meeting transcription · Arabic · no cloud'), value: 'meetily' },
       { name: T.success.bold('🌿  Carbon Monitor')           + T.muted(' — track dev session CO₂ emissions · your CRP research'), value: 'carbon-monitor' },
       { name: T.accent.bold('👻  Git Autopilot')             + T.muted(' — AI commit, branch, PR, and status helper'), value: 'git-autopilot' },
+      { name: T.cyan.bold('🔌  Mac Bridge')                  + T.muted(' — remote command execution from web UI'), value: 'bridge' },
+      { name: T.success.bold('🌐  Web UI')                  + T.muted(' — deploy GhostForge to Vercel for mobile access'), value: 'web-ui-info' },
+      { name: T.warning.bold('✨  Gemini AI')               + T.muted(' — Google AI free tier setup + test'), value: 'gemini' },
+      { name: T.muted('🌐  Tunnel')                         + T.muted(' — Cloudflare tunnel for local services'), value: 'tunnel' },
       { name: T.white.bold('🔍  AI Code Review')            + T.muted(' — staged, branch, file, and full Claude review'), value: 'ai-review' },
       { name: T.cyan.bold('💡  AI Error Explainer')         + T.muted(' — explain errors, logs, and failing stack traces'), value: 'explain' },
       { name: T.white.bold('📦  Bundle Size Tracker')        + T.muted(' — JS size history, compare builds, set alerts'), value: 'bundle-tracker' },

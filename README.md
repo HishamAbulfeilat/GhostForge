@@ -1,11 +1,11 @@
-# 🔫 GhostForge — v4.3.0
+# 🔫 GhostForge — v4.4.0
 
 > *Operator-grade dev tools, forged in the shadows.*
 > Developed by **Hisham Abulfeilat**
 
 The ultimate AI developer toolkit supercharging GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, green coding, and more.
 
-**230+ files · 14 agents · 70+ commands · 63 scripts · 24 instruction files · MCP server · React Doctor · Marketplace (58 sources) · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge` / `gf`) · Carbon Monitor v2 · Career Tools · Security Scanner · Git Autopilot · Lighthouse CI · i18n/RTL · Storybook · Figma Tokens**
+**230+ files · 14 agents · 70+ commands · 67 scripts · 24 instruction files · MCP server · React Doctor · Marketplace (63 sources) · Vercel Web UI · Mac Bridge · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge` / `gf`) · Carbon Monitor v2 · Career Tools · Security Scanner · Git Autopilot · Lighthouse CI · i18n/RTL · Storybook · Figma Tokens**
 
 ---
 
@@ -68,6 +68,20 @@ code /your/project
 | **VS Code Extension** | `Cmd+Shift+E` or click "⚡ GhostForge" in status bar | Right-click menus, snippet insert, command picker |
 | **Shell Scripts** | `bash scripts/create-project.sh` | Automated project scaffolding |
 
+### v4.4.0 — Remote Access (Web UI + Mac Bridge)
+
+- **`web-ui/`** — Next.js 14 mobile-first GhostForge chat app for Vercel with PIN auth, OpenRouter/Gemini AI, quick commands, and Mac bridge execution
+- **`scripts/bridge.sh`** — secure local Mac bridge with bearer-token auth and optional Cloudflare tunnel
+- **`scripts/gemini.sh`** — Gemini setup, test, and model discovery helper
+- **`scripts/tunnel.sh`** — one-command Cloudflare tunnel helper for local services
+- **TUI + marketplace integration** — launch bridge/tunnel flows, Gemini setup, and web UI deploy guidance directly from GhostForge
+
+```bash
+cd ~/ghostforge-agents/web-ui
+npm install
+npx vercel --prod
+```
+
 ---
 
 ## 🤖 @ghostforge GitHub Copilot Extension
@@ -76,7 +90,7 @@ code /your/project
 
 - **Setup guide:** [`EXTENSION_SETUP.md`](./EXTENSION_SETUP.md)
 - **Hosted usage:** `@ghostforge /help`, `@ghostforge /health`, `@ghostforge /tickets`, `@ghostforge /security`, `@ghostforge /review`, `@ghostforge /deploy`, `@ghostforge /optimize`
-- **Full command catalog:** `/setup`, `/create`, `/open`, `/scaffold`, `/add-feature`, `/migrate`, `/estimate`, `/tech-debt`, `/explain-codebase`, `/health`, `/doctor`, `/marketplace`, `/generate`, `/free-models`, `/help`, `/docs`, `/snippet`, `/onboard`, `/optimize`, `/perf`, `/lint`, `/explain-error`, `/diagram`, `/security`, `/test`, `/a11y`, `/qa`, `/review`, `/tickets`, `/fix-tickets`, `/deploy`, `/release`, `/sql`, `/mock`, `/i18n`, `/storybook`, `/notify`, `/commit`, `/pr-description`, `/upgrade`, `/env`, `/model`, `/autopilot`, `/safe`, `/dashboard`, `/api-types`, `/changelog`, `/env-check`, `/unused`, `/git-hooks`, `/skills`, `/rtl`, `/bundle`, `/context`, `/ticket`
+- **Full command catalog:** `/setup`, `/create`, `/open`, `/scaffold`, `/add-feature`, `/migrate`, `/estimate`, `/tech-debt`, `/explain-codebase`, `/health`, `/doctor`, `/marketplace`, `/generate`, `/free-models`, `/bridge`, `/gemini`, `/tunnel`, `/help`, `/docs`, `/snippet`, `/onboard`, `/optimize`, `/perf`, `/lint`, `/explain-error`, `/diagram`, `/security`, `/test`, `/a11y`, `/qa`, `/review`, `/tickets`, `/fix-tickets`, `/deploy`, `/release`, `/sql`, `/mock`, `/i18n`, `/storybook`, `/notify`, `/commit`, `/pr-description`, `/upgrade`, `/env`, `/model`, `/autopilot`, `/safe`, `/dashboard`, `/api-types`, `/changelog`, `/env-check`, `/unused`, `/git-hooks`, `/skills`, `/rtl`, `/bundle`, `/context`, `/ticket`
 - **Local toolkit stays independent:** `ghostforge`, `scripts/`, copied `.github/` instructions, and existing project flows continue to work exactly as before
 
 ---

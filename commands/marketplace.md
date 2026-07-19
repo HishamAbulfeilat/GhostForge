@@ -54,6 +54,10 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 | **Frontend Design Plugin** | Official Anthropic Claude plugin · production UI | https://claude.com/plugins/frontend-design |
 | **Agent Skills Standard** | Skills spec | https://agentskills.io/home |
 | **Claude-Flow** | AI orchestration | https://github.com/edwincummins/claude-flow |
+| **Mac Bridge** | Local remote-command bridge | Local script: `scripts/bridge.sh` |
+| **GhostForge Web UI** | Vercel-hosted mobile UI | https://vercel.com |
+| **Google Gemini** | Free AI provider | https://aistudio.google.com |
+| **Cloudflare Tunnel** | Temporary remote access tunnel | https://cloudflare.com |
 
 ## Catalog Item Types
 

@@ -914,6 +914,39 @@
       "skillFile": ".claude/skills/officecli/SKILL.md",
       "alwaysOn": true,
       "install": "curl -fsSL https://d.officecli.ai/install.sh | bash"
+    },
+    {
+      "id": "mac-bridge",
+      "name": "Mac Bridge",
+      "description": "Local HTTP server + Cloudflare tunnel for remote ghostforge command execution from web UI",
+      "type": "local",
+      "file": "scripts/bridge.sh",
+      "command": "bash scripts/bridge.sh start",
+      "trusted": true
+    },
+    {
+      "id": "ghostforge-web",
+      "name": "GhostForge Web UI",
+      "description": "Next.js mobile-friendly chat interface deployed to Vercel with AI (OpenRouter/Gemini) and Mac bridge control",
+      "url": "https://vercel.com",
+      "type": "web",
+      "trusted": true
+    },
+    {
+      "id": "google-gemini",
+      "name": "Google Gemini",
+      "description": "Google Gemini AI free tier — gemini-2.0-flash-exp, gemini-1.5-flash, gemini-1.5-pro. Free API key from aistudio.google.com",
+      "url": "https://aistudio.google.com",
+      "type": "ai-provider",
+      "trusted": true
+    },
+    {
+      "id": "cloudflare-tunnel",
+      "name": "Cloudflare Tunnel",
+      "description": "Optional: expose local services via Cloudflare tunnel for temporary remote access without port forwarding",
+      "url": "https://cloudflare.com",
+      "type": "tool",
+      "trusted": true
     }
   ]
 }
