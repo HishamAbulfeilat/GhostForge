@@ -915,12 +915,14 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
-### v3.0.1 — Marketplace Expansion
+### v3.0.1 — Marketplace Expansion (17 sources)
+- **🎨 UI/UX Pro Max Skill** — 161 reasoning rules + 84 UI styles for world-class UI/UX. `npx ui-ux-pro-max-cli`
+- **⚡ PocketBase** — open source backend in 1 file: SQLite + realtime + auth + files + Admin UI
+- **🗂️ Claude Marketplaces** — curated directory of Claude skills, MCP servers, plugin marketplaces (claudemarketplaces.com)
 - **🌍 scroll-world skill** — fly-through scroll-scrubbed landing page skill (Claude Code, Codex, 20+ agents). `/plugin marketplace add oso95/scroll-world`
-- **🧠 Hermes Agent (Nous Research)** — self-improving AI agent with learning loop, persistent memory, cron scheduler, Telegram/Discord/Slack/WhatsApp/Signal gateway, agentskills.io compatible. Install from TUI Marketplace.
-- **🔊 edge-tts neural AI voice** — Microsoft Edge neural voices (400+), zero cost, no API key. `bash scripts/voice.sh install-voice-model`. Arabic voices included (`ar-SA-ZariyahNeural`, `ar-EG-SalmaNeural`).
-- **🔍 opensourceprojects.dev** — curated open-source discovery added to marketplace (hidden gems, trending repos, RSS feed)
-- **14 marketplace sources** total
+- **🧠 Hermes Agent (Nous Research)** — self-improving AI agent with learning loop, persistent memory, cron scheduler, Telegram/Discord/Slack/WhatsApp/Signal gateway, agentskills.io compatible
+- **🔊 edge-tts neural AI voice** — Microsoft Edge neural voices (400+), zero cost, no API key. `bash scripts/voice.sh install-voice-model`
+- **🔍 opensourceprojects.dev** — curated open-source discovery (hidden gems, trending repos, RSS feed)
 
 ### v3.0.0 — Major Feature Release
 - **🔊 Voice features (free)** — TTS via macOS `say`/`espeak-ng`; STT via Groq Whisper API (7200s/day free) or local `whisper.cpp` (offline, forever free)

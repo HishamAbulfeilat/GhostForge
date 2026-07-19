@@ -176,6 +176,55 @@
         "creative"
       ],
       "trusted": true
+    },
+    {
+      "id": "ui-ux-pro-max-skill",
+      "name": "UI/UX Pro Max Skill",
+      "type": "claude-skills",
+      "description": "161 reasoning rules + 84 UI styles for world-class UI/UX design. Agent skill (SKILL.md) for Claude Code, Codex, Cursor. Covers layouts, typography, color, accessibility, animations, and design systems.",
+      "url": "https://github.com/nextlevelbuilder/ui-ux-pro-max-skill",
+      "install_command": "npx ui-ux-pro-max-cli",
+      "categories": [
+        "ui",
+        "ux",
+        "design",
+        "frontend",
+        "accessibility"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "pocketbase",
+      "name": "PocketBase — Open Source Backend in 1 File",
+      "type": "backend-tool",
+      "description": "Open source Go backend: embedded SQLite with realtime subscriptions, file/users management, Admin dashboard UI, REST-ish API. Single portable executable. Perfect for rapid prototyping and small-medium projects.",
+      "url": "https://github.com/pocketbase/pocketbase",
+      "docs": "https://pocketbase.io/docs",
+      "install_command": "./pocketbase serve",
+      "download": "https://github.com/pocketbase/pocketbase/releases",
+      "categories": [
+        "backend",
+        "database",
+        "api",
+        "auth",
+        "files"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "claudemarketplaces",
+      "name": "Claude Marketplaces Directory",
+      "type": "discovery",
+      "description": "Curated directory of Claude Code skills, plugin marketplaces, MCP servers, commands, hooks, and agents. Install anything with a single command. Ranked by install count, GitHub stars, and community votes.",
+      "url": "https://claudemarketplaces.com",
+      "categories": [
+        "skills",
+        "plugins",
+        "mcp-servers",
+        "agents",
+        "commands"
+      ],
+      "trusted": true
     }
   ]
 }

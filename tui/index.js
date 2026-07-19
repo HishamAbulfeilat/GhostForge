@@ -932,17 +932,19 @@ async function screenMarketplace() {
       { name: T.accent.bold('📋  Browse All Items')    + T.muted(' — view full catalog by category'), value: 'browse' },
       { name: T.success.bold('🔍  Search Items')        + T.muted(' — search by name, tag, or category'), value: 'search' },
       { name: T.brand.bold('⬇️   Install Item')         + T.muted(' — install from catalog or URL'), value: 'install' },
-      { name: T.warning.bold('🌐  Browse aitmpl.com')   + T.muted(' — open AI templates site'), value: 'aitmpl' },
-      { name: T.cyan.bold('🔍  Open Source Discovery') + T.muted(' — hidden gems & trending repos (opensourceprojects.dev)'), value: 'osp-dev' },
-      { name: T.accent.bold('🧠  Hermes Agent')          + T.muted(' — self-improving AI agent by Nous Research'), value: 'hermes-agent' },
-      { name: T.success.bold('🎓  Claude Agent Skills') + T.muted(' — Anthropic, SkillsMP, Claude-Flow, Awesome'), value: 'skills' },
-      { name: T.white.bold('📦  My Installed Items')   + T.muted(' — view and manage installed items'), value: 'installed' },
-      { name: T.success.bold('🔧  Add Custom Agent')    + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
-      { name: T.success.bold('🤖  Add Custom Model')    + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
-      { name: T.muted('🔄  Refresh Catalog')  + T.muted(' — fetch latest from sources'), value: 'refresh' },
+      { name: T.warning.bold('🌐  Browse aitmpl.com')     + T.muted(' — open AI templates site'), value: 'aitmpl' },
+      { name: T.cyan.bold('🔍  Open Source Discovery')   + T.muted(' — hidden gems & trending repos (opensourceprojects.dev)'), value: 'osp-dev' },
+      { name: T.accent.bold('🧠  Hermes Agent')            + T.muted(' — self-improving AI agent by Nous Research'), value: 'hermes-agent' },
+      { name: T.success.bold('🎓  Claude Agent Skills')   + T.muted(' — Anthropic, SkillsMP, Claude-Flow, scroll-world, UI/UX'), value: 'skills' },
+      { name: T.brand.bold('🗂️   Claude Marketplaces')     + T.muted(' — skills, MCP servers, plugins directory'), value: 'claude-marketplaces' },
+      { name: T.cyan.bold('⚡  PocketBase')               + T.muted(' — open source backend in 1 file'), value: 'pocketbase' },
+      { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
+      { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
+      { name: T.success.bold('🤖  Add Custom Model')      + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
+      { name: T.muted('🔄  Refresh Catalog')    + T.muted(' — fetch latest from sources'), value: 'refresh' },
       { name: T.muted('← Back to Menu'), value: '__back__' },
     ],
-    pageSize: 10,
+    pageSize: 12,
   });
 
   if (action === '__back__') return;
@@ -1123,7 +1125,51 @@ async function screenMarketplace() {
       }
     }
     await pressEnter();
-  }    const sourcesPath = resolve(ROOT, 'marketplace/sources.json');
+  }
+
+  if (action === 'claude-marketplaces') {
+    console.log();
+    console.log(boxen(
+      T.brand.bold(' 🗂️  Claude Marketplaces Directory ') + '\n\n' +
+      T.white('Curated directory of Claude Code skills, MCP servers,\nplugin marketplaces, commands, hooks, and agents.\n\n') +
+      T.accent('  https://claudemarketplaces.com\n\n') +
+      T.muted('  • Skills — reusable instruction sets, install with 1 command\n') +
+      T.muted('  • Plugin Marketplaces — GitHub registries of skills/MCP/agents\n') +
+      T.muted('  • MCP Servers — tools, APIs, integrations\n') +
+      T.muted('  • Ranked by install count, GitHub stars, community votes\n') +
+      T.muted('  • 100% free to browse and install\n\n') +
+      T.dim('  Tip: find skills here, then install via /skills in the toolkit'),
+      { padding: 1, borderColor: '#7C3AED', borderStyle: 'round' }
+    ));
+    console.log();
+    try { execSync('open https://claudemarketplaces.com 2>/dev/null || xdg-open https://claudemarketplaces.com 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter();
+  }
+
+  if (action === 'pocketbase') {
+    console.log();
+    console.log(boxen(
+      T.cyan.bold(' ⚡ PocketBase — Open Source Backend in 1 File ') + '\n\n' +
+      T.white('Go backend: SQLite + realtime + auth + files + Admin UI.\nSingle portable executable — no Docker, no setup.\n\n') +
+      T.accent('  https://pocketbase.io/docs\n\n') +
+      T.success.bold('  Download & run:\n') +
+      T.cyan('  # Download from: https://github.com/pocketbase/pocketbase/releases\n') +
+      T.cyan('  ./pocketbase serve\n') +
+      T.cyan('  # Admin UI: http://127.0.0.1:8090/_/\n\n') +
+      T.muted('  • Embedded SQLite with realtime subscriptions\n') +
+      T.muted('  • Built-in auth (email, OAuth2, OTP, MFA)\n') +
+      T.muted('  • File storage + S3 support\n') +
+      T.muted('  • Extend with JavaScript or Go\n') +
+      T.muted('  • JS SDK: npm install pocketbase\n\n') +
+      T.dim('  GitHub: https://github.com/pocketbase/pocketbase'),
+      { padding: 1, borderColor: '#00A3E0', borderStyle: 'round' }
+    ));
+    console.log();
+    try { execSync('open https://pocketbase.io/docs 2>/dev/null || xdg-open https://pocketbase.io/docs 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter();
+  }
+
+  const sourcesPath = resolve(ROOT, 'marketplace/sources.json');
     let allSources = [];
     try {
       const s = JSON.parse(readFileSync(sourcesPath, 'utf8'));
@@ -1139,6 +1185,7 @@ async function screenMarketplace() {
         { name: T.white.bold('📦  Install Anthropic official skills')   + T.muted(' — docx, pdf, pptx, xlsx…'), value: 'anthropic' },
         { name: T.warning.bold('🌐  Open Awesome Claude Skills')         + T.muted(' — curated free directory'), value: 'awesome' },
         { name: T.cyan.bold('🌍  scroll-world')                         + T.muted(' — fly-through landing page skill'), value: 'scroll-world' },
+        { name: T.accent.bold('🎨  UI/UX Pro Max')                       + T.muted(' — 161 reasoning rules + 84 UI styles'), value: 'ui-ux-pro-max' },
         { name: T.muted('🌐  Open SkillsMP marketplace'), value: 'open-skillsmp' },
         { name: T.muted('📖  View /skills command docs'), value: 'docs' },
         { name: T.muted('← Back'), value: '__back__' },
@@ -1240,6 +1287,29 @@ async function screenMarketplace() {
       ));
       console.log();
       try { execSync('open https://github.com/oso95/scroll-world 2>/dev/null || xdg-open https://github.com/oso95/scroll-world 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      await pressEnter();
+    }
+
+    if (skillAction === 'ui-ux-pro-max') {
+      console.log();
+      console.log(boxen(
+        T.accent.bold(' 🎨 UI/UX Pro Max — 161 Rules + 84 UI Styles ') + '\n\n' +
+        T.white('World-class UI/UX reasoning for any AI agent.\n\n') +
+        T.success.bold('  Install (CLI):\n') +
+        T.cyan('  npx ui-ux-pro-max-cli\n\n') +
+        T.success.bold('  Install (Claude Code plugin):\n') +
+        T.cyan('  /plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill\n\n') +
+        T.success.bold('  Install (manual):\n') +
+        T.cyan('  cp -R ui-ux-pro-max-skill/skills/ ~/.claude/skills/\n\n') +
+        T.muted('  • 161 UI/UX reasoning rules\n') +
+        T.muted('  • 84 UI style definitions (layouts, typography, color, motion)\n') +
+        T.muted('  • Covers accessibility, animations, design systems\n') +
+        T.muted('  • Works with Claude Code, Codex, Cursor, 20+ agents\n\n') +
+        T.dim('  GitHub: https://github.com/nextlevelbuilder/ui-ux-pro-max-skill'),
+        { padding: 1, borderColor: '#8B5CF6', borderStyle: 'round' }
+      ));
+      console.log();
+      try { execSync('open https://github.com/nextlevelbuilder/ui-ux-pro-max-skill 2>/dev/null || xdg-open https://github.com/nextlevelbuilder/ui-ux-pro-max-skill 2>/dev/null', { stdio: 'ignore' }); } catch {}
       await pressEnter();
     }
 

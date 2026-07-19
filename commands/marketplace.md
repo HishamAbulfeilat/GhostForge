@@ -32,6 +32,9 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 | **Awesome Claude Skills** | Curated skills | https://awesomeclaude.ai/awesome-claude-skills |
 | **Skills Collection 2026** | Community skills | https://github.com/obviousworks/Claude-AI-skills-collection-2026 |
 | **scroll-world** | Landing page skill | https://github.com/oso95/scroll-world |
+| **UI/UX Pro Max** | Claude Skill (161 rules) | https://github.com/nextlevelbuilder/ui-ux-pro-max-skill |
+| **PocketBase** | Backend tool | https://github.com/pocketbase/pocketbase |
+| **Claude Marketplaces** | Discovery directory | https://claudemarketplaces.com |
 | **Agent Skills Standard** | Skills spec | https://agentskills.io/home |
 | **Claude-Flow** | AI orchestration | https://github.com/edwincummins/claude-flow |
 
