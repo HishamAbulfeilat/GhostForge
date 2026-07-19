@@ -193,6 +193,11 @@ const COMMANDS = [
   { name: '/mock-api',      cat: '💡 Development', file: 'commands/mock-api.md',       desc: 'Generate MSW handlers from OpenAPI spec' },
   { name: '/onboard-dev',   cat: '🏗  Setup',      file: 'commands/onboard-dev.md',    desc: 'New developer onboarding setup' },
   { name: '/voice',         cat: '⚙️  Modes',       file: 'commands/voice.md',          desc: 'Free TTS/STT voice features' },
+  { name: '/career-cv',     cat: '🎯 Career',      file: 'commands/career-cv.md',      desc: 'Version-control your CV in git, diff between versions' },
+  { name: '/career-prep',   cat: '🎯 Career',      file: 'commands/career-prep.md',    desc: 'Quick interview prep brief for any company' },
+  { name: '/career-track',  cat: '🎯 Career',      file: 'commands/career-track.md',   desc: 'Local job application tracker synced with ADO' },
+  { name: '/career-gap',    cat: '🎯 Career',      file: 'commands/career-gap.md',     desc: 'Compare CV vs job description, score the fit %' },
+  { name: '/career-linkedin', cat: '🎯 Career',    file: 'commands/career-linkedin.md',desc: 'Generate 30-day LinkedIn content calendar' },
   { name: '/help',          cat: '⚙️  Modes',       file: 'commands/help.md',           desc: 'Show full command reference and quick-start guide' },
   // Marketplace & Extensions
   { name: '/skills',        cat: '🏪 Marketplace', file: 'commands/skills.md',        desc: 'Browse & install Claude Agent Skills from Anthropic, SkillsMP, Claude-Flow and more' },
@@ -942,13 +947,17 @@ async function screenMarketplace() {
       { name: T.warning.bold('🖱️   Page Agent (Alibaba)')    + T.muted(' — GUI agent living in your webpage'), value: 'page-agent' },
       { name: T.red.bold('🔐  Strix')                     + T.muted(' — autonomous AI penetration testing'), value: 'strix' },
       { name: T.cyan.bold('🎯  Career Helper')             + T.muted(' — CV, LinkedIn, interview prep, job scout (14 skills)'), value: 'career-helper' },
+      { name: T.success.bold('🗂️   Career-Ops')             + T.muted(' — multi-agent job search · 740+ listings · WIRED / BI'), value: 'career-ops' },
+      { name: T.brand.bold('🎨  Awesome Claude Design')   + T.muted(' — DESIGN.md collection · rohitg00'), value: 'awesome-claude-design-rohitg00' },
+      { name: T.brand.bold('🎨  Awesome Claude Design')   + T.muted(' — DESIGN.md collection · VoltAgent'), value: 'awesome-claude-design-voltagent' },
+      { name: T.accent.bold('🔧  Career Tools')            + T.muted(' — CV versioning, prep, tracker, gap, LinkedIn calendar'), value: 'career-tools' },
       { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
       { name: T.success.bold('🤖  Add Custom Model')      + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
       { name: T.muted('🔄  Refresh Catalog')    + T.muted(' — fetch latest from sources'), value: 'refresh' },
       { name: T.muted('← Back to Menu'), value: '__back__' },
     ],
-    pageSize: 12,
+    pageSize: 16,
   });
 
   if (action === '__back__') return;
@@ -1332,6 +1341,181 @@ async function screenMarketplace() {
         if (careerAction === 'install') {
           try { execSync('open https://github.com/Zal4DW/career-helper 2>/dev/null || xdg-open https://github.com/Zal4DW/career-helper 2>/dev/null', { stdio: 'ignore' }); } catch {}
         }
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'career-ops') {
+    const subAction = await select({
+      message: T.success.bold('🗂️  Career-Ops — Multi-Agent Job Search:'),
+      choices: [
+        { name: T.success.bold('⬇️  Install Career-Ops'),              value: 'install' },
+        { name: T.cyan.bold('📖  How it works'),                       value: 'info' },
+        { name: T.accent.bold('🌐  GitHub'),                           value: 'github' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (subAction !== '__back__') {
+      console.log();
+      console.log(boxen(
+        T.success.bold(' 🗂️  Career-Ops — Multi-Agent Job Search System ') + '\n\n' +
+        T.white('Featured in WIRED + Business Insider. 740+ job listings evaluated,\n') +
+        T.white('100+ personalised CVs generated, 1 dream role landed.\n\n') +
+        T.yellow('Companies use AI to filter candidates.\n') +
+        T.yellow('Career-Ops gives candidates AI to choose companies.\n\n') +
+        T.success.bold('  Install:\n') +
+        T.cyan('  npm install -g @santifer/career-ops\n') +
+        T.cyan('  career-ops init\n\n') +
+        T.success.bold('  Features:\n') +
+        T.white('  • Batch-evaluate 700+ job listings against your criteria\n') +
+        T.white('  • Auto-personalise CVs per job + company\n') +
+        T.white('  • Multi-agent orchestration (research, ranking, apply)\n') +
+        T.dim('  GitHub: https://github.com/santifer/career-ops'),
+        { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
+      ));
+      console.log();
+      if (subAction === 'install') {
+        try { execSync('npm install -g @santifer/career-ops 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      } else if (subAction === 'github') {
+        try { execSync('open https://github.com/santifer/career-ops 2>/dev/null || xdg-open https://github.com/santifer/career-ops 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'awesome-claude-design-rohitg00' || action === 'awesome-claude-design-voltagent') {
+    const isVolt = action === 'awesome-claude-design-voltagent';
+    const ghUrl = isVolt
+      ? 'https://github.com/VoltAgent/awesome-claude-design'
+      : 'https://github.com/rohitg00/awesome-claude-design';
+    const author = isVolt ? 'VoltAgent' : 'rohitg00';
+    const subAction = await select({
+      message: T.brand.bold(`🎨 Awesome Claude Design (${author}):`),
+      choices: [
+        { name: T.cyan.bold('📖  What is DESIGN.md?'),    value: 'info' },
+        { name: T.accent.bold('🌐  Open GitHub'),         value: 'github' },
+        { name: T.brand.bold('🎨  Open Claude Design'),   value: 'claude-design' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (subAction !== '__back__') {
+      console.log();
+      console.log(boxen(
+        T.brand.bold(` 🎨 Awesome Claude Design — ${author} `) + '\n\n' +
+        T.white('Ready-to-use DESIGN.md files for Claude Design (Anthropic Labs).\n') +
+        T.white('Upload a DESIGN.md → Claude scaffolds a full design system:\n') +
+        T.white('color tokens, type scale, components, preview cards, UI kit.\n\n') +
+        T.success.bold('  Usage:\n') +
+        T.cyan('  1. Browse the collection on GitHub\n') +
+        T.cyan('  2. Download a DESIGN.md file\n') +
+        T.cyan('  3. Open https://claude.ai/design\n') +
+        T.cyan('  4. Upload the DESIGN.md → full design system generated\n\n') +
+        T.white('  Also see: https://getdesign.md for more DESIGN.md files\n') +
+        T.dim(`  GitHub: ${ghUrl}`),
+        { padding: 1, borderColor: '#A855F7', borderStyle: 'round' }
+      ));
+      console.log();
+      if (subAction === 'github') {
+        try { execSync(`open ${ghUrl} 2>/dev/null || xdg-open ${ghUrl} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+      } else if (subAction === 'claude-design') {
+        try { execSync('open https://claude.ai/design 2>/dev/null || xdg-open https://claude.ai/design 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'career-tools') {
+    const ctAction = await select({
+      message: T.accent.bold('🔧 Career Tools — Built-in Scripts:'),
+      choices: [
+        { name: T.success.bold('📄  career-cv')       + T.muted(' — version-control your CV in git, diff versions'),     value: 'cv' },
+        { name: T.warning.bold('🎯  career-prep')      + T.muted(' — interview prep brief for any company'),               value: 'prep' },
+        { name: T.cyan.bold('📊  career-track')        + T.muted(' — local job application tracker + ADO sync'),           value: 'track' },
+        { name: T.brand.bold('🔍  career-gap')         + T.muted(' — compare CV vs job description, score fit %'),         value: 'gap' },
+        { name: T.accent.bold('💼  career-linkedin')   + T.muted(' — generate 30-day LinkedIn content calendar'),          value: 'linkedin' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 8,
+    });
+    const ctInfo = {
+      cv: {
+        title: '📄 career-cv — CV Version Control',
+        cmd: 'ghostforge career-cv',
+        color: '#22C55E',
+        body:
+          T.white('Version-control your CV in git, diff between versions.\n\n') +
+          T.success.bold('  Commands:\n') +
+          T.cyan('  ghostforge career-cv init <path>    — init git-tracked CV repo\n') +
+          T.cyan('  ghostforge career-cv save [msg]     — save a new version\n') +
+          T.cyan('  ghostforge career-cv diff [v1] [v2] — diff between versions\n') +
+          T.cyan('  ghostforge career-cv versions       — show all saved versions\n') +
+          T.cyan('  ghostforge career-cv export         — export to ~/Desktop\n'),
+      },
+      prep: {
+        title: '🎯 career-prep — Interview Prep Launcher',
+        cmd: 'ghostforge career-prep',
+        color: '#F59E0B',
+        body:
+          T.white('Quick interview prep brief for any company.\n\n') +
+          T.success.bold('  Commands:\n') +
+          T.cyan('  ghostforge career-prep <company>    — create prep brief\n') +
+          T.cyan('  ghostforge career-prep list         — list all briefs\n') +
+          T.cyan('  ghostforge career-prep open <co>    — open most recent brief\n') +
+          T.white('\n  Creates a structured Markdown brief: company research,\n') +
+          T.white('  STAR stories scaffold, React/TS technical questions.\n'),
+      },
+      track: {
+        title: '📊 career-track — Job Application Tracker',
+        cmd: 'ghostforge career-track',
+        color: '#06B6D4',
+        body:
+          T.white('Local job application tracker (SQLite + CSV export).\n\n') +
+          T.success.bold('  Commands:\n') +
+          T.cyan('  ghostforge career-track add <co> <role> [url]  — add application\n') +
+          T.cyan('  ghostforge career-track update <id> <status>   — update status\n') +
+          T.cyan('  ghostforge career-track list [--status]        — list all\n') +
+          T.cyan('  ghostforge career-track stats                  — response rate etc\n') +
+          T.cyan('  ghostforge career-track export                 — export CSV\n') +
+          T.white('\n  Statuses: applied | screening | interview | offer | rejected\n'),
+      },
+      gap: {
+        title: '🔍 career-gap — CV vs JD Skills Gap Scorer',
+        cmd: 'ghostforge career-gap',
+        color: '#A855F7',
+        body:
+          T.white('Compare your CV vs a job description, score the fit.\n\n') +
+          T.success.bold('  Commands:\n') +
+          T.cyan('  ghostforge career-gap score <cv> <jd>    — score match %\n') +
+          T.cyan('  ghostforge career-gap keywords <file>    — extract keywords\n') +
+          T.cyan('  ghostforge career-gap suggest <cv> <jd>  — Claude prompt to tailor CV\n') +
+          T.white('\n  Extracts tech/skill keywords, shows missing vs matching,\n') +
+          T.white('  outputs a score out of 100.\n'),
+      },
+      linkedin: {
+        title: '💼 career-linkedin — LinkedIn Content Calendar',
+        cmd: 'ghostforge career-linkedin',
+        color: '#0EA5E9',
+        body:
+          T.white('Generate 30-day LinkedIn content calendar.\n\n') +
+          T.success.bold('  Commands:\n') +
+          T.cyan('  ghostforge career-linkedin calendar <topic> — generate 30-day plan\n') +
+          T.cyan('  ghostforge career-linkedin post <topic>     — single post prompt\n') +
+          T.cyan('  ghostforge career-linkedin list             — list saved calendars\n') +
+          T.cyan('  ghostforge career-linkedin open [date]      — open calendar in editor\n') +
+          T.white('\n  Each day: format (text/carousel/poll/video), theme, hook line.\n'),
+      },
+    };
+    if (ctAction !== '__back__') {
+      const info = ctInfo[ctAction];
+      if (info) {
+        console.log();
+        console.log(boxen(
+          T.accent.bold(` ${info.title} `) + '\n\n' + info.body +
+          T.dim(`\n  Script: scripts/${ctAction === 'cv' ? 'career-cv' : ctAction === 'linkedin' ? 'career-linkedin' : `career-${ctAction}`}.sh`),
+          { padding: 1, borderColor: info.color, borderStyle: 'round' }
+        ));
+        console.log();
       }
     }
     await pressEnter();

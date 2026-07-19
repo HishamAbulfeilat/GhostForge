@@ -915,6 +915,17 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.0.6 — Career Ops + Design System + Career Tools
+- **🗂️ Career-Ops** — multi-agent job search system (featured in WIRED + Business Insider). 740+ listings evaluated, 100+ personalised CVs. `npm install -g @santifer/career-ops`
+- **🎨 Awesome Claude Design** (×2) — curated DESIGN.md collection → upload to Claude Design, get full design system (colors, type, components, UI kit) in one shot. By rohitg00 + VoltAgent
+- **🔧 Career Tools** — 5 new built-in CLI scripts:
+  - `/career-cv` — version-control your CV in git, diff between versions
+  - `/career-prep <company>` — structured interview prep brief with STAR scaffold, tech checklist
+  - `/career-track` — local job application tracker (SQLite + CSV export + ADO sync stub)
+  - `/career-gap` — compare CV vs job description, score fit %, surface missing skills
+  - `/career-linkedin` — generate 30-day LinkedIn content calendar
+- **28 marketplace sources** total
+
 ### v3.0.5 — Career Helper
 - **🎯 Career Helper** — 14-skill end-to-end career support: career coach (Tim), ATS CV rewriting, LinkedIn optimisation, interview prep, job scout, skills radar, career transitions, AI impact assessment, employer footprint, kanban tracker, NED AI governance, personal brand. Free on all Claude plans. `claude plugin marketplace add Zal4DW/career-helper`
 - TUI: Marketplace → 🎯 Career Helper with full 14-skill sub-menu

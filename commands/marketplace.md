@@ -43,6 +43,9 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 | **Page Agent (Alibaba)** | GUI web agent | https://github.com/alibaba/page-agent |
 | **Strix** | AI pentesting | https://github.com/usestrix/strix |
 | **Career Helper** | Career support (14 skills) | https://github.com/Zal4DW/career-helper |
+| **Career-Ops** | Multi-agent job search (WIRED/BI) | https://github.com/santifer/career-ops |
+| **Awesome Claude Design (rohitg00)** | DESIGN.md collection · prompt packs | https://github.com/rohitg00/awesome-claude-design |
+| **Awesome Claude Design (VoltAgent)** | DESIGN.md → full design system scaffolding | https://github.com/VoltAgent/awesome-claude-design |
 | **Agent Skills Standard** | Skills spec | https://agentskills.io/home |
 | **Claude-Flow** | AI orchestration | https://github.com/edwincummins/claude-flow |
 

@@ -376,6 +376,55 @@
         "job-search"
       ],
       "trusted": true
+    },
+    {
+      "id": "career-ops",
+      "name": "Career-Ops — Multi-Agent Job Search System",
+      "type": "ai-agent",
+      "description": "Multi-agent AI job search system featured in WIRED + Business Insider. 740+ job listings evaluated, 100+ personalised CVs. Companies use AI to filter candidates — this gives candidates AI to choose companies.",
+      "url": "https://github.com/santifer/career-ops",
+      "npm": "@santifer/career-ops",
+      "categories": [
+        "career",
+        "job-search",
+        "cv",
+        "multi-agent"
+      ],
+      "press": [
+        "WIRED",
+        "Business Insider"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "awesome-claude-design-rohitg00",
+      "name": "Awesome Claude Design (rohitg00)",
+      "type": "curated",
+      "description": "Curated DESIGN.md files grouped by aesthetic family, remix recipes, prompt packs with example outputs, skills, video teardowns. For Claude Design (Anthropic Labs AI design workspace).",
+      "url": "https://github.com/rohitg00/awesome-claude-design",
+      "categories": [
+        "design",
+        "design-system",
+        "DESIGN.md",
+        "claude-design"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "awesome-claude-design-voltagent",
+      "name": "Awesome Claude Design (VoltAgent) — DESIGN.md Collection",
+      "type": "curated",
+      "description": "Ready-to-use DESIGN.md files — upload to Claude Design, get a full design system (colors, type, components, preview cards, UI kit) in one shot. Powered by getdesign.md.",
+      "url": "https://github.com/VoltAgent/awesome-claude-design",
+      "reference": "https://getdesign.md",
+      "categories": [
+        "design",
+        "design-system",
+        "DESIGN.md",
+        "claude-design",
+        "tokens"
+      ],
+      "trusted": true
     }
   ]
 }
