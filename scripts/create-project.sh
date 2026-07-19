@@ -506,7 +506,7 @@ if [[ "${GIT_CHOICE:-}" != *"Skip"* ]]; then
   info "Initializing git..."
   git init
   git add .
-  git commit -m "chore: initial project setup by GhostForge AI Toolkit"
+  git commit -m "chore: initial project setup by GhostForge"
 
   if [[ "${GIT_CHOICE:-}" == *"GitHub"* ]]; then
     echo ""

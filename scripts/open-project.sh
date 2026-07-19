@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-#  open-project.sh — Open Existing Project with GhostForge AI Toolkit
+#  open-project.sh — Open Existing Project with GhostForge
 #  Usage: bash open-project.sh [/path/to/project]
 # ═══════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -19,7 +19,7 @@ header() {
   clear
   echo ""
   echo -e "${BLUE}${BOLD}  ╔═══════════════════════════════════════════╗${NC}"
-  echo -e "${BLUE}${BOLD}  ║   GhostForge AI Toolkit  —  Open Project  v${VERSION}  ║${NC}"
+  echo -e "${BLUE}${BOLD}  ║   GhostForge  —  Open Project  v${VERSION}  ║${NC}"
   echo -e "${BLUE}${BOLD}  ╚═══════════════════════════════════════════╝${NC}"
   echo ""
 }
@@ -209,7 +209,7 @@ if echo "$STATUS" | grep -q "full"; then
   esac
 else
   echo ""
-  echo -e "  ${BOLD}Copy GhostForge AI Toolkit to this project?${NC} (y/n)"
+  echo -e "  ${BOLD}Copy GhostForge to this project?${NC} (y/n)"
   read -rp "  > " confirm
   if [[ "$confirm" =~ ^[Yy]$ ]]; then
     copy_toolkit "$TARGET"
@@ -242,7 +242,7 @@ if command -v code &>/dev/null; then
     code "$TARGET"
     echo ""
     echo -e "  ${GREEN}${BOLD}✅ Opened in VS Code!${NC}"
-    echo -e "  ${DIM}Copilot Chat (Cmd+Shift+I) is now powered by GhostForge AI Toolkit v${VERSION}${NC}"
+    echo -e "  ${DIM}Copilot Chat (Cmd+Shift+I) is now powered by GhostForge v${VERSION}${NC}"
   fi
 else
   echo -e "  ${YELLOW}VS Code CLI not found.${NC} Open manually: code $TARGET"

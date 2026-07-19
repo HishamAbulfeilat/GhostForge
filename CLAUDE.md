@@ -1,6 +1,6 @@
-# GhostForge AI Developer Toolkit — Claude Configuration
+# GhostForge — Claude Configuration
 
-This is the **GhostForge AI Developer Toolkit** (`ghostforge-agents`), a GitHub Copilot supercharger for React/Next.js/TypeScript development at GhostForge.
+This is the **GhostForge** (`ghostforge-agents`), a GitHub Copilot supercharger for React/Next.js/TypeScript development at GhostForge.
 
 ## Project context
 

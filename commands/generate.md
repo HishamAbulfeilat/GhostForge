@@ -154,5 +154,5 @@ To use a generated command, add it to `.github/copilot-instructions.md`.
 ## TUI Access
 
 ```bash
-ghostforge-ai → ⚡ Generate New
+ghostforge → ⚡ Generate New
 ```

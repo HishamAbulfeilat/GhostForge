@@ -25,6 +25,8 @@ detect_tts() {
 }
 
 VOICE_DEFAULT="${GHOSTFORGE_VOICE:-en-US-AriaNeural}"  # Neural voice — change in .env.local
+VOICE_CACHE_DIR="$HOME/.ghostforge/voice"
+mkdir -p "$VOICE_CACHE_DIR"
 
 # ── Detect available STT ───────────────────────────────────────────────────────
 detect_stt() {
@@ -56,12 +58,12 @@ speak() {
   msg=$(echo "$msg" | sed 's/\x1B\[[0-9;]*[mK]//g')
   case "$TTS_ENGINE" in
     edge-tts)
-      local tmp_file="/tmp/ghostforge-voice-$$.mp3"
+      local tmp_file="$VOICE_CACHE_DIR/voice-$$.mp3"
       edge-tts --voice "$voice" --text "$msg" --write-media "$tmp_file" 2>/dev/null && \
         play_audio "$tmp_file" && rm -f "$tmp_file" &
       ;;
     edge-tts-py)
-      local tmp_file="/tmp/ghostforge-voice-$$.mp3"
+      local tmp_file="$VOICE_CACHE_DIR/voice-$$.mp3"
       python3 -c "
 import asyncio, edge_tts, sys
 async def run():
@@ -121,7 +123,7 @@ transcribe() {
 
 # ── record audio (macOS / Linux) ───────────────────────────────────────────────
 record_audio() {
-  local out_file="${1:-/tmp/ghostforge-voice-$$.wav}"
+  local out_file="${1:-$VOICE_CACHE_DIR/voice-$$.wav}"
   local duration="${2:-5}"
   
   echo -e "  ${CYAN}🎤 Recording for ${duration}s... Speak now!${NC}"
@@ -156,7 +158,7 @@ case "$ACTION" in
   listen|stt|transcribe)
     DURATION="${1:-5}"
     echo -e "  ${DIM}STT engine: $STT_ENGINE${NC}"
-    AUDIO_FILE=$(record_audio "/tmp/ghostforge-voice-$$.wav" "$DURATION")
+    AUDIO_FILE=$(record_audio "$VOICE_CACHE_DIR/voice-$$.wav" "$DURATION")
     if [[ -f "$AUDIO_FILE" ]]; then
       TRANSCRIPT=$(transcribe "$AUDIO_FILE")
       rm -f "$AUDIO_FILE"

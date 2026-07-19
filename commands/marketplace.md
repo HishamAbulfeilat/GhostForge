@@ -76,7 +76,7 @@ Browse AI component templates at **https://aitmpl.com** — a community site for
 /marketplace open aitmpl
 
 # Or in TUI:
-ghostforge-ai → 🏪 Marketplace → Browse aitmpl.com
+ghostforge → 🏪 Marketplace → Browse aitmpl.com
 ```
 
 After finding a template on aitmpl.com, use `/generate` to create a matching agent or `/scaffold` to generate it in your project.
@@ -95,7 +95,7 @@ After finding a template on aitmpl.com, use `/generate` to create a matching age
 
 ### Add via TUI
 ```bash
-ghostforge-ai → 🏪 Marketplace → Add Custom Agent
+ghostforge → 🏪 Marketplace → Add Custom Agent
 ```
 
 ### Add via Copilot Chat
@@ -111,7 +111,7 @@ Drop any `.md` file into `marketplace/custom-agents/` following the agent templa
 
 ```bash
 # Add custom model via TUI
-ghostforge-ai → 🆓 Free Models → Add Custom Model
+ghostforge → 🆓 Free Models → Add Custom Model
 
 # Via Copilot Chat
 /free-models add-custom

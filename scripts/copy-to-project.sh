@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-# Copy GhostForge AI Toolkit to an existing project
+# Copy GhostForge to an existing project
 # Usage: bash copy-to-project.sh /path/to/your/project
 # ============================================================
 

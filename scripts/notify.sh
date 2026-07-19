@@ -47,7 +47,7 @@ esac
 
 VERSION="$(cat "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/VERSION" 2>/dev/null || echo "2.2.0")"
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S %Z')"
-TITLE="GhostForge AI Developer Toolkit v${VERSION}"
+TITLE="GhostForge v${VERSION}"
 
 if [[ "$CHANNEL" == "slack" ]]; then
   PAYLOAD="$(python3 - <<'PY' "$TITLE" "$MESSAGE" "$LEVEL_LABEL" "$COLOR_HEX" "$TIMESTAMP" "$ACTION_URL" "$ACTION_TEXT"

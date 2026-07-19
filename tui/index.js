@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * ╔═══════════════════════════════════════════════════════════╗
- * ║          GHOSTFORGE AI DEVELOPER TOOLKIT  —  TUI v2.0          ║
- * ║    Powered by GitHub Copilot  |  Built for GhostForge Devs     ║
+ * ║           GHOSTFORGE  —  Operator Terminal v4.0          ║
+ * ║     Operator-grade dev tools, forged in the shadows.     ║
  * ╚═══════════════════════════════════════════════════════════╝
  */
 
@@ -21,17 +21,36 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const VERSION = existsSync(resolve(ROOT, 'VERSION'))
   ? readFileSync(resolve(ROOT, 'VERSION'), 'utf8').trim()
-  : '2.0.0';
+  : '4.0.0';
 const REGISTERED_PROJECTS_FILE = resolve(ROOT, '.registered-projects');
 const SCRIPTS_COUNT = existsSync(resolve(ROOT, 'scripts'))
   ? readdirSync(resolve(ROOT, 'scripts')).filter(file => file.endsWith('.sh')).length
   : 0;
 figlet.defaults({ fontPath: resolve(__dirname, 'node_modules/figlet/fonts') });
 
+const cliArgs = process.argv.slice(2);
+if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
+  console.log(VERSION);
+  process.exit(0);
+}
+if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
+  console.log(`GhostForge v${VERSION}
+Operator-grade dev tools, forged in the shadows.
+
+Usage:
+  node tui/index.js
+  ghostforge
+  gf`);
+  process.exit(0);
+}
+
 // ─── Theme ───────────────────────────────────────────────────────────────────
 const T = {
-  brand:    chalk.hex('#0077C8'),      // GhostForge blue
+  brand:    chalk.hex('#0077C8'),
   accent:   chalk.hex('#00A3E0'),      // lighter blue
+  cyan:     chalk.hex('#06B6D4'),
+  red:      chalk.hex('#EF4444'),
+  yellow:   chalk.hex('#F59E0B'),
   success:  chalk.hex('#22C55E'),
   warning:  chalk.hex('#F59E0B'),
   danger:   chalk.hex('#EF4444'),
@@ -47,13 +66,13 @@ const divider = (char = '─', len = 60) => T.muted(char.repeat(len));
 function clear() { process.stdout.write('\x1Bc'); }
 
 function banner() {
-  const art = figlet.textSync('GHOSTFORGE', { font: 'Big', horizontalLayout: 'default' });
+  const art = figlet.textSync('GHOST', { font: 'Big', horizontalLayout: 'default' });
   console.log(T.brand(art));
   console.log(
     boxen(
-      T.accent.bold(` AI Developer Toolkit  v${VERSION} `) + T.muted('  |  ') +
-      T.white('GitHub Copilot + Azure DevOps') + '\n' +
-      T.muted('  React · React Native · Next.js · TypeScript · Tailwind · Full-Stack'),
+      T.accent.bold(` GhostForge  v${VERSION} `) + T.muted('  |  ') +
+      T.white('Operator-grade dev tools, forged in the shadows.') + '\n' +
+      T.muted('  React · Next.js · TypeScript · Tailwind · Git · Performance · Release Ops'),
       { padding: { top: 0, bottom: 0, left: 1, right: 1 }, borderColor: '#0077C8', borderStyle: 'round' }
     )
   );
@@ -142,7 +161,7 @@ const COMMANDS = [
   { name: '/create',        cat: '🏗  Setup',      file: 'commands/create.md',         desc: 'Scaffold a new React / React Native / Next.js / NestJS project' },
   { name: '/scaffold',      cat: '🏗  Setup',      file: 'commands/scaffold.md',       desc: 'Generate folder structure, components, screens, and boilerplate' },
   { name: '/onboard',       cat: '🏗  Setup',      file: 'commands/onboard.md',        desc: 'Onboard an existing project: add eslint, prettier, CI/CD, agents' },
-  { name: '/open',          cat: '🏗  Setup',      file: 'commands/open.md',          desc: 'Open existing project and wire up all GhostForge AI toolkit files' },
+  { name: '/open',          cat: '🏗  Setup',      file: 'commands/open.md',          desc: 'Open existing project and wire up all GhostForge toolkit files' },
   { name: '/env',           cat: '🏗  Setup',      file: 'commands/env.md',            desc: 'Manage .env files: generate, validate, sync secrets' },
   // Development
   { name: '/add-feature',   cat: '💡 Development', file: 'commands/add-feature.md',    desc: 'Add a new feature with tests, types, and documentation' },
@@ -306,7 +325,7 @@ async function screenHome() {
       { name: T.success.bold('⚡  Generate New')              + T.muted('           — create custom agent/command/skill/plugin'), value: 'generate' },
       { name: T.accent.bold('🆓  Free Models')               + T.muted('            — NVIDIA, Groq, Ollama, HuggingFace'), value: 'freemodels' },
       { name: T.muted(`🔖  Version: v${VERSION}`)           + T.muted('          — bump version / run updater'), value: 'version' },
-      { name: T.accent.bold('🧩  Install VS Code Extension')  + T.muted('  — install ghostforge-ai.vsix into VS Code'), value: 'vscode-install' },
+      { name: T.accent.bold('🧩  Install VS Code Extension')  + T.muted('  — install ghostforge.vsix into VS Code'), value: 'vscode-install' },
       { name: T.muted('❓  Help & Quick Reference')                                                               , value: 'help' },
       { name: T.danger('✖   Exit')                                                                                , value: 'exit' },
     ],
@@ -352,6 +371,225 @@ async function screenCommands() {
     console.log();
     await pressEnter();
   }
+
+  if (action === 'git-autopilot') {
+    const gitAction = await select({
+      message: T.white.bold('👻  Git Autopilot:'),
+      choices: [
+        { name: T.accent.bold('✍️  Suggest commit'), value: 'suggest-commit' },
+        { name: T.success.bold('🌿  Suggest branch'), value: 'suggest-branch' },
+        { name: T.brand.bold('📝  Suggest PR'), value: 'suggest-pr' },
+        { name: T.white.bold('📋  Status'), value: 'status' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (gitAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/git-autopilot.sh'), gitAction];
+      if (gitAction === 'suggest-branch') {
+        const desc = await input({ message: T.white('Task description (optional):'), default: '' });
+        if (desc) args.push(desc);
+      }
+      const { spawnSync } = await import('child_process');
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'bundle-tracker') {
+    const bundleAction = await select({
+      message: T.white.bold('📦  Bundle Size Tracker:'),
+      choices: [
+        { name: T.accent.bold('📍  Track build output'), value: 'track' },
+        { name: T.white.bold('🕘  History'), value: 'history' },
+        { name: T.success.bold('📈  Compare last builds'), value: 'compare' },
+        { name: T.warning.bold('🚨  Set alert threshold'), value: 'alert' },
+        { name: T.danger.bold('🧹  Clean history'), value: 'clean' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (bundleAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/bundle.sh'), bundleAction];
+      if (bundleAction === 'track') {
+        const dir = await input({ message: T.white('Directory to scan:'), default: process.cwd() });
+        if (dir) args.push(dir);
+      }
+      if (bundleAction === 'alert') {
+        const threshold = await input({ message: T.white('Threshold in KB:'), default: '500' });
+        if (threshold) args.push(threshold);
+      }
+      const { spawnSync } = await import('child_process');
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'lighthouse-ci') {
+    const lighthouseAction = await select({
+      message: T.white.bold('🔦  Lighthouse CI:'),
+      choices: [
+        { name: T.accent.bold('▶  Run audit'), value: 'run' },
+        { name: T.success.bold('⬇️  Install lighthouse'), value: 'install' },
+        { name: T.white.bold('🕘  History'), value: 'history' },
+        { name: T.brand.bold('📄  Open last report'), value: 'report' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (lighthouseAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/lighthouse.sh'), lighthouseAction];
+      if (lighthouseAction === 'run') {
+        const url = await input({ message: T.white('URL to audit:'), default: 'http://localhost:3000' });
+        if (url) args.push(url);
+      }
+      const { spawnSync } = await import('child_process');
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'i18n-rtl') {
+    const i18nAction = await select({
+      message: T.white.bold('🌍  i18n / RTL Helper:'),
+      choices: [
+        { name: T.accent.bold('🈯  Translate text'), value: 'translate' },
+        { name: T.warning.bold('🔍  Audit RTL issues'), value: 'audit' },
+        { name: T.success.bold('🧾  Extract hardcoded strings'), value: 'extract' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (i18nAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/i18n.sh'), i18nAction];
+      if (i18nAction === 'translate') {
+        const textValue = await input({ message: T.white('Text to translate:'), default: '' });
+        const lang = await input({ message: T.white('Target language (ar/en, optional):'), default: '' });
+        if (textValue) args.push(textValue);
+        if (lang) args.push(lang);
+      } else {
+        const dir = await input({ message: T.white('Directory to scan:'), default: process.cwd() });
+        if (dir) args.push(dir);
+      }
+      const { spawnSync } = await import('child_process');
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'changelog-gen') {
+    const changelogAction = await select({
+      message: T.white.bold('📝  Changelog Generator:'),
+      choices: [
+        { name: T.accent.bold('🛠  Generate'), value: 'generate' },
+        { name: T.white.bold('👀  Preview'), value: 'preview' },
+        { name: T.success.bold('🏷  Bump version'), value: 'bump' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (changelogAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/changelog.sh'), changelogAction];
+      if (changelogAction === 'generate' || changelogAction === 'preview') {
+        const since = await input({ message: T.white('Since tag/ref (optional):'), default: '' });
+        if (since) args.push(since);
+      }
+      if (changelogAction === 'bump') {
+        const bump = await select({
+          message: 'Version bump:',
+          choices: [
+            { name: 'major', value: 'major' },
+            { name: 'minor', value: 'minor' },
+            { name: 'patch', value: 'patch' },
+          ],
+        });
+        args.push(bump);
+      }
+      const { spawnSync } = await import('child_process');
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'dep-health') {
+    const depAction = await select({
+      message: T.white.bold('🩺  Dependency Health:'),
+      choices: [
+        { name: T.accent.bold('🧮  Quick audit summary'), value: 'check' },
+        { name: T.warning.bold('🔐  Full npm audit'), value: 'audit' },
+        { name: T.white.bold('📦  Outdated packages'), value: 'outdated' },
+        { name: T.success.bold('📊  Full scorecard'), value: 'full' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (depAction !== '__back__') {
+      const { spawnSync } = await import('child_process');
+      spawnSync('bash', [resolve(ROOT, 'scripts/dep-health.sh'), depAction], { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'api-mock-gen') {
+    const mockAction = await select({
+      message: T.white.bold('🔌  API Mock Generator:'),
+      choices: [
+        { name: T.accent.bold('🧱  Setup MSW'), value: 'setup' },
+        { name: T.success.bold('⚙️  Generate handlers'), value: 'generate' },
+        { name: T.white.bold('📂  List generated files'), value: 'list' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (mockAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/api-mock.sh'), mockAction];
+      if (mockAction === 'generate') {
+        const spec = await input({ message: T.white('OpenAPI spec path:'), default: '' });
+        if (spec) args.push(spec);
+      }
+      const { spawnSync } = await import('child_process');
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'figma-tokens') {
+    const figmaAction = await select({
+      message: T.white.bold('🎨  Figma Token Sync:'),
+      choices: [
+        { name: T.accent.bold('🔑  Setup token'), value: 'setup' },
+        { name: T.white.bold('👀  Preview token names'), value: 'preview' },
+        { name: T.success.bold('🔄  Sync tokens'), value: 'sync' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (figmaAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/figma-tokens.sh'), figmaAction];
+      if (figmaAction === 'preview' || figmaAction === 'sync') {
+        const key = await input({ message: T.white('Figma file key:'), default: '' });
+        if (key) args.push(key);
+      }
+      const { spawnSync } = await import('child_process');
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
+
+  if (action === 'storybook-scaffold') {
+    const storyAction = await select({
+      message: T.white.bold('📚  Storybook Scaffolder:'),
+      choices: [
+        { name: T.accent.bold('⬇️  Install Storybook'), value: 'install' },
+        { name: T.success.bold('🧩  Scaffold stories'), value: 'scaffold' },
+        { name: T.white.bold('▶  Run Storybook'), value: 'run' },
+        { name: T.brand.bold('🏗  Build Storybook'), value: 'build' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (storyAction !== '__back__') {
+      const args = [resolve(ROOT, 'scripts/storybook.sh'), storyAction];
+      if (storyAction === 'scaffold') {
+        const dir = await input({ message: T.white('Components directory:'), default: 'src/components' });
+        if (dir) args.push(dir);
+      }
+      const { spawnSync } = await import('child_process');
+      spawnSync('bash', args, { stdio: 'inherit', cwd: process.cwd() });
+      await pressEnter();
+    }
+  }
 }
 
 async function screenAgents() {
@@ -387,7 +625,7 @@ async function screenAgents() {
     console.log();
     const activate = await confirm({ message: T.white('Copy activation prompt to clipboard?'), default: false });
     if (activate) {
-      const prompt = `Act as ${agent.name} agent from ghostforge-agents toolkit. ${agent.desc}`;
+      const prompt = `Act as ${agent.name} agent from GhostForge toolkit. ${agent.desc}`;
       try {
         execSync(`echo "${prompt}" | pbcopy 2>/dev/null || echo "${prompt}" | xclip -selection clipboard 2>/dev/null`);
         console.log(T.success('  ✔  Copied! Paste into GitHub Copilot Chat.'));
@@ -818,7 +1056,7 @@ async function screenReadme() {
 }
 
 async function screenHelp() {
-  sectionHeader('❓  Help & Quick Reference', 'How to use the GhostForge AI Developer Toolkit');
+  sectionHeader('❓  Help & Quick Reference', 'How to use GhostForge');
 
   const table = new Table({
     head: [T.brand.bold('Command'), T.brand.bold('Description')],
@@ -833,7 +1071,7 @@ async function screenHelp() {
   console.log();
   console.log(boxen(
     T.white.bold('3 Ways to Use This Toolkit:\n\n') +
-    T.accent('1. TUI    ') + T.muted('→ ') + T.white('This terminal UI  (ghostforge-ai)\n') +
+    T.accent('1. TUI    ') + T.muted('→ ') + T.white('This terminal UI  (ghostforge)\n') +
     T.accent('2. Copilot') + T.muted('→ ') + T.white('Type /command in GitHub Copilot Chat\n') +
     T.accent('3. Script ') + T.muted('→ ') + T.white('bash scripts/create-project.sh'),
     { padding: 1, borderColor: '#00A3E0', borderStyle: 'round', title: ' Quick Start ' }
@@ -843,7 +1081,7 @@ async function screenHelp() {
 }
 
 async function screenOpenProject() {
-  sectionHeader('📂  Open Existing Project', 'Wire GhostForge AI Toolkit into any existing project');
+  sectionHeader('📂  Open Existing Project', 'Wire GhostForge into any existing project');
 
   const action = await select({
    message: T.white('Choose action:'),
@@ -885,7 +1123,7 @@ async function screenVersion() {
   sectionHeader(`🔖  Version Management`, `Current toolkit version: v${VERSION}`);
 
   console.log(boxen(
-    T.accent.bold(`  GhostForge AI Developer Toolkit\n\n`) +
+    T.accent.bold(`  GhostForge\n\n`) +
     T.white(`  Version  : `) + T.brand.bold(`v${VERSION}`) + '\n' +
     T.white(`  Location : `) + T.muted(ROOT) + '\n' +
     T.white(`  Updated  : `) + T.muted(new Date().toLocaleDateString()),
@@ -962,6 +1200,15 @@ async function screenMarketplace() {
       { name: T.warning.bold('🔀  OpenRouter')              + T.muted(' — 300+ AI models · browse free models · one API'), value: 'openrouter' },
       { name: T.cyan.bold('🎙️   Meetily')                   + T.muted(' — local AI meeting transcription · Arabic · no cloud'), value: 'meetily' },
       { name: T.success.bold('🌿  Carbon Monitor')           + T.muted(' — track dev session CO₂ emissions · your CRP research'), value: 'carbon-monitor' },
+      { name: T.accent.bold('👻  Git Autopilot')             + T.muted(' — AI commit, branch, PR, and status helper'), value: 'git-autopilot' },
+      { name: T.white.bold('📦  Bundle Size Tracker')        + T.muted(' — JS size history, compare builds, set alerts'), value: 'bundle-tracker' },
+      { name: T.warning.bold('🔦  Lighthouse CI')            + T.muted(' — trend performance, accessibility, and SEO scores'), value: 'lighthouse-ci' },
+      { name: T.success.bold('🌍  i18n / RTL Helper')        + T.muted(' — translation, RTL audit, string extraction'), value: 'i18n-rtl' },
+      { name: T.brand.bold('📝  Changelog Generator')        + T.muted(' — conventional commits to release notes'), value: 'changelog-gen' },
+      { name: T.warning.bold('🩺  Dependency Health')        + T.muted(' — npm audit summary and outdated package score'), value: 'dep-health' },
+      { name: T.accent.bold('🔌  API Mock Generator')        + T.muted(' — OpenAPI to MSW handler stubs'), value: 'api-mock-gen' },
+      { name: T.brand.bold('🎨  Figma Token Sync')           + T.muted(' — variables to CSS custom properties + Tailwind'), value: 'figma-tokens' },
+      { name: T.success.bold('📚  Storybook Scaffolder')     + T.muted(' — install Storybook and generate stories'), value: 'storybook-scaffold' },
       { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
       { name: T.success.bold('🤖  Add Custom Model')      + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
@@ -2027,7 +2274,7 @@ async function screenMarketplace() {
           T.white('  • CarbonTracker — ML training tracker\n') +
           T.white('  • Intel PowerLog — hardware power readings\n') +
           T.white('  • Threshold: avg_emissions/session × 1.1\n\n') +
-          T.success.bold('  Now integrated into ghostforge-agents as:\n') +
+          T.success.bold('  Now integrated into GhostForge as:\n') +
           T.cyan('  ghostforge carbon track npm run build\n') +
           T.cyan('  ghostforge carbon track npx playwright test\n') +
           T.cyan('  ghostforge carbon report\n'),
@@ -2088,7 +2335,8 @@ async function screenMarketplace() {
     await pressEnter();
   }
 
-  const sourcesPath = resolve(ROOT, 'marketplace/sources.json');
+  if (action === 'skills') {
+    const sourcesPath = resolve(ROOT, 'marketplace/sources.json');
     let allSources = [];
     try {
       const s = JSON.parse(readFileSync(sourcesPath, 'utf8'));
@@ -2457,7 +2705,7 @@ async function screenGenerate() {
     mkdirSync(pluginDir, { recursive: true });
     mkdirSync(resolve(pluginDir, 'agents'), { recursive: true });
     mkdirSync(resolve(pluginDir, 'commands'), { recursive: true });
-    content = `# ${name} Plugin\n\n${description}\n\n## Contents\n- agents/ — specialized agents for this plugin\n- commands/ — slash commands\n\n## Usage\nCopy files to the ghostforge-agents root:\n\`\`\`bash\ncp -r plugins/${cleanName}/agents/* agents/\ncp -r plugins/${cleanName}/commands/* commands/\n\`\`\`\n\n## Tags\n${tags || cleanName}\n`;
+    content = `# ${name} Plugin\n\n${description}\n\n## Contents\n- agents/ — specialized agents for this plugin\n- commands/ — slash commands\n\n## Usage\nCopy files to the GhostForge root:\n\`\`\`bash\ncp -r plugins/${cleanName}/agents/* agents/\ncp -r plugins/${cleanName}/commands/* commands/\n\`\`\`\n\n## Tags\n${tags || cleanName}\n`;
     const manifestPath = resolve(pluginDir, 'plugin.json');
     writeFileSync(manifestPath, JSON.stringify({ id: cleanName, name, description, version: '1.0.0', tags: tags ? tags.split(',').map(t => t.trim()) : [cleanName] }, null, 2));
   }
@@ -2841,7 +3089,7 @@ async function screenGitHooks() {
 
 // ─── Main Loop ────────────────────────────────────────────────────────────────
 async function screenVSCodeInstall() {
-  sectionHeader('🧩  Install VS Code Extension', 'Install the ghostforge-ai extension directly into VS Code');
+  sectionHeader('🧩  Install VS Code Extension', 'Install the GhostForge extension directly into VS Code');
 
   const { spawnSync } = await import('child_process');
   const { readdirSync } = await import('fs');
@@ -3179,7 +3427,7 @@ async function main() {
         case 'exit':
           clear();
           console.log(boxen(
-            T.brand.bold(' Goodbye! Happy coding 🚀 ') + '\n' + T.muted(` GhostForge AI Developer Toolkit — v${VERSION} `),
+            T.brand.bold(' GhostForge signing off 👻 ') + '\n' + T.muted(` GhostForge — v${VERSION} `),
             { padding: 1, borderColor: '#0077C8', borderStyle: 'double' }
           ));
           console.log();
@@ -3189,7 +3437,7 @@ async function main() {
   } catch (e) {
     if (e.name === 'ExitPromptError' || e.message?.includes('User force closed')) {
       clear();
-      console.log(T.muted('\n  Exited. Run again: ') + T.accent('ghostforge-ai') + '\n');
+      console.log(T.muted('\n  Exited. Run again: ') + T.accent('ghostforge') + '\n');
       process.exit(0);
     }
     console.error(T.danger('\n  Error: ') + e.message);

@@ -9,7 +9,7 @@ COMPONENT_PATH="${1:-}"
 
 echo ""
 echo -e "  ${BOLD}${CYAN}╔══════════════════════════════════╗${NC}"
-echo -e "  ${BOLD}${CYAN}║   GhostForge Storybook Generator      ║${NC}"
+echo -e "  ${BOLD}${CYAN}║   GhostForge Storybook Scaffolder      ║${NC}"
 echo -e "  ${BOLD}${CYAN}╚══════════════════════════════════╝${NC}"
 echo ""
 

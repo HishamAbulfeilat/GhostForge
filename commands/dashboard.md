@@ -6,7 +6,7 @@ Open a real-time terminal dashboard showing your assigned tickets, CI/CD pipelin
 ## Usage
 ```bash
 /dashboard
-ghostforge-ai dashboard
+ghostforge dashboard
 bash ~/ghostforge-agents/scripts/dashboard.sh
 ```
 

@@ -102,7 +102,7 @@ if ! $SKIP_VSCODE; then
     done
     VSIX=$(ls "$GHOSTFORGE_DIR/extension/"*.vsix 2>/dev/null | head -1 || true)
     if [[ -n "$VSIX" ]]; then
-      code --install-extension "$VSIX" --force &>/dev/null && ok "ghostforge-ai extension" || skip "ghostforge-ai extension"
+      code --install-extension "$VSIX" --force &>/dev/null && ok "ghostforge extension" || skip "ghostforge extension"
     fi
   else
     echo -e "  ${YELLOW}⚠  VS Code CLI not found. Install VS Code and run: Shell Command: Install 'code' in PATH${NC}"
@@ -117,18 +117,18 @@ else
   echo -e "  ${DIM}  Run: gh auth login${NC}"
 fi
 
-step "GhostForge AI Toolkit"
+step "GhostForge"
 cd "$GHOSTFORGE_DIR/tui" && npm install --silent 2>/dev/null && ok "TUI dependencies installed"
 
 SHELL_PROFILE="$HOME/.zshrc"
 [[ -f "$HOME/.bashrc" ]] && SHELL_PROFILE="$HOME/.bashrc"
-if ! grep -q "ghostforge-ai" "$SHELL_PROFILE" 2>/dev/null; then
+if ! grep -q "ghostforge" "$SHELL_PROFILE" 2>/dev/null; then
   echo "" >> "$SHELL_PROFILE"
-  echo "# GhostForge AI Toolkit" >> "$SHELL_PROFILE"
-  echo "alias ghostforge-ai='node $GHOSTFORGE_DIR/tui/index.js'" >> "$SHELL_PROFILE"
-  ok "ghostforge-ai alias added to $SHELL_PROFILE"
+  echo "# GhostForge" >> "$SHELL_PROFILE"
+  echo "alias ghostforge='node $GHOSTFORGE_DIR/tui/index.js'" >> "$SHELL_PROFILE"
+  ok "ghostforge alias added to $SHELL_PROFILE"
 else
-  ok "ghostforge-ai alias already in $SHELL_PROFILE"
+  ok "ghostforge alias already in $SHELL_PROFILE"
 fi
 
 echo ""
@@ -139,5 +139,5 @@ echo ""
 echo -e "  ${BOLD}Next steps:${NC}"
 echo -e "  ${DIM}1. Reload your shell: source $SHELL_PROFILE${NC}"
 echo -e "  ${DIM}2. Auth GitHub: gh auth login${NC}"
-echo -e "  ${DIM}3. Launch toolkit: ghostforge-ai${NC}"
+echo -e "  ${DIM}3. Launch toolkit: ghostforge${NC}"
 echo ""

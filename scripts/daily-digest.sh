@@ -47,7 +47,7 @@ tip='/fix-tickets --dry-run'
 
 echo ""
 line
-echo -e " ${BLUE}${BOLD}GhostForge AI Toolkit — Good morning, Dev!${NC}"
+echo -e " ${BLUE}${BOLD}GhostForge — Good morning, Dev!${NC}"
 echo -e " ${DIM}Date: $(date '+%A, %B %d')${NC}"
 line
 echo ""

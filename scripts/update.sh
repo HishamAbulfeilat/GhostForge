@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════
-#  update.sh — GhostForge AI Toolkit Updater
+#  update.sh — GhostForge Updater
 #  • Pulls latest changes from GitHub
 #  • Bumps version (major / minor / patch)
 #  • Creates a git tag and pushes it
@@ -60,7 +60,7 @@ CURRENT_VERSION="$(cat "$VERSION_FILE" 2>/dev/null || echo "2.0.0")"
 
 echo ""
 echo -e "${BLUE}${BOLD}  ╔══════════════════════════════════════════╗${NC}"
-echo -e "${BLUE}${BOLD}  ║   GhostForge AI Toolkit — Updater             ║${NC}"
+echo -e "${BLUE}${BOLD}  ║   GhostForge — Updater             ║${NC}"
 echo -e "${BLUE}${BOLD}  ╚══════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  Current version : ${BOLD}v${CURRENT_VERSION}${NC}"
@@ -143,7 +143,7 @@ if $IS_GIT && [[ "$NEW_VERSION" != "$CURRENT_VERSION" ]]; then
     git commit -m "chore: bump version to v${NEW_VERSION}" --quiet
 
     # Create annotated tag
-    git tag -a "v${NEW_VERSION}" -m "GhostForge AI Toolkit v${NEW_VERSION}"
+    git tag -a "v${NEW_VERSION}" -m "GhostForge v${NEW_VERSION}"
     echo -e "  ${GREEN}✔${NC} Tag created: ${BOLD}v${NEW_VERSION}${NC}"
 
     # Push if remote exists
@@ -225,13 +225,13 @@ if [[ -d "$EXT_DIR" ]] && [[ "$NEW_VERSION" != "$CURRENT_VERSION" ]]; then
   if command -v npx &>/dev/null; then
     # Remove old vsix files
     rm -f "$EXT_DIR"/*.vsix 2>/dev/null || true
-    npx @vscode/vsce package --no-dependencies --out "$EXT_DIR/ghostforge-ai-${NEW_VERSION}.vsix" 2>/dev/null \
-      && echo -e "  ${GREEN}✔${NC} Packaged: ghostforge-ai-${NEW_VERSION}.vsix" \
+    npx @vscode/vsce package --no-dependencies --out "$EXT_DIR/ghostforge-${NEW_VERSION}.vsix" 2>/dev/null \
+      && echo -e "  ${GREEN}✔${NC} Packaged: ghostforge-${NEW_VERSION}.vsix" \
       || echo -e "  ${YELLOW}⚠  VSIX packaging skipped${NC}"
   fi
 
   # Auto-reinstall if code CLI available
-  VSIX_FILE="$EXT_DIR/ghostforge-ai-${NEW_VERSION}.vsix"
+  VSIX_FILE="$EXT_DIR/ghostforge-${NEW_VERSION}.vsix"
   if command -v code &>/dev/null && [[ -f "$VSIX_FILE" ]]; then
     code --install-extension "$VSIX_FILE" --force &>/dev/null \
       && echo -e "  ${GREEN}✔${NC} Extension reinstalled in VS Code (reload window to activate)" \
@@ -244,8 +244,8 @@ fi
 echo ""
 divider
 echo ""
-echo -e "  ${GREEN}${BOLD}✅ GhostForge AI Toolkit v${NEW_VERSION} ready!${NC}"
+echo -e "  ${GREEN}${BOLD}✅ GhostForge v${NEW_VERSION} ready!${NC}"
 echo ""
-echo -e "  ${DIM}Launch TUI    : ~/ghostforge-agents/ghostforge-ai${NC}"
+echo -e "  ${DIM}Launch TUI    : ~/ghostforge-agents/ghostforge${NC}"
 echo -e "  ${DIM}Open project  : bash ~/ghostforge-agents/scripts/open-project.sh${NC}"
 echo ""

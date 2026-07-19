@@ -1,4 +1,4 @@
-# /open — Open Existing Project with GhostForge AI Toolkit
+# /open — Open Existing Project with GhostForge
 
 ## Purpose
 Open an existing project and automatically wire up all GhostForge AI toolkit files so GitHub Copilot is instantly powered up with the full knowledge base, agents, commands, and CI/CD pipelines.
@@ -22,7 +22,7 @@ bash ~/ghostforge-agents/scripts/open-project.sh
 bash ~/ghostforge-agents/scripts/open-project.sh /path/to/my-project
 
 # Or via the TUI
-ghostforge-ai  →  Open Existing Project
+ghostforge  →  Open Existing Project
 ```
 
 ## What Gets Copied

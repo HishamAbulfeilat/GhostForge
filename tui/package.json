@@ -1,11 +1,12 @@
 {
-  "name": "ghostforge-tui",
-  "version": "2.0.0",
-  "description": "GhostForge AI Developer Toolkit — Terminal UI",
+  "name": "ghostforge",
+  "version": "4.0.0",
+  "description": "GhostForge \u2014 Operator-grade dev tools, forged in the shadows.",
   "main": "index.js",
   "type": "module",
   "bin": {
-    "ghostforge-ai": "./index.js"
+    "ghostforge": "./index.js",
+    "gf": "./index.js"
   },
   "scripts": {
     "start": "node index.js",

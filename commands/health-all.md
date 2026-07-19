@@ -22,4 +22,4 @@ Scan multiple projects at once and produce a combined health report across all r
 - Optional CSV export to `health-report.csv`
 
 ## Setup
-Projects must be registered: `ghostforge-ai register /path/to/project`
+Projects must be registered: `ghostforge register /path/to/project`

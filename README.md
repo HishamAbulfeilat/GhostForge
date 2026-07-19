@@ -1,8 +1,8 @@
-# 🚀 GhostForge AI Developer Toolkit — v3.0.0
+# 🚀 GhostForge — v4.0.0
 
 The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, and more.
 
-**230+ files · 14 agents · 60 commands · 35 scripts · 24 instruction files · MCP server · React Doctor · Marketplace · Agent Skills · Developer Dashboard (7 panels) · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge-ai`) · Voice Features · PR Auto-Check**
+**230+ files · 14 agents · 60 commands · 35 scripts · 24 instruction files · MCP server · React Doctor · Marketplace · Agent Skills · Developer Dashboard (7 panels) · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge`) · Voice Features · PR Auto-Check**
 
 ---
 
@@ -12,7 +12,7 @@ The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copil
 2. [@ghostforge GitHub Copilot Extension](#-ghostforge-github-copilot-extension)
 3. [MCP Server](#-mcp-server)
 4. [React Doctor — React Health Scanner](#-react-doctor--react-health-scanner)
-5. [Terminal UI — `ghostforge-ai`](#-terminal-ui----ghostforge-ai)
+5. [Terminal UI — `ghostforge`](#-terminal-ui----ghostforge)
 6. [Marketplace, Generators & Free Models](#-marketplace-generators--free-models)
 7. [VS Code Extension](#-vs-code-extension)
 8. [Snippet Library](#-snippet-library)
@@ -44,7 +44,7 @@ git clone https://github.com/HishamAbulfeilat/GhostForge.git ~/ghostforge-agents
 bash ~/ghostforge-agents/scripts/setup-env.sh
 
 # 3a. Launch the Terminal UI  ← recommended!
-~/ghostforge-agents/ghostforge-ai
+~/ghostforge-agents/ghostforge
 
 # 3b. OR start a new project directly
 bash ~/ghostforge-agents/scripts/create-project.sh
@@ -60,7 +60,7 @@ code /your/project
 
 | Method | How | Best For |
 |--------|-----|----------|
-| **Terminal UI** | `~/ghostforge-agents/ghostforge-ai` | Visual, menu-driven — all features at a glance |
+| **Terminal UI** | `~/ghostforge-agents/ghostforge` | Visual, menu-driven — all features at a glance |
 | **Copilot Chat** | Type `/command` in VS Code (`Cmd+Shift+I`) | AI code generation & assistance |
 | **VS Code Extension** | `Cmd+Shift+E` or click "⚡ GhostForge" in status bar | Right-click menus, snippet insert, command picker |
 | **Shell Scripts** | `bash scripts/create-project.sh` | Automated project scaffolding |
@@ -74,7 +74,7 @@ code /your/project
 - **Setup guide:** [`EXTENSION_SETUP.md`](./EXTENSION_SETUP.md)
 - **Hosted usage:** `@ghostforge /help`, `@ghostforge /health`, `@ghostforge /tickets`, `@ghostforge /security`, `@ghostforge /review`, `@ghostforge /deploy`, `@ghostforge /optimize`
 - **Full command catalog:** `/setup`, `/create`, `/open`, `/scaffold`, `/add-feature`, `/migrate`, `/estimate`, `/tech-debt`, `/explain-codebase`, `/health`, `/doctor`, `/marketplace`, `/generate`, `/free-models`, `/help`, `/docs`, `/snippet`, `/onboard`, `/optimize`, `/perf`, `/lint`, `/explain-error`, `/diagram`, `/security`, `/test`, `/a11y`, `/qa`, `/review`, `/tickets`, `/fix-tickets`, `/deploy`, `/release`, `/sql`, `/mock`, `/i18n`, `/storybook`, `/notify`, `/commit`, `/pr-description`, `/upgrade`, `/env`, `/model`, `/autopilot`, `/safe`, `/dashboard`, `/api-types`, `/changelog`, `/env-check`, `/unused`, `/git-hooks`, `/skills`, `/rtl`, `/bundle`, `/context`, `/ticket`
-- **Local toolkit stays independent:** `ghostforge-ai`, `scripts/`, copied `.github/` instructions, and existing project flows continue to work exactly as before
+- **Local toolkit stays independent:** `ghostforge`, `scripts/`, copied `.github/` instructions, and existing project flows continue to work exactly as before
 
 ---
 
@@ -155,7 +155,7 @@ The skill is already installed for **GitHub Copilot**, **Claude Code**, **Contin
 
 ---
 
-## 🖥 Terminal UI — `ghostforge-ai`
+## 🖥 Terminal UI — `ghostforge`
 
 A clean, interactive terminal dashboard for the entire toolkit. Browse commands, switch agents, run tests, deploy, manage tickets — all from a beautiful menu without memorizing anything.
 
@@ -163,13 +163,13 @@ A clean, interactive terminal dashboard for the entire toolkit. Browse commands,
 
 ```bash
 # Recommended: run from anywhere
-~/ghostforge-agents/ghostforge-ai
+~/ghostforge-agents/ghostforge
 
 # CLI flags
-~/ghostforge-agents/ghostforge-ai --version
-~/ghostforge-agents/ghostforge-ai --command health
-~/ghostforge-agents/ghostforge-ai --open /path/to/project
-~/ghostforge-agents/ghostforge-ai --digest
+~/ghostforge-agents/ghostforge --version
+~/ghostforge-agents/ghostforge --command health
+~/ghostforge-agents/ghostforge --open /path/to/project
+~/ghostforge-agents/ghostforge --digest
 ```
 
 ### Add a Shell Alias (Recommended)
@@ -177,7 +177,7 @@ A clean, interactive terminal dashboard for the entire toolkit. Browse commands,
 Add to `~/.zshrc` or `~/.bashrc`:
 
 ```bash
-alias ghostforge-ai='node ~/ghostforge-agents/tui/index.js'
+alias ghostforge='node ~/ghostforge-agents/tui/index.js'
 ```
 
 ### TUI Screens
@@ -209,7 +209,7 @@ alias ghostforge-ai='node ~/ghostforge-agents/tui/index.js'
 | 🎓 **Agent Skills** | Anthropic official, SkillsMP 2M+, Claude-Flow, Awesome Claude Skills |
 | ⚡ **Generate New** | Create a new agent, command, skill, instruction, or plugin |
 | 🆓 **Free Models** | Configure NVIDIA, Groq, Ollama, HuggingFace, and more |
-| 🧩 **Install VS Code Extension** | One-click install + auto-rebuild of `ghostforge-ai.vsix` into VS Code |
+| 🧩 **Install VS Code Extension** | One-click install + auto-rebuild of `ghostforge.vsix` into VS Code |
 | ❓ **Help** | Quick reference for all commands and agents |
 
 ### Requirements
@@ -295,7 +295,7 @@ A real-time, full-screen terminal dashboard with 6 live panels:
 ```
 
 ```bash
-ghostforge-ai                          # → 📊 Developer Dashboard (first item)
+ghostforge                          # → 📊 Developer Dashboard (first item)
 bash ~/ghostforge-agents/scripts/dashboard.sh
 node ~/ghostforge-agents/tui/dashboard.js
 ```
@@ -305,15 +305,15 @@ node ~/ghostforge-agents/tui/dashboard.js
 
 ---
 
-A local VS Code extension (`ghostforge-ai`) that brings the toolkit into your editor without the terminal.
+A local VS Code extension (`ghostforge`) that brings the toolkit into your editor without the terminal.
 
 ### Install
 ```bash
 # Option 1: From TUI (recommended)
-~/ghostforge-agents/ghostforge-ai  # → "🧩 Install VS Code Extension"
+~/ghostforge-agents/ghostforge  # → "🧩 Install VS Code Extension"
 
 # Option 2: Direct
-code --install-extension ~/ghostforge-agents/extension/ghostforge-ai-2.6.0.vsix
+code --install-extension ~/ghostforge-agents/extension/ghostforge-2.6.0.vsix
 ```
 
 After installing, reload VS Code (`Cmd+Shift+P` → "Reload Window").
@@ -417,7 +417,7 @@ What tech stack do you know for this project?
 ```bash
 bash ~/ghostforge-agents/scripts/create-project.sh
 # OR launch from the TUI:
-ghostforge-ai
+ghostforge
 ```
 
 ### What it asks (step by step):
@@ -474,7 +474,7 @@ The AI parses your description, shows a structured plan, and scaffolds everythin
 ## 💬 Commands Reference
 
 Type these in **GitHub Copilot Chat** (`Cmd+Shift+I` / `Ctrl+Shift+I`).
-> Type `/help` anytime for the quick reference card. Browse all commands in `ghostforge-ai` → ⚡ Run a Command.
+> Type `/help` anytime for the quick reference card. Browse all commands in `ghostforge` → ⚡ Run a Command.
 
 ### 🏗️ Project & Features
 | Command | Description |
@@ -625,7 +625,7 @@ AI asks for confirmation on significant changes.
 
 ## 🎭 Agents & Role Switching
 
-Just tell Copilot which role to use — or select it from `ghostforge-ai` → 🤖 Switch Agent:
+Just tell Copilot which role to use — or select it from `ghostforge` → 🤖 Switch Agent:
 
 | Say | Agent activated |
 |-----|----------------|
@@ -700,7 +700,7 @@ The `knowledge/` folder is a shared team brain — wired into Copilot via `setti
 
 ## 🌐 Copilot Spaces
 
-A Copilot Space config is pre-built at `.copilot/space-config.md` for the `HishamAbulfeilat` org. Full setup guide at [`SPACES_SETUP.md`](./SPACES_SETUP.md).
+A Copilot Space config is pre-built at `.copilot/space-config.md` for the `ghostforgesa-copilot-business` org. Full setup guide at [`SPACES_SETUP.md`](./SPACES_SETUP.md).
 
 ---
 
@@ -733,7 +733,7 @@ ghostforge-agents/                              ← v2.3.0 — 180+ files
 ├── SPACES_SETUP.md                        ← Copilot Spaces guide
 ├── VERSION                                ← 2.3.0
 ├── .editorconfig                          ← Consistent editor settings
-├── ghostforge-ai                               ← 🖥️  Terminal UI launcher (run this!)
+├── ghostforge                               ← 🖥️  Terminal UI launcher (run this!)
 ├── .ghostforge-models.json                     ← Live synced model list
 ├── ghostforge-config.schema.json               ← .ghostforge-config.json schema
 │
@@ -856,7 +856,7 @@ ghostforge-agents/                              ← v2.3.0 — 180+ files
 |-------|--------------|
 | **Plan** | Break requirements into tasks, estimate effort (`/estimate`) |
 | **Design** | Architecture diagrams, ADRs, DB schema (`/diagram`, `architect` agent) |
-| **Setup** | Full project scaffold with all tooling (`/setup`, `ghostforge-ai`) |
+| **Setup** | Full project scaffold with all tooling (`/setup`, `ghostforge`) |
 | **Develop** | Code suggestions following GhostForge conventions + React Doctor health |
 | **Review** | Auto PR review — quality, security, performance, React Doctor score |
 | **Test** | Full automated test suite (`/test`, `/a11y`, `/doctor`) |
@@ -891,7 +891,7 @@ ghostforge-agents/                              ← v2.3.0 — 180+ files
 # The repo is already live at:
 git clone https://github.com/HishamAbulfeilat/GhostForge.git ~/ghostforge-agents
 bash ~/ghostforge-agents/scripts/setup-env.sh
-~/ghostforge-agents/ghostforge-ai
+~/ghostforge-agents/ghostforge
 ```
 
 ### Get latest updates
@@ -914,6 +914,22 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 ---
 
 ## 📅 What's New
+
+### v4.0.0 — GhostForge Era
+
+**GhostForge** — *Operator-grade dev tools, forged in the shadows.*
+
+- Renamed the toolkit from GhostForge to GhostForge (`ghostforge` / `gf`)
+- 👻 Git Autopilot
+- 📦 Bundle Size Tracker
+- 🔦 Lighthouse CI
+- 🌍 i18n / RTL Helper
+- 📝 Changelog Generator
+- 🩺 Dependency Health
+- 🔌 API Mock Generator
+- 🎨 Figma Token Sync
+- 📚 Storybook Scaffolder
+
 
 ### v3.1.4 — Green Coding Monitor (Carbon Footprint Tracker)
 - **🌿 Carbon Monitor** — integration of Hisham's CRP graduation research: *"Reducing the Carbon Footprint of Laptops and Workstations"*. CFRS system achieved 7–15% energy reduction.
@@ -1059,4 +1075,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 ---
 
 *Built for GhostForge · Frontend & Full Stack Developer Toolkit*
-*Powered by GitHub Copilot Business · v3.0.0*
+*Powered by GitHub Copilot Business · v4.0.0*
