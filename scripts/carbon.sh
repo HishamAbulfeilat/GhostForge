@@ -5,6 +5,11 @@ BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m
 
 VERSION="1.0.0"
 DATA_DIR="${HOME}/.ghostforge/carbon"
+SYSTEM_DATA_DIR="${HOME}/.ghostforge/carbon/system"
+SYSTEM_PID_FILE="$SYSTEM_DATA_DIR/system-monitor.pid"
+SYSTEM_LOG="$SYSTEM_DATA_DIR/system-monitor.log"
+SYSTEM_EMISSIONS="$SYSTEM_DATA_DIR/system-emissions.csv"
+SYSTEM_READY="$SYSTEM_DATA_DIR/system-monitor.ready"
 EMISSIONS_FILE="$DATA_DIR/emissions.csv"
 PID_FILE="$DATA_DIR/monitor.pid"
 SESSION_FILE="$DATA_DIR/session.json"
@@ -699,6 +704,154 @@ clean_cmd() {
   echo -e "${GREEN}✅ Carbon tracking data removed.${NC}"
 }
 
+# ─── System-wide monitor ──────────────────────────────────────────────────────
+
+system_start_cmd() {
+  ensure_runtime_deps
+  mkdir -p "$SYSTEM_DATA_DIR"
+  rm -f "$SYSTEM_READY"
+
+  if [[ -f "$SYSTEM_PID_FILE" ]]; then
+    local pid; pid="$(tr -d '[:space:]' < "$SYSTEM_PID_FILE")"
+    if kill -0 "$pid" 2>/dev/null; then
+      echo -e "${YELLOW}⚠ System monitor already running (PID: $pid).${NC}"
+      echo -e "${DIM}  Emissions file: $SYSTEM_EMISSIONS${NC}"
+      return 0
+    fi
+    rm -f "$SYSTEM_PID_FILE"
+  fi
+
+  CARBON_SYSTEM_DIR="$SYSTEM_DATA_DIR" \
+  nohup python3 -u - <<'PY_SYSTEM' >> "$SYSTEM_LOG" 2>&1 &
+from codecarbon import EmissionsTracker
+import json, os, signal, time
+from pathlib import Path
+
+data_dir = Path(os.environ["CARBON_SYSTEM_DIR"]).expanduser()
+data_dir.mkdir(parents=True, exist_ok=True)
+
+tracker = EmissionsTracker(
+    project_name="ghostforge-system",
+    output_dir=str(data_dir),
+    output_file="system-emissions.csv",
+    log_level="error",
+    measure_power_secs=10,       # sample every 10s
+    save_to_file=True,
+)
+tracker.start()
+
+ready_file = data_dir / "system-monitor.ready"
+ready_file.write_text("1", encoding="utf-8")
+pid_file = data_dir / "system-monitor.pid"
+pid_file.write_text(str(os.getpid()), encoding="utf-8")
+
+def finalize(sig=None, frame=None):
+    try:
+        emissions = tracker.stop() or 0.0
+    except Exception:
+        emissions = 0.0
+    info = {"pid": os.getpid(), "stopped_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "total_emissions": emissions}
+    (data_dir / "system-last.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
+    for f in (data_dir / "system-monitor.pid", data_dir / "system-monitor.ready"):
+        try: f.unlink()
+        except: pass
+    raise SystemExit(0)
+
+signal.signal(signal.SIGTERM, finalize)
+signal.signal(signal.SIGINT, finalize)
+
+while True:
+    time.sleep(15)
+PY_SYSTEM
+
+  local pid="$!"
+  # Wait for ready signal (up to 15s)
+  local waited=0
+  while [[ ! -f "$SYSTEM_READY" ]] && [[ $waited -lt 15 ]]; do
+    sleep 1; waited=$((waited+1))
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo -e "${RED}✖ System monitor failed to start. Check: $SYSTEM_LOG${NC}"
+      exit 1
+    fi
+  done
+
+  echo "$pid" > "$SYSTEM_PID_FILE"
+  echo -e "${GREEN}🌍 System-wide carbon monitor started! PID: $pid${NC}"
+  echo -e "${DIM}  Tracking: ALL CPU/GPU/RAM usage on this machine${NC}"
+  echo -e "${DIM}  Sampling every 10 seconds${NC}"
+  echo -e "${DIM}  Data: $SYSTEM_EMISSIONS${NC}"
+  echo -e "${DIM}  Log:  $SYSTEM_LOG${NC}"
+  echo -e "${DIM}  Stop: ghostforge carbon system-stop${NC}"
+}
+
+system_stop_cmd() {
+  if [[ ! -f "$SYSTEM_PID_FILE" ]]; then
+    echo -e "${YELLOW}⚠ System monitor is not running.${NC}"
+    return 0
+  fi
+  local pid; pid="$(tr -d '[:space:]' < "$SYSTEM_PID_FILE")"
+  if ! kill -0 "$pid" 2>/dev/null; then
+    rm -f "$SYSTEM_PID_FILE"
+    echo -e "${YELLOW}⚠ System monitor was not running (stale PID).${NC}"
+    return 0
+  fi
+  kill -TERM "$pid" 2>/dev/null || true
+  local waited=0
+  while kill -0 "$pid" 2>/dev/null && [[ $waited -lt 15 ]]; do
+    sleep 1; waited=$((waited+1))
+  done
+  rm -f "$SYSTEM_PID_FILE"
+
+  # Show totals from system-emissions.csv
+  if [[ -f "$SYSTEM_EMISSIONS" ]]; then
+    python3 - <<'PY' "$SYSTEM_EMISSIONS" 2>/dev/null || true
+import sys, pandas as pd
+df = pd.read_csv(sys.argv[1])
+if not df.empty and 'emissions' in df.columns:
+    total = df['emissions'].sum()
+    dur   = df['duration'].sum() if 'duration' in df.columns else 0
+    print(f"  Sessions recorded : {len(df)}")
+    print(f"  Total emissions   : {total:.8f} kg CO₂")
+    print(f"  Total tracked time: {dur/3600:.2f} hours")
+PY
+  fi
+  echo -e "${GREEN}✅ System monitor stopped.${NC}"
+}
+
+system_status_cmd() {
+  echo ""
+  if [[ -f "$SYSTEM_PID_FILE" ]]; then
+    local pid; pid="$(tr -d '[:space:]' < "$SYSTEM_PID_FILE")"
+    if kill -0 "$pid" 2>/dev/null; then
+      echo -e "${GREEN}🌍 System monitor: RUNNING (PID: $pid)${NC}"
+    else
+      rm -f "$SYSTEM_PID_FILE"
+      echo -e "${YELLOW}⚠ System monitor: STOPPED (stale PID)${NC}"
+    fi
+  else
+    echo -e "${YELLOW}⚠ System monitor: NOT running${NC}"
+    echo -e "${DIM}  Run: ghostforge carbon system-start${NC}"
+  fi
+
+  if [[ -f "$SYSTEM_EMISSIONS" ]]; then
+    python3 - <<'PY' "$SYSTEM_EMISSIONS" 2>/dev/null || true
+import sys, pandas as pd
+df = pd.read_csv(sys.argv[1])
+if not df.empty and 'emissions' in df.columns:
+    total = df['emissions'].sum()
+    print(f"  System sessions   : {len(df)}")
+    print(f"  Total emissions   : {total:.8f} kg CO₂")
+    cars_km = total / 0.00021
+    print(f"  ≈ {cars_km:.2f} km driven (car equivalent)")
+PY
+  else
+    echo -e "${DIM}  No system emissions data yet.${NC}"
+  fi
+  echo ""
+}
+
+
+
 help_cmd() {
   cat <<'EOF_HELP'
 Usage:
@@ -706,23 +859,28 @@ Usage:
   bash scripts/carbon.sh <command> [options]
 
 Commands:
-  install | setup      Check Python 3 + pip and install carbon packages
-  start [label]        Start a background carbon monitor session
-  stop                 Stop the active carbon monitor
-  status               Show monitor status and threshold state
-  threshold            Compute threshold from emissions history (avg × 1.1)
-  report               Generate a Markdown carbon report
-  track <command...>   Track emissions while running a command
-  history              Show the last 10 tracked sessions
-  clean                Remove all carbon tracking data
-  version              Print version
-  help                 Show this help message
+  install | setup         Check Python 3 + pip and install carbon packages
+  start [label]           Start a background project-level monitor
+  stop                    Stop the active project monitor
+  status                  Show project monitor status and threshold
+  system-start            Start system-wide monitor (ALL CPU/GPU/RAM)
+  system-stop             Stop system-wide monitor
+  system-status           Show system monitor status + total emissions
+  threshold               Compute threshold from history (avg × 1.1)
+  report                  Generate a Markdown carbon report
+  track <command...>      Track emissions while running a command
+  history                 Show the last 10 tracked sessions
+  clean                   Remove all carbon tracking data
+  version                 Print version
+  help                    Show this help message
 
 Examples:
   ghostforge carbon install
-  ghostforge carbon start "morning-dev"
-  ghostforge carbon track npm run build
-  ghostforge carbon stop && ghostforge carbon threshold
+  ghostforge carbon system-start         # track whole computer
+  ghostforge carbon system-status        # check total machine emissions
+  ghostforge carbon system-stop          # stop when done
+  ghostforge carbon track npm run build  # track a specific command
+  ghostforge carbon report
 EOF_HELP
 }
 
@@ -758,6 +916,18 @@ case "$ACTION" in
   history)
     print_header
     history_cmd
+    ;;
+  system-start)
+    print_header
+    system_start_cmd
+    ;;
+  system-stop)
+    print_header
+    system_stop_cmd
+    ;;
+  system-status)
+    print_header
+    system_status_cmd
     ;;
   clean)
     print_header

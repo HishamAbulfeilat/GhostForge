@@ -1997,17 +1997,20 @@ async function screenMarketplace() {
     const carbonAction = await select({
       message: T.success.bold('🌿 Carbon Monitor — Green Coding Tracker:'),
       choices: [
-        { name: T.success.bold('⬇️  Install / Setup')      + T.muted(' — Python 3 + codecarbon + carbontracker + pandas'), value: 'install' },
-        { name: T.cyan.bold('▶️   Start tracking')          + T.muted(' — begin monitoring current dev session'), value: 'start' },
-        { name: T.warning.bold('⏹   Stop tracking'),        value: 'stop' },
-        { name: T.brand.bold('🔍  Track a command')         + T.muted(' — wrap npm run build, tests, etc.'), value: 'track' },
-        { name: T.accent.bold('📊  View threshold'),        value: 'threshold' },
-        { name: T.white.bold('📄  Generate report'),        value: 'report' },
-        { name: T.muted.bold('📋  Session history'),        value: 'history' },
-        { name: T.cyan.bold('ℹ️   About this feature'),     value: 'about' },
+        { name: T.success.bold('⬇️  Install / Setup')        + T.muted(' — Python 3 + codecarbon + carbontracker + pandas'), value: 'install' },
+        { name: T.cyan.bold('🌍  System-wide Start')          + T.muted(' — track ALL CPU/GPU/RAM on this computer'), value: 'system-start' },
+        { name: T.warning.bold('⏹   System-wide Stop'),       value: 'system-stop' },
+        { name: T.brand.bold('📡  System Status')             + T.muted(' — total machine emissions so far'), value: 'system-status' },
+        { name: T.cyan.bold('▶️   Project Start')              + T.muted(' — monitor current dev session only'), value: 'start' },
+        { name: T.warning.bold('⏹   Project Stop'),           value: 'stop' },
+        { name: T.success.bold('🔍  Track a command')         + T.muted(' — wrap npm run build, tests, etc.'), value: 'track' },
+        { name: T.accent.bold('📊  View threshold'),          value: 'threshold' },
+        { name: T.white.bold('📄  Generate report'),          value: 'report' },
+        { name: T.muted('📋  Session history'),               value: 'history' },
+        { name: T.cyan.bold('ℹ️   About this feature'),       value: 'about' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
-      pageSize: 10,
+      pageSize: 13,
     });
     if (carbonAction !== '__back__') {
       console.log();
