@@ -915,6 +915,13 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.1.0 — Always-On Default Skills (CLAUDE.md)
+- **CLAUDE.md** created — auto-loads `frontend-design` + `find-skills` by default for every Claude Code session in the project. No more manual `/skill` invocation needed.
+  - `@.claude/skills/frontend-design/SKILL.md` — always active: distinctive UI, no generic AI tells, RTL/Arabic support
+  - `@.claude/skills/find-skills/SKILL.md` — always active: suggests `npx skills find <query>` when user asks "how do I do X"
+- Project context baked in: React/Next.js/TypeScript stack, GhostForge, Arabic/RTL first-class
+- Default behaviours set: TypeScript, Tailwind, Conventional Commits, opinionated design choices
+
 ### v3.0.9 — Frontend Design Official Plugin
 - **🎨 Frontend Design Plugin** (source #31) — official Anthropic Claude plugin. Generates distinctive production-grade UIs: brutalist, maximalist, retro-futuristic, luxury, playful aesthetics. Unexpected typography pairings, orchestrated motion, asymmetric layouts, layered depth. Activates automatically. `claude plugin add frontend-design`
 - TUI: Marketplace → 🎨 Frontend Design Plugin with install + example prompts
