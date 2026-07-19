@@ -425,6 +425,25 @@
         "tokens"
       ],
       "trusted": true
+    },
+    {
+      "id": "hackingtool",
+      "name": "HackingTool — All-in-One Hacking Toolkit (185+ tools)",
+      "type": "security",
+      "description": "185+ curated pentesting + ethical hacking tools across 35 categories: info gathering, web vuln scanning, network scanning, active directory, cloud security, mobile security, post-exploitation, reverse engineering. OS-aware menus, tag filter, search, Docker support.",
+      "url": "https://github.com/Z4nzu/hackingtool",
+      "install": "curl -sSL https://raw.githubusercontent.com/Z4nzu/hackingtool/master/install.sh | sudo bash",
+      "categories": [
+        "security",
+        "pentesting",
+        "vulnerability",
+        "osint",
+        "recon",
+        "web-security"
+      ],
+      "stars": "50k+",
+      "tools_count": 185,
+      "trusted": true
     }
   ]
 }

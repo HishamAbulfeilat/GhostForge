@@ -198,6 +198,7 @@ const COMMANDS = [
   { name: '/career-track',  cat: '🎯 Career',      file: 'commands/career-track.md',   desc: 'Local job application tracker synced with ADO' },
   { name: '/career-gap',    cat: '🎯 Career',      file: 'commands/career-gap.md',     desc: 'Compare CV vs job description, score the fit %' },
   { name: '/career-linkedin', cat: '🎯 Career',    file: 'commands/career-linkedin.md',desc: 'Generate 30-day LinkedIn content calendar' },
+  { name: '/pentest',        cat: '🔐 Security',  file: 'commands/pentest.md',         desc: 'Security scanner: deps audit, secret detection, XSS, OWASP Top-10' },
   { name: '/help',          cat: '⚙️  Modes',       file: 'commands/help.md',           desc: 'Show full command reference and quick-start guide' },
   // Marketplace & Extensions
   { name: '/skills',        cat: '🏪 Marketplace', file: 'commands/skills.md',        desc: 'Browse & install Claude Agent Skills from Anthropic, SkillsMP, Claude-Flow and more' },
@@ -946,6 +947,8 @@ async function screenMarketplace() {
       { name: T.cyan.bold('⚡  PocketBase')               + T.muted(' — open source backend in 1 file'), value: 'pocketbase' },
       { name: T.warning.bold('🖱️   Page Agent (Alibaba)')    + T.muted(' — GUI agent living in your webpage'), value: 'page-agent' },
       { name: T.red.bold('🔐  Strix')                     + T.muted(' — autonomous AI penetration testing'), value: 'strix' },
+      { name: T.red.bold('🛡️   HackingTool')               + T.muted(' — 185+ pentesting tools · recon, web, AD, cloud, mobile'), value: 'hackingtool' },
+      { name: T.red.bold('🔍  Security Scanner')            + T.muted(' — scan project for vulns, secrets, XSS, OWASP Top-10'), value: 'pentest' },
       { name: T.cyan.bold('🎯  Career Helper')             + T.muted(' — CV, LinkedIn, interview prep, job scout (14 skills)'), value: 'career-helper' },
       { name: T.success.bold('🗂️   Career-Ops')             + T.muted(' — multi-agent job search · 740+ listings · WIRED / BI'), value: 'career-ops' },
       { name: T.brand.bold('🎨  Awesome Claude Design')   + T.muted(' — DESIGN.md collection · rohitg00'), value: 'awesome-claude-design-rohitg00' },
@@ -1229,6 +1232,73 @@ async function screenMarketplace() {
     ));
     console.log();
     try { execSync('open https://app.strix.ai 2>/dev/null || xdg-open https://app.strix.ai 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter();
+  }
+
+  if (action === 'hackingtool') {
+    const htAction = await select({
+      message: T.red.bold('🛡️  HackingTool — 185+ Pentesting Tools:'),
+      choices: [
+        { name: T.success.bold('⬇️  Install HackingTool'),                value: 'install' },
+        { name: T.red.bold('📖  Tool categories (35 categories)'),        value: 'info' },
+        { name: T.warning.bold('🌐  Open GitHub (50k+ stars)'),           value: 'github' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (htAction !== '__back__') {
+      console.log();
+      const cats = [
+        '🔍 Info Gathering', '🔎 OSINT', '🌐 Web Vuln Scanning', '🔓 Password Attacks',
+        '📶 Wireless Attacks', '💻 Exploitation', '🔧 Post-Exploitation', '🔁 Reverse Engineering',
+        '🖥  RAT', '🏢 Active Directory', '☁️  Cloud Security', '📱 Mobile Security',
+        '🕵️  Anonymising', '📡 Network Scanning', '🐛 Malware Analysis',
+      ].map(c => `  ${c}`).join('\n');
+      console.log(boxen(
+        T.red.bold(' 🛡️  HackingTool — All-in-One Hacking & Pentest Suite ') + '\n\n' +
+        T.white('185+ curated ethical hacking tools, 35 categories.\n') +
+        T.white('OS-aware menus, tag filter (/), search, batch install.\n\n') +
+        T.yellow.bold('  Categories:\n') + T.white(cats) + '\n\n' +
+        T.success.bold('  Install (Linux/macOS):\n') +
+        T.cyan('  curl -sSL https://raw.githubusercontent.com/Z4nzu/hackingtool/master/install.sh | sudo bash\n\n') +
+        T.success.bold('  Run:\n') +
+        T.cyan('  sudo python3 hack.py\n') +
+        T.cyan('  # Then use / to search, t to filter by tag, r for recommend\n\n') +
+        T.dim('  GitHub: https://github.com/Z4nzu/hackingtool · ⭐ 50k+'),
+        { padding: 1, borderColor: '#EF4444', borderStyle: 'round' }
+      ));
+      console.log();
+      if (htAction === 'install') {
+        try { execSync('open https://github.com/Z4nzu/hackingtool 2>/dev/null || xdg-open https://github.com/Z4nzu/hackingtool 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      } else if (htAction === 'github') {
+        try { execSync('open https://github.com/Z4nzu/hackingtool 2>/dev/null || xdg-open https://github.com/Z4nzu/hackingtool 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'pentest') {
+    const ptAction = await select({
+      message: T.red.bold('🔍 Security Scanner — Project Vulnerability Testing:'),
+      choices: [
+        { name: T.red.bold('🔍  Full Scan')            + T.muted(' — deps + secrets + static code analysis'), value: 'scan' },
+        { name: T.warning.bold('📦  Dependencies')      + T.muted(' — npm audit · CVE check · risky packages'), value: 'deps' },
+        { name: T.red.bold('🔑  Secrets Scan')          + T.muted(' — find hardcoded API keys, tokens, passwords'), value: 'secrets' },
+        { name: T.warning.bold('💻  Code Analysis')     + T.muted(' — XSS, eval, innerHTML, dangerouslySetInnerHTML'), value: 'code' },
+        { name: T.cyan.bold('🌐  HTTP Headers')         + T.muted(' — CSP, HSTS, X-Frame-Options, etc.'), value: 'headers' },
+        { name: T.brand.bold('📋  OWASP Top-10')        + T.muted(' — checklist for your React/Next.js app'), value: 'owasp' },
+        { name: T.success.bold('📊  Generate Report')   + T.muted(' — save Markdown security report'), value: 'report' },
+        { name: T.accent.bold('⬇️  Install Tools')      + T.muted(' — install audit-ci, semgrep, truffleHog'), value: 'install-tools' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 10,
+    });
+    if (ptAction !== '__back__') {
+      console.log();
+      if (ptAction === 'scan' || ptAction === 'deps' || ptAction === 'secrets' || ptAction === 'code' || ptAction === 'headers' || ptAction === 'owasp' || ptAction === 'report' || ptAction === 'install-tools') {
+        const { spawnSync } = await import('child_process');
+        spawnSync('bash', [resolve(ROOT, 'scripts/pentest.sh'), ptAction], { stdio: 'inherit', cwd: process.cwd() });
+      }
+    }
     await pressEnter();
   }
 

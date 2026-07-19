@@ -915,6 +915,19 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.0.7 — HackingTool + Built-in Security Scanner
+- **🛡️ HackingTool** (source #29) — 185+ pentesting tools across 35 categories: info gathering, OSINT, web vuln scanning, password attacks, wireless, exploitation, post-exploitation, reverse engineering, RAT, Active Directory, cloud security, mobile security. 50k+ GitHub stars. `curl -sSL .../install.sh | sudo bash`
+- **🔍 Security Scanner** (`/pentest`) — built-in project security scanner for React/Next.js/TypeScript:
+  - `scan` — full scan (deps + secrets + static code)
+  - `deps` — `npm audit` CVE counts: critical / high / medium / low
+  - `secrets` — grep for hardcoded API keys, tokens, passwords, AWS creds in `.ts/.tsx/.js`
+  - `code` — React-specific XSS patterns: `dangerouslySetInnerHTML`, `eval(`, `innerHTML`, missing `noopener noreferrer`
+  - `headers` — HTTP security headers check: CSP, HSTS, X-Frame-Options, Referrer-Policy
+  - `owasp` — OWASP Top-10 checklist automated for SPAs/React apps
+  - `report` — Markdown security report saved to `~/.ghostforge/security-report-YYYY-MM-DD.md`
+- TUI: Marketplace → 🛡️ HackingTool + 🔍 Security Scanner sub-menus
+- **29 marketplace sources** total
+
 ### v3.0.6 — Career Ops + Design System + Career Tools
 - **🗂️ Career-Ops** — multi-agent job search system (featured in WIRED + Business Insider). 740+ listings evaluated, 100+ personalised CVs. `npm install -g @santifer/career-ops`
 - **🎨 Awesome Claude Design** (×2) — curated DESIGN.md collection → upload to Claude Design, get full design system (colors, type, components, UI kit) in one shot. By rohitg00 + VoltAgent
