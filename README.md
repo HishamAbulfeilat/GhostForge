@@ -1,8 +1,11 @@
-# 🚀 GhostForge — v4.0.0
+# 🔫 GhostForge — v4.1.0
 
-The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, and more.
+> *Operator-grade dev tools, forged in the shadows.*
+> Developed by **Hisham Abulfeilat**
 
-**230+ files · 14 agents · 60 commands · 35 scripts · 24 instruction files · MCP server · React Doctor · Marketplace · Agent Skills · Developer Dashboard (7 panels) · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge`) · Voice Features · PR Auto-Check**
+The ultimate AI developer toolkit supercharging GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, green coding, and more.
+
+**230+ files · 14 agents · 70+ commands · 44 scripts · 24 instruction files · MCP server · React Doctor · Marketplace (43 sources) · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge` / `gf`) · Carbon Monitor v2 · Career Tools · Security Scanner · Git Autopilot · Lighthouse CI · i18n/RTL · Storybook · Figma Tokens**
 
 ---
 
@@ -38,19 +41,19 @@ The official AI toolkit for **GhostForge** developers. Supercharges GitHub Copil
 
 ```bash
 # 1. Clone the toolkit
-git clone https://github.com/HishamAbulfeilat/GhostForge.git ~/ghostforge-agents
+git clone https://github.com/HishamAbulfeilat/GhostForge.git ~/ghostforge
 
 # 2. Install VS Code extensions
-bash ~/ghostforge-agents/scripts/setup-env.sh
+bash ~/ghostforge/scripts/setup-env.sh
 
 # 3a. Launch the Terminal UI  ← recommended!
-~/ghostforge-agents/ghostforge
+~/ghostforge/ghostforge
 
 # 3b. OR start a new project directly
-bash ~/ghostforge-agents/scripts/create-project.sh
+bash ~/ghostforge/scripts/create-project.sh
 
 # 3c. OR add toolkit to an existing project
-bash ~/ghostforge-agents/scripts/copy-to-project.sh /path/to/your/project
+bash ~/ghostforge/scripts/copy-to-project.sh /path/to/your/project
 
 # 4. Open in VS Code — Copilot is instantly powered up
 code /your/project
@@ -915,21 +918,45 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v4.1.0 — Carbon Monitor v2 (8 New Features)
+
+Based on **Hisham Abulfeilat's** CRP graduation research: *"Reducing the Carbon Footprint of Laptops and Workstations"*
+
+| Feature | Command | Description |
+|---------|---------|-------------|
+| 🖥️ **CPU Throttle** | `ghostforge carbon throttle on` | Auto-caps CPU at 50% when emissions exceed threshold — your CRP CFRS research made real (7–15% reduction) |
+| ♻️ **Equivalencies** | `ghostforge carbon equiv [kg]` | Converts raw CO₂ → km driven, phone charges, tree hours, flight seconds, LED hours |
+| 🏆 **Leaderboard** | `ghostforge carbon leaderboard` | Ranks commands/projects by total CO₂ with 🥇🥈🥉 medals |
+| 📄 **Export Report** | `ghostforge carbon export html` | Rich MD/HTML report with research background, opens in browser |
+| 📡 **Live Dashboard** | `ghostforge carbon live` | Real-time terminal dashboard, refreshes every 10s |
+| 🔀 **Git-Linked Tracking** | `ghostforge carbon git-track start` | Auto-tags emissions to `branch@commit` |
+| 💰 **Carbon Budget** | `ghostforge carbon budget set 0.05 0.35` | Daily/weekly CO₂ limits with progress bar warnings |
+| ☁️ **Cloud Compare** | `ghostforge carbon compare-cloud vercel` | Local (Jordan 0.723 kg/kWh) vs Vercel / GitHub Actions / AWS / Netlify |
+
+- TUI: 2-level carbon menu — Monitor & Track · Analysis · Reports · Settings
+- All new commands accessible from `ghostforge` TUI marketplace
+
 ### v4.0.0 — GhostForge Era
 
-**GhostForge** — *Operator-grade dev tools, forged in the shadows.*
+**GhostForge** — *Operator-grade dev tools, forged in the shadows.* — Developed by Hisham Abulfeilat
 
-- Renamed the toolkit from GhostForge to GhostForge (`ghostforge` / `gf`)
-- 👻 Git Autopilot
-- 📦 Bundle Size Tracker
-- 🔦 Lighthouse CI
-- 🌍 i18n / RTL Helper
-- 📝 Changelog Generator
-- 🩺 Dependency Health
-- 🔌 API Mock Generator
-- 🎨 Figma Token Sync
-- 📚 Storybook Scaffolder
+- 🔄 Renamed toolkit: `ghostforge` → `ghostforge` (alias `gf`), data dir `~/.ghostforge/`
+- © Copyright: Hisham Abulfeilat — all scripts and TUI
+- **9 new developer tools:**
 
+| Tool | Command | Description |
+|------|---------|-------------|
+| 👻 Git Autopilot | `ghostforge git-autopilot suggest-commit` | AI-generated commit messages, PR descriptions, branch names via Claude |
+| 📦 Bundle Tracker | `ghostforge bundle track` | JS bundle size history, >10% growth alerts, trend table |
+| 🔦 Lighthouse CI | `ghostforge lighthouse run <url>` | Performance/a11y/SEO scores, trend history, regression alerts |
+| 🌍 i18n/RTL Helper | `ghostforge i18n audit src/` | Arabic↔English translation + RTL CSS audit for missing dir/text-align |
+| 📝 Changelog Generator | `ghostforge changelog generate` | `git log` → `CHANGELOG.md` sections by conventional commit prefix |
+| 🩺 Dependency Health | `ghostforge dep-health full` | npm audit + outdated table, CVE severity grouping |
+| 🔌 API Mock Generator | `ghostforge api-mock generate spec.json` | OpenAPI/Swagger → MSW handler stubs in `src/mocks/` |
+| 🎨 Figma Token Sync | `ghostforge figma-tokens sync <file-key>` | Figma API → CSS custom properties + Tailwind config extension |
+| 📚 Storybook Scaffolder | `ghostforge storybook scaffold` | Auto-generate `.stories.tsx` stubs for all components |
+
+- Marketplace: **43 sources** total
 
 ### v3.1.4 — Green Coding Monitor (Carbon Footprint Tracker)
 - **🌿 Carbon Monitor** — integration of Hisham's CRP graduation research: *"Reducing the Carbon Footprint of Laptops and Workstations"*. CFRS system achieved 7–15% energy reduction.
@@ -1075,4 +1102,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 ---
 
 *Developed by **Hisham Abulfeilat** · Operator-grade dev tools, forged in the shadows.*
-*Powered by GitHub Copilot Business · v4.0.0*
+*Powered by GitHub Copilot Business · v4.1.0*
