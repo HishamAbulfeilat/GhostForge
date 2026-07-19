@@ -492,6 +492,25 @@
       ],
       "official": true,
       "trusted": true
+    },
+    {
+      "id": "playwright",
+      "name": "Playwright — End-to-End Testing Framework (Microsoft)",
+      "type": "local",
+      "description": "Microsoft end-to-end testing for React/Next.js/TypeScript. Chromium, Firefox, WebKit. Auto-wait, codegen (record tests), API testing, visual comparisons, trace viewer, parallel execution, CI/CD integration. The standard E2E testing tool for modern web apps.",
+      "url": "https://playwright.dev",
+      "npm": "@playwright/test",
+      "install": "npm init playwright@latest",
+      "categories": [
+        "testing",
+        "e2e",
+        "browser-testing",
+        "automation",
+        "react",
+        "nextjs"
+      ],
+      "by": "Microsoft",
+      "trusted": true
     }
   ]
 }

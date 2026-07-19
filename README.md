@@ -915,6 +915,16 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.1.1 — Page Agent TUI upgrade + Playwright E2E testing
+- **🖱️ Page Agent** — TUI upgraded to 2-path sub-menu:
+  - 🌐 **Use in Browser** → opens Chrome Web Store extension directly
+  - 💻 **Use in Project** → `npm install page-agent` + React component snippet + optional auto-install
+- **🎭 Playwright** (source #32, Microsoft) — E2E testing for React/Next.js:
+  - Install, Codegen (record by clicking), Run (headless/UI/headed/debug), Trace Viewer
+  - Full interactive TUI: runs `npx playwright test`, `npx playwright codegen <url>`, etc.
+  - `/playwright` command added to Commands Browser (🧪 Testing category)
+- **32 marketplace sources** total
+
 ### v3.1.0 — Always-On Default Skills (CLAUDE.md)
 - **CLAUDE.md** created — auto-loads `frontend-design` + `find-skills` by default for every Claude Code session in the project. No more manual `/skill` invocation needed.
   - `@.claude/skills/frontend-design/SKILL.md` — always active: distinctive UI, no generic AI tells, RTL/Arabic support

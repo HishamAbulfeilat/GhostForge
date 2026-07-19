@@ -199,6 +199,7 @@ const COMMANDS = [
   { name: '/career-gap',    cat: '🎯 Career',      file: 'commands/career-gap.md',     desc: 'Compare CV vs job description, score the fit %' },
   { name: '/career-linkedin', cat: '🎯 Career',    file: 'commands/career-linkedin.md',desc: 'Generate 30-day LinkedIn content calendar' },
   { name: '/pentest',        cat: '🔐 Security',  file: 'commands/pentest.md',         desc: 'Security scanner: deps audit, secret detection, XSS, OWASP Top-10' },
+  { name: '/playwright',    cat: '🧪 Testing',   file: 'commands/playwright.md',      desc: 'E2E testing: install, codegen, run, trace viewer' },
   { name: '/help',          cat: '⚙️  Modes',       file: 'commands/help.md',           desc: 'Show full command reference and quick-start guide' },
   // Marketplace & Extensions
   { name: '/skills',        cat: '🏪 Marketplace', file: 'commands/skills.md',        desc: 'Browse & install Claude Agent Skills from Anthropic, SkillsMP, Claude-Flow and more' },
@@ -956,6 +957,7 @@ async function screenMarketplace() {
       { name: T.brand.bold('✨  Impeccable')               + T.muted(' — 23 design cmds, 46 detector rules, live browser iteration'), value: 'impeccable' },
       { name: T.brand.bold('🎨  Frontend Design Plugin')   + T.muted(' — official Anthropic Claude plugin · distinctive production UI'), value: 'claude-plugin-frontend-design' },
       { name: T.accent.bold('🔧  Career Tools')            + T.muted(' — CV versioning, prep, tracker, gap, LinkedIn calendar'), value: 'career-tools' },
+      { name: T.success.bold('🎭  Playwright')             + T.muted(' — E2E testing · React/Next.js · codegen · trace viewer'), value: 'playwright' },
       { name: T.white.bold('📦  My Installed Items')     + T.muted(' — view and manage installed items'), value: 'installed' },
       { name: T.success.bold('🔧  Add Custom Agent')      + T.muted(' — add your own agent from file or URL'), value: 'custom-agent' },
       { name: T.success.bold('🤖  Add Custom Model')      + T.muted(' — add a custom AI model provider'), value: 'custom-model' },
@@ -1188,25 +1190,80 @@ async function screenMarketplace() {
   }
 
   if (action === 'page-agent') {
+    const paAction = await select({
+      message: T.warning.bold('🖱️  Page Agent (Alibaba) — where do you want to use it?'),
+      choices: [
+        { name: T.warning.bold('🌐  Use in Browser')     + T.muted(' — install Chrome extension, works on any site'), value: 'browser' },
+        { name: T.cyan.bold('💻  Use in Project')        + T.muted(' — npm install + React/Next.js integration'), value: 'project' },
+        { name: T.success.bold('📖  Quick start guide'), value: 'guide' },
+        { name: T.accent.bold('🐙  GitHub'),             value: 'github' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (paAction !== '__back__') {
+      console.log();
+      if (paAction === 'browser') {
+        console.log(boxen(
+          T.warning.bold(' 🌐 Page Agent — Browser (Chrome Extension) ') + '\n\n' +
+          T.white('Adds an AI agent to any website you browse — no code needed.\n\n') +
+          T.success.bold('  Install:\n') +
+          T.cyan('  1. Open Chrome Web Store:\n') +
+          T.cyan('     https://chromewebstore.google.com/detail/page-agent-ext/akldabonmimlicnjlflnapfeklbfemhj\n') +
+          T.cyan('  2. Click "Add to Chrome"\n') +
+          T.cyan('  3. Click the extension icon → enter your API key (OpenAI / Anthropic)\n\n') +
+          T.success.bold('  Usage:\n') +
+          T.white('  • Open any webpage\n') +
+          T.white('  • Click the Page Agent icon in the toolbar\n') +
+          T.white('  • Type a task: "fill the login form", "find all prices", "click the submit button"\n') +
+          T.white('  • Agent executes it in the page — no screenshots, pure DOM manipulation\n'),
+          { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
+        ));
+        try { execSync('open https://chromewebstore.google.com/detail/page-agent-ext/akldabonmimlicnjlflnapfeklbfemhj 2>/dev/null || xdg-open https://chromewebstore.google.com/detail/page-agent-ext/akldabonmimlicnjlflnapfeklbfemhj 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      } else if (paAction === 'project') {
+        console.log(boxen(
+          T.cyan.bold(' 💻 Page Agent — In Your React/Next.js Project ') + '\n\n' +
+          T.white('Embed an AI agent directly in your web app for users.\n\n') +
+          T.success.bold('  Install:\n') +
+          T.cyan('  npm install page-agent\n\n') +
+          T.success.bold('  React/Next.js usage:\n') +
+          T.cyan("  import { PageAgent } from 'page-agent'\n\n") +
+          T.cyan("  // In your component or _app.tsx:\n") +
+          T.cyan("  <PageAgent apiKey={process.env.NEXT_PUBLIC_AI_KEY} />\n\n") +
+          T.success.bold('  Env setup (.env.local):\n') +
+          T.cyan('  NEXT_PUBLIC_AI_KEY=your-openai-or-anthropic-key\n\n') +
+          T.success.bold('  Features:\n') +
+          T.white('  • No browser extension or headless browser needed\n') +
+          T.white('  • Works with OpenAI, Anthropic, or any LLM\n') +
+          T.white('  • Text-based DOM — no screenshots, no multimodal needed\n') +
+          T.white('  • Automates: form filling, navigation, UI tasks, scraping\n') +
+          T.dim('  Docs: https://alibaba.github.io/page-agent/docs/introduction/overview'),
+          { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
+        ));
+        const { spawnSync } = await import('child_process');
+        const yn = await select({ message: 'Install page-agent in current directory?', choices: [{ name: 'Yes — npm install page-agent', value: 'y' }, { name: 'No — just show the instructions', value: 'n' }] });
+        if (yn === 'y') spawnSync('npm', ['install', 'page-agent'], { stdio: 'inherit', cwd: process.cwd() });
+      } else if (paAction === 'guide') {
+        console.log(boxen(
+          T.warning.bold(' 🖱️  Page Agent — Quick Start ') + '\n\n' +
+          T.yellow.bold('  Browser (fastest):\n') +
+          T.white('  Install Chrome extension → enter API key → works on any site\n\n') +
+          T.cyan.bold('  Project (embed in your app):\n') +
+          T.white('  npm install page-agent → <PageAgent apiKey="..." />\n\n') +
+          T.success.bold('  Example tasks you can give it:\n') +
+          T.white('  "Fill in the form with test data"\n') +
+          T.white('  "Click the Submit button"\n') +
+          T.white('  "Find all product prices on this page"\n') +
+          T.white('  "Navigate to the settings page"\n') +
+          T.white('  "Extract all links from the table"\n\n') +
+          T.dim('  Docs: https://alibaba.github.io/page-agent\n') +
+          T.dim('  GitHub: https://github.com/alibaba/page-agent'),
+          { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
+        ));
+      } else if (paAction === 'github') {
+        try { execSync('open https://github.com/alibaba/page-agent 2>/dev/null || xdg-open https://github.com/alibaba/page-agent 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      }
+    }
     console.log();
-    console.log(boxen(
-      T.warning.bold(' 🖱️  Page Agent (Alibaba) — GUI Agent for Web Pages ') + '\n\n' +
-      T.white('One script gives any web page its own AI agent.\n') +
-      T.muted('Automates UI interactions, form filling, navigation, page tasks.\n\n') +
-      T.success.bold('  Install (npm):\n') +
-      T.cyan('  npm install page-agent\n\n') +
-      T.success.bold('  Chrome Extension:\n') +
-      T.cyan('  https://chromewebstore.google.com/detail/page-agent-ext/\n\n') +
-      T.muted('  Use cases:\n') +
-      T.muted('  • Automate repetitive web UI tasks\n') +
-      T.muted('  • AI-powered form filling and navigation\n') +
-      T.muted('  • Embed an agent directly in your web app\n') +
-      T.muted('  • Browser automation without Playwright/Puppeteer setup\n\n') +
-      T.dim('  GitHub: https://github.com/alibaba/page-agent'),
-      { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
-    ));
-    console.log();
-    try { execSync('open https://github.com/alibaba/page-agent 2>/dev/null || xdg-open https://github.com/alibaba/page-agent 2>/dev/null', { stdio: 'ignore' }); } catch {}
     await pressEnter();
   }
 
@@ -1681,6 +1738,73 @@ async function screenMarketplace() {
           { padding: 1, borderColor: info.color, borderStyle: 'round' }
         ));
         console.log();
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'playwright') {
+    const pwAction = await select({
+      message: T.success.bold('🎭 Playwright — E2E Testing:'),
+      choices: [
+        { name: T.success.bold('⬇️  Install in project'),              value: 'install' },
+        { name: T.cyan.bold('🎬  Codegen')      + T.muted(' — record tests by clicking in your browser'),  value: 'codegen' },
+        { name: T.warning.bold('▶️   Run tests'),                       value: 'run' },
+        { name: T.accent.bold('🔍  Trace Viewer')+ T.muted(' — debug failed tests visually'),              value: 'trace' },
+        { name: T.brand.bold('📖  Quick start guide'),                 value: 'guide' },
+        { name: T.muted('🌐  playwright.dev docs'),                    value: 'docs' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 9,
+    });
+    if (pwAction !== '__back__') {
+      console.log();
+      if (pwAction === 'guide') {
+        console.log(boxen(
+          T.success.bold(' 🎭 Playwright — E2E Testing Quick Start ') + '\n\n' +
+          T.success.bold('  1. Install:\n') +
+          T.cyan('  npm init playwright@latest\n') +
+          T.cyan('  # Picks Chromium/Firefox/WebKit, creates tests/ folder, CI config\n\n') +
+          T.success.bold('  2. Write a test (tests/example.spec.ts):\n') +
+          T.cyan("  import { test, expect } from '@playwright/test'\n\n") +
+          T.cyan("  test('homepage loads', async ({ page }) => {\n") +
+          T.cyan("    await page.goto('http://localhost:3000')\n") +
+          T.cyan("    await expect(page).toHaveTitle(/My App/)\n") +
+          T.cyan("  })\n\n") +
+          T.success.bold('  3. Run tests:\n') +
+          T.cyan('  npx playwright test              # headless\n') +
+          T.cyan('  npx playwright test --ui         # interactive UI mode\n') +
+          T.cyan('  npx playwright test --headed     # watch browser\n\n') +
+          T.success.bold('  4. Codegen (record by clicking):\n') +
+          T.cyan('  npx playwright codegen http://localhost:3000\n\n') +
+          T.success.bold('  5. Debug with Trace Viewer:\n') +
+          T.cyan('  npx playwright test --trace on\n') +
+          T.cyan('  npx playwright show-report\n\n') +
+          T.dim('  Docs: https://playwright.dev · GitHub: microsoft/playwright'),
+          { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
+        ));
+      } else if (pwAction === 'install') {
+        const { spawnSync } = await import('child_process');
+        spawnSync('npm', ['init', 'playwright@latest'], { stdio: 'inherit', cwd: process.cwd() });
+      } else if (pwAction === 'codegen') {
+        const { input } = await import('@inquirer/prompts');
+        const url = await input({ message: 'URL to record against:', default: 'http://localhost:3000' });
+        const { spawnSync } = await import('child_process');
+        spawnSync('npx', ['playwright', 'codegen', url], { stdio: 'inherit', cwd: process.cwd() });
+      } else if (pwAction === 'run') {
+        const { spawnSync } = await import('child_process');
+        const mode = await select({ message: 'Run mode:', choices: [
+          { name: 'Headless (default)', value: [] },
+          { name: 'UI mode (interactive)', value: ['--ui'] },
+          { name: 'Headed (watch browser)', value: ['--headed'] },
+          { name: 'Debug mode', value: ['--debug'] },
+        ]});
+        spawnSync('npx', ['playwright', 'test', ...mode], { stdio: 'inherit', cwd: process.cwd() });
+      } else if (pwAction === 'trace') {
+        const { spawnSync } = await import('child_process');
+        spawnSync('npx', ['playwright', 'show-report'], { stdio: 'inherit', cwd: process.cwd() });
+      } else if (pwAction === 'docs') {
+        try { execSync('open https://playwright.dev 2>/dev/null || xdg-open https://playwright.dev 2>/dev/null', { stdio: 'ignore' }); } catch {}
       }
     }
     await pressEnter();
