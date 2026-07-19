@@ -31,6 +31,7 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 | **SkillsMP** | Claude Skills (2M+) | https://skillsmp.com |
 | **Awesome Claude Skills** | Curated skills | https://awesomeclaude.ai/awesome-claude-skills |
 | **Skills Collection 2026** | Community skills | https://github.com/obviousworks/Claude-AI-skills-collection-2026 |
+| **scroll-world** | Landing page skill | https://github.com/oso95/scroll-world |
 | **Agent Skills Standard** | Skills spec | https://agentskills.io/home |
 | **Claude-Flow** | AI orchestration | https://github.com/edwincummins/claude-flow |
 

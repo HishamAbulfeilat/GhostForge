@@ -1133,11 +1133,12 @@ async function screenMarketplace() {
     const skillAction = await select({
       message: T.white.bold('Agent Skills:'),
       choices: [
-        { name: T.accent.bold('📋  View all skill sources')              + T.muted(' — 6 trusted sources'), value: 'view' },
+        { name: T.accent.bold('📋  View all skill sources')              + T.muted(' — 7 trusted sources'), value: 'view' },
         { name: T.success.bold('🔍  Search SkillsMP')                   + T.muted(' — 2M+ community skills'), value: 'search' },
         { name: T.brand.bold('⚡  Install Claude-Flow')                 + T.muted(' — AI orchestration swarm'), value: 'claude-flow' },
         { name: T.white.bold('📦  Install Anthropic official skills')   + T.muted(' — docx, pdf, pptx, xlsx…'), value: 'anthropic' },
         { name: T.warning.bold('🌐  Open Awesome Claude Skills')         + T.muted(' — curated free directory'), value: 'awesome' },
+        { name: T.cyan.bold('🌍  scroll-world')                         + T.muted(' — fly-through landing page skill'), value: 'scroll-world' },
         { name: T.muted('🌐  Open SkillsMP marketplace'), value: 'open-skillsmp' },
         { name: T.muted('📖  View /skills command docs'), value: 'docs' },
         { name: T.muted('← Back'), value: '__back__' },
@@ -1216,6 +1217,29 @@ async function screenMarketplace() {
     if (skillAction === 'awesome') {
       try { execSync('open https://awesomeclaude.ai/awesome-claude-skills 2>/dev/null || xdg-open https://awesomeclaude.ai/awesome-claude-skills 2>/dev/null', { stdio: 'ignore' }); } catch {}
       console.log(T.muted('\n  Opened: https://awesomeclaude.ai/awesome-claude-skills\n'));
+      await pressEnter();
+    }
+
+    if (skillAction === 'scroll-world') {
+      console.log();
+      console.log(boxen(
+        T.cyan.bold(' 🌍 scroll-world — Fly-Through Landing Page Skill ') + '\n\n' +
+        T.white('Scroll-scrubbed "fly through the world" landing pages.\n') +
+        T.muted('Camera flies through scenes as you scroll — Apple-style.\n\n') +
+        T.success.bold('  Install (Claude Code):\n') +
+        T.cyan('  /plugin marketplace add oso95/scroll-world\n') +
+        T.cyan('  /plugin install scroll-world@scroll-world\n\n') +
+        T.success.bold('  Install (Codex / Cursor / 20+ agents):\n') +
+        T.cyan('  npx skills add oso95/scroll-world\n\n') +
+        T.success.bold('  Install (manual):\n') +
+        T.cyan('  git clone https://github.com/oso95/scroll-world\n') +
+        T.cyan('  cp -R scroll-world/skills/scroll-world ~/.claude/skills/\n\n') +
+        T.warning('  Requires: Higgsfield CLI · ffmpeg · Python 3 + Pillow\n\n') +
+        T.dim('  GitHub: https://github.com/oso95/scroll-world'),
+        { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
+      ));
+      console.log();
+      try { execSync('open https://github.com/oso95/scroll-world 2>/dev/null || xdg-open https://github.com/oso95/scroll-world 2>/dev/null', { stdio: 'ignore' }); } catch {}
       await pressEnter();
     }
 

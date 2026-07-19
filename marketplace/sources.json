@@ -153,6 +153,29 @@
         "voice"
       ],
       "trusted": true
+    },
+    {
+      "id": "scroll-world",
+      "name": "scroll-world — Fly-Through Landing Page Skill",
+      "type": "claude-skills",
+      "description": "Agent skill (SKILL.md) that builds immersive scroll-scrubbed \"fly through the world\" landing pages — camera flies through scenes as you scroll, Apple-style. Works with Claude Code, Codex CLI, Cursor, 20+ agents. Framework-agnostic vanilla JS scrub engine.",
+      "url": "https://github.com/oso95/scroll-world",
+      "install_command": "/plugin marketplace add oso95/scroll-world",
+      "install_alt": "npx skills add oso95/scroll-world",
+      "install_manual": "cp -R scroll-world/skills/scroll-world ~/.claude/skills/",
+      "requires": [
+        "Higgsfield CLI (higgsfield.ai)",
+        "ffmpeg",
+        "Python 3 + Pillow"
+      ],
+      "categories": [
+        "landing-page",
+        "animation",
+        "scroll",
+        "frontend",
+        "creative"
+      ],
+      "trusted": true
     }
   ]
 }
