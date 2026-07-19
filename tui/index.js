@@ -73,7 +73,7 @@ function banner() {
       T.accent.bold(` GhostForge  v${VERSION} `) + T.muted('  |  ') +
       T.white('Operator-grade dev tools, forged in the shadows.') + '\n' +
       T.muted('  React · Next.js · TypeScript · Tailwind · Git · Performance · Release Ops') + '\n' +
-      T.muted('  © Hisham Abulfeilat — CyberLegion'),
+      T.muted('  © Hisham Abulfeilat'),
       { padding: { top: 0, bottom: 0, left: 1, right: 1 }, borderColor: '#0077C8', borderStyle: 'round' }
     )
   );
