@@ -27,3 +27,5 @@ build/
 # Session / local only
 .ghostforge-health-cache
 .registered-projects
+web-ui/.next/
+web-ui/node_modules/
