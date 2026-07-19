@@ -1074,5 +1074,5 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ---
 
-*Built for GhostForge · Frontend & Full Stack Developer Toolkit*
+*Developed by **Hisham Abulfeilat** (CyberLegion) · Operator-grade dev tools, forged in the shadows.*
 *Powered by GitHub Copilot Business · v4.0.0*

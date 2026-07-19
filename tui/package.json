@@ -1,6 +1,8 @@
 {
   "name": "ghostforge",
   "version": "4.0.0",
+  "author": "Hisham Abulfeilat <cyberlegion>",
+  "license": "MIT",
   "description": "GhostForge \u2014 Operator-grade dev tools, forged in the shadows.",
   "main": "index.js",
   "type": "module",
