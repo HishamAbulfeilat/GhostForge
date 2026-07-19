@@ -1,0 +1,77 @@
+{
+  "version": "4.5.0",
+  "routes": [
+    {
+      "path": "/",
+      "page": "page.tsx",
+      "icon": "🏠",
+      "label": "Home",
+      "desc": "Redirects to /chat (authenticated) or /login",
+      "public": true,
+      "hidden": true
+    },
+    {
+      "path": "/login",
+      "page": "login/page.tsx",
+      "icon": "🔐",
+      "label": "Login",
+      "desc": "PIN-based authentication page",
+      "public": true,
+      "hidden": true
+    },
+    {
+      "path": "/chat",
+      "page": "chat/page.tsx",
+      "icon": "💬",
+      "label": "AI Chat",
+      "desc": "AI chat powered by **Gemini 2.5 Pro** (Google AI Plus) with 🐙 Copilot Suggest mode toggle and bridge command execution",
+      "public": false,
+      "hidden": false
+    },
+    {
+      "path": "/dashboard",
+      "page": "dashboard/page.tsx",
+      "icon": "📊",
+      "label": "Dashboard",
+      "desc": "Live project overview — GitHub issues, PRs, CI pipelines, releases, bridge status, and quick-launch nav",
+      "public": false,
+      "hidden": false
+    },
+    {
+      "path": "/terminal",
+      "page": "terminal/page.tsx",
+      "icon": "💻",
+      "label": "Terminal",
+      "desc": "Full **ttyd** xterm.js web terminal — run GhostForge TUI and any shell command directly from browser/phone",
+      "public": false,
+      "hidden": false
+    },
+    {
+      "path": "/features",
+      "page": "features/page.tsx",
+      "icon": "🔧",
+      "label": "Features",
+      "desc": "24 command cards across 6 categories (Carbon, Health, AI, Git, Generate, System) — run any GhostForge command without a terminal",
+      "public": false,
+      "hidden": false
+    },
+    {
+      "path": "/marketplace",
+      "page": "marketplace/page.tsx",
+      "icon": "🛒",
+      "label": "Marketplace",
+      "desc": "Browse & install plugins, agents, and templates from the GhostForge catalog. Filter by type, category, or search",
+      "public": false,
+      "hidden": false
+    },
+    {
+      "path": "/settings",
+      "page": "settings/page.tsx",
+      "icon": "⚙️",
+      "label": "Models & Settings",
+      "desc": "Live AI model switcher — Gemini 2.5 Pro/Flash, OpenRouter free models, Groq, NVIDIA NIM. Shows API key status",
+      "public": false,
+      "hidden": false
+    }
+  ]
+}
