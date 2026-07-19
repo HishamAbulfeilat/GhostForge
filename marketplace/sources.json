@@ -273,6 +273,41 @@
         "typography"
       ],
       "trusted": true
+    },
+    {
+      "id": "extract-design-system",
+      "name": "extract-design-system",
+      "type": "claude-skills",
+      "description": "Reverse-engineer design tokens (colors, typography, spacing, border radius, shadows) from any public website. Outputs W3C-compatible tokens.json + tokens.css. Agent skill for Claude, Cursor, Codex.",
+      "url": "https://github.com/arvindrk/extract-design-system",
+      "install_command": "npx skills add arvindrk/extract-design-system",
+      "skills_sh": "https://skills.sh/arvindrk/extract-design-system/extract-design-system",
+      "categories": [
+        "design",
+        "design-tokens",
+        "css",
+        "frontend",
+        "reverse-engineering"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "superpowers",
+      "name": "Superpowers — Full AI Development Methodology",
+      "type": "claude-skills",
+      "description": "Complete software development methodology for coding agents. Spec extraction, subagent-driven TDD, YAGNI/DRY enforcement, autonomous multi-hour execution. Works with Claude Code, Copilot CLI, Cursor, Codex, OpenCode, and more.",
+      "url": "https://github.com/obra/superpowers",
+      "install_command": "/plugin install superpowers@claude-plugins-official",
+      "install_alt": "/plugin marketplace add obra/superpowers-marketplace && /plugin install superpowers@superpowers-marketplace",
+      "official_marketplace": "https://claude.com/plugins/superpowers",
+      "categories": [
+        "methodology",
+        "tdd",
+        "planning",
+        "subagents",
+        "development-workflow"
+      ],
+      "trusted": true
     }
   ]
 }

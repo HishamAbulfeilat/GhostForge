@@ -1220,7 +1220,7 @@ async function screenMarketplace() {
     const skillAction = await select({
       message: T.white.bold('Agent Skills:'),
       choices: [
-        { name: T.accent.bold('📋  View all skill sources')              + T.muted(' — 7 trusted sources'), value: 'view' },
+        { name: T.accent.bold('📋  View all skill sources')              + T.muted(' — 9 trusted sources'), value: 'view' },
         { name: T.success.bold('🔍  Search SkillsMP')                   + T.muted(' — 2M+ community skills'), value: 'search' },
         { name: T.brand.bold('⚡  Install Claude-Flow')                 + T.muted(' — AI orchestration swarm'), value: 'claude-flow' },
         { name: T.white.bold('📦  Install Anthropic official skills')   + T.muted(' — docx, pdf, pptx, xlsx…'), value: 'anthropic' },
@@ -1229,6 +1229,8 @@ async function screenMarketplace() {
         { name: T.accent.bold('🎨  UI/UX Pro Max')                       + T.muted(' — 161 reasoning rules + 84 UI styles'), value: 'ui-ux-pro-max' },
         { name: T.success.bold('🔍  find-skills')                         + T.muted(' — discover & install skills from ecosystem'), value: 'find-skills' },
         { name: T.brand.bold('🎨  frontend-design')                      + T.muted(' — Anthropic official design guidance'), value: 'frontend-design' },
+        { name: T.warning.bold('🎨  extract-design-system')               + T.muted(' — reverse-engineer design tokens from any website'), value: 'extract-design-system' },
+        { name: T.success.bold('⚡  Superpowers')                          + T.muted(' — full AI dev methodology (TDD, spec, subagents)'), value: 'superpowers' },
         { name: T.muted('🌐  Open SkillsMP marketplace'), value: 'open-skillsmp' },
         { name: T.muted('📖  View /skills command docs'), value: 'docs' },
         { name: T.muted('← Back'), value: '__back__' },
@@ -1394,6 +1396,52 @@ async function screenMarketplace() {
         { padding: 1, borderColor: '#0077C8', borderStyle: 'round' }
       ));
       console.log();
+      await pressEnter();
+    }
+
+    if (skillAction === 'extract-design-system') {
+      console.log();
+      console.log(boxen(
+        T.warning.bold(' 🎨 extract-design-system — Design Token Extractor ') + '\n\n' +
+        T.white('Reverse-engineer design tokens from any public website.\n') +
+        T.muted('Outputs W3C-compatible tokens.json + tokens.css.\n\n') +
+        T.success.bold('  Install:\n') +
+        T.cyan('  npx skills add arvindrk/extract-design-system\n\n') +
+        T.success.bold('  Then ask your agent:\n') +
+        T.cyan('  "Extract the design system from https://stripe.com"\n\n') +
+        T.muted('  Extracts: colors, typography, spacing, border radius, shadows\n') +
+        T.muted('  Outputs:\n') +
+        T.muted('    design-system/tokens.json  (W3C-compatible)\n') +
+        T.muted('    design-system/tokens.css   (CSS custom properties)\n\n') +
+        T.dim('  Browse: https://skills.sh/arvindrk/extract-design-system'),
+        { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
+      ));
+      console.log();
+      try { execSync('open https://github.com/arvindrk/extract-design-system 2>/dev/null || xdg-open https://github.com/arvindrk/extract-design-system 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      await pressEnter();
+    }
+
+    if (skillAction === 'superpowers') {
+      console.log();
+      console.log(boxen(
+        T.success.bold(' ⚡ Superpowers — Full AI Development Methodology ') + '\n\n' +
+        T.white('Complete dev workflow: spec → plan → TDD → autonomous execution.\n\n') +
+        T.success.bold('  Install (Claude Code official marketplace):\n') +
+        T.cyan('  /plugin install superpowers@claude-plugins-official\n\n') +
+        T.success.bold('  Or from Superpowers marketplace:\n') +
+        T.cyan('  /plugin marketplace add obra/superpowers-marketplace\n') +
+        T.cyan('  /plugin install superpowers@superpowers-marketplace\n\n') +
+        T.muted('  What it does:\n') +
+        T.muted('  1. Extracts a spec from conversation before writing code\n') +
+        T.muted('  2. Builds a step-by-step implementation plan\n') +
+        T.muted('  3. Launches subagents for TDD, YAGNI, DRY enforcement\n') +
+        T.muted('  4. Runs autonomously for hours without deviating\n') +
+        T.muted('  Works with: Claude Code, Copilot CLI, Cursor, Codex, OpenCode\n\n') +
+        T.dim('  https://github.com/obra/superpowers'),
+        { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
+      ));
+      console.log();
+      try { execSync('open https://claude.com/plugins/superpowers 2>/dev/null || xdg-open https://claude.com/plugins/superpowers 2>/dev/null', { stdio: 'ignore' }); } catch {}
       await pressEnter();
     }
 

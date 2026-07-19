@@ -38,6 +38,8 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 | **find-skills (Vercel Labs)** | Skill discovery | https://github.com/vercel-labs/skills |
 | **claude-mem** | Persistent memory | https://github.com/thedotmack/claude-mem |
 | **frontend-design (Anthropic)** | Design skill | https://github.com/anthropics/skills |
+| **extract-design-system** | Design token extractor | https://github.com/arvindrk/extract-design-system |
+| **Superpowers** | AI dev methodology | https://github.com/obra/superpowers |
 | **Agent Skills Standard** | Skills spec | https://agentskills.io/home |
 | **Claude-Flow** | AI orchestration | https://github.com/edwincummins/claude-flow |
 

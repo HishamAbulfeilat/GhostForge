@@ -915,6 +915,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for how to add new agents, commands, or
 
 ## 📅 What's New
 
+### v3.0.3 — Design Tokens + Superpowers
+- **🎨 extract-design-system** — reverse-engineer design tokens (colors, typography, spacing, shadows) from any public website → `tokens.json` + `tokens.css`. `npx skills add arvindrk/extract-design-system`
+- **⚡ Superpowers** — complete AI dev methodology: spec extraction, TDD, YAGNI/DRY, subagent-driven autonomous execution for hours. Works with Claude Code, Copilot CLI, Cursor, Codex. `/plugin install superpowers@claude-plugins-official`
+- **22 marketplace sources** total
+
 ### v3.0.2 — Skills + Shared Memory
 - **🧠 claude-mem** — persistent shared memory for Claude Code. Context survives across sessions. `npx claude-mem install` or TUI → Marketplace → Shared Memory. `scripts/setup-memory.sh` for setup.
 - **🔍 find-skills (Vercel Labs)** — skill that discovers & installs other skills from skills.sh ecosystem. Installed at `.claude/skills/find-skills/SKILL.md`.
