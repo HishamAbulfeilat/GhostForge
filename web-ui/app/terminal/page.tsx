@@ -96,19 +96,81 @@ const STATUS_CONFIG: Record<ConnStatus, { dot: string; label: string; glow: stri
   error: { dot: 'bg-red-500', label: 'Error', glow: 'text-red-400' },
 }
 
+// Stable proxy ref that delegates to a Map — avoids re-creating refs on each render
+function makeMapRef<T>(map: React.MutableRefObject<Map<string, T>>, id: string) {
+  return {
+    get current(): T | null { return map.current.get(id) ?? null },
+    set current(v: T | null) { v != null ? map.current.set(id, v) : map.current.delete(id) },
+  }
+}
+
+function TabTerminal({ tabId, active, sendRefs, reconRefs, onStatusChange }: {
+  tabId: string
+  active: boolean
+  sendRefs: React.MutableRefObject<Map<string, (cmd: string) => void>>
+  reconRefs: React.MutableRefObject<Map<string, () => void>>
+  onStatusChange: (s: ConnStatus) => void
+}) {
+  const sendRef = useRef(makeMapRef(sendRefs, tabId))
+  const recoRef = useRef(makeMapRef(reconRefs, tabId))
+  return (
+    <div className={`absolute inset-0 ${active ? 'block' : 'hidden'}`}>
+      <XTermWrapper
+        sendCommandRef={sendRef.current as React.MutableRefObject<((cmd: string) => void) | null>}
+        reconnectRef={recoRef.current as React.MutableRefObject<(() => void) | null>}
+        onStatusChange={onStatusChange}
+      />
+    </div>
+  )
+}
+
+interface Tab {
+  id: string
+  name: string
+  status: ConnStatus
+}
+
+let tabCounter = 1
+
 export default function TerminalPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [connStatus, setConnStatus] = useState<ConnStatus>('connecting')
-  const sendCmdRef = useRef<((cmd: string) => void) | null>(null)
-  const reconnectRef = useRef<(() => void) | null>(null)
+  const [tabs, setTabs] = useState<Tab[]>([{ id: 'tab-1', name: 'Terminal 1', status: 'connecting' }])
+  const [activeTab, setActiveTab] = useState('tab-1')
+  const sendCmdRefs = useRef<Map<string, (cmd: string) => void>>(new Map())
+  const reconnectRefs = useRef<Map<string, () => void>>(new Map())
+
+  const connStatus = tabs.find(t => t.id === activeTab)?.status ?? 'connecting'
+
+  const addTab = () => {
+    tabCounter += 1
+    const id = `tab-${tabCounter}`
+    setTabs(prev => [...prev, { id, name: `Terminal ${tabCounter}`, status: 'connecting' }])
+    setActiveTab(id)
+  }
+
+  const closeTab = (id: string) => {
+    setTabs(prev => {
+      const next = prev.filter(t => t.id !== id)
+      if (next.length === 0) return prev // always keep at least one
+      if (activeTab === id) setActiveTab(next[next.length - 1].id)
+      return next
+    })
+    sendCmdRefs.current.delete(id)
+    reconnectRefs.current.delete(id)
+  }
+
+  const updateTabStatus = (id: string, status: ConnStatus) => {
+    setTabs(prev => prev.map(t => t.id === id ? { ...t, status } : t))
+  }
 
   useEffect(() => {
     if (window.innerWidth >= 768) setSidebarOpen(true)
   }, [])
 
   const runCommand = (cmd: string) => {
-    if (!cmd) { sendCmdRef.current?.('\x03'); return }
-    sendCmdRef.current?.(cmd)
+    const fn = sendCmdRefs.current.get(activeTab)
+    if (!cmd) { fn?.('\x03'); return }
+    fn?.(cmd)
     if (window.innerWidth < 768) setSidebarOpen(false)
   }
 
@@ -146,7 +208,7 @@ export default function TerminalPage() {
           {connStatus !== 'connected' && (
             <button
               type="button"
-              onClick={() => reconnectRef.current?.()}
+              onClick={() => reconnectRefs.current.get(activeTab)?.()}
               className="rounded border border-amber-800/60 bg-amber-950/40 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-900/50 transition active:scale-95"
             >
               ↺ Reconnect
@@ -165,6 +227,40 @@ export default function TerminalPage() {
             Dashboard
           </Link>
         </div>
+      </div>
+
+      {/* ── Tab Bar ── */}
+      <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-gray-800/60 bg-gray-950/90 px-2 py-1 scrollbar-none">
+        {tabs.map(tab => {
+          const s = STATUS_CONFIG[tab.status]
+          return (
+            <div
+              key={tab.id}
+              className={`group flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition cursor-pointer select-none ${
+                tab.id === activeTab
+                  ? 'bg-gray-800 text-white'
+                  : 'text-gray-500 hover:bg-gray-900 hover:text-gray-300'
+              }`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${s.dot}`} />
+              <span className="font-mono whitespace-nowrap">{tab.name}</span>
+              {tabs.length > 1 && (
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); closeTab(tab.id) }}
+                  className="ml-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-red-400 transition"
+                >✕</button>
+              )}
+            </div>
+          )
+        })}
+        <button
+          type="button"
+          onClick={addTab}
+          className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-600 hover:bg-gray-800 hover:text-white transition"
+          title="New terminal"
+        >+</button>
       </div>
 
       {/* ── Body ── */}
@@ -244,13 +340,18 @@ export default function TerminalPage() {
           )}
         </aside>
 
-        {/* ── Terminal ── */}
-        <div className="flex-1 overflow-hidden min-w-0">
-          <XTermWrapper
-            sendCommandRef={sendCmdRef}
-            reconnectRef={reconnectRef}
-            onStatusChange={setConnStatus}
-          />
+        {/* ── Terminal(s) — keep all tabs mounted, show active one ── */}
+        <div className="flex-1 overflow-hidden min-w-0 relative">
+          {tabs.map(tab => (
+            <TabTerminal
+              key={tab.id}
+              tabId={tab.id}
+              active={tab.id === activeTab}
+              sendRefs={sendCmdRefs}
+              reconRefs={reconnectRefs}
+              onStatusChange={s => updateTabStatus(tab.id, s)}
+            />
+          ))}
         </div>
       </div>
     </div>

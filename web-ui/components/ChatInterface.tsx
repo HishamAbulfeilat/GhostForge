@@ -36,6 +36,8 @@ export function ChatInterface() {
   const [copilotMode, setCopilotMode] = useState<'off' | 'suggest' | 'explain'>('off')
   const [listening, setListening] = useState(false)
   const [hasVoice, setHasVoice] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null)
@@ -330,6 +332,14 @@ export function ChatInterface() {
             </button>
             <button
               type="button"
+              onClick={() => setSearchOpen(o => !o)}
+              title="Search chat history"
+              className={`text-xs transition ${searchOpen ? 'text-sky-400' : 'text-gray-600 hover:text-sky-400'}`}
+            >
+              🔍
+            </button>
+            <button
+              type="button"
               onClick={clearHistory}
               title="Clear chat history"
               className="text-xs text-gray-600 transition hover:text-red-400"
@@ -347,6 +357,36 @@ export function ChatInterface() {
       </div>
 
       <CommandPanel commands={QUICK_COMMANDS} onSelect={command => void sendMessage(command)} />
+
+      {/* ── Chat History Search ─────────────────────────────────────────── */}
+      {searchOpen && (
+        <div className="border-b border-gray-800 bg-gray-900/80 px-4 py-3">
+          <input
+            autoFocus
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search messages…"
+            className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-1.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-600"
+          />
+          {searchQuery.trim() && (() => {
+            const q = searchQuery.toLowerCase()
+            const hits = messages.filter(m => m.content.toLowerCase().includes(q))
+            return hits.length > 0 ? (
+              <div className="mt-2 max-h-48 space-y-1.5 overflow-y-auto">
+                {hits.map((m, i) => (
+                  <div key={i} className={`rounded-lg px-3 py-2 text-xs ${m.role === 'user' ? 'bg-sky-950/60 text-sky-200' : 'bg-gray-800/60 text-gray-300'}`}>
+                    <span className="font-semibold opacity-60">{m.role === 'user' ? 'You' : 'AI'}</span>
+                    {' · '}
+                    <span>{m.content.substring(0, 120)}{m.content.length > 120 ? '…' : ''}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-gray-500">No messages match &quot;{searchQuery}&quot;</p>
+            )
+          })()}
+        </div>
+      )}
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {messages.map((message, index) => (

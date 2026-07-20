@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
+
+const MacMetricsWidget = dynamic(() => import('@/components/MacMetricsWidget').then(m => ({ default: m.MacMetricsWidget })), { ssr: false })
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -572,6 +575,9 @@ export default function DashboardPage() {
 
         {/* ── Doctor health widget ── */}
         <DoctorWidget />
+
+        {/* ── Mac live metrics ── */}
+        <MacMetricsWidget />
 
         {/* ── Top row: Tickets · Pipelines · PRs ── */}
         {!data ? (
