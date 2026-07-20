@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAuthorizedRequest } from '@/lib/auth'
 import { executeBridgeCommand } from '@/lib/ws-client'
+import { getLiveBridgeToken, getBridgeUrl } from '@/lib/bridge-token'
 
 export const dynamic = 'force-dynamic'
 
@@ -157,8 +158,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const bridgeUrl = process.env.WS_BRIDGE_URL
-  const bridgeToken = process.env.WS_BRIDGE_TOKEN
+  const bridgeUrl = getBridgeUrl()
+  const bridgeToken = getLiveBridgeToken()
 
   const empty: DashboardData = {
     bridgeConnected: false,
@@ -172,7 +173,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (!bridgeUrl || !bridgeToken) {
-    return NextResponse.json({ ...empty, error: 'Bridge not configured' })
+    return NextResponse.json({ ...empty, error: 'Bridge not configured — run: bash ~/GhostForge/scripts/bridge.sh start' })
   }
 
   // Verify bridge is reachable
@@ -221,7 +222,7 @@ export async function GET(req: NextRequest) {
         bridgeToken,
         'git log --oneline -20 --no-merges 2>/dev/null'
       ),
-      runGhCommand(bridgeUrl, bridgeToken, 'cat ~/ghostforge/VERSION 2>/dev/null || echo "?"'),
+      runGhCommand(bridgeUrl, bridgeToken, 'cat ~/GhostForge/VERSION 2>/dev/null || cat ~/ghostforge/VERSION 2>/dev/null || echo "?"'),
     ])
 
   const data: DashboardData = {

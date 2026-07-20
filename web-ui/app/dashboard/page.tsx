@@ -48,6 +48,30 @@ interface DashboardData {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+function SkeletonRow({ cols = 3 }: { cols?: number }) {
+  return (
+    <tr className="border-b border-white/[0.03]">
+      {Array.from({ length: cols }).map((_, i) => (
+        <td key={i} className="px-3 py-2">
+          <div className="h-2.5 rounded bg-white/[0.05] animate-pulse" style={{ width: `${60 + i * 20}%` }} />
+        </td>
+      ))}
+    </tr>
+  )
+}
+
+function PanelSkeleton({ label, accent }: { label: string; accent: string }) {
+  return (
+    <PanelShell label={label} accent={accent}>
+      <table className="w-full">
+        <tbody>
+          {[1, 2, 3].map(i => <SkeletonRow key={i} />)}
+        </tbody>
+      </table>
+    </PanelShell>
+  )
+}
+
 function PanelShell({
   label,
   accent,
@@ -61,11 +85,11 @@ function PanelShell({
 }) {
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded-lg border border-white/5 bg-[#080d18] ${className}`}
+      className={`flex flex-col overflow-hidden rounded-lg border border-white/5 bg-[#080d18] min-h-[120px] ${className}`}
       style={{ borderLeftColor: accent, borderLeftWidth: 2 }}
     >
       <div
-        className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest"
+        className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest shrink-0"
         style={{ color: accent, background: `${accent}12` }}
       >
         {label}
@@ -77,7 +101,7 @@ function PanelShell({
 
 function EmptyRow({ message }: { message: string }) {
   return (
-    <p className="px-3 py-3 font-mono text-xs text-gray-600 italic">{message}</p>
+    <p className="px-3 py-4 font-mono text-xs text-gray-600 italic">{message}</p>
   )
 }
 
@@ -494,8 +518,9 @@ export default function DashboardPage() {
             onClick={() => void fetchData()}
             disabled={loading}
             className="rounded border border-white/[0.06] bg-[#080d18] px-3 py-1 text-[10px] text-gray-400 transition hover:border-[#00A3E0]/40 hover:text-[#00A3E0] disabled:opacity-40"
+            title="Refresh dashboard"
           >
-            {loading ? '⟳' : '⟳'}
+            <span className={loading ? 'inline-block animate-spin' : ''}>⟳</span>
           </button>
         </div>
       </header>
@@ -549,17 +574,32 @@ export default function DashboardPage() {
         <DoctorWidget />
 
         {/* ── Top row: Tickets · Pipelines · PRs ── */}
-        <div className="grid gap-3 lg:grid-cols-3">
-          <IssuesPanel issues={data?.issues ?? []} />
-          <PipelinePanel runs={data?.runs ?? []} />
-          <PRPanel prs={data?.prs ?? []} />
-        </div>
+        {!data ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <PanelSkeleton label="📋 My Tickets" accent="#00A3E0" />
+            <PanelSkeleton label="🏗 Pipelines" accent="#22C55E" />
+            <PanelSkeleton label="🔀 Pull Requests" accent="#10B981" />
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <IssuesPanel issues={data.issues ?? []} />
+            <PipelinePanel runs={data.runs ?? []} />
+            <PRPanel prs={data.prs ?? []} />
+          </div>
+        )}
 
         {/* ── Bottom row: Activity · Releases ── */}
-        <div className="grid gap-3 lg:grid-cols-2">
-          <ActivityPanel activity={data?.activity ?? []} />
-          <ReleasesPanel releases={data?.releases ?? []} />
-        </div>
+        {!data ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <PanelSkeleton label="🔥 Activity" accent="#EF4444" />
+            <PanelSkeleton label="🚀 Releases" accent="#8B5CF6" />
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ActivityPanel activity={data.activity ?? []} />
+            <ReleasesPanel releases={data.releases ?? []} />
+          </div>
+        )}
 
         {/* ── Setup / env ── */}
         <BridgeSetupPanel />

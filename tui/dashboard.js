@@ -12,7 +12,11 @@ const { basename, resolve } = require('path');
 
 const DASHBOARD_FILE = typeof __filename === 'string' ? __filename : process.argv[1];
 const ROOT = resolve(DASHBOARD_FILE, '..', '..');
-const GITHUB_USER = 'HishamAbulfeilat';
+const GITHUB_USER = (() => {
+  try {
+    return execSync('gh api user --jq .login 2>/dev/null', { encoding: 'utf8', stdio: ['pipe','pipe','pipe'] }).trim() || 'ghostforge';
+  } catch { return 'ghostforge'; }
+})();
 
 function safeExec(cmd, opts = {}) {
   try {
@@ -345,18 +349,29 @@ function buildDashboard() {
     scrollbar: { bg: '#EF4444' },
   });
 
-  const carbonGauge = grid.set(6, 10, 5, 2, contrib.lcd, {
-    label: ' 🌿 CO₂ ',
-    segmentWidth: 0.06,
-    segmentInterval: 0.11,
-    strokeWidth: 0.1,
-    elements: 6,
-    display: 0,
-    elementSpacing: 4,
-    elementPadding: 2,
-    color: 'green',
-    border: { type: 'line', fg: '#22C55E' },
-  });
+  // Carbon panel — use a box fallback if lcd isn't supported
+  let carbonGauge = null;
+  try {
+    carbonGauge = grid.set(6, 10, 5, 2, contrib.lcd, {
+      label: ' 🌿 CO₂ ',
+      segmentWidth: 0.06,
+      segmentInterval: 0.11,
+      strokeWidth: 0.1,
+      elements: 6,
+      display: 0,
+      elementSpacing: 4,
+      elementPadding: 2,
+      color: 'green',
+      border: { type: 'line', fg: '#22C55E' },
+    });
+  } catch {
+    carbonGauge = grid.set(6, 10, 5, 2, blessed.box, {
+      label: ' 🌿 CO₂ ',
+      tags: true,
+      border: { type: 'line', fg: '#22C55E' },
+      content: '{green-fg}--{/green-fg}',
+    });
+  }
 
   const statusBar = blessed.box({
     bottom: 0,
@@ -383,7 +398,7 @@ function buildDashboard() {
     const now = new Date().toLocaleTimeString();
 
     header.setContent(
-      `{bold}{white-fg} ⚡ GHOSTFORGE DEVELOPER DASHBOARD {/white-fg}{/bold}` +
+      `{bold}{white-fg} 👻 GHOSTFORGE DASHBOARD {/white-fg}{/bold}` +
       `{gray-fg}│{/gray-fg} {cyan-fg}${GITHUB_USER}{/cyan-fg} ` +
       `{gray-fg}│{/gray-fg} {white-fg}${now}{/white-fg} ` +
       `{gray-fg}│{/gray-fg} {green-fg}v${version}{/green-fg} ` +
@@ -457,11 +472,19 @@ function buildDashboard() {
 
       // Carbon CO₂ panel
       const carbon = fetchCarbonStatus();
-      carbonGauge.setLabel(` 🌿 CO₂ ${carbon.statusIcon} `);
-      const displayVal = carbon.sessions > 0
-        ? Math.round(carbon.total * 1e6)  // micro-kg for display
-        : 0;
-      try { carbonGauge.setDisplay(Math.min(displayVal, 9999)); } catch { /* */ }
+      try {
+        const displayVal = carbon.sessions > 0 ? Math.round(carbon.total * 1e6) : 0;
+        if (typeof carbonGauge.setDisplay === 'function') {
+          carbonGauge.setLabel(` 🌿 CO₂ ${carbon.statusIcon} `);
+          carbonGauge.setDisplay(Math.min(displayVal, 9999));
+        } else {
+          const co2Line = carbon.sessions > 0
+            ? `{green-fg}${(carbon.total * 1000).toFixed(4)}g{/green-fg}\n{gray-fg}${carbon.sessions} sessions{/gray-fg}`
+            : `{gray-fg}No data\n${carbon.status}{/gray-fg}`;
+          carbonGauge.setLabel(` 🌿 CO₂ ${carbon.statusIcon} `);
+          carbonGauge.setContent(co2Line);
+        }
+      } catch { /* ignore carbon panel errors */ }
 
       lastRefresh = new Date().toLocaleTimeString();
       updateHeader();

@@ -1533,7 +1533,6 @@ async function screenOpenProject() {
 async function screenDoctor() {
   sectionHeader('🩺  GhostForge Doctor', 'Health check — env, bridge, AI models, tools, web UI pages');
 
-  const { spawnSync } = require('child_process');
   const doctorScript = resolve(ROOT, 'scripts/doctor.sh');
 
   console.log(T.muted('  Running checks...\n'));
@@ -1551,21 +1550,18 @@ async function screenDoctor() {
     console.log(T.muted('  (no output — check that scripts/doctor.sh is executable)'));
   }
 
-  const { confirm } = await import('@inquirer/prompts').catch(() => ({ confirm: null }));
-  if (confirm) {
-    const openFix = await confirm({ message: 'Auto-fix issues? (starts bridge if offline, installs missing deps)' }).catch(() => false);
-    if (openFix) {
-      console.log(T.muted('\n  Running auto-fix...\n'));
-      const fix = spawnSync('bash', [doctorScript, '--fix'], {
-        env: { ...process.env, GHOSTFORGE_ROOT: ROOT },
-        encoding: 'utf8',
-        stdio: ['inherit', 'pipe', 'pipe'],
-      });
-      console.log((fix.stdout || '') + (fix.stderr || ''));
-    }
+  const openFix = await confirm({ message: 'Auto-fix issues? (starts bridge if offline, installs missing deps)' }).catch(() => false);
+  if (openFix) {
+    console.log(T.muted('\n  Running auto-fix...\n'));
+    const fix = spawnSync('bash', [doctorScript, '--fix'], {
+      env: { ...process.env, GHOSTFORGE_ROOT: ROOT },
+      encoding: 'utf8',
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
+    console.log((fix.stdout || '') + (fix.stderr || ''));
   }
 
-  await pressKey();
+  await pressEnter();
 }
 
 async function screenVersion() {

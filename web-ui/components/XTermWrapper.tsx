@@ -11,6 +11,8 @@ import '@xterm/xterm/css/xterm.css'
 //   Client → server input: 0x00 byte + data
 //   Client → server resize: 0x01 byte + JSON {"rows":N,"cols":N}
 
+type ConnStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
+
 function getTtydUrl(token: string) {
   const host = window.location.hostname
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -20,35 +22,64 @@ function getTtydUrl(token: string) {
 
 interface Props {
   sendCommandRef?: React.MutableRefObject<((cmd: string) => void) | null>
+  reconnectRef?: React.MutableRefObject<(() => void) | null>
+  onStatusChange?: (status: ConnStatus) => void
 }
 
-export default function XTermWrapper({ sendCommandRef }: Props) {
+export default function XTermWrapper({ sendCommandRef, reconnectRef, onStatusChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
 
   const connect = useCallback(async (term: Terminal, fit: FitAddon) => {
+    // Close existing connection
+    wsRef.current?.close()
+    wsRef.current = null
+
+    onStatusChange?.('connecting')
+    term.write('\r\n\x1b[33m[Connecting...]\x1b[0m\r\n')
+
     let bridgeToken = ''
     try {
       const res = await fetch('/api/pty-token')
-      if (!res.ok) { term.write('\r\n\x1b[31m[Auth failed — log in again]\x1b[0m\r\n'); return }
-      const d = await res.json() as { token?: string }
+      if (!res.ok) {
+        onStatusChange?.('error')
+        term.write('\r\n\x1b[31m[Auth failed — are you logged in?]\x1b[0m\r\n')
+        return
+      }
+      const d = await res.json() as { token?: string; error?: string }
       bridgeToken = d.token ?? ''
-    } catch { term.write('\r\n\x1b[31m[Cannot reach server]\x1b[0m\r\n'); return }
+      if (!bridgeToken) {
+        onStatusChange?.('error')
+        term.write('\r\n\x1b[31m[Bridge token missing — start the bridge first]\x1b[0m\r\n')
+        term.write('\x1b[33m  bash ~/GhostForge/scripts/bridge.sh start\x1b[0m\r\n')
+        return
+      }
+    } catch {
+      onStatusChange?.('error')
+      term.write('\r\n\x1b[31m[Cannot reach server]\x1b[0m\r\n')
+      return
+    }
 
     const ws = new WebSocket(getTtydUrl(bridgeToken))
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
     ws.onopen = () => {
-      term.write('\x1b[32m[✓ Connected to GhostForge TUI]\x1b[0m\r\n')
-      // Send initial size: 0x01 prefix + JSON
+      onStatusChange?.('connected')
+      term.write('\x1b[32m[✓ Connected — GhostForge TUI ready]\x1b[0m\r\n')
       ws.send('\x01' + JSON.stringify({ rows: term.rows, cols: term.cols }))
+      // Send initial size after brief delay to let ttyd settle
+      setTimeout(() => {
+        fit.fit()
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send('\x01' + JSON.stringify({ rows: term.rows, cols: term.cols }))
+        }
+      }, 200)
     }
 
     ws.onmessage = (e) => {
-      // ttyd sends raw terminal bytes
       if (e.data instanceof ArrayBuffer) {
         term.write(new Uint8Array(e.data))
       } else if (typeof e.data === 'string') {
@@ -59,33 +90,50 @@ export default function XTermWrapper({ sendCommandRef }: Props) {
     }
 
     ws.onerror = () => {
-      term.write('\r\n\x1b[31m[✗ Connection failed]\x1b[0m\r\n')
-      term.write('\x1b[33m  Run: bash ~/GhostForge/scripts/bridge.sh start\x1b[0m\r\n')
-      term.write('\x1b[33m  Then press R to reconnect\x1b[0m\r\n')
+      onStatusChange?.('error')
+      term.write('\r\n\x1b[31m[✗ Connection failed — bridge may be offline]\x1b[0m\r\n')
+      term.write('\x1b[33m  Start bridge: bash ~/GhostForge/scripts/bridge.sh start\x1b[0m\r\n')
+      term.write('\x1b[90m  Then click Reconnect or press R\x1b[0m\r\n')
     }
 
     ws.onclose = (e) => {
-      if (e.code === 1006 || e.code === 1008) {
-        term.write('\r\n\x1b[31m[Disconnected — press R to reconnect]\x1b[0m\r\n')
+      onStatusChange?.('disconnected')
+      if (e.code === 1008) {
+        term.write('\r\n\x1b[31m[Auth rejected — bridge token mismatch]\x1b[0m\r\n')
+      } else if (e.code === 1006) {
+        term.write('\r\n\x1b[31m[Connection lost — click Reconnect or press R]\x1b[0m\r\n')
       } else {
-        term.write('\r\n\x1b[33m[Session ended — press R to restart]\x1b[0m\r\n')
+        term.write('\r\n\x1b[33m[Session ended — click Reconnect or press R]\x1b[0m\r\n')
       }
     }
-  }, [])
+  }, [onStatusChange])
 
   const sendToTerminal = useCallback((cmd: string) => {
     const ws = wsRef.current
     const term = termRef.current
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send('\x00' + cmd + '\n')  // ttyd: 0x00 prefix + data
+      ws.send('\x00' + cmd + '\n')
     } else if (term) {
-      term.write('\r\n\x1b[33m[Not connected — start the bridge first]\x1b[0m\r\n')
+      term.write('\r\n\x1b[33m[Not connected — start bridge then click Reconnect]\x1b[0m\r\n')
     }
   }, [])
+
+  const reconnect = useCallback(() => {
+    const term = termRef.current
+    const fit = fitRef.current
+    if (term && fit) {
+      term.write('\r\n\x1b[33m[Reconnecting...]\x1b[0m\r\n')
+      void connect(term, fit)
+    }
+  }, [connect])
 
   useEffect(() => {
     if (sendCommandRef) sendCommandRef.current = sendToTerminal
   }, [sendCommandRef, sendToTerminal])
+
+  useEffect(() => {
+    if (reconnectRef) reconnectRef.current = reconnect
+  }, [reconnectRef, reconnect])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -121,9 +169,8 @@ export default function XTermWrapper({ sendCommandRef }: Props) {
     term.onData(data => {
       const ws = wsRef.current
       if (ws?.readyState === WebSocket.OPEN) {
-        ws.send('\x00' + data)  // ttyd: 0x00 prefix + data
+        ws.send('\x00' + data)
       } else if (data.toLowerCase() === 'r') {
-        term.write('\x1b[33m[Reconnecting...]\x1b[0m\r\n')
         void connect(term, fit)
       }
     })
