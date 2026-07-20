@@ -9,6 +9,17 @@ const WEBUI = path.join(ROOT, 'web-ui')
 const BRIDGE_DIR = path.join(os.homedir(), '.ghostforge/bridge')
 const ROUTES_CONFIG = path.join(WEBUI, 'routes.config.json')
 
+// Hoist static file read — runs once at module load, not on every request
+let _routesConfig: { routes: { page: string; path: string; hidden?: boolean }[] } | null = null
+function getRoutesConfig() {
+  if (!_routesConfig) {
+    try {
+      _routesConfig = JSON.parse(fs.readFileSync(ROUTES_CONFIG, 'utf8'))
+    } catch { _routesConfig = { routes: [] } }
+  }
+  return _routesConfig
+}
+
 function fileExists(p: string) {
   try { fs.accessSync(p); return true } catch { return false }
 }
@@ -93,7 +104,7 @@ export async function GET() {
 
   // ── Web UI pages ──
   if (fileExists(ROUTES_CONFIG)) {
-    const config = JSON.parse(fs.readFileSync(ROUTES_CONFIG, 'utf8')) as { routes: { page: string; path: string; hidden?: boolean }[] }
+    const config = getRoutesConfig()
     for (const route of config.routes.filter(r => !r.hidden)) {
       const p = path.join(WEBUI, 'app', route.page)
       if (fileExists(p)) add('Pages', `page:${route.path}`, 'pass', route.page)

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -113,9 +114,9 @@ function IssuesPanel({ issues }: { issues: Issue[] }) {
       ) : (
         <table className="w-full text-xs">
           <tbody>
-            {issues.map((issue, i) => (
+            {issues.map((issue) => (
               <tr
-                key={i}
+                key={issue.number}
                 className="border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors"
               >
                 <td className="px-3 py-2 font-mono text-[#00A3E0] w-10 shrink-0">{issue.number}</td>
@@ -145,9 +146,9 @@ function PipelinePanel({ runs }: { runs: Run[] }) {
       ) : (
         <table className="w-full text-xs">
           <tbody>
-            {runs.map((run, i) => (
+            {runs.map((run) => (
               <tr
-                key={i}
+                key={`${run.name}-${run.branch}`}
                 className="border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors"
               >
                 <td className="px-3 py-2 w-6">{run.icon}</td>
@@ -182,11 +183,11 @@ function PRPanel({ prs }: { prs: PR[] }) {
       ) : (
         <table className="w-full text-xs">
           <tbody>
-            {prs.map((pr, i) => {
+            {prs.map((pr) => {
               const badge = reviewBadge[pr.review] ?? reviewBadge.pending
               return (
                 <tr
-                  key={i}
+                  key={pr.number}
                   className="border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors"
                 >
                   <td className="px-3 py-2 font-mono text-[#10B981] w-10 shrink-0">{pr.number}</td>
@@ -216,11 +217,11 @@ function ActivityPanel({ activity }: { activity: string[] }) {
         <EmptyRow message="No recent commits" />
       ) : (
         <ul className="space-y-0">
-          {activity.map((line, i) => {
+          {activity.map((line) => {
             const [hash, ...rest] = line.split(' ')
             return (
               <li
-                key={i}
+                key={hash}
                 className="flex gap-2 border-b border-white/[0.04] px-3 py-1.5 hover:bg-white/[0.03] transition-colors"
               >
                 <span className="font-mono text-[10px] text-[#EF4444] shrink-0 w-14 truncate">{hash}</span>
@@ -242,9 +243,9 @@ function ReleasesPanel({ releases }: { releases: Release[] }) {
       ) : (
         <table className="w-full text-xs">
           <tbody>
-            {releases.map((rel, i) => (
+            {releases.map((rel) => (
               <tr
-                key={i}
+                key={rel.tag}
                 className="border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors"
               >
                 <td className="px-3 py-2 font-mono text-[#8B5CF6] w-20 shrink-0">{rel.tag}</td>
@@ -377,8 +378,8 @@ function DoctorWidget() {
           {issues.length === 0 ? (
             <p className="text-xs text-emerald-400">✅ All {result.total} checks passed</p>
           ) : (
-            issues.map((c, i) => (
-              <div key={i} className="flex flex-col gap-0.5">
+            issues.map((c) => (
+              <div key={`${c.category}-${c.label}`} className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2 text-xs">
                   <span className={c.status === 'fail' ? 'text-red-400' : 'text-amber-400'}>
                     {c.status === 'fail' ? '✗' : '⚠'}
@@ -472,14 +473,13 @@ export default function DashboardPage() {
     >
       {/* ── Header ── */}
       <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-[#030712]/90 px-4 py-2.5 backdrop-blur">
-        <button
-          type="button"
-          onClick={() => router.push('/chat')}
+        <Link
+          href="/chat"
           className="rounded p-1 text-gray-500 transition hover:text-white"
           aria-label="Back to chat"
         >
           ‹
-        </button>
+        </Link>
 
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold tracking-tight text-white">👻 GhostForge</span>
@@ -493,15 +493,15 @@ export default function DashboardPage() {
 
         <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
           {/* Nav links */}
-          <a href="/features" className="rounded border border-violet-800/50 bg-violet-950/30 px-2 py-1 text-[10px] text-violet-300 hover:bg-violet-900/40 transition">
+          <Link href="/features" className="rounded border border-violet-800/50 bg-violet-950/30 px-2 py-1 text-[10px] text-violet-300 hover:bg-violet-900/40 transition">
             🔧 Features
-          </a>
-          <a href="/terminal" className="rounded border border-emerald-800/50 bg-emerald-950/30 px-2 py-1 text-[10px] text-emerald-300 hover:bg-emerald-900/40 transition">
+          </Link>
+          <Link href="/terminal" className="rounded border border-emerald-800/50 bg-emerald-950/30 px-2 py-1 text-[10px] text-emerald-300 hover:bg-emerald-900/40 transition">
             💻 Terminal
-          </a>
-          <a href="/chat" className="rounded border border-sky-800/50 bg-sky-950/30 px-2 py-1 text-[10px] text-sky-300 hover:bg-sky-900/40 transition">
+          </Link>
+          <Link href="/chat" className="rounded border border-sky-800/50 bg-sky-950/30 px-2 py-1 text-[10px] text-sky-300 hover:bg-sky-900/40 transition">
             💬 Chat
-          </a>
+          </Link>
 
           {/* Bridge indicator */}
           <div className="flex items-center gap-1.5 rounded-full border border-white/[0.06] bg-[#080d18] px-3 py-1">

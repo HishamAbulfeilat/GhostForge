@@ -44,7 +44,8 @@ export function ChatInterface() {
   // ── Load chat history from localStorage ─────────────────────────────────
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('gf_chat_history')
+      // Support both old and new key for migration
+      const saved = localStorage.getItem('gf_chat_history:v1') ?? localStorage.getItem('gf_chat_history')
       if (saved) {
         const parsed = JSON.parse(saved) as Array<{ role: string; content: string; timestamp: string }>
         if (parsed.length > 0) {
@@ -58,7 +59,7 @@ export function ChatInterface() {
   // ── Persist messages to localStorage ─────────────────────────────────────
   useEffect(() => {
     try {
-      localStorage.setItem('gf_chat_history', JSON.stringify(
+      localStorage.setItem('gf_chat_history:v1', JSON.stringify(
         messages.slice(-100).map(m => ({ role: m.role, content: m.content, timestamp: m.timestamp }))
       ))
     } catch { /* storage full */ }
@@ -101,6 +102,7 @@ export function ChatInterface() {
 
   const clearHistory = () => {
     setMessages([INITIAL_MESSAGE])
+    localStorage.removeItem('gf_chat_history:v1')
     localStorage.removeItem('gf_chat_history')
   }
 
@@ -331,10 +333,10 @@ export function ChatInterface() {
         {loading ? (
           <div className="flex justify-start">
             <div className="rounded-[22px] border border-gray-800 bg-gray-900/90 px-4 py-3">
-              <div className="flex gap-1">
-                <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:120ms]" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:240ms]" />
+              <div className="flex gap-1 items-center py-0.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-gray-400 animate-pulse" />
+                <span className="h-1.5 w-1.5 rounded-full bg-gray-400 animate-pulse [animation-delay:200ms]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-gray-400 animate-pulse [animation-delay:400ms]" />
               </div>
             </div>
           </div>
