@@ -37,7 +37,8 @@ export function ChatInterface() {
   const [listening, setListening] = useState(false)
   const [hasVoice, setHasVoice] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null)
   const prevBridgeStatus = useRef<BridgeStatus>('unknown')
   const router = useRouter()
 
@@ -74,16 +75,18 @@ export function ChatInterface() {
 
   // ── Voice input setup ─────────────────────────────────────────────────────
   useEffect(() => {
-    const SpeechRec = (window as Window & { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition
-      ?? (window as Window & { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any
+    const SpeechRec = w.SpeechRecognition ?? w.webkitSpeechRecognition
     if (SpeechRec) {
       setHasVoice(true)
       const rec = new SpeechRec()
       rec.continuous = false
       rec.interimResults = true
       rec.lang = 'en-US'
-      rec.onresult = (e: SpeechRecognitionEvent) => {
-        const transcript = Array.from(e.results).map(r => r[0].transcript).join('')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rec.onresult = (e: any) => {
+        const transcript = Array.from(e.results as any[]).map((r: any) => r[0].transcript).join('')
         setInput(transcript)
       }
       rec.onend = () => setListening(false)

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { isAuthenticatedSession } from '@/lib/auth'
 
-export default function Home() {
-  redirect(isAuthenticatedSession() ? '/chat' : '/login')
+export default async function Home() {
+  redirect((await isAuthenticatedSession()) ? '/chat' : '/login')
 }

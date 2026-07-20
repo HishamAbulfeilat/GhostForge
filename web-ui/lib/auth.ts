@@ -1,5 +1,4 @@
 import type { NextRequest } from 'next/server'
-import { cookies } from 'next/headers'
 
 export const AUTH_COOKIE_NAME = 'gf_token'
 
@@ -19,6 +18,8 @@ export function isAuthorizedRequest(req: NextRequest) {
   return isValidAuthToken(req.cookies.get(AUTH_COOKIE_NAME)?.value)
 }
 
-export function isAuthenticatedSession() {
-  return isValidAuthToken(cookies().get(AUTH_COOKIE_NAME)?.value)
+export async function isAuthenticatedSession() {
+  const { cookies } = await import('next/headers')
+  const store = await cookies()
+  return isValidAuthToken(store.get(AUTH_COOKIE_NAME)?.value)
 }
