@@ -13,6 +13,39 @@ function readJSON<T>(p: string, fallback: T): T {
 
 const BUILTIN_MODELS = [
   {
+    id: 'auto/coding',
+    name: 'OmniRoute Auto/Coding 🆓',
+    provider: 'omniroute',
+    providerName: 'OmniRoute',
+    description: 'Quality-first routing across 250+ providers. Auto-fallback, ~1.6B free tokens/mo. Requires: npx omniroute',
+    free: true,
+    requiresKey: null,
+    category: 'free',
+    context: 'varies',
+  },
+  {
+    id: 'auto/fast',
+    name: 'OmniRoute Auto/Fast 🆓',
+    provider: 'omniroute',
+    providerName: 'OmniRoute',
+    description: 'Lowest-latency routing. Free-forever providers (Kiro, Pollinations, LongCat…).',
+    free: true,
+    requiresKey: null,
+    category: 'free',
+    context: 'varies',
+  },
+  {
+    id: 'auto',
+    name: 'OmniRoute Auto 🆓',
+    provider: 'omniroute',
+    providerName: 'OmniRoute',
+    description: 'Balanced LKGP routing across 90+ free tiers. No API key needed.',
+    free: true,
+    requiresKey: null,
+    category: 'free',
+    context: 'varies',
+  },
+  {
     id: 'gemini-2.5-pro',
     name: 'Gemini 2.5 Pro',
     provider: 'google',
@@ -112,13 +145,15 @@ export async function GET() {
   const settings = readJSON<{ activeModel?: string; activeProvider?: string }>(SETTINGS_PATH, {})
   const customModels = readJSON<{ free_model_providers?: unknown[] }>(MODELS_PATH, {})
 
-  // Detect which API keys are configured
+  // Detect which API keys / local services are configured
   const hasGoogle = !!process.env.GOOGLE_GENERATIVE_AI_API_KEY
   const hasOpenRouter = !!process.env.OPENROUTER_API_KEY
   const hasGroq = !!process.env.GROQ_API_KEY
   const hasNvidia = !!process.env.NVIDIA_API_KEY
+  // OmniRoute runs locally — check if OMNIROUTE_URL is set or use default
+  const hasOmniRoute = !!(process.env.OMNIROUTE_URL || true) // always show; detection via ping is done client-side
 
-  const keysAvailable = { google: hasGoogle, openrouter: hasOpenRouter, groq: hasGroq, nvidia: hasNvidia }
+  const keysAvailable = { google: hasGoogle, openrouter: hasOpenRouter, groq: hasGroq, nvidia: hasNvidia, omniroute: hasOmniRoute }
 
   const activeModel = settings.activeModel ?? process.env.GEMINI_MODEL ?? 'gemini-2.5-pro'
   const activeProvider = settings.activeProvider ?? 'google'

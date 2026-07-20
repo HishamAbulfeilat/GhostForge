@@ -213,6 +213,7 @@ const COMMANDS = [
   // Deployment
   { name: '/deploy',        cat: '🚀 Deploy',      file: 'commands/deploy.md',         desc: 'Deploy to Azure / GitHub Pages / Vercel / custom server' },
   { name: '/appmorphy',     cat: '🚀 Deploy',      file: 'commands/appmorphy.md',      desc: 'Convert any website to an Android APK via AppMorphy cloud build' },
+  { name: '/omniroute',    cat: '🆓 Free AI',     file: 'commands/omniroute.md',      desc: 'Local AI gateway — 250+ providers, 90+ free tiers, auto-fallback, no API key' },
   // Modes & Misc
   { name: '/autopilot',     cat: '⚙️  Modes',       file: 'commands/autopilot.md',      desc: 'Enable autopilot mode — auto-approve all actions (no prompts)' },
   { name: '/safe',          cat: '⚙️  Modes',       file: 'commands/safe.md',           desc: 'Enable safe mode — confirm every action before execution' },
@@ -341,7 +342,7 @@ async function screenHome() {
       { name: T.white.bold('📄  README / Docs')             + T.muted('          — view full toolkit documentation'), value: 'readme' },
       { name: T.warning.bold('🏪  Marketplace')              + T.muted('           — browse/install agents, skills, plugins'), value: 'marketplace' },
       { name: T.success.bold('⚡  Generate New')              + T.muted('           — create custom agent/command/skill/plugin'), value: 'generate' },
-      { name: T.accent.bold('🆓  Free Models')               + T.muted('            — NVIDIA, Groq, Ollama, HuggingFace'), value: 'freemodels' },
+      { name: T.accent.bold('🆓  Free Models')               + T.muted('            — NVIDIA, Groq, OmniRoute, Ollama, HuggingFace'), value: 'freemodels' },
       { name: T.cyan.bold('🩺  Doctor')                     + T.muted('                — health check: env, bridge, AI, tools'), value: 'doctor' },
       { name: T.muted(`🔖  Version: v${VERSION}`)           + T.muted('          — bump version / run updater'), value: 'version' },
       { name: T.accent.bold('🧩  Install VS Code Extension')  + T.muted('  — install ghostforge.vsix into VS Code'), value: 'vscode-install' },
@@ -1734,6 +1735,7 @@ async function screenMarketplace() {
       { name: T.success.bold('🎭  Playwright')             + T.muted(' — E2E testing · React/Next.js · codegen · trace viewer'), value: 'playwright' },
       { name: T.cyan.bold('👁️   UI-TARS')                  + T.muted(' — ByteDance GUI agent · see screen, click, automate · visual testing'), value: 'ui-tars' },
       { name: T.warning.bold('🔀  OpenRouter')              + T.muted(' — 300+ AI models · browse free models · one API'), value: 'openrouter' },
+      { name: T.success.bold('🌐  OmniRoute')               + T.muted(' — 250+ providers · 90+ free · auto-fallback · no key'), value: 'omniroute' },
       { name: T.cyan.bold('🎙️   Meetily')                   + T.muted(' — local AI meeting transcription · Arabic · no cloud'), value: 'meetily' },
       { name: T.success.bold('🌿  Carbon Monitor')           + T.muted(' — track dev session CO₂ emissions · your CRP research'), value: 'carbon-monitor' },
       { name: T.accent.bold('👻  Git Autopilot')             + T.muted(' — AI commit, branch, PR, and status helper'), value: 'git-autopilot' },
@@ -2712,6 +2714,88 @@ async function screenMarketplace() {
           { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
         ));
         try { execSync(`open "${url}" 2>/dev/null || xdg-open "${url}" 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+      }
+    }
+    await pressEnter();
+  }
+
+  if (action === 'omniroute') {
+    const orAction = await select({
+      message: T.success.bold('🌐 OmniRoute — Free AI Gateway:'),
+      choices: [
+        { name: T.success.bold('▶  Start OmniRoute')         + T.muted('        — run: npx omniroute (in new terminal)'), value: 'start' },
+        { name: T.accent.bold('🌐  Open Dashboard')          + T.muted('         — open OmniRoute web UI in browser'), value: 'dashboard' },
+        { name: T.white.bold('📋  View Docs')                + T.muted('              — /omniroute command reference'), value: 'docs' },
+        { name: T.brand.bold('💻  Use in project')           + T.muted('         — OpenAI-compatible setup snippet'), value: 'code' },
+        { name: T.warning.bold('🆓  Browse free providers')  + T.muted('  — list of 90+ free-tier providers'), value: 'providers' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 15,
+    });
+    if (orAction !== '__back__') {
+      console.log();
+      if (orAction === 'docs') {
+        console.log(); showMdPreview('commands/omniroute.md', 60); console.log();
+      } else if (orAction === 'start') {
+        console.log(boxen(
+          T.success.bold(' 🌐 Start OmniRoute\n\n') +
+          T.white('Run in a new terminal window:\n\n') +
+          T.cyan('  npx omniroute\n\n') +
+          T.white('Or via Docker:\n\n') +
+          T.cyan('  docker run -p 20128:20128 diegosouzapw/omniroute\n\n') +
+          T.white('Or install globally:\n\n') +
+          T.cyan('  npm install -g omniroute && omniroute\n\n') +
+          T.success('Once running, GhostForge auto-uses it as AI fallback.\n') +
+          T.muted('  Endpoint: http://localhost:20128/v1'),
+          { padding: 1, borderColor: 'green', borderStyle: 'round', title: ' OmniRoute Quick Start ' }
+        ));
+      } else if (orAction === 'dashboard') {
+        console.log(T.accent('\n  Opening http://localhost:20128 ...\n'));
+        try { execSync('open http://localhost:20128 2>/dev/null || xdg-open http://localhost:20128 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        console.log(T.muted('  (OmniRoute must be running first: npx omniroute)\n'));
+      } else if (orAction === 'code') {
+        console.log(boxen(
+          T.success.bold(' 🌐 OmniRoute — Use in Your Project ') + '\n\n' +
+          T.white('OpenAI-compatible API — no API key required.\n\n') +
+          T.success.bold('  TypeScript / JavaScript:\n') +
+          T.cyan("  import OpenAI from 'openai'\n\n") +
+          T.cyan("  const client = new OpenAI({\n") +
+          T.cyan("    apiKey: 'omniroute', // ignored — OmniRoute handles auth\n") +
+          T.cyan("    baseURL: 'http://localhost:20128/v1',\n") +
+          T.cyan("  })\n\n") +
+          T.cyan("  const res = await client.chat.completions.create({\n") +
+          T.cyan("    model: 'auto/coding', // quality-first for code\n") +
+          T.cyan("    messages: [{ role: 'user', content: 'Hello' }],\n") +
+          T.cyan("  })\n\n") +
+          T.success.bold('  .env.local:\n') +
+          T.cyan('  OMNIROUTE_URL=http://localhost:20128/v1\n') +
+          T.cyan('  OMNIROUTE_MODEL=auto/coding\n\n') +
+          T.success.bold('  Model IDs:\n') +
+          T.white('  auto           → balanced (last-known-good)\n') +
+          T.white('  auto/coding    → quality-first for code 🧑‍💻\n') +
+          T.white('  auto/fast      → lowest latency ⚡\n') +
+          T.white('  auto/cheap     → cheapest per token 💰\n') +
+          T.white('  auto/offline   → most quota headroom\n'),
+          { padding: 1, borderColor: 'green', borderStyle: 'round' }
+        ));
+      } else if (orAction === 'providers') {
+        console.log(boxen(
+          T.success.bold(' 🆓 OmniRoute Free Providers (sample)\n\n') +
+          T.white('  Free forever (no cap):\n') +
+          T.success('  ✓ Kiro · Pollinations · LongCat · SiliconFlow · Z.AI GLM-Flash\n\n') +
+          T.white('  Free tiers (~1.6B tokens/mo total):\n') +
+          T.accent('  • Google AI (Gemini 2.0 Flash)\n') +
+          T.accent('  • Groq (Llama 3.1 70B)\n') +
+          T.accent('  • Together AI ($25 signup credit)\n') +
+          T.accent('  • Cerebras (Llama 3.3 70B)\n') +
+          T.accent('  • NVIDIA NIM (Llama 3.3 70B)\n') +
+          T.accent('  • OpenRouter (100+ free models)\n') +
+          T.accent('  • HuggingFace Inference API\n') +
+          T.accent('  + 80 more free providers\n\n') +
+          T.muted('  Full list: https://omniroute.online'),
+          { padding: 1, borderColor: 'green', borderStyle: 'round', title: ' 90+ Free Providers ' }
+        ));
+        try { execSync('open https://omniroute.online 2>/dev/null || xdg-open https://omniroute.online 2>/dev/null', { stdio: 'ignore' }); } catch {}
       }
     }
     await pressEnter();

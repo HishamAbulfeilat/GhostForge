@@ -17,12 +17,26 @@ interface ModelSelection {
   fallbackModel?: LanguageModel
 }
 
+/** Build an OmniRoute LanguageModel — no API key required, runs locally */
+function makeOmniRouteModel(modelId = 'auto/coding'): LanguageModel {
+  const baseURL = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1'
+  const omni = createOpenAI({ baseURL, apiKey: 'omniroute' }) // key value ignored by OmniRoute
+  return omni(modelId)
+}
+
 /** Returns the selected AI model without calling it — used for streaming */
 export async function selectAIModel(opts?: ModelOverride): Promise<ModelSelection> {
   const openrouterKey = process.env.OPENROUTER_API_KEY
   const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  const omniUrl = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1'
   const activeProvider = opts?.activeProvider
   const activeModel = opts?.activeModel
+
+  // Explicit OmniRoute selection
+  if (activeProvider === 'omniroute') {
+    const modelId = activeModel || process.env.OMNIROUTE_MODEL || 'auto/coding'
+    return { model: makeOmniRouteModel(modelId) }
+  }
 
   // Explicit OpenRouter selection
   if (activeProvider === 'openrouter' && openrouterKey && activeModel) {
@@ -38,25 +52,32 @@ export async function selectAIModel(opts?: ModelOverride): Promise<ModelSelectio
       ? activeModel
       : (process.env.GEMINI_MODEL || 'gemini-2.5-flash')
 
+    // Build fallback chain: OpenRouter → OmniRoute
     const fallbackModel = openrouterKey
       ? createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: openrouterKey })(
           process.env.OPENROUTER_MODEL || 'nvidia/nemotron-3-nano-30b-a3b:free'
         )
-      : undefined
+      : makeOmniRouteModel()
 
     return { model: google(modelId), fallbackModel }
   }
 
-  // OpenRouter only
+  // OpenRouter with OmniRoute as fallback
   if (openrouterKey) {
     const openrouter = createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: openrouterKey })
     const modelId = (activeProvider === 'openrouter' && activeModel)
       ? activeModel
       : (process.env.OPENROUTER_MODEL || 'nvidia/nemotron-3-nano-30b-a3b:free')
-    return { model: openrouter(modelId) }
+    return { model: openrouter(modelId), fallbackModel: makeOmniRouteModel() }
   }
 
-  throw new Error('⚠️ No AI API key configured. Add GOOGLE_GENERATIVE_AI_API_KEY or OPENROUTER_API_KEY in .env.local')
+  // OmniRoute — free, no key needed (must be running locally)
+  if (omniUrl) {
+    const modelId = process.env.OMNIROUTE_MODEL || 'auto/coding'
+    return { model: makeOmniRouteModel(modelId) }
+  }
+
+  throw new Error('⚠️ No AI configured. Add GOOGLE_GENERATIVE_AI_API_KEY, OPENROUTER_API_KEY, or start OmniRoute locally (npx omniroute).')
 }
 
 /** Legacy non-streaming helper — kept for scripts/non-chat uses */
@@ -71,7 +92,7 @@ export async function generateGhostforgeReply(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if ((msg.includes('quota') || msg.includes('exceeded') || msg.includes('429')) && fallbackModel) {
-      console.warn('Gemini quota exceeded, falling back to OpenRouter')
+      console.warn('Primary model quota exceeded, falling back')
       const response = await generateText({ model: fallbackModel, system: GHOSTFORGE_SYSTEM, messages })
       return response.text
     }

@@ -2,6 +2,24 @@
   "models": [],
   "free_model_providers": [
     {
+      "id": "omniroute",
+      "name": "OmniRoute",
+      "description": "Free AI gateway \u2014 250+ providers, 90+ free tiers, auto-fallback, ~1.6B free tokens/mo. No API key needed.",
+      "api_base": "http://localhost:20128/v1",
+      "key_signup_url": "https://omniroute.online",
+      "free_models": [
+        "auto",
+        "auto/coding",
+        "auto/fast",
+        "auto/cheap",
+        "auto/offline",
+        "auto/smart"
+      ],
+      "env_key": null,
+      "setup": "npx omniroute",
+      "notes": "OpenAI-compatible endpoint. Run locally with: npx omniroute | docker run -p 20128:20128 diegosouzapw/omniroute"
+    },
+    {
       "id": "nvidia-nim",
       "name": "NVIDIA NIM",
       "description": "Free tier: Llama 3.3, Mistral, Phi-3, CodeLlama",
@@ -19,7 +37,7 @@
     {
       "id": "groq",
       "name": "Groq",
-      "description": "Free tier: Llama 3.1 70B, Mixtral, Gemma2 — ultra-fast inference",
+      "description": "Free tier: Llama 3.1 70B, Mixtral, Gemma2 \u2014 ultra-fast inference",
       "api_base": "https://api.groq.com/openai/v1",
       "key_signup_url": "https://console.groq.com",
       "free_models": [
@@ -33,7 +51,7 @@
     {
       "id": "ollama",
       "name": "Ollama (Local)",
-      "description": "Run models locally — no API key needed. Llama, Mistral, CodeLlama, Phi",
+      "description": "Run models locally \u2014 no API key needed. Llama, Mistral, CodeLlama, Phi",
       "api_base": "http://localhost:11434/v1",
       "key_signup_url": "https://ollama.com",
       "free_models": [
