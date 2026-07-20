@@ -357,6 +357,7 @@ async function screenHome() {
       menuSeparator(),
       menuChoice(T.white.bold, '🚀  Deploy', 'deploy to Azure / GitHub / Vercel', 'deploy'),
       menuChoice(T.accent.bold, '📱  AppMorphy', 'convert website → Android APK (cloud build)', 'appmorphy'),
+      menuChoice(T.pink.bold || T.white.bold, '🍎  Mac Control', 'control Mac with natural language → AppleScript', 'maccontrol'),
       menuChoice(T.muted, '🌅  Daily Digest', 'morning summary: tickets, security, deps, git', 'digest'),
       menuChoice(T.white.bold, '📄  README / Docs', 'view full toolkit documentation', 'readme'),
       menuSeparator(),
@@ -1324,6 +1325,148 @@ async function screenDeploy() {
     ));
     await pressEnter();
   }
+}
+
+async function screenMacControl() {
+  sectionHeader('🍎  Mac Control', 'Automate your Mac with natural language → AppleScript');
+
+  console.log(boxen(
+    T.white.bold('  🍎  Natural Language → AppleScript → Runs on your Mac\n\n') +
+    T.success('  ✓ iMessage, Teams, Mail, Finder, Spotify, Safari & more\n') +
+    T.success('  ✓ System control: volume, brightness, lock, screenshot\n') +
+    T.success('  ✓ AI generates AppleScript from plain English\n') +
+    T.muted('  ─────────────────────────────────────────────────\n') +
+    T.cyan('  Web UI: ') + T.white('http://localhost:3001/mac-control') + '\n' +
+    T.muted('  Or use the quick actions below\n'),
+    { padding: 1, margin: { left: 2 }, borderColor: 'white', borderStyle: 'round', title: ' Mac Control — appmorphy.app ' }
+  ));
+
+  const { action } = await inquirer.prompt([{
+    type: 'list',
+    name: 'action',
+    message: T.accent('Choose an action:'),
+    choices: [
+      { name: T.success.bold('💬  iMessage / SMS')         + T.muted('   — send a message via Messages app'), value: 'imessage' },
+      { name: T.white.bold('👥  Teams Message')           + T.muted('    — send a message in Microsoft Teams'), value: 'teams' },
+      { name: T.cyan.bold('🔊  Volume Control')          + T.muted('    — set, mute, or unmute system audio'), value: 'volume' },
+      { name: T.accent.bold('📸  Screenshot')             + T.muted('         — take a screenshot to Desktop'), value: 'screenshot' },
+      { name: T.warning.bold('🔒  Lock Screen')           + T.muted('         — lock your Mac immediately'), value: 'lock' },
+      { name: T.success.bold('🔔  Notification')          + T.muted('         — show a system notification'), value: 'notify' },
+      { name: T.white.bold('🌐  Open Web UI')            + T.muted('         — full UI in browser'), value: 'webui' },
+      { name: T.muted('  ──────────────────────────────'), value: 'sep', disabled: true },
+      { name: T.warning('↩  Back'), value: 'back' },
+    ],
+    pageSize: 12,
+  }]);
+
+  if (action === 'back') return;
+
+  if (action === 'webui') {
+    console.log(T.accent('\n  Opening http://localhost:3001/mac-control ...\n'));
+    try { execSync('open http://localhost:3001/mac-control 2>/dev/null || xdg-open http://localhost:3001/mac-control 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter();
+    return;
+  }
+
+  if (action === 'screenshot') {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const path = `~/Desktop/screenshot-${ts}.png`;
+    const script = `do shell script "screencapture ${path}"\ndisplay notification "Screenshot saved to Desktop" with title "GhostForge"`;
+    await runAppleScript(script);
+    return;
+  }
+
+  if (action === 'lock') {
+    const script = `tell application "System Events" to keystroke "q" using {command down, control down}`;
+    await runAppleScript(script);
+    return;
+  }
+
+  if (action === 'volume') {
+    const { vol } = await inquirer.prompt([{ type: 'input', name: 'vol', message: 'Volume level (0–100, or "mute"/"unmute"):', default: '50' }]);
+    let script;
+    if (vol.toLowerCase() === 'mute') script = 'set volume with output muted';
+    else if (vol.toLowerCase() === 'unmute') script = 'set volume without output muted';
+    else script = `set volume output volume ${parseInt(vol, 10) || 50}`;
+    await runAppleScript(script);
+    return;
+  }
+
+  if (action === 'notify') {
+    const { msg, title } = await inquirer.prompt([
+      { type: 'input', name: 'title', message: 'Notification title:', default: 'GhostForge' },
+      { type: 'input', name: 'msg', message: 'Message:' },
+    ]);
+    await runAppleScript(`display notification "${msg.replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}"`);
+    return;
+  }
+
+  if (action === 'imessage') {
+    const { contact, msg } = await inquirer.prompt([
+      { type: 'input', name: 'contact', message: 'Contact name (as it appears in Messages):' },
+      { type: 'input', name: 'msg', message: 'Message:' },
+    ]);
+    const script = `tell application "Messages"
+  try
+    set targetService to 1st service whose service type = iMessage
+    set targetBuddy to buddy "${contact.replace(/"/g, '\\"')}" of targetService
+    send "${msg.replace(/"/g, '\\"')}" to targetBuddy
+    display notification "Message sent to ${contact.replace(/"/g, '\\"')}" with title "GhostForge"
+  on error errMsg
+    display notification errMsg with title "GhostForge — iMessage Error"
+  end try
+end tell`;
+    await runAppleScript(script);
+    return;
+  }
+
+  if (action === 'teams') {
+    const { contact, msg } = await inquirer.prompt([
+      { type: 'input', name: 'contact', message: 'Contact name (as it appears in Teams):' },
+      { type: 'input', name: 'msg', message: 'Message:' },
+    ]);
+    const script = `tell application "Microsoft Teams" to activate
+delay 1.5
+tell application "System Events"
+  tell process "Microsoft Teams"
+    try
+      keystroke "k" using command down
+      delay 0.8
+      keystroke "${contact.replace(/"/g, '\\"')}"
+      delay 1.5
+      key code 36
+      delay 0.8
+      keystroke "${msg.replace(/"/g, '\\"')}"
+      delay 0.3
+      key code 36
+      display notification "Message sent to ${contact.replace(/"/g, '\\"')}" with title "GhostForge"
+    on error errMsg
+      display notification errMsg with title "GhostForge — Teams Error"
+    end try
+  end tell
+end tell`;
+    await runAppleScript(script);
+    return;
+  }
+}
+
+async function runAppleScript(script) {
+  const { writeFileSync, unlinkSync } = await import('fs');
+  const { tmpdir } = await import('os');
+  const { join } = await import('path');
+  const tmpPath = join(tmpdir(), `gf-mac-${Date.now()}.scpt`);
+  try {
+    writeFileSync(tmpPath, script, 'utf8');
+    console.log(T.muted('\n  Running AppleScript...\n'));
+    const result = execSync(`osascript "${tmpPath}" 2>&1`, { encoding: 'utf8', timeout: 20000 }).trim();
+    if (result) console.log(T.success(`  Result: ${result}\n`));
+    else console.log(T.success('  ✓ Script ran successfully\n'));
+  } catch (e) {
+    console.log(T.error(`  ✗ Error: ${e.message || e}\n`));
+  } finally {
+    try { unlinkSync(tmpPath); } catch {}
+  }
+  await pressEnter();
 }
 
 async function screenAppmorphy() {
@@ -4529,6 +4672,7 @@ async function main() {
         case 'test':         await screenTest(); break;
         case 'deploy':       await screenDeploy(); break;
         case 'appmorphy':    await screenAppmorphy(); break;
+        case 'maccontrol':   await screenMacControl(); break;
         case 'digest':       await screenDigest(); break;
         case 'readme':       await screenReadme(); break;
         case 'marketplace':  await screenMarketplace(); break; // lazy

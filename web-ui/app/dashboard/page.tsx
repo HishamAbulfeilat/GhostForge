@@ -530,15 +530,16 @@ export default function DashboardPage() {
 
       <main className="p-4 space-y-3 max-w-7xl mx-auto">
         {/* ── Quick nav cards ── */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
           {[
-            { href: '/chat',        icon: '💬', label: 'Chat',      desc: 'AI assistant',    color: 'hover:border-violet-600/60 hover:bg-violet-950/20' },
-            { href: '/terminal',    icon: '🖥️', label: 'Terminal',  desc: 'Remote shell',    color: 'hover:border-emerald-600/60 hover:bg-emerald-950/20' },
-            { href: '/files',       icon: '🗂️', label: 'Files',     desc: 'Browse & edit',   color: 'hover:border-sky-600/60 hover:bg-sky-950/20' },
-            { href: '/features',    icon: '⚡', label: 'Features',  desc: 'Run commands',    color: 'hover:border-amber-600/60 hover:bg-amber-950/20' },
-            { href: '/marketplace', icon: '🏪', label: 'Market',    desc: 'Plugins',         color: 'hover:border-rose-600/60 hover:bg-rose-950/20' },
-            { href: '/settings',    icon: '⚙️', label: 'Settings',  desc: 'AI models',       color: 'hover:border-gray-500/60 hover:bg-gray-800/40' },
-            { href: '/chat',        icon: '🐙', label: 'Copilot',   desc: 'Suggest mode',    color: 'hover:border-sky-600/60 hover:bg-sky-950/20' },
+            { href: '/chat',         icon: '💬', label: 'Chat',      desc: 'AI assistant',    color: 'hover:border-violet-600/60 hover:bg-violet-950/20' },
+            { href: '/terminal',     icon: '🖥️', label: 'Terminal',  desc: 'Remote shell',    color: 'hover:border-emerald-600/60 hover:bg-emerald-950/20' },
+            { href: '/files',        icon: '🗂️', label: 'Files',     desc: 'Browse & edit',   color: 'hover:border-sky-600/60 hover:bg-sky-950/20' },
+            { href: '/mac-control',  icon: '🍎', label: 'Mac Control', desc: 'Automate Mac',  color: 'hover:border-pink-600/60 hover:bg-pink-950/20' },
+            { href: '/features',     icon: '⚡', label: 'Features',  desc: 'Run commands',    color: 'hover:border-amber-600/60 hover:bg-amber-950/20' },
+            { href: '/marketplace',  icon: '🏪', label: 'Market',    desc: 'Plugins',         color: 'hover:border-rose-600/60 hover:bg-rose-950/20' },
+            { href: '/settings',     icon: '⚙️', label: 'Settings',  desc: 'AI models',       color: 'hover:border-gray-500/60 hover:bg-gray-800/40' },
+            { href: '/chat',         icon: '🐙', label: 'Copilot',   desc: 'Suggest mode',    color: 'hover:border-sky-600/60 hover:bg-sky-950/20' },
           ].map(item => (
             <Link
               key={item.href + item.label}
