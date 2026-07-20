@@ -104,20 +104,34 @@ function makeMapRef<T>(map: React.MutableRefObject<Map<string, T>>, id: string) 
   }
 }
 
-function TabTerminal({ tabId, active, sendRefs, reconRefs, onStatusChange }: {
+function TabTerminal({ tabId, active, sendRefs, reconRefs, activateRefs, onStatusChange }: {
   tabId: string
   active: boolean
   sendRefs: React.MutableRefObject<Map<string, (cmd: string) => void>>
   reconRefs: React.MutableRefObject<Map<string, () => void>>
+  activateRefs: React.MutableRefObject<Map<string, () => void>>
   onStatusChange: (s: ConnStatus) => void
 }) {
   const sendRef = useRef(makeMapRef(sendRefs, tabId))
   const recoRef = useRef(makeMapRef(reconRefs, tabId))
+  const actRef  = useRef(makeMapRef(activateRefs, tabId))
+
+  // When this tab becomes visible, re-fit + focus the terminal
+  useEffect(() => {
+    if (active) {
+      // Small delay so the CSS visibility change has applied
+      const id = setTimeout(() => activateRefs.current.get(tabId)?.(), 60)
+      return () => clearTimeout(id)
+    }
+  }, [active, tabId, activateRefs])
+
   return (
-    <div className={`absolute inset-0 ${active ? 'block' : 'hidden'}`}>
+    // Use visibility:hidden instead of display:none so xterm keeps its dimensions
+    <div className={`absolute inset-0 transition-opacity duration-150 ${active ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none invisible'}`}>
       <XTermWrapper
         sendCommandRef={sendRef.current as React.MutableRefObject<((cmd: string) => void) | null>}
         reconnectRef={recoRef.current as React.MutableRefObject<(() => void) | null>}
+        activateRef={actRef.current as React.MutableRefObject<(() => void) | null>}
         onStatusChange={onStatusChange}
       />
     </div>
@@ -136,8 +150,9 @@ export default function TerminalPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [tabs, setTabs] = useState<Tab[]>([{ id: 'tab-1', name: 'Terminal 1', status: 'connecting' }])
   const [activeTab, setActiveTab] = useState('tab-1')
-  const sendCmdRefs = useRef<Map<string, (cmd: string) => void>>(new Map())
+  const sendCmdRefs   = useRef<Map<string, (cmd: string) => void>>(new Map())
   const reconnectRefs = useRef<Map<string, () => void>>(new Map())
+  const activateRefs  = useRef<Map<string, () => void>>(new Map())
 
   const connStatus = tabs.find(t => t.id === activeTab)?.status ?? 'connecting'
 
@@ -155,6 +170,7 @@ export default function TerminalPage() {
     if (activeTab === id) setActiveTab(next[next.length - 1].id)
     sendCmdRefs.current.delete(id)
     reconnectRefs.current.delete(id)
+    activateRefs.current.delete(id)
   }
 
   const updateTabStatus = (id: string, status: ConnStatus) => {
@@ -347,6 +363,7 @@ export default function TerminalPage() {
               active={tab.id === activeTab}
               sendRefs={sendCmdRefs}
               reconRefs={reconnectRefs}
+              activateRefs={activateRefs}
               onStatusChange={s => updateTabStatus(tab.id, s)}
             />
           ))}

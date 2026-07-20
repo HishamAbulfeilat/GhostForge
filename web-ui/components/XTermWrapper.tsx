@@ -23,10 +23,11 @@ function getTtydUrl(token: string) {
 interface Props {
   sendCommandRef?: React.MutableRefObject<((cmd: string) => void) | null>
   reconnectRef?: React.MutableRefObject<(() => void) | null>
+  activateRef?: React.MutableRefObject<(() => void) | null>
   onStatusChange?: (status: ConnStatus) => void
 }
 
-export default function XTermWrapper({ sendCommandRef, reconnectRef, onStatusChange }: Props) {
+export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef, onStatusChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
@@ -138,6 +139,20 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, onStatusCha
     }
   }, [connect])
 
+  // Re-fit and focus — called when this tab becomes visible
+  const activate = useCallback(() => {
+    const fit = fitRef.current
+    const term = termRef.current
+    if (fit && term) {
+      fit.fit()
+      const ws = wsRef.current
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send('\x01' + JSON.stringify({ rows: term.rows, cols: term.cols }))
+      }
+      term.focus()
+    }
+  }, [])
+
   useEffect(() => {
     if (sendCommandRef) sendCommandRef.current = sendToTerminal
   }, [sendCommandRef, sendToTerminal])
@@ -145,6 +160,10 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, onStatusCha
   useEffect(() => {
     if (reconnectRef) reconnectRef.current = reconnect
   }, [reconnectRef, reconnect])
+
+  useEffect(() => {
+    if (activateRef) activateRef.current = activate
+  }, [activateRef, activate])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -175,6 +194,9 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, onStatusCha
     termRef.current = term
     fitRef.current = fit
 
+    // Focus the terminal so keyboard input works immediately
+    term.focus()
+
     void connect(term, fit)
 
     term.onData(data => {
@@ -202,5 +224,13 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, onStatusCha
     }
   }, [connect]) // connect is now stable — won't retrigger on parent re-render
 
-  return <div ref={containerRef} className="h-full w-full" style={{ padding: '6px 4px' }} />
+  return (
+    <div
+      ref={containerRef}
+      className="h-full w-full"
+      style={{ padding: '6px 4px' }}
+      onClick={() => termRef.current?.focus()}
+    />
+  )
 }
+
