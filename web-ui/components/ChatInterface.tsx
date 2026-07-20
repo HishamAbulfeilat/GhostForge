@@ -120,12 +120,6 @@ export function ChatInterface() {
   }, [messages])
 
   useEffect(() => {
-    void fetch('/api/auth').then(response => {
-      if (!response.ok) router.push('/login')
-    })
-  }, [router])
-
-  useEffect(() => {
     const checkBridge = () => {
       void fetch('/api/bridge-status').then(async res => {
         const data = (await res.json()) as { status?: string }

@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 
@@ -98,23 +97,14 @@ const STATUS_CONFIG: Record<ConnStatus, { dot: string; label: string; glow: stri
 }
 
 export default function TerminalPage() {
-  const [authed, setAuthed] = useState<boolean | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [connStatus, setConnStatus] = useState<ConnStatus>('connecting')
   const sendCmdRef = useRef<((cmd: string) => void) | null>(null)
   const reconnectRef = useRef<(() => void) | null>(null)
-  const router = useRouter()
 
   useEffect(() => {
     if (window.innerWidth >= 768) setSidebarOpen(true)
   }, [])
-
-  useEffect(() => {
-    fetch('/api/auth').then(r => {
-      if (!r.ok) router.push('/login')
-      else setAuthed(true)
-    }).catch(() => router.push('/login'))
-  }, [router])
 
   const runCommand = (cmd: string) => {
     if (!cmd) { sendCmdRef.current?.('\x03'); return }
@@ -123,14 +113,6 @@ export default function TerminalPage() {
   }
 
   const statusCfg = STATUS_CONFIG[connStatus]
-
-  if (authed === null) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-gray-950">
-        <span className="animate-pulse text-sm text-gray-400">Loading terminal...</span>
-      </div>
-    )
-  }
 
   return (
     <div className="flex h-[100dvh] flex-col bg-[#0a0a0f] overflow-hidden">

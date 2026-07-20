@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 interface FeatureCmd {
@@ -145,18 +144,9 @@ function OutputPanel({ entries, onClear }: { entries: OutputEntry[]; onClear: ()
 }
 
 export default function FeaturesPage() {
-  const router = useRouter()
-  const [authed, setAuthed] = useState<boolean | null>(null)
   const [running, setRunning] = useState<string | null>(null)
   const [outputs, setOutputs] = useState<OutputEntry[]>([])
   const [activeGroup, setActiveGroup] = useState<string>('all')
-
-  useEffect(() => {
-    fetch('/api/auth').then(r => {
-      if (!r.ok) router.push('/login')
-      else setAuthed(true)
-    }).catch(() => router.push('/login'))
-  }, [router])
 
   const runCommand = useCallback(async (cmd: string) => {
     if (!cmd || running) return
@@ -185,14 +175,6 @@ export default function FeaturesPage() {
       setRunning(null)
     }
   }, [running])
-
-  if (authed === null) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-gray-950">
-        <span className="animate-pulse text-sm text-gray-400">Loading...</span>
-      </div>
-    )
-  }
 
   const visibleGroups = activeGroup === 'all'
     ? FEATURE_GROUPS

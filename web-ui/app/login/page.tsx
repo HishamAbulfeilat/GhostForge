@@ -1,35 +1,30 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 
-export default function LoginPage() {
+function LoginForm() {
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   const handleLogin = async () => {
-    if (!pin.trim()) {
-      setError('Enter your PIN')
-      return
-    }
-
+    if (!pin.trim()) { setError('Enter your PIN'); return }
     setLoading(true)
     setError('')
-
     try {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin }),
       })
-
       if (res.ok) {
-        router.push('/chat')
+        const from = searchParams.get('from') ?? '/chat'
+        router.push(from)
         return
       }
-
       setError('Wrong PIN')
     } catch {
       setError('Unable to reach GhostForge auth')
@@ -42,7 +37,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gray-950 px-4">
       <div className="w-full max-w-sm rounded-[28px] border border-sky-950/60 bg-gray-900/95 p-8 shadow-tactical backdrop-blur">
         <div className="mb-6 text-center">
-          <div className="mb-2 text-4xl">🔫</div>
+          <div className="mb-2 text-4xl">👻</div>
           <h1 className="text-2xl font-bold text-white">GhostForge</h1>
           <p className="mt-1 text-sm text-gray-400">Operator-grade dev tools</p>
         </div>
@@ -66,5 +61,13 @@ export default function LoginPage() {
         <p className="mt-4 text-center text-xs text-gray-600">Developed by Hisham Abulfeilat</p>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   )
 }

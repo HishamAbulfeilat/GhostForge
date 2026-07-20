@@ -1,0 +1,46 @@
+import { NextRequest, NextResponse } from 'next/server'
+
+const AUTH_COOKIE = 'gf_token'
+
+// Routes that require authentication
+const PROTECTED_PREFIXES = [
+  '/chat',
+  '/dashboard',
+  '/terminal',
+  '/features',
+  '/marketplace',
+  '/settings',
+]
+
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl
+
+  // Skip public routes and API routes
+  if (!PROTECTED_PREFIXES.some(p => pathname.startsWith(p))) {
+    return NextResponse.next()
+  }
+
+  const token = req.cookies.get(AUTH_COOKIE)?.value
+  const secret = process.env.AUTH_SECRET
+
+  if (!token || !secret || token !== secret) {
+    const loginUrl = req.nextUrl.clone()
+    loginUrl.pathname = '/login'
+    // Preserve the original destination so login can redirect back
+    loginUrl.searchParams.set('from', pathname)
+    return NextResponse.redirect(loginUrl)
+  }
+
+  return NextResponse.next()
+}
+
+export const config = {
+  matcher: [
+    '/chat/:path*',
+    '/dashboard/:path*',
+    '/terminal/:path*',
+    '/features/:path*',
+    '/marketplace/:path*',
+    '/settings/:path*',
+  ],
+}
