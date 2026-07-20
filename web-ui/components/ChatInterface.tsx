@@ -34,8 +34,81 @@ export function ChatInterface() {
   const [loading, setLoading] = useState(false)
   const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>('unknown')
   const [copilotMode, setCopilotMode] = useState<'off' | 'suggest' | 'explain'>('off')
+  const [listening, setListening] = useState(false)
+  const [hasVoice, setHasVoice] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const prevBridgeStatus = useRef<BridgeStatus>('unknown')
   const router = useRouter()
+
+  // ── Load chat history from localStorage ─────────────────────────────────
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('gf_chat_history')
+      if (saved) {
+        const parsed = JSON.parse(saved) as Array<{ role: string; content: string; timestamp: string }>
+        if (parsed.length > 0) {
+          setMessages(parsed.map(m => ({ ...m, timestamp: new Date(m.timestamp) })) as ChatMessage[])
+          return
+        }
+      }
+    } catch { /* ignore parse errors */ }
+  }, [])
+
+  // ── Persist messages to localStorage ─────────────────────────────────────
+  useEffect(() => {
+    try {
+      localStorage.setItem('gf_chat_history', JSON.stringify(
+        messages.slice(-100).map(m => ({ role: m.role, content: m.content, timestamp: m.timestamp }))
+      ))
+    } catch { /* storage full */ }
+  }, [messages])
+
+  // ── Request notification permission ──────────────────────────────────────
+  useEffect(() => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      void Notification.requestPermission()
+    }
+  }, [])
+
+  // ── Voice input setup ─────────────────────────────────────────────────────
+  useEffect(() => {
+    const SpeechRec = (window as Window & { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition
+      ?? (window as Window & { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition
+    if (SpeechRec) {
+      setHasVoice(true)
+      const rec = new SpeechRec()
+      rec.continuous = false
+      rec.interimResults = true
+      rec.lang = 'en-US'
+      rec.onresult = (e: SpeechRecognitionEvent) => {
+        const transcript = Array.from(e.results).map(r => r[0].transcript).join('')
+        setInput(transcript)
+      }
+      rec.onend = () => setListening(false)
+      rec.onerror = () => setListening(false)
+      recognitionRef.current = rec
+    }
+    return () => { recognitionRef.current?.abort() }
+  }, [])
+
+  const toggleVoice = () => {
+    const rec = recognitionRef.current
+    if (!rec) return
+    if (listening) { rec.stop(); setListening(false) }
+    else { rec.start(); setListening(true) }
+  }
+
+  const clearHistory = () => {
+    setMessages([INITIAL_MESSAGE])
+    localStorage.removeItem('gf_chat_history')
+  }
+
+  const sendNotification = (title: string, body: string) => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try { new Notification(title, { body, icon: '/favicon.ico' }) } catch { /* ignore */ }
+    }
+  }
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -43,9 +116,7 @@ export function ChatInterface() {
 
   useEffect(() => {
     void fetch('/api/auth').then(response => {
-      if (!response.ok) {
-        router.push('/login')
-      }
+      if (!response.ok) router.push('/login')
     })
   }, [router])
 
@@ -53,10 +124,22 @@ export function ChatInterface() {
     const checkBridge = () => {
       void fetch('/api/bridge-status').then(async res => {
         const data = (await res.json()) as { status?: string }
-        if (data.status === 'connected') setBridgeStatus('connected')
-        else if (data.status === 'unconfigured') setBridgeStatus('unknown')
-        else setBridgeStatus('disconnected')
-      }).catch(() => setBridgeStatus('disconnected'))
+        const next: BridgeStatus = data.status === 'connected' ? 'connected'
+          : data.status === 'unconfigured' ? 'unknown'
+          : 'disconnected'
+        // Notify if bridge just went offline
+        if (prevBridgeStatus.current === 'connected' && next === 'disconnected') {
+          sendNotification('🔴 GhostForge Bridge Offline', 'Run: bash ~/GhostForge/scripts/bridge.sh start')
+        }
+        prevBridgeStatus.current = next
+        setBridgeStatus(next)
+      }).catch(() => {
+        if (prevBridgeStatus.current === 'connected') {
+          sendNotification('🔴 GhostForge Bridge Offline', 'Bridge connection lost')
+        }
+        prevBridgeStatus.current = 'disconnected'
+        setBridgeStatus('disconnected')
+      })
     }
     checkBridge()
     const interval = setInterval(checkBridge, 15000)
@@ -220,6 +303,14 @@ export function ChatInterface() {
             >
               {copilotMode === 'off' ? '🤖 GF AI' : copilotMode === 'suggest' ? '🐙 Suggest' : '🐙 Explain'}
             </button>
+            <button
+              type="button"
+              onClick={clearHistory}
+              title="Clear chat history"
+              className="text-xs text-gray-600 transition hover:text-red-400"
+            >
+              🗑️
+            </button>
             <Link href="/terminal" className="text-xs text-gray-400 transition hover:text-emerald-400" title="Open TUI Terminal">
               💻
             </Link>
@@ -254,9 +345,19 @@ export function ChatInterface() {
 
       <div className="border-t border-gray-800 bg-gray-950/95 px-4 py-3 backdrop-blur">
         <div className="flex gap-2">
+          {hasVoice && (
+            <button
+              type="button"
+              onClick={toggleVoice}
+              title={listening ? 'Stop listening' : 'Voice input'}
+              className={`rounded-2xl px-3 py-3 text-sm transition ${listening ? 'animate-pulse bg-red-600 text-white' : 'border border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'}`}
+            >
+              🎤
+            </button>
+          )}
           <input
             type="text"
-            placeholder="Ask GhostForge anything..."
+            placeholder={listening ? 'Listening...' : 'Ask GhostForge anything...'}
             value={input}
             onChange={event => setInput(event.target.value)}
             onKeyDown={event => {
@@ -265,7 +366,7 @@ export function ChatInterface() {
                 void sendMessage()
               }
             }}
-            className="flex-1 rounded-2xl border border-gray-700 bg-gray-900 px-4 py-3 text-sm text-white placeholder-gray-500 outline-none transition focus:border-sky-500"
+            className={`flex-1 rounded-2xl border bg-gray-900 px-4 py-3 text-sm text-white placeholder-gray-500 outline-none transition focus:border-sky-500 ${listening ? 'border-red-600' : 'border-gray-700'}`}
           />
           <button
             type="button"

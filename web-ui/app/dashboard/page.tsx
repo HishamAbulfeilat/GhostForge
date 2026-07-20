@@ -274,6 +274,106 @@ function BridgeSetupPanel() {
   )
 }
 
+// ─── Doctor Widget ─────────────────────────────────────────────────────────
+
+interface DoctorCheck {
+  category: string
+  label: string
+  status: 'pass' | 'warn' | 'fail'
+  detail: string
+  fix?: string
+}
+
+interface DoctorResult {
+  pass: number
+  warn: number
+  fail: number
+  total: number
+  healthy: boolean
+  checks: DoctorCheck[]
+}
+
+function DoctorWidget() {
+  const [result, setResult] = useState<DoctorResult | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [lastRun, setLastRun] = useState('')
+
+  const run = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/doctor')
+      if (res.ok) {
+        const d = await res.json() as DoctorResult
+        setResult(d)
+        setLastRun(new Date().toLocaleTimeString())
+      }
+    } catch { /* ignore */ }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { void run() }, [run])
+
+  const score = result ? Math.round((result.pass / result.total) * 100) : 0
+  const scoreColor = score >= 90 ? 'text-emerald-400' : score >= 70 ? 'text-amber-400' : 'text-red-400'
+  const borderColor = score >= 90 ? 'border-emerald-800/40' : score >= 70 ? 'border-amber-800/40' : 'border-red-800/40'
+
+  const issues = result?.checks.filter(c => c.status !== 'pass') ?? []
+
+  return (
+    <div className={`rounded-lg border bg-[#080d18] ${borderColor}`}>
+      <div className="flex items-center gap-3 px-4 py-3 cursor-pointer" onClick={() => setExpanded(e => !e)}>
+        <div className="flex items-center gap-2 flex-1">
+          <span className="text-sm">🩺</span>
+          <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Doctor</span>
+          {result && (
+            <>
+              <span className={`text-sm font-bold tabular-nums ${scoreColor}`}>{score}%</span>
+              <div className="flex items-center gap-1.5 text-[10px]">
+                {result.pass > 0 && <span className="text-emerald-500">✓{result.pass}</span>}
+                {result.warn > 0 && <span className="text-amber-500">⚠{result.warn}</span>}
+                {result.fail > 0 && <span className="text-red-500">✗{result.fail}</span>}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {lastRun && <span className="text-[10px] text-gray-700">{lastRun}</span>}
+          <button type="button" onClick={e => { e.stopPropagation(); void run() }}
+            disabled={loading}
+            className="rounded border border-white/[0.06] px-2 py-0.5 text-[10px] text-gray-500 hover:text-gray-300 transition disabled:opacity-40">
+            {loading ? '⟳' : '⟳ run'}
+          </button>
+          <span className="text-gray-600 text-xs">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </div>
+
+      {expanded && result && (
+        <div className="border-t border-white/[0.04] px-4 py-3 space-y-1 max-h-64 overflow-y-auto">
+          {issues.length === 0 ? (
+            <p className="text-xs text-emerald-400">✅ All {result.total} checks passed</p>
+          ) : (
+            issues.map((c, i) => (
+              <div key={i} className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className={c.status === 'fail' ? 'text-red-400' : 'text-amber-400'}>
+                    {c.status === 'fail' ? '✗' : '⚠'}
+                  </span>
+                  <span className="text-gray-300 font-medium">{c.label}</span>
+                  <span className="text-gray-600 truncate">{c.detail}</span>
+                </div>
+                {c.fix && (
+                  <p className="pl-4 text-[10px] text-gray-600 font-mono">→ {c.fix}</p>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Clock ─────────────────────────────────────────────────────────────────
 
 function LiveClock() {
@@ -295,6 +395,13 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<string>('')
   const isFetching = useRef(false)
+  const prevFailedRuns = useRef<Set<string>>(new Set())
+
+  const sendNotification = (title: string, body: string) => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try { new Notification(title, { body, icon: '/favicon.ico' }) } catch { /* ignore */ }
+    }
+  }
 
   const fetchData = useCallback(async () => {
     if (isFetching.current) return
@@ -302,22 +409,31 @@ export default function DashboardPage() {
     setLoading(true)
     try {
       const res = await fetch('/api/dashboard')
-      if (res.status === 401) {
-        router.push('/login')
-        return
-      }
+      if (res.status === 401) { router.push('/login'); return }
       const json = (await res.json()) as DashboardData
       setData(json)
       setLastRefreshed(new Date().toLocaleTimeString())
-    } catch {
-      // keep previous data on network error
-    } finally {
+      // CI failure notifications
+      const newFailed = new Set(
+        (json.runs ?? []).filter(r => r.conclusion === 'failure').map(r => `${r.name}:${r.branch}`)
+      )
+      newFailed.forEach(key => {
+        if (!prevFailedRuns.current.has(key)) {
+          const [name, branch] = key.split(':')
+          sendNotification(`❌ CI Failed: ${name}`, `Branch: ${branch}`)
+        }
+      })
+      prevFailedRuns.current = newFailed
+    } catch { /* keep previous data */ } finally {
       setLoading(false)
       isFetching.current = false
     }
   }, [router])
 
   useEffect(() => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      void Notification.requestPermission()
+    }
     void fetchData()
     const id = setInterval(() => void fetchData(), 60_000)
     return () => clearInterval(id)
@@ -428,6 +544,9 @@ export default function DashboardPage() {
             last refresh: {lastRefreshed}
           </p>
         )}
+
+        {/* ── Doctor health widget ── */}
+        <DoctorWidget />
 
         {/* ── Top row: Tickets · Pipelines · PRs ── */}
         <div className="grid gap-3 lg:grid-cols-3">

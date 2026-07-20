@@ -340,6 +340,7 @@ async function screenHome() {
       { name: T.warning.bold('🏪  Marketplace')              + T.muted('           — browse/install agents, skills, plugins'), value: 'marketplace' },
       { name: T.success.bold('⚡  Generate New')              + T.muted('           — create custom agent/command/skill/plugin'), value: 'generate' },
       { name: T.accent.bold('🆓  Free Models')               + T.muted('            — NVIDIA, Groq, Ollama, HuggingFace'), value: 'freemodels' },
+      { name: T.cyan.bold('🩺  Doctor')                     + T.muted('                — health check: env, bridge, AI, tools'), value: 'doctor' },
       { name: T.muted(`🔖  Version: v${VERSION}`)           + T.muted('          — bump version / run updater'), value: 'version' },
       { name: T.accent.bold('🧩  Install VS Code Extension')  + T.muted('  — install ghostforge.vsix into VS Code'), value: 'vscode-install' },
       { name: T.muted('❓  Help & Quick Reference')                                                               , value: 'help' },
@@ -1527,6 +1528,44 @@ async function screenOpenProject() {
   runScriptSync('scripts/open-project.sh', [target]);
   console.log();
   await pressEnter();
+}
+
+async function screenDoctor() {
+  sectionHeader('🩺  GhostForge Doctor', 'Health check — env, bridge, AI models, tools, web UI pages');
+
+  const { spawnSync } = require('child_process');
+  const doctorScript = resolve(ROOT, 'scripts/doctor.sh');
+
+  console.log(T.muted('  Running checks...\n'));
+
+  const result = spawnSync('bash', [doctorScript], {
+    env: { ...process.env, GHOSTFORGE_ROOT: ROOT },
+    encoding: 'utf8',
+    stdio: ['inherit', 'pipe', 'pipe'],
+  });
+
+  const output = (result.stdout || '') + (result.stderr || '');
+  if (output.trim()) {
+    console.log(output);
+  } else {
+    console.log(T.muted('  (no output — check that scripts/doctor.sh is executable)'));
+  }
+
+  const { confirm } = await import('@inquirer/prompts').catch(() => ({ confirm: null }));
+  if (confirm) {
+    const openFix = await confirm({ message: 'Auto-fix issues? (starts bridge if offline, installs missing deps)' }).catch(() => false);
+    if (openFix) {
+      console.log(T.muted('\n  Running auto-fix...\n'));
+      const fix = spawnSync('bash', [doctorScript, '--fix'], {
+        env: { ...process.env, GHOSTFORGE_ROOT: ROOT },
+        encoding: 'utf8',
+        stdio: ['inherit', 'pipe', 'pipe'],
+      });
+      console.log((fix.stdout || '') + (fix.stderr || ''));
+    }
+  }
+
+  await pressKey();
 }
 
 async function screenVersion() {
@@ -4276,6 +4315,7 @@ async function main() {
         case 'git-hooks':    await screenGitHooks(); break; // lazy
         case 'version':      await screenVersion(); break;
         case 'vscode-install': await screenVSCodeInstall(); break; // lazy
+        case 'doctor':       await screenDoctor(); break;
         case 'help':         await screenHelp(); break;
         case 'exit':
           clear();

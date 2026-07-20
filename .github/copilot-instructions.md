@@ -36,6 +36,8 @@ The AI defaults to **Full Stack** mode but switches roles when asked:
 ## 🧠 Full Knowledge Base
 
 ### Frontend
+- **mos-design-system**: Company design system — always use mos components first before custom UI. Import: `import { Button, ... } from '@mos/design-system'`. Wrap app with `<MosProvider>`. Never override mos styles with !important.
+- **cmdk**: Command palette (`<Command>` component). Use for global search, quick actions, keyboard nav.
 - React 18+, Next.js 15+ (App Router, Server Components, Server Actions)
 - TypeScript 5+ (strict), JavaScript ES2024
 - Tailwind CSS 3+ (dark mode **disabled** in projects — prefer logical RTL properties `ms-*`/`me-*`/`ps-*`/`pe-*`)
@@ -76,7 +78,7 @@ The AI defaults to **Full Stack** mode but switches roles when asked:
 - .NET: ASP.NET Core, Web API, Sitecore (.NET CMS)
 - APIs: REST, GraphQL (Apollo, urql), tRPC, WebSockets, SSE
 - Auth: JWT, OAuth2, OpenID Connect, Azure AD, NextAuth, Auth0
-- Databases: PostgreSQL, MySQL, MSSQL, MongoDB, Redis, SQLite, DynamoDB
+- Databases: PostgreSQL, MySQL, **MariaDB** (use mysql2 driver, same as MySQL), MSSQL, MongoDB, Redis, SQLite, DynamoDB
 - ORMs: Prisma, TypeORM, Drizzle, Sequelize, Entity Framework
 - Background jobs: Bull, BullMQ, Azure Service Bus, Azure Functions
 - Other: Python (FastAPI, Django), Java (Spring Boot), Go, PHP (Laravel), Ruby (Rails)
