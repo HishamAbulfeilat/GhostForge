@@ -212,6 +212,7 @@ const COMMANDS = [
   { name: '/sql',           cat: '🗄  Data',        file: 'commands/sql.md',            desc: 'Write, optimize, or explain SQL queries and reports' },
   // Deployment
   { name: '/deploy',        cat: '🚀 Deploy',      file: 'commands/deploy.md',         desc: 'Deploy to Azure / GitHub Pages / Vercel / custom server' },
+  { name: '/appmorphy',     cat: '🚀 Deploy',      file: 'commands/appmorphy.md',      desc: 'Convert any website to an Android APK via AppMorphy cloud build' },
   // Modes & Misc
   { name: '/autopilot',     cat: '⚙️  Modes',       file: 'commands/autopilot.md',      desc: 'Enable autopilot mode — auto-approve all actions (no prompts)' },
   { name: '/safe',          cat: '⚙️  Modes',       file: 'commands/safe.md',           desc: 'Enable safe mode — confirm every action before execution' },
@@ -335,6 +336,7 @@ async function screenHome() {
       { name: T.white.bold('🔒  Security Audit')            + T.muted('         — OWASP scan, dep check, secrets'), value: 'security' },
       { name: T.white.bold('🧪  Run Tests')                 + T.muted('              — auto-detect and run test suite'), value: 'test' },
       { name: T.white.bold('🚀  Deploy')                    + T.muted('                 — deploy to Azure / GitHub / Vercel'), value: 'deploy' },
+      { name: T.accent.bold('📱  AppMorphy')                  + T.muted('              — convert website → Android APK (cloud build)'), value: 'appmorphy' },
       { name: T.muted('🌅  Daily Digest') + T.muted('              — morning summary: tickets, security, deps, git'), value: 'digest' },
       { name: T.white.bold('📄  README / Docs')             + T.muted('          — view full toolkit documentation'), value: 'readme' },
       { name: T.warning.bold('🏪  Marketplace')              + T.muted('           — browse/install agents, skills, plugins'), value: 'marketplace' },
@@ -1301,6 +1303,86 @@ async function screenDeploy() {
     await pressEnter();
   }
 }
+
+async function screenAppmorphy() {
+  sectionHeader('📱  AppMorphy', 'Convert any website into an Android APK via private cloud build');
+
+  console.log(boxen(
+    T.accent.bold('  🌐  Website → APK in 3 steps\n\n') +
+    T.white('  1. ') + T.muted('Fill the build form: URL, app name, package ID, icon\n') +
+    T.white('  2. ') + T.muted('AppMorphy compiles an APK in an isolated cloud pipeline\n') +
+    T.white('  3. ') + T.muted('Download signed APK via your private status page\n\n') +
+    T.success('  ✓ No Android Studio or Gradle needed on your machine\n') +
+    T.success('  ✓ Build list never public — unique token URL per build\n') +
+    T.success('  ✓ Real-time compile logs in browser'),
+    { padding: 1, margin: { left: 2 }, borderColor: 'cyan', borderStyle: 'round', title: ' AppMorphy — appmorphy.app ' }
+  ));
+
+  const action = await select({
+    message: T.white('What do you want to do?'),
+    choices: [
+      { name: T.accent.bold('🏗️  Open build form')          + T.muted('    — submit URL + metadata to start a new APK build'), value: 'build' },
+      { name: T.white.bold('🌐  Open AppMorphy home')       + T.muted('  — visit appmorphy.app'), value: 'home' },
+      { name: T.accent.bold('📋  View docs')                + T.muted('            — show /appmorphy command reference'), value: 'docs' },
+      { name: T.white.bold('🔗  Check build status')        + T.muted('  — open a private status page URL'), value: 'status' },
+      { name: T.white.bold('💡  Copilot Chat prompt')       + T.muted('  — copy AI prompt to plan the APK build'), value: 'prompt' },
+      { name: T.muted('← Back'), value: '__back__' },
+    ],
+    pageSize: 15,
+  });
+
+  if (action === '__back__') return;
+
+  if (action === 'docs') {
+    console.log(); showMdPreview('commands/appmorphy.md', 60); console.log();
+    await pressEnter(); return;
+  }
+
+  if (action === 'home') {
+    console.log(T.accent('\n  Opening https://appmorphy.app ...\n'));
+    try { execSync('open https://appmorphy.app 2>/dev/null || xdg-open https://appmorphy.app 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter(); return;
+  }
+
+  if (action === 'build') {
+    console.log(T.accent('\n  Opening https://appmorphy.app/build ...\n'));
+    try { execSync('open https://appmorphy.app/build 2>/dev/null || xdg-open https://appmorphy.app/build 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    console.log(boxen(
+      T.white.bold('Build checklist:\n\n') +
+      T.muted('  □  Web app URL (publicly accessible or via tunnel)\n') +
+      T.muted('  □  App name & package ID (e.g. com.yourcompany.appname)\n') +
+      T.muted('  □  Icon PNG — 512×512 recommended\n') +
+      T.muted('  □  Save the private status URL after submission'),
+      { padding: 1, margin: { left: 2 }, borderColor: 'yellow', borderStyle: 'round', title: ' Pre-Build Checklist ' }
+    ));
+    await pressEnter(); return;
+  }
+
+  if (action === 'status') {
+    const statusUrl = await input({
+      message: T.white('Paste your AppMorphy status page URL:'),
+      validate: v => v.includes('appmorphy.app') ? true : 'Must be an appmorphy.app URL',
+    });
+    console.log(T.accent(`\n  Opening ${statusUrl} ...\n`));
+    try { execSync(`open '${statusUrl}' 2>/dev/null || xdg-open '${statusUrl}' 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+    await pressEnter(); return;
+  }
+
+  if (action === 'prompt') {
+    const webUrl = await input({ message: T.white('Web app URL to convert:'), default: 'https://myapp.com' });
+    const appName = await input({ message: T.white('App name:'), default: 'My App' });
+    console.log(boxen(
+      T.white('Copy into Copilot Chat:\n\n') +
+      T.brand.bold(`/appmorphy --url ${webUrl} --name "${appName}"\n\n`) +
+      T.muted('Then ask: "Prepare my web app for AppMorphy APK build.\n') +
+      T.muted('Check if the URL is accessible, suggest an icon size,\n') +
+      T.muted('and generate a valid Android package ID."'),
+      { padding: 1, margin: { left: 2 }, borderColor: '#0077C8', borderStyle: 'round', title: ' Copilot Chat Command ' }
+    ));
+    await pressEnter();
+  }
+}
+
 
 async function screenHealth() {
   sectionHeader('💊  Project Health Check', 'Score /100 across audit, deps, coverage, bundle, tickets, and lint');
@@ -4296,6 +4378,7 @@ async function main() {
         case 'security':     await screenSecurity(); break;
         case 'test':         await screenTest(); break;
         case 'deploy':       await screenDeploy(); break;
+        case 'appmorphy':    await screenAppmorphy(); break;
         case 'digest':       await screenDigest(); break;
         case 'readme':       await screenReadme(); break;
         case 'marketplace':  await screenMarketplace(); break; // lazy
