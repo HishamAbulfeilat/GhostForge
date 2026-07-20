@@ -32,32 +32,43 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, onStatusCha
   const wsRef = useRef<WebSocket | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
 
+  // ── Store onStatusChange in a ref so connect() never changes when the
+  //    parent re-renders with a new inline arrow function.
+  //    This breaks the infinite-loop: status-change → re-render → new prop
+  //    → connect dep changes → new WebSocket → status-change → ...
+  const onStatusChangeRef = useRef(onStatusChange)
+  useEffect(() => { onStatusChangeRef.current = onStatusChange }, [onStatusChange])
+
+  const notifyStatus = useCallback((s: ConnStatus) => {
+    onStatusChangeRef.current?.(s)
+  }, []) // stable — reads from ref, no deps
+
   const connect = useCallback(async (term: Terminal, fit: FitAddon) => {
     // Close existing connection
     wsRef.current?.close()
     wsRef.current = null
 
-    onStatusChange?.('connecting')
+    notifyStatus('connecting')
     term.write('\r\n\x1b[33m[Connecting...]\x1b[0m\r\n')
 
     let bridgeToken = ''
     try {
       const res = await fetch('/api/pty-token')
       if (!res.ok) {
-        onStatusChange?.('error')
+        notifyStatus('error')
         term.write('\r\n\x1b[31m[Auth failed — are you logged in?]\x1b[0m\r\n')
         return
       }
       const d = await res.json() as { token?: string; error?: string }
       bridgeToken = d.token ?? ''
       if (!bridgeToken) {
-        onStatusChange?.('error')
+        notifyStatus('error')
         term.write('\r\n\x1b[31m[Bridge token missing — start the bridge first]\x1b[0m\r\n')
         term.write('\x1b[33m  bash ~/GhostForge/scripts/bridge.sh start\x1b[0m\r\n')
         return
       }
     } catch {
-      onStatusChange?.('error')
+      notifyStatus('error')
       term.write('\r\n\x1b[31m[Cannot reach server]\x1b[0m\r\n')
       return
     }
@@ -67,7 +78,7 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, onStatusCha
     wsRef.current = ws
 
     ws.onopen = () => {
-      onStatusChange?.('connected')
+      notifyStatus('connected')
       term.write('\x1b[32m[✓ Connected — GhostForge TUI ready]\x1b[0m\r\n')
       ws.send('\x01' + JSON.stringify({ rows: term.rows, cols: term.cols }))
       // Send initial size after brief delay to let ttyd settle
@@ -90,14 +101,14 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, onStatusCha
     }
 
     ws.onerror = () => {
-      onStatusChange?.('error')
+      notifyStatus('error')
       term.write('\r\n\x1b[31m[✗ Connection failed — bridge may be offline]\x1b[0m\r\n')
       term.write('\x1b[33m  Start bridge: bash ~/GhostForge/scripts/bridge.sh start\x1b[0m\r\n')
       term.write('\x1b[90m  Then click Reconnect or press R\x1b[0m\r\n')
     }
 
     ws.onclose = (e) => {
-      onStatusChange?.('disconnected')
+      notifyStatus('disconnected')
       if (e.code === 1008) {
         term.write('\r\n\x1b[31m[Auth rejected — bridge token mismatch]\x1b[0m\r\n')
       } else if (e.code === 1006) {
@@ -106,7 +117,7 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, onStatusCha
         term.write('\r\n\x1b[33m[Session ended — click Reconnect or press R]\x1b[0m\r\n')
       }
     }
-  }, [onStatusChange])
+  }, [notifyStatus]) // notifyStatus is stable — dep array won't change
 
   const sendToTerminal = useCallback((cmd: string) => {
     const ws = wsRef.current
@@ -189,7 +200,7 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, onStatusCha
       wsRef.current?.close()
       term.dispose()
     }
-  }, [connect])
+  }, [connect]) // connect is now stable — won't retrigger on parent re-render
 
   return <div ref={containerRef} className="h-full w-full" style={{ padding: '6px 4px' }} />
 }
