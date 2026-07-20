@@ -373,8 +373,8 @@ export function ChatInterface() {
             const hits = messages.filter(m => m.content.toLowerCase().includes(q))
             return hits.length > 0 ? (
               <div className="mt-2 max-h-48 space-y-1.5 overflow-y-auto">
-                {hits.map((m, i) => (
-                  <div key={i} className={`rounded-lg px-3 py-2 text-xs ${m.role === 'user' ? 'bg-sky-950/60 text-sky-200' : 'bg-gray-800/60 text-gray-300'}`}>
+                {hits.map((m) => (
+                  <div key={`${m.role}-${m.timestamp.toISOString()}`} className={`rounded-lg px-3 py-2 text-xs ${m.role === 'user' ? 'bg-sky-950/60 text-sky-200' : 'bg-gray-800/60 text-gray-300'}`}>
                     <span className="font-semibold opacity-60">{m.role === 'user' ? 'You' : 'AI'}</span>
                     {' · '}
                     <span>{m.content.substring(0, 120)}{m.content.length > 120 ? '…' : ''}</span>

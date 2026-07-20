@@ -149,12 +149,10 @@ export default function TerminalPage() {
   }
 
   const closeTab = (id: string) => {
-    setTabs(prev => {
-      const next = prev.filter(t => t.id !== id)
-      if (next.length === 0) return prev // always keep at least one
-      if (activeTab === id) setActiveTab(next[next.length - 1].id)
-      return next
-    })
+    const next = tabs.filter(t => t.id !== id)
+    if (next.length === 0) return
+    setTabs(next)
+    if (activeTab === id) setActiveTab(next[next.length - 1].id)
     sendCmdRefs.current.delete(id)
     reconnectRefs.current.delete(id)
   }

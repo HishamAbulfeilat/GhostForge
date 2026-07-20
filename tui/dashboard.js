@@ -31,6 +31,36 @@ function safeExec(cmd, opts = {}) {
   }
 }
 
+function truncateText(value, max) {
+  const text = String(value || '');
+  if (text.length <= max) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, max - 1))}…`;
+}
+
+function formatTimestamp(value = new Date()) {
+  return new Date(value).toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+const TABLE_WIDTHS = {
+  tickets: [6, 32, 12],
+  pipelines: [4, 24, 12, 12],
+  releases: [10, 12, 24],
+  prs: [6, 24, 12, 4],
+};
+
+function fitCell(value, width) {
+  return truncateText(value || '—', Math.max(1, width - 1));
+}
+
 function getVersion() {
   const file = resolve(ROOT, 'VERSION');
   return existsSync(file) ? readFileSync(file, 'utf8').trim() : '?';
@@ -83,7 +113,9 @@ function fetchPipelines() {
           ? '❌'
           : run.status === 'in_progress'
             ? '🔄'
-            : '⚪';
+            : ['queued', 'requested', 'waiting', 'pending'].includes(run.status)
+              ? '⏸'
+              : '⏸';
 
       return {
         icon,
@@ -263,8 +295,8 @@ function buildDashboard() {
     top: 0,
     left: 0,
     width: '100%',
-    height: 1,
-    style: { bg: '#0077C8', fg: 'white', bold: true },
+    height: 2,
+    style: { bg: '#071A2F', fg: 'white', bold: true },
     content: '',
     tags: true,
   });
@@ -278,8 +310,8 @@ function buildDashboard() {
     interactive: true,
     label: ' 📋 My Tickets (GitHub Issues) ',
     border: { type: 'line', fg: '#0077C8' },
-    columnSpacing: 1,
-    columnWidth: [5, 38, 10],
+    columnSpacing: 2,
+    columnWidth: TABLE_WIDTHS.tickets,
   });
 
   const pipelineTable = grid.set(1, 4, 5, 4, contrib.table, {
@@ -290,8 +322,8 @@ function buildDashboard() {
     interactive: true,
     label: ' 🏗 Pipeline Status ',
     border: { type: 'line', fg: '#22C55E' },
-    columnSpacing: 1,
-    columnWidth: [3, 22, 12, 10],
+    columnSpacing: 2,
+    columnWidth: TABLE_WIDTHS.pipelines,
   });
 
   const healthBar = grid.set(1, 8, 5, 4, contrib.bar, {
@@ -312,8 +344,8 @@ function buildDashboard() {
     interactive: true,
     label: ' 🚀 Releases & Tags ',
     border: { type: 'line', fg: '#8B5CF6' },
-    columnSpacing: 1,
-    columnWidth: [8, 10, 20],
+    columnSpacing: 2,
+    columnWidth: TABLE_WIDTHS.releases,
   });
 
   const healthLine = grid.set(6, 3, 5, 3, contrib.line, {
@@ -334,8 +366,8 @@ function buildDashboard() {
     interactive: true,
     label: ' 🔀 Open Pull Requests ',
     border: { type: 'line', fg: '#10B981' },
-    columnSpacing: 1,
-    columnWidth: [4, 22, 10, 3],
+    columnSpacing: 2,
+    columnWidth: TABLE_WIDTHS.prs,
   });
 
   const activityLog = grid.set(6, 8, 5, 2, contrib.log, {
@@ -353,32 +385,46 @@ function buildDashboard() {
   let carbonGauge = null;
   try {
     carbonGauge = grid.set(6, 10, 5, 2, contrib.lcd, {
-      label: ' 🌿 CO₂ ',
-      segmentWidth: 0.06,
-      segmentInterval: 0.11,
-      strokeWidth: 0.1,
+      label: ' 🌿 Carbon Monitor · mg CO₂e ',
+      segmentWidth: 0.08,
+      segmentInterval: 0.14,
+      strokeWidth: 0.16,
       elements: 6,
       display: 0,
-      elementSpacing: 4,
-      elementPadding: 2,
-      color: 'green',
+      elementSpacing: 3,
+      elementPadding: 1,
+      color: '#86EFAC',
       border: { type: 'line', fg: '#22C55E' },
     });
   } catch {
     carbonGauge = grid.set(6, 10, 5, 2, blessed.box, {
-      label: ' 🌿 CO₂ ',
+      label: ' 🌿 Carbon Monitor ',
       tags: true,
       border: { type: 'line', fg: '#22C55E' },
-      content: '{green-fg}--{/green-fg}',
+      content: '{bold}{green-fg}--{/green-fg}{/bold}\n{gray-fg}mg CO₂e{/gray-fg}',
     });
   }
+
+  const errorBox = blessed.box({
+    top: 'center',
+    left: 'center',
+    width: '72%',
+    height: 'shrink',
+    hidden: true,
+    padding: { left: 1, right: 1, top: 0, bottom: 0 },
+    border: { type: 'line', fg: '#EF4444' },
+    style: { bg: '#2B1015', fg: 'white' },
+    label: ' ⚠ Refresh Error ',
+    tags: true,
+  });
+  screen.append(errorBox);
 
   const statusBar = blessed.box({
     bottom: 0,
     left: 0,
     width: '100%',
     height: 1,
-    style: { bg: '#1F2937', fg: '#9CA3AF' },
+    style: { bg: '#111827', fg: '#D1D5DB' },
     content: '',
     tags: true,
   });
@@ -391,48 +437,81 @@ function buildDashboard() {
   screen.key(['r', 'R'], () => refresh());
   screen.key(['tab'], () => screen.focusNext());
 
-  let lastRefresh = 'never';
+  let lastRefresh = 'Never';
+  let refreshSpinner = null;
+  let refreshFrame = 0;
+  const refreshFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
   function updateHeader() {
     const version = getVersion();
-    const now = new Date().toLocaleTimeString();
+    const now = formatTimestamp();
 
     header.setContent(
-      `{bold}{white-fg} 👻 GHOSTFORGE DASHBOARD {/white-fg}{/bold}` +
-      `{gray-fg}│{/gray-fg} {cyan-fg}${GITHUB_USER}{/cyan-fg} ` +
-      `{gray-fg}│{/gray-fg} {white-fg}${now}{/white-fg} ` +
-      `{gray-fg}│{/gray-fg} {green-fg}v${version}{/green-fg} ` +
-      `{gray-fg}│{/gray-fg} {yellow-fg}[R]{/yellow-fg}efresh {red-fg}[Q]{/red-fg}uit`
+      ` {bold}{white-fg}👻 GHOSTFORGE DASHBOARD{/white-fg}{/bold} {gray-fg}│{/gray-fg} {cyan-fg}@${GITHUB_USER}{/cyan-fg}\n` +
+      ` {gray-fg}Operator cockpit{/gray-fg} {gray-fg}│{/gray-fg} {green-fg}v${version}{/green-fg} {gray-fg}│{/gray-fg} {white-fg}${now}{/white-fg} {gray-fg}│{/gray-fg} {yellow-fg}R{/yellow-fg} refresh {gray-fg}•{/gray-fg} {red-fg}Q{/red-fg} quit`
     );
   }
 
   function updateStatus(message) {
     statusBar.setContent(
       ` {cyan-fg}Toolkit v${getVersion()}{/cyan-fg} ` +
-      `{gray-fg}│{/gray-fg} {white-fg}Last refresh:{/white-fg} ${lastRefresh} ` +
+      `{gray-fg}│{/gray-fg} {white-fg}Last updated:{/white-fg} ${lastRefresh} ` +
       `{gray-fg}│{/gray-fg} ${message || '{gray-fg}Press R to refresh · TAB to switch focus · Q to quit{/gray-fg}'}`
     );
   }
 
+  function startRefreshSpinner() {
+    if (refreshSpinner) {
+      clearInterval(refreshSpinner);
+    }
+
+    const paint = () => {
+      const frame = refreshFrames[refreshFrame % refreshFrames.length];
+      refreshFrame += 1;
+      updateStatus(`{yellow-fg}{bold}${frame} Refreshing dashboard data…{/bold}{/yellow-fg}`);
+      screen.render();
+    };
+
+    paint();
+    refreshSpinner = setInterval(paint, 90);
+  }
+
+  function stopRefreshSpinner() {
+    if (!refreshSpinner) {
+      return;
+    }
+    clearInterval(refreshSpinner);
+    refreshSpinner = null;
+  }
+
   function refresh() {
-    updateStatus('{yellow-fg}⟳ Fetching data...{/yellow-fg}');
-    screen.render();
+    errorBox.hide();
+    startRefreshSpinner();
 
     try {
       const tickets = fetchTickets();
       ticketsTable.setData({
         headers: ['#', 'Title', 'Updated'],
         data: tickets.length > 0
-          ? tickets.map(ticket => [ticket.number, ticket.title, ticket.updated])
-          : [['—', 'No open tickets assigned', '—']],
+          ? tickets.map(ticket => [
+            fitCell(ticket.number, TABLE_WIDTHS.tickets[0]),
+            fitCell(ticket.title, TABLE_WIDTHS.tickets[1]),
+            fitCell(ticket.updated, TABLE_WIDTHS.tickets[2]),
+          ])
+          : [['—', fitCell('No open tickets assigned', TABLE_WIDTHS.tickets[1]), '—']],
       });
 
       const pipelines = fetchPipelines();
       pipelineTable.setData({
         headers: ['', 'Workflow', 'Conclusion', 'Date'],
         data: pipelines.length > 0
-          ? pipelines.map(pipeline => [pipeline.icon, pipeline.name, pipeline.conclusion, pipeline.updated])
-          : [['⚪', 'No recent runs', '—', '—']],
+          ? pipelines.map(pipeline => [
+            fitCell(pipeline.icon, TABLE_WIDTHS.pipelines[0]),
+            fitCell(pipeline.name, TABLE_WIDTHS.pipelines[1]),
+            fitCell(pipeline.conclusion, TABLE_WIDTHS.pipelines[2]),
+            fitCell(pipeline.updated, TABLE_WIDTHS.pipelines[3]),
+          ])
+          : [['⏸', fitCell('No recent runs', TABLE_WIDTHS.pipelines[1]), '—', '—']],
       });
 
       const healthScores = fetchHealthScores();
@@ -445,16 +524,25 @@ function buildDashboard() {
       releasesTable.setData({
         headers: ['Tag', 'Date', 'Message'],
         data: releases.length > 0
-          ? releases.map(release => [release.tag, release.date, release.msg])
-          : [['—', '—', 'No releases found']],
+          ? releases.map(release => [
+            fitCell(release.tag, TABLE_WIDTHS.releases[0]),
+            fitCell(release.date, TABLE_WIDTHS.releases[1]),
+            fitCell(release.msg, TABLE_WIDTHS.releases[2]),
+          ])
+          : [['—', '—', fitCell('No releases found', TABLE_WIDTHS.releases[2])]],
       });
 
       const openPRs = fetchOpenPRs();
       openPRsTable.setData({
         headers: ['#', 'Title', 'Author', 'R'],
         data: openPRs.length > 0
-          ? openPRs.map(pr => [pr.number, pr.title, pr.author, pr.review])
-          : [['—', 'No open pull requests', '—', '—']],
+          ? openPRs.map(pr => [
+            fitCell(pr.number, TABLE_WIDTHS.prs[0]),
+            fitCell(pr.title, TABLE_WIDTHS.prs[1]),
+            fitCell(pr.author, TABLE_WIDTHS.prs[2]),
+            fitCell(pr.review, TABLE_WIDTHS.prs[3]),
+          ])
+          : [['—', fitCell('No open pull requests', TABLE_WIDTHS.prs[1]), '—', '—']],
       });
 
       const trend = fetchHealthTrend();
@@ -475,23 +563,30 @@ function buildDashboard() {
       try {
         const displayVal = carbon.sessions > 0 ? Math.round(carbon.total * 1e6) : 0;
         if (typeof carbonGauge.setDisplay === 'function') {
-          carbonGauge.setLabel(` 🌿 CO₂ ${carbon.statusIcon} `);
+          carbonGauge.setLabel(` 🌿 Carbon Monitor ${carbon.statusIcon} · mg CO₂e `);
           carbonGauge.setDisplay(Math.min(displayVal, 9999));
         } else {
           const co2Line = carbon.sessions > 0
-            ? `{green-fg}${(carbon.total * 1000).toFixed(4)}g{/green-fg}\n{gray-fg}${carbon.sessions} sessions{/gray-fg}`
-            : `{gray-fg}No data\n${carbon.status}{/gray-fg}`;
-          carbonGauge.setLabel(` 🌿 CO₂ ${carbon.statusIcon} `);
+            ? `{bold}{green-fg}${Math.round(carbon.total * 1e6)} mg{/green-fg}{/bold}\n{gray-fg}${carbon.sessions} sessions · avg ${Math.round(carbon.avg * 1e6)} mg{/gray-fg}`
+            : `{gray-fg}No data yet{/gray-fg}\n{white-fg}${carbon.status}{/white-fg}`;
+          carbonGauge.setLabel(` 🌿 Carbon Monitor ${carbon.statusIcon} `);
           carbonGauge.setContent(co2Line);
         }
       } catch { /* ignore carbon panel errors */ }
 
-      lastRefresh = new Date().toLocaleTimeString();
+      lastRefresh = formatTimestamp();
+      stopRefreshSpinner();
       updateHeader();
       updateStatus();
       screen.render();
     } catch (error) {
-      updateStatus(`{red-fg}Error: ${error.message}{/red-fg}`);
+      stopRefreshSpinner();
+      errorBox.setContent(
+        `{bold}Dashboard refresh failed{/bold}\n` +
+        `{white-fg}${truncateText(error?.message || String(error), 220)}{/white-fg}`
+      );
+      errorBox.show();
+      updateStatus('{red-fg}{bold}Refresh failed — see error panel{/bold}{/red-fg}');
       screen.render();
     }
   }
@@ -501,7 +596,10 @@ function buildDashboard() {
   screen.render();
 
   const autoRefresh = setInterval(() => refresh(), 60000);
-  screen.on('destroy', () => clearInterval(autoRefresh));
+  screen.on('destroy', () => {
+    clearInterval(autoRefresh);
+    stopRefreshSpinner();
+  });
 
   setTimeout(() => refresh(), 100);
 }

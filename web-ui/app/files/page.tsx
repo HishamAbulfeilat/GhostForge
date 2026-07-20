@@ -120,20 +120,23 @@ export default function FilesPage() {
   return (
     <div className="flex h-[100dvh] flex-col bg-gray-950">
       {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-gray-800 bg-gray-950/95 px-4 py-2.5 backdrop-blur">
+      <div className="flex shrink-0 items-center gap-3 border-b border-white/[0.06] bg-gray-950/95 px-4 py-2.5 backdrop-blur">
         <span className="text-lg">🗂️</span>
-        <div className="flex flex-1 items-center gap-1 text-xs text-white/50 overflow-x-auto scrollbar-none">
-          <button onClick={goBack} disabled={history.length <= 1} className="shrink-0 hover:text-white disabled:opacity-30 transition">←</button>
+        <div className="flex flex-1 items-center gap-1 text-xs text-white/50 overflow-x-auto scrollbar-none min-w-0">
+          <button onClick={goBack} disabled={history.length <= 1} className="shrink-0 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white disabled:opacity-30 transition">←</button>
           <span className="shrink-0 text-white/20">/</span>
-          {parts.map((part, i) => (
-            <span key={i} className="flex items-center gap-1 shrink-0">
-              <button
-                onClick={() => navigate('/' + parts.slice(0, i + 1).join('/'))}
-                className="hover:text-white transition"
-              >{part}</button>
-              {i < parts.length - 1 && <span className="text-white/20">/</span>}
-            </span>
-          ))}
+          {parts.map((part, i) => {
+            const cumulativePath = '/' + parts.slice(0, i + 1).join('/')
+            return (
+              <span key={cumulativePath} className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => navigate(cumulativePath)}
+                  className="hover:text-white transition"
+                >{part}</button>
+                {i < parts.length - 1 && <span className="text-white/20">/</span>}
+              </span>
+            )
+          })}
         </div>
         {openFile && (
           <button
@@ -154,20 +157,33 @@ export default function FilesPage() {
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
         {/* File tree */}
-        <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r border-gray-800 bg-gray-950/60">
-          {loading && <div className="px-3 py-2 text-xs text-white/30 animate-pulse">Loading…</div>}
-          {error && <div className="px-3 py-2 text-xs text-red-400">{error}</div>}
+        <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-white/[0.06] bg-gray-950/40">
+          <div className="sticky top-0 border-b border-white/[0.04] bg-gray-950/80 px-3 py-2 backdrop-blur">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-white/25">Files</p>
+          </div>
+          {loading && (
+            <div className="space-y-1 p-2">
+              {[80, 60, 70, 55, 65].map(w => (
+                <div key={w} className="h-6 skeleton rounded" style={{ width: `${w}%` }} />
+              ))}
+            </div>
+          )}
+          {error && <div className="px-3 py-2 text-xs text-red-400 animate-fade-in">{error}</div>}
           {dirData?.items.map(item => (
             <button
               key={item.path}
               onClick={() => item.isDir ? navigate(item.path) : openFileHandler(item.path)}
-              className={`flex items-center gap-2 px-3 py-1.5 text-left text-xs transition hover:bg-white/5 ${
-                openFile?.path === item.path ? 'bg-sky-950/60 text-sky-300' : 'text-white/60'
+              className={`group flex items-center gap-2 px-3 py-2 text-left text-xs transition-all ${
+                openFile?.path === item.path
+                  ? 'bg-sky-950/60 text-sky-300 border-r-2 border-sky-500'
+                  : 'text-white/55 hover:bg-white/[0.04] hover:text-white/90'
               }`}
             >
-              <span className="shrink-0">{item.icon}</span>
-              <span className="truncate">{item.name}</span>
-              {item.isDir && <span className="ml-auto shrink-0 text-white/20">›</span>}
+              <span className="shrink-0 text-sm leading-none">{item.icon}</span>
+              <span className="truncate flex-1">{item.name}</span>
+              {item.isDir && (
+                <span className="ml-auto shrink-0 text-white/20 group-hover:text-white/40 transition">›</span>
+              )}
             </button>
           ))}
         </aside>

@@ -63,6 +63,11 @@ const T = {
 };
 
 const divider = (char = '─', len = 60) => T.muted(char.repeat(len));
+const menuSeparator = () => ({ name: T.muted('─'.repeat(50)), value: '__sep__', disabled: true });
+const menuChoice = (tone, label, desc, value) => ({
+  name: tone(label.padEnd(30)) + T.muted(` — ${desc}`),
+  value,
+});
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function clear() { process.stdout.write('\x1Bc'); }
@@ -85,9 +90,20 @@ function banner() {
 function sectionHeader(title, subtitle = '') {
   clear();
   banner();
-  console.log(T.brand.bold(`  ► ${title}`));
-  if (subtitle) console.log(T.muted(`    ${subtitle}`));
-  console.log(divider());
+  console.log(`  ${divider('═', 76)}`);
+  console.log(
+    boxen(
+      T.brand.bold(` ${title} `) + (subtitle ? `\n${T.muted(` ${subtitle} `)}` : ''),
+      {
+        padding: { top: 0, bottom: 0, left: 1, right: 1 },
+        margin: { left: 1, right: 1 },
+        width: 76,
+        borderColor: '#00A3E0',
+        borderStyle: 'round',
+      }
+    )
+  );
+  console.log(`  ${divider('═', 76)}`);
   console.log();
 }
 
@@ -308,48 +324,53 @@ async function screenHome() {
   const choice = await select({
     message: T.white.bold('What would you like to do?'),
     choices: [
-      { name: T.brand.bold('📊  Developer Dashboard')       + T.muted('      — tickets, pipelines, health, releases, charts'), value: 'dashboard' },
-      { name: T.brand.bold('🚀  New Project Setup')         + T.muted('   — wizard: choose stack, init repo, scaffold everything'), value: 'setup' },
-      { name: T.brand.bold('📂  Open Existing Project')     + T.muted('   — copy AI files into any existing project + open VS Code'), value: 'open' },
-      { name: T.brand.bold('🗂  Manage Projects')           + T.muted('        — registry of all your projects'), value: 'projects' },
-      { name: T.success.bold('💊  Project Health Check')    + T.muted(' — score /100: deps, tests, security, lint + badge'), value: 'health' },
-      { name: T.success.bold('🌐  /health-all')             + T.muted('          — Scan all projects'), value: 'health-all' },
-      { name: T.accent.bold('⚡  /perf')                    + T.muted('                — Lighthouse audit'), value: 'perf' },
-      { name: T.accent.bold('⬆️   /upgrade')                + T.muted('             — npm upgrade wizard'), value: 'upgrade' },
-      { name: T.accent.bold('🔌  /mock-api')                + T.muted('            — Generate MSW handlers'), value: 'mock-api' },
-      { name: T.brand.bold('🎓  /onboard-dev')              + T.muted('          — New dev setup'), value: 'onboard-dev' },
-      { name: T.white.bold('📋  /ado')                      + T.muted('                 — Azure DevOps'), value: 'ado' },
-      { name: T.warning.bold('🎯  /estimate')               + T.muted('            — Story point estimate'), value: 'estimate' },
-      { name: T.accent.bold('🔊  /voice')                   + T.muted('               — Voice features (TTS/STT)'), value: 'voice' },
-      { name: T.accent.bold('📜  /changelog-view')          + T.muted('      — Browse CHANGELOG'), value: 'changelog-view' },
-      { name: T.accent.bold('⚡  Run a Command')             + T.muted('           — browse all slash commands'), value: 'commands' },
-      { name: T.success.bold('🤖  Switch Agent / Role')      + T.muted('      — activate a specialized AI agent'), value: 'agents' },
-      { name: T.warning.bold('📚  Browse Instructions')      + T.muted('     — view knowledge base / docs'), value: 'instructions' },
-      { name: T.accent.bold('📋  Snippet Library')           + T.muted('         — browse & copy ready-made code snippets'), value: 'snippets' },
-      { name: T.white.bold('🔍  Bundle Analyzer')            + T.muted('        — size, heavy deps, lazy-loading tips'), value: 'bundle' },
-      { name: T.white.bold('🌐  RTL Audit')                  + T.muted('               — find & fix non-logical Tailwind classes'), value: 'rtl' },
-      { name: T.accent.bold('🔑  /api-types')                + T.muted('               — OpenAPI/Swagger → TypeScript types'), value: 'api-types' },
-      { name: T.accent.bold('📝  /changelog')                + T.muted('              — generate CHANGELOG from git commits'), value: 'changelog' },
-      { name: T.accent.bold('🔒  /env-check')                + T.muted('               — validate .env vs .env.example'), value: 'env-check' },
-      { name: T.accent.bold('🧹  /unused')                   + T.muted('                  — find dead code with knip'), value: 'unused' },
-      { name: T.accent.bold('🪝  /git-hooks')                + T.muted('              — install husky + lint-staged'), value: 'git-hooks' },
-      { name: T.white.bold('🎫  Tickets & Issues')          + T.muted('       — view and fix assigned tickets'), value: 'tickets' },
-      { name: T.white.bold('🔒  Security Audit')            + T.muted('         — OWASP scan, dep check, secrets'), value: 'security' },
-      { name: T.white.bold('🧪  Run Tests')                 + T.muted('              — auto-detect and run test suite'), value: 'test' },
-      { name: T.white.bold('🚀  Deploy')                    + T.muted('                 — deploy to Azure / GitHub / Vercel'), value: 'deploy' },
-      { name: T.accent.bold('📱  AppMorphy')                  + T.muted('              — convert website → Android APK (cloud build)'), value: 'appmorphy' },
-      { name: T.muted('🌅  Daily Digest') + T.muted('              — morning summary: tickets, security, deps, git'), value: 'digest' },
-      { name: T.white.bold('📄  README / Docs')             + T.muted('          — view full toolkit documentation'), value: 'readme' },
-      { name: T.warning.bold('🏪  Marketplace')              + T.muted('           — browse/install agents, skills, plugins'), value: 'marketplace' },
-      { name: T.success.bold('⚡  Generate New')              + T.muted('           — create custom agent/command/skill/plugin'), value: 'generate' },
-      { name: T.accent.bold('🆓  Free Models')               + T.muted('            — NVIDIA, Groq, OmniRoute, Ollama, HuggingFace'), value: 'freemodels' },
-      { name: T.cyan.bold('🩺  Doctor')                     + T.muted('                — health check: env, bridge, AI, tools'), value: 'doctor' },
-      { name: T.muted(`🔖  Version: v${VERSION}`)           + T.muted('          — bump version / run updater'), value: 'version' },
-      { name: T.accent.bold('🧩  Install VS Code Extension')  + T.muted('  — install ghostforge.vsix into VS Code'), value: 'vscode-install' },
-      { name: T.muted('❓  Help & Quick Reference')                                                               , value: 'help' },
-      { name: T.danger('✖   Exit')                                                                                , value: 'exit' },
+      menuChoice(T.brand.bold, '📊  Developer Dashboard', 'tickets, pipelines, health, releases, charts', 'dashboard'),
+      menuChoice(T.cyan.bold, '👁️  View what\'s new', 'latest release highlights and changelog notes', 'whats-new'),
+      menuChoice(T.brand.bold, '🚀  New Project Setup', 'wizard: choose stack, init repo, scaffold everything', 'setup'),
+      menuChoice(T.brand.bold, '📂  Open Existing Project', 'copy AI files into any existing project + open VS Code', 'open'),
+      menuChoice(T.brand.bold, '🗂  Manage Projects', 'registry of all your projects', 'projects'),
+      menuChoice(T.success.bold, '💊  Project Health Check', 'score /100: deps, tests, security, lint + badge', 'health'),
+      menuChoice(T.success.bold, '🌐  /health-all', 'scan all projects', 'health-all'),
+      menuChoice(T.accent.bold, '⚡  /perf', 'Lighthouse audit', 'perf'),
+      menuChoice(T.accent.bold, '⬆️  /upgrade', 'npm upgrade wizard', 'upgrade'),
+      menuChoice(T.accent.bold, '🔌  /mock-api', 'generate MSW handlers', 'mock-api'),
+      menuChoice(T.brand.bold, '🎓  /onboard-dev', 'new dev setup', 'onboard-dev'),
+      menuChoice(T.white.bold, '📋  /ado', 'Azure DevOps', 'ado'),
+      menuChoice(T.warning.bold, '🎯  /estimate', 'story point estimate', 'estimate'),
+      menuChoice(T.accent.bold, '🔊  /voice', 'voice features (TTS/STT)', 'voice'),
+      menuChoice(T.accent.bold, '📜  /changelog-view', 'browse CHANGELOG', 'changelog-view'),
+      menuChoice(T.accent.bold, '⚡  Run a Command', 'browse all slash commands', 'commands'),
+      menuChoice(T.success.bold, '🤖  Switch Agent / Role', 'activate a specialized AI agent', 'agents'),
+      menuChoice(T.warning.bold, '📚  Browse Instructions', 'view knowledge base / docs', 'instructions'),
+      menuChoice(T.accent.bold, '📋  Snippet Library', 'browse & copy ready-made code snippets', 'snippets'),
+      menuChoice(T.white.bold, '🔍  Bundle Analyzer', 'size, heavy deps, lazy-loading tips', 'bundle'),
+      menuChoice(T.white.bold, '🌐  RTL Audit', 'find & fix non-logical Tailwind classes', 'rtl'),
+      menuChoice(T.accent.bold, '🔑  /api-types', 'OpenAPI/Swagger → TypeScript types', 'api-types'),
+      menuChoice(T.accent.bold, '📝  /changelog', 'generate CHANGELOG from git commits', 'changelog'),
+      menuChoice(T.accent.bold, '🔒  /env-check', 'validate .env vs .env.example', 'env-check'),
+      menuChoice(T.accent.bold, '🧹  /unused', 'find dead code with knip', 'unused'),
+      menuChoice(T.accent.bold, '🪝  /git-hooks', 'install husky + lint-staged', 'git-hooks'),
+      menuChoice(T.white.bold, '🎫  Tickets & Issues', 'view and fix assigned tickets', 'tickets'),
+      menuSeparator(),
+      menuChoice(T.white.bold, '🔒  Security Audit', 'OWASP scan, dep check, secrets', 'security'),
+      menuChoice(T.white.bold, '🧪  Run Tests', 'auto-detect and run test suite', 'test'),
+      menuSeparator(),
+      menuChoice(T.white.bold, '🚀  Deploy', 'deploy to Azure / GitHub / Vercel', 'deploy'),
+      menuChoice(T.accent.bold, '📱  AppMorphy', 'convert website → Android APK (cloud build)', 'appmorphy'),
+      menuChoice(T.muted, '🌅  Daily Digest', 'morning summary: tickets, security, deps, git', 'digest'),
+      menuChoice(T.white.bold, '📄  README / Docs', 'view full toolkit documentation', 'readme'),
+      menuSeparator(),
+      menuChoice(T.warning.bold, '🏪  Marketplace', 'browse/install agents, skills, plugins', 'marketplace'),
+      menuChoice(T.success.bold, '⚡  Generate New', 'create custom agent/command/skill/plugin', 'generate'),
+      menuChoice(T.accent.bold, '🆓  Free Models', 'NVIDIA, Groq, OmniRoute, Ollama, HuggingFace', 'freemodels'),
+      menuSeparator(),
+      menuChoice(T.cyan.bold, '🩺  Doctor', 'health check: env, bridge, AI, tools', 'doctor'),
+      menuChoice(T.muted, `🔖  Version: v${VERSION}`, 'bump version / run updater', 'version'),
+      menuChoice(T.accent.bold, '🧩  Install VS Code Extension', 'install ghostforge.vsix into VS Code', 'vscode-install'),
+      menuChoice(T.muted, '❓  Help & Quick Reference', 'reference shortcuts and key flows', 'help'),
+      { name: T.danger('✖   Exit'), value: 'exit' },
     ],
-    pageSize: 20,
+    pageSize: 24,
   });
   return choice;
 }
@@ -4423,6 +4444,50 @@ async function screenChangelogViewer() {
   await pressEnter();
 }
 
+async function screenWhatsNew() {
+  sectionHeader('👁️  What’s New', 'Latest GhostForge updates at a glance');
+  const changelogPath = existsSync(resolve(process.cwd(), 'CHANGELOG.md'))
+    ? resolve(process.cwd(), 'CHANGELOG.md')
+    : resolve(ROOT, 'CHANGELOG.md');
+
+  if (!existsSync(changelogPath)) {
+    console.log(boxen(
+      T.warning.bold(' No changelog found ') + '\n\n' +
+      T.white('Generate one with ') + T.accent('/changelog') + T.white(' or browse release history with ') + T.accent('/changelog-view') + T.white('.'),
+      {
+        padding: { top: 0, bottom: 0, left: 1, right: 1 },
+        borderColor: '#F59E0B',
+        borderStyle: 'round',
+      }
+    ));
+    await pressEnter();
+    return;
+  }
+
+  const lines = readFileSync(changelogPath, 'utf8').split('\n');
+  const start = Math.max(lines.findIndex(line => line.startsWith('## ')), 0);
+  let end = lines.findIndex((line, index) => index > start && line.startsWith('## '));
+  if (end === -1) end = Math.min(lines.length, start + 18);
+
+  const preview = lines
+    .slice(start, end)
+    .join('\n')
+    .trim() || 'No recent changelog entries found.';
+
+  console.log(boxen(
+    T.cyan.bold(' Latest release notes ') + '\n\n' + T.white(preview),
+    {
+      padding: { top: 0, bottom: 0, left: 1, right: 1 },
+      borderColor: '#06B6D4',
+      borderStyle: 'round',
+      width: 88,
+    }
+  ));
+  console.log();
+  console.log(T.muted('  Tip: use /changelog-view to browse older releases interactively.'));
+  await pressEnter();
+}
+
 async function main() {
   // Silently ensure officecli is installed
   try {
@@ -4442,6 +4507,7 @@ async function main() {
       const choice = await screenHome();
       switch (choice) {
         case 'dashboard':    await screenDashboard(); break; // lazy
+        case 'whats-new':    await screenWhatsNew(); break;
         case 'setup':        await screenSetup(); break;
         case 'open':         await screenOpenProject(); break;
         case 'projects':     await screenProjects(); break;

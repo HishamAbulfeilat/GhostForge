@@ -530,26 +530,27 @@ export default function DashboardPage() {
 
       <main className="p-4 space-y-3 max-w-7xl mx-auto">
         {/* ── Quick nav cards ── */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           {[
-            { href: '/chat', icon: '💬', label: 'AI Chat', desc: 'Gemini 2.5 Pro', color: 'border-violet-800/40 hover:border-violet-600/60' },
-            { href: '/terminal', icon: '💻', label: 'Terminal', desc: 'Live TUI shell', color: 'border-emerald-800/40 hover:border-emerald-600/60' },
-            { href: '/features', icon: '🔧', label: 'Features', desc: 'Run any command', color: 'border-sky-800/40 hover:border-sky-600/60' },
-            { href: '/marketplace', icon: '🛒', label: 'Marketplace', desc: 'Plugins & agents', color: 'border-rose-800/40 hover:border-rose-600/60' },
-            { href: '/settings', icon: '⚙️', label: 'Models', desc: 'Switch AI model', color: 'border-amber-800/40 hover:border-amber-600/60' },
-            { href: '/chat', icon: '🐙', label: 'Copilot', desc: 'GitHub Suggest', color: 'border-gray-700/40 hover:border-gray-500/60' },
+            { href: '/chat',        icon: '💬', label: 'Chat',      desc: 'AI assistant',    color: 'hover:border-violet-600/60 hover:bg-violet-950/20' },
+            { href: '/terminal',    icon: '🖥️', label: 'Terminal',  desc: 'Remote shell',    color: 'hover:border-emerald-600/60 hover:bg-emerald-950/20' },
+            { href: '/files',       icon: '🗂️', label: 'Files',     desc: 'Browse & edit',   color: 'hover:border-sky-600/60 hover:bg-sky-950/20' },
+            { href: '/features',    icon: '⚡', label: 'Features',  desc: 'Run commands',    color: 'hover:border-amber-600/60 hover:bg-amber-950/20' },
+            { href: '/marketplace', icon: '🏪', label: 'Market',    desc: 'Plugins',         color: 'hover:border-rose-600/60 hover:bg-rose-950/20' },
+            { href: '/settings',    icon: '⚙️', label: 'Settings',  desc: 'AI models',       color: 'hover:border-gray-500/60 hover:bg-gray-800/40' },
+            { href: '/chat',        icon: '🐙', label: 'Copilot',   desc: 'Suggest mode',    color: 'hover:border-sky-600/60 hover:bg-sky-950/20' },
           ].map(item => (
-            <a
-              key={item.label}
+            <Link
+              key={item.href + item.label}
               href={item.href}
-              className={`flex items-center gap-2.5 rounded-lg border bg-[#080d18] p-3 transition hover:bg-white/[0.03] ${item.color}`}
+              className={`group flex flex-col items-center gap-1.5 rounded-xl border border-white/[0.06] bg-gray-900/50 p-3 text-center transition ${item.color}`}
             >
-              <span className="text-xl shrink-0">{item.icon}</span>
-              <div className="min-w-0">
+              <span className="text-xl transition-transform group-hover:scale-110">{item.icon}</span>
+              <div>
                 <p className="text-xs font-semibold text-gray-200">{item.label}</p>
-                <p className="truncate text-[11px] text-gray-600">{item.desc}</p>
+                <p className="text-[10px] text-gray-600">{item.desc}</p>
               </div>
-            </a>
+            </Link>
           ))}
         </div>
 
@@ -573,11 +574,11 @@ export default function DashboardPage() {
           </p>
         )}
 
-        {/* ── Doctor health widget ── */}
-        <DoctorWidget />
-
-        {/* ── Mac live metrics ── */}
-        <MacMetricsWidget />
+        {/* ── Doctor + Metrics side by side ── */}
+        <div className="grid gap-3 lg:grid-cols-2">
+          <DoctorWidget />
+          <MacMetricsWidget />
+        </div>
 
         {/* ── Top row: Tickets · Pipelines · PRs ── */}
         {!data ? (

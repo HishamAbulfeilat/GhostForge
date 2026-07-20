@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 export type NotifType = 'info' | 'success' | 'warning' | 'error'
 
@@ -82,8 +82,13 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     (window as unknown as Record<string, unknown>).gfNotify = push
   }, [push])
 
+  const ctx = useMemo(
+    () => ({ notifications, unread, push, markAllRead, dismiss, clear }),
+    [notifications, unread, push, markAllRead, dismiss, clear]
+  )
+
   return (
-    <Ctx.Provider value={{ notifications, unread, push, markAllRead, dismiss, clear }}>
+    <Ctx.Provider value={ctx}>
       {children}
 
       {/* Toast container */}

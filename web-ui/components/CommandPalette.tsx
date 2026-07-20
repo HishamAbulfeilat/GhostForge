@@ -82,7 +82,10 @@ export function CommandPalette() {
   }, [close])
 
   useEffect(() => {
-    if (open) { setTimeout(() => inputRef.current?.focus(), 50) }
+    if (open) {
+      const id = setTimeout(() => inputRef.current?.focus(), 50)
+      return () => clearTimeout(id)
+    }
   }, [open])
 
   useEffect(() => { setSelected(0) }, [query])
