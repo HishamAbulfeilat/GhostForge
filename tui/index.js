@@ -390,9 +390,11 @@ async function screenHome() {
       menuChoice(T.white.bold,   '🎫  Tickets & Issues',          'view and fix assigned tickets', 'tickets'),
       menuSeparator(),
       menuChoice(T.white.bold,   '🔒  Security Audit',            'OWASP scan, dep check, secrets', 'security'),
+      menuChoice(T.danger.bold,  '🛡️   Vigolium Scanner',          'AI-driven vuln scan — 317 modules, OWASP Top 10', 'vigolium'),
       menuChoice(T.white.bold,   '🧪  Run Tests',                 'auto-detect and run test suite', 'test'),
       menuSeparator(),
       menuChoice(T.white.bold,   '🚀  Deploy',                    'deploy to Azure / GitHub / Vercel', 'deploy'),
+      menuChoice(T.accent.bold,  '🎨  Design Resources',          'DESIGN.md templates (74 sites) + awesome-design tools', 'designresources'),
       menuChoice(T.accent.bold,  '📱  Install on Device',         'PWA · Android APK · iOS IPA · Desktop', 'deviceinstall'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
       menuChoice(T.white.bold,   '🍎  Mac Control',               'control Mac with natural language → AppleScript', 'maccontrol'),
@@ -2279,6 +2281,14 @@ async function screenDoctor() {
   const qwen3Check = runShellCheck('ollama list 2>/dev/null | grep -c qwen3');
   addCheck('qwen3:14b model', qwen3Check.output.trim() !== '0' && qwen3Check.ok ? 'pass' : 'warn',
     qwen3Check.output.trim() !== '0' ? 'installed ✓' : 'pulling... (check: tail -f /tmp/ollama-pull-qwen3-14b.log)');
+
+  const vigoliumCheck = runShellCheck('command -v vigolium');
+  addCheck('Vigolium scanner', vigoliumCheck.ok ? 'pass' : 'warn',
+    vigoliumCheck.ok ? 'installed (317-module OWASP scanner) ✓' : 'npm install -g @vigolium/vigolium');
+
+  const designMdCheck = existsSync(resolve(ROOT, 'DESIGN.md')) || existsSync(resolve(process.cwd(), 'DESIGN.md'));
+  addCheck('DESIGN.md', designMdCheck ? 'pass' : 'warn',
+    designMdCheck ? 'design system template active ✓' : 'optional — ask JARVIS to apply a design template');
 
   const doctorTable = new Table({
     head: [T.white.bold('Check'), T.white.bold('Status'), T.white.bold('Details')],
@@ -5912,6 +5922,270 @@ async function screenIntegrationsHub() {
   }
 }
 
+async function screenDesignResources() {
+  sectionHeader('🎨  Design Resources', 'DESIGN.md templates + awesome-design tools');
+
+  const categories = [
+    { value: 'design_md', name: '📄  DESIGN.md Templates  — 74 AI-ready templates (Stripe, Apple, Notion, Vercel…)' },
+    { value: 'color',       name: '🎨  Color Tools          — Coolors, Adobe Color, Color Hunt, uicolors.app' },
+    { value: 'typography',  name: '🔤  Typography           — Google Fonts, Fontjoy, Typescale, Font Pair' },
+    { value: 'icons',       name: '🔷  Icons & SVG          — Heroicons, Lucide, Phosphor, Simple Icons' },
+    { value: 'stock',       name: '📷  Stock & Illustrations — Unsplash, Undraw, Storyset, UI Faces' },
+    { value: 'prototyping', name: '🖥️  Prototyping          — Figma, Framer, Penpot, Excalidraw' },
+    { value: 'inspiration', name: '💡  Inspiration          — Dribbble, Awwwards, Mobbin, Siteinspire' },
+    { value: 'tools',       name: '🛠️  Component Libraries  — Tailwind, shadcn/ui, Radix, v0.dev' },
+    { value: 'back', name: '← Back' },
+  ];
+
+  const { action } = await inquirer.prompt([{
+    type: 'list', name: 'action', message: 'Choose a design category:',
+    choices: categories,
+  }]);
+
+  if (action === 'back') return;
+
+  if (action === 'design_md') {
+    console.log(boxen(
+      chalk.bold.cyan('📄 DESIGN.md Templates') + '\n' +
+      chalk.dim('github.com/VoltAgent/awesome-design-md — 74 AI-ready templates\n') +
+      chalk.white('Drop a DESIGN.md in your project root — AI agents auto-read it to\n') +
+      chalk.white('generate visually consistent UI matching that brand\'s design system.\n\n') +
+      chalk.bold('AI/Dev Tools:') + '  Claude, Cursor, Vercel, Warp, Raycast, Lovable, Ollama\n' +
+      chalk.bold('Fintech:      ') + '  Stripe, Coinbase, Revolut, Wise, Binance, Mastercard\n' +
+      chalk.bold('Big Tech:     ') + '  Apple, Meta, NVIDIA, IBM, Tesla, SpaceX, Nike\n' +
+      chalk.bold('Automotive:   ') + '  Ferrari, BMW, Lamborghini, Bugatti, Renault\n' +
+      chalk.bold('SaaS/Prod:    ') + '  Notion, Linear, Figma, Framer, Slack, Shopify, Stripe\n\n' +
+      chalk.yellow('To apply: ask JARVIS "apply stripe design to my project"\n') +
+      chalk.yellow('Or run:   curl -O https://getdesign.md/stripe/design-md'),
+      { padding: 1, borderStyle: 'round', borderColor: 'cyan', title: '74 Templates Available' }
+    ));
+
+    const { site } = await inquirer.prompt([{
+      type: 'input', name: 'site',
+      message: 'Enter site name to fetch DESIGN.md (e.g. stripe, vercel, apple) or leave blank to skip:',
+    }]);
+
+    if (site.trim()) {
+      const spinner = ora(`Fetching ${site} DESIGN.md...`).start();
+      try {
+        const { execSync } = require('child_process');
+        execSync(`curl -fsSL "https://raw.githubusercontent.com/VoltAgent/awesome-design-md/main/design-md/${site.trim().toLowerCase()}/DESIGN.md" -o "${process.cwd()}/DESIGN.md"`, { stdio: 'pipe' });
+        spinner.succeed(`DESIGN.md for ${site} saved to ${process.cwd()}/DESIGN.md`);
+        console.log(chalk.green('\n✓ AI agents in this project will now use this design system!'));
+      } catch {
+        spinner.fail(`Could not fetch DESIGN.md for "${site}". Check spelling.`);
+        console.log(chalk.dim('Full list: airbnb, apple, stripe, vercel, notion, figma, slack, spotify…'));
+      }
+    }
+    await pressEnter(); return;
+  }
+
+  const resourceMap = {
+    color: [
+      ['Coolors',       'coolors.co',         'Fast palette generator — share palettes as URLs'],
+      ['Adobe Color',   'color.adobe.com',    'Color wheel, harmony rules, extract from image'],
+      ['Color Hunt',    'colorhunt.co',       'Curated palettes voted by designers'],
+      ['uicolors.app',  'uicolors.app',       'Generate Tailwind CSS color scales from any hex'],
+      ['Paletton',      'paletton.com',       'Adjacent/complementary color scheme designer'],
+    ],
+    typography: [
+      ['Google Fonts',  'fonts.google.com',   '1000+ free, web-optimized font families'],
+      ['Font Pair',     'fontpair.co',        'Curated Google Font pairings'],
+      ['Fontjoy',       'fontjoy.com',        'AI-generated font combinations'],
+      ['Typescale',     'typescale.com',      'Visual type scale calculator'],
+    ],
+    icons: [
+      ['Heroicons',     'heroicons.com',      'Hand-crafted SVG by Tailwind team'],
+      ['Lucide',        'lucide.dev',         'React/Vue/Svelte icon components (1000+)'],
+      ['Phosphor',      'phosphoricons.com',  '7800+ icons in 6 weights'],
+      ['Simple Icons',  'simpleicons.org',    'SVG brand/logo icons (3300+)'],
+      ['Feather Icons', 'feathericons.com',   'Minimal, clean 24×24 icon set'],
+    ],
+    stock: [
+      ['Unsplash',      'unsplash.com',       'Free hi-res photos, liberal license'],
+      ['Pexels',        'pexels.com',         'Free photos and videos'],
+      ['Undraw',        'undraw.co',          'MIT SVG illustrations, re-colorable'],
+      ['Storyset',      'storyset.com',       'Animated + customizable illustrations'],
+      ['UI Faces',      'uifaces.co',         'AI-generated person avatars for mockups'],
+    ],
+    prototyping: [
+      ['Figma',         'figma.com',          'Industry standard: design + prototype + handoff'],
+      ['Framer',        'framer.com',         'Design to published website, zero-code'],
+      ['Penpot',        'penpot.app',         'Open-source Figma alternative (self-host)'],
+      ['Excalidraw',    'excalidraw.com',     'Whiteboard-style wireframing'],
+    ],
+    inspiration: [
+      ['Dribbble',      'dribbble.com',       'Shot-based design portfolio community'],
+      ['Awwwards',      'awwwards.com',       'Best web design awards & site gallery'],
+      ['Mobbin',        'mobbin.com',         'Mobile & web app UX pattern library'],
+      ['Siteinspire',   'siteinspire.com',    'Curated web design showcase'],
+    ],
+    tools: [
+      ['Tailwind CSS',  'tailwindcss.com',    'Utility-first CSS — most popular styling framework'],
+      ['shadcn/ui',     'ui.shadcn.com',      'Copy-paste React components (Radix + Tailwind)'],
+      ['Radix UI',      'radix-ui.com',       'Unstyled, accessible component primitives'],
+      ['v0.dev',        'v0.dev',             'AI component generator by Vercel'],
+      ['DESIGN.md',     'getdesign.md',       'AI-ready design system docs (74 sites)'],
+    ],
+  };
+
+  const list = resourceMap[action] || resourceMap.tools;
+  const rows = list.map(([name, url, desc]) =>
+    chalk.bold.white(name.padEnd(16)) + chalk.cyan(url.padEnd(26)) + chalk.dim(desc)
+  ).join('\n');
+
+  console.log(boxen(
+    chalk.bold.cyan(`${action.toUpperCase()} Resources`) + '\n' +
+    chalk.dim('Source: github.com/gztchan/awesome-design\n\n') +
+    rows,
+    { padding: 1, borderStyle: 'round', borderColor: 'cyan' }
+  ));
+
+  await pressEnter(); return;
+}
+
+async function screenVigolium() {
+  sectionHeader('🛡️  Vigolium Security Scanner', 'AI-powered vulnerability scanning (317 modules, OWASP Top 10)');
+
+  // Check if installed
+  let installed = false;
+  try {
+    require('child_process').execSync('vigolium --version 2>/dev/null', { stdio: 'pipe' });
+    installed = true;
+  } catch { /* not installed */ }
+
+  const statusIcon = installed ? chalk.green('● INSTALLED') : chalk.yellow('○ NOT INSTALLED');
+  console.log(boxen(
+    chalk.bold('Vigolium Status: ') + statusIcon + '\n\n' +
+    chalk.bold.cyan('Native Scan') + chalk.dim('  (vigolium scan)\n') +
+    '  317 modules: 201 active fuzzing + 116 passive pattern matching\n' +
+    '  OWASP Top 10, OAST (blind XSS/SSRF), multi-session auth (IDOR)\n\n' +
+    chalk.bold.cyan('Agentic Scan') + chalk.dim('  (vigolium agent)\n') +
+    '  autopilot: fully autonomous AI-driven attack planning\n' +
+    '  swarm:     AI selects modules + generates JS exploit code\n' +
+    '  audit:     SAST source code analysis (like SonarQube + AI)\n\n' +
+    chalk.bold.cyan('AI Providers') + chalk.dim('  (pluggable)\n') +
+    '  OpenAI, Anthropic, Google Vertex, Ollama (local), OpenRouter, vLLM\n' +
+    chalk.dim('  → Use local qwen3:14b for private scans (no data leaves machine)\n\n') +
+    chalk.bold.cyan('Cloud Console') + '  console.vigolium.com\n',
+    { padding: 1, borderStyle: 'double', borderColor: installed ? 'green' : 'yellow',
+      title: 'github.com/vigolium/vigolium (AGPL-3.0)' }
+  ));
+
+  const choices = [
+    ...(installed ? [] : [{ value: 'install', name: '📦  Install Vigolium (npm install -g)' }]),
+    { value: 'scan',    name: '🔍  Run Native Scan — enter target URL' },
+    { value: 'agent',   name: '🤖  Run Agentic Scan — AI autopilot mode' },
+    { value: 'audit',   name: '🔎  Source Code Audit — scan current project' },
+    { value: 'server',  name: '🖥️   Start Vigolium Server (REST API + SSE)' },
+    { value: 'brew',    name: '🍺  Install via Homebrew' },
+    { value: 'back',    name: '← Back' },
+  ];
+
+  const { action } = await inquirer.prompt([{
+    type: 'list', name: 'action', message: 'Vigolium action:', choices,
+  }]);
+
+  if (action === 'back') return;
+
+  if (action === 'install') {
+    const spinner = ora('Installing @vigolium/vigolium via npm...').start();
+    try {
+      require('child_process').execSync('npm install -g @vigolium/vigolium', { stdio: 'pipe', timeout: 120000 });
+      spinner.succeed('Vigolium installed! Run: vigolium --help');
+    } catch (e) {
+      spinner.fail('npm install failed');
+      console.log(chalk.yellow('Try: brew install vigolium/tap/vigolium'));
+      console.log(chalk.yellow('Or:  curl -fsSL https://vigolium.com/install.sh | bash'));
+    }
+    await pressEnter(); return;
+  }
+
+  if (action === 'brew') {
+    console.log(boxen(
+      chalk.bold('Install via Homebrew:\n\n') +
+      chalk.cyan('brew install vigolium/tap/vigolium\n\n') +
+      chalk.bold('Or one-liner:\n\n') +
+      chalk.cyan('curl -fsSL https://vigolium.com/install.sh | bash'),
+      { padding: 1, borderStyle: 'round', borderColor: 'cyan' }
+    ));
+    await pressEnter(); return;
+  }
+
+  if (action === 'scan') {
+    const { target } = await inquirer.prompt([{
+      type: 'input', name: 'target', message: 'Target URL to scan (e.g. https://example.com):',
+    }]);
+    if (!target.trim()) { await pressEnter(); return; }
+    const { strategy } = await inquirer.prompt([{
+      type: 'list', name: 'strategy', message: 'Scan strategy:',
+      choices: [
+        { value: 'fast',      name: '⚡  Fast      — quick overview, ~30s' },
+        { value: 'balanced',  name: '⚖️   Balanced  — thorough but not noisy, ~2min' },
+        { value: 'thorough',  name: '🔬  Thorough  — full deep scan, ~10min' },
+      ],
+    }]);
+    console.log(chalk.bold.cyan(`\nStarting ${strategy} scan on ${target}...\n`));
+    console.log(chalk.dim(`vigolium scan -t "${target}" --strategy ${strategy}\n`));
+    if (!installed) {
+      console.log(chalk.yellow('⚠ Vigolium not installed. Install first, then run:\n'));
+      console.log(chalk.cyan(`  vigolium scan -t "${target}" --strategy ${strategy}`));
+    } else {
+      const { exec } = require('child_process');
+      const child = exec(`vigolium scan -t "${target}" --strategy ${strategy}`, { timeout: 600000 });
+      child.stdout.on('data', d => process.stdout.write(d));
+      child.stderr.on('data', d => process.stderr.write(d));
+      await new Promise(res => child.on('exit', res));
+    }
+    await pressEnter(); return;
+  }
+
+  if (action === 'agent') {
+    const { target } = await inquirer.prompt([{
+      type: 'input', name: 'target', message: 'Target URL for agentic scan:',
+    }]);
+    const cmd = `vigolium agent autopilot -t "${target || 'https://example.com'}"`;
+    console.log(boxen(
+      chalk.bold.yellow('Agentic Autopilot Scan\n\n') +
+      chalk.white('The AI will autonomously plan attacks, select modules,\n') +
+      chalk.white('generate custom JS exploits, and triage all findings.\n\n') +
+      chalk.bold('Run in terminal:\n') + chalk.cyan(`  ${cmd}\n\n`) +
+      chalk.bold('With local AI (private mode):\n') +
+      chalk.cyan(`  vigolium agent autopilot -t "${target || '...'}" --provider ollama --model qwen3:14b`),
+      { padding: 1, borderStyle: 'round', borderColor: 'yellow' }
+    ));
+    await pressEnter(); return;
+  }
+
+  if (action === 'audit') {
+    const projectPath = process.cwd();
+    const cmd = `vigolium agent audit --source "${projectPath}"`;
+    console.log(boxen(
+      chalk.bold.cyan('Source Code Audit (SAST)\n\n') +
+      chalk.white(`Scanning: ${projectPath}\n\n`) +
+      chalk.bold('Command:\n') + chalk.cyan(`  ${cmd}\n\n`) +
+      chalk.bold('Diff-focused (only changed files):\n') +
+      chalk.cyan(`  vigolium agent audit --source . --diff HEAD~5`),
+      { padding: 1, borderStyle: 'round', borderColor: 'cyan' }
+    ));
+    await pressEnter(); return;
+  }
+
+  if (action === 'server') {
+    console.log(boxen(
+      chalk.bold.green('Start Vigolium REST API Server\n\n') +
+      chalk.cyan('  vigolium server -k my-secret-key\n\n') +
+      chalk.white('Features:\n') +
+      chalk.dim('  • REST API with SSE streaming\n') +
+      chalk.dim('  • OpenAI-compatible chat endpoint\n') +
+      chalk.dim('  • HTTP proxy mode for traffic ingestion\n') +
+      chalk.dim('  • JARVIS can connect via vigolium_scan tool\n'),
+      { padding: 1, borderStyle: 'round', borderColor: 'green' }
+    ));
+    await pressEnter(); return;
+  }
+}
+
 async function screenWhatsNew() {
   sectionHeader('👁️  What’s New', 'Latest GhostForge updates at a glance');
   const changelogPath = existsSync(resolve(process.cwd(), 'CHANGELOG.md'))
@@ -6000,6 +6274,8 @@ async function main() {
         case 'instructions': await screenInstructions(); break;
         case 'tickets':      await screenTickets(); break;
         case 'security':     await screenSecurity(); break;
+        case 'vigolium':     await screenVigolium(); break;
+        case 'designresources': await screenDesignResources(); break;
         case 'test':         await screenTest(); break;
         case 'deploy':       await screenDeploy(); break;
         case 'appmorphy':    await screenAppmorphy(); break;
