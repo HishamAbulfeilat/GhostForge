@@ -5,6 +5,7 @@ import { checkRateLimit, getClientIP } from '@/lib/ratelimit'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { writeFile, unlink, readdir, stat, rm } from 'fs/promises'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { tmpdir, homedir } from 'os'
 import { join } from 'path'
 
@@ -57,6 +58,11 @@ const TOOL_CATALOG = `
 - describe_screen   → describe what's on screen / take screenshot and summarize (no params)
 - mac_cleanup       → clean Mac temp files, clear RAM pressure, kill zombie processes, free disk space (no params)
 - llmfit_recommend  → analyze hardware and recommend best local AI model to use { useCase?: "code"|"general"|"reasoning" }
+- set_goal          → set a personal goal or OKR for daily tracking { goal: string, deadline?: string }
+- list_goals        → list all active goals and completion status (no params)
+- web_search_deep   → AI-powered deep web search with citations via Vane { query: string }
+- delegate_agent    → delegate a task to a specialist sub-agent role { role: "code"|"security"|"devops"|"qa"|"research", task: string }
+- install_on_device → guide installing GhostForge as PWA/APK on phone or tablet (no params)
 `
 
 // ── Domain classifier ─────────────────────────────────────────────────────────
@@ -1063,6 +1069,79 @@ Recommended: ${bestPick}${isInstalled ? ' ✓ installed' : ' — not yet install
       } catch (e) {
         return `Could not analyze hardware: ${(e as Error).message?.slice(0, 100)}`
       }
+    }
+
+    case 'set_goal': {
+      const goalsFile = join(homedir(), '.ghostforge', 'goals.json')
+      try {
+        let goals: Array<{id: string, goal: string, deadline?: string, created: string, done: boolean}> = []
+        if (existsSync(goalsFile)) {
+          const existing = readFileSync(goalsFile, 'utf8')
+          goals = JSON.parse(existing)
+        } else {
+          mkdirSync(join(homedir(), '.ghostforge'), { recursive: true })
+        }
+        const newGoal = { id: Date.now().toString(), goal: params.goal || '', deadline: params.deadline, created: new Date().toISOString(), done: false }
+        goals.push(newGoal)
+        writeFileSync(goalsFile, JSON.stringify(goals, null, 2))
+        return `Goal set: "${newGoal.goal}"${newGoal.deadline ? ` (deadline: ${newGoal.deadline})` : ''}. You have ${goals.filter(g => !g.done).length} active goals.`
+      } catch (e) {
+        return `Could not save goal: ${(e as Error).message?.slice(0, 100)}`
+      }
+    }
+
+    case 'list_goals': {
+      const goalsFile = join(homedir(), '.ghostforge', 'goals.json')
+      try {
+        if (!existsSync(goalsFile)) return 'No goals set yet. Try: "set a goal: finish the project by Friday"'
+        const goals: Array<{id: string, goal: string, deadline?: string, created: string, done: boolean}> = JSON.parse(readFileSync(goalsFile, 'utf8'))
+        if (!goals.length) return 'No goals set.'
+        const active = goals.filter(g => !g.done)
+        const done = goals.filter(g => g.done)
+        return `Active goals (${active.length}):\n${active.map((g, i) => `${i+1}. ${g.goal}${g.deadline ? ` (by ${g.deadline})` : ''}`).join('\n')}\n\nCompleted: ${done.length}`
+      } catch (e) {
+        return `Could not read goals: ${(e as Error).message?.slice(0, 100)}`
+      }
+    }
+
+    case 'web_search_deep': {
+      // Try Vane (self-hosted AI search) first, fall back to regular web_search
+      const q = params.query || 'hello'
+      try {
+        const res = await fetch(`http://localhost:3100/api/search?q=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(5000) })
+        if (res.ok) {
+          const data = await res.json() as { answer?: string; results?: Array<{title: string, url: string}> }
+          const answer = data.answer || ''
+          const sources = (data.results || []).slice(0, 3).map((r: {title: string, url: string}) => `• ${r.title}: ${r.url}`).join('\n')
+          return `${answer}\n\nSources:\n${sources}`
+        }
+      } catch {}
+      // Fallback to wttr or basic search
+      try {
+        const r = await fetch(`https://wttr.in/${encodeURIComponent(q)}?format=j1`, { signal: AbortSignal.timeout(5000) })
+        if (r.ok) return `Search: ${q} (Vane not running — start it with Docker for deep search)`
+      } catch {}
+      return `Vane search not available. Start Vane: docker run -d -p 3100:3000 itzcrazykns1337/vane:latest\nQuery was: "${q}"`
+    }
+
+    case 'delegate_agent': {
+      const role = params.role || 'research'
+      const task = params.task || ''
+      const roleDescriptions: Record<string, string> = {
+        code: 'Senior full-stack developer (React, Node.js, TypeScript)',
+        security: 'Security analyst (OWASP, pen test, secrets audit)',
+        devops: 'DevOps engineer (GitHub Actions, Docker, CI/CD)',
+        qa: 'QA engineer (Jest, Playwright, accessibility)',
+        research: 'Research analyst (web search, synthesis, citations)',
+      }
+      const roleDesc = roleDescriptions[role] || role
+      return `Delegated to ${roleDesc}: "${task}"\n\nTo execute: Open the GhostForge web UI → JARVIS → switch model to a capable model → paste this task.\n\nFor automated multi-agent: install herdr (herdr.dev) to run multiple AI coding agents in parallel.`
+    }
+
+    case 'install_on_device': {
+      let ip = '192.168.1.x'
+      try { const r = await execAsync('ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null'); ip = r.stdout.trim() } catch {}
+      return `Install GhostForge on your device:\n\n📱 PWA (fastest): Open http://${ip}:3001 on your phone → Share → Add to Home Screen\n\n🤖 Android APK: Run 'bash scripts/build-android.sh' on your Mac\n\n🍎 iOS IPA: Run 'bash scripts/build-ios.sh' on your Mac (needs Xcode)\n\n🖥 Desktop: Run 'bash scripts/build-electron.sh'`
     }
 
     default:
