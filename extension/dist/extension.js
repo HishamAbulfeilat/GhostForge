@@ -764,7 +764,7 @@ var vscode5 = __toESM(require("vscode"));
 var StatusBarManager = class {
   constructor(context) {
     this.statusBarItem = vscode5.window.createStatusBarItem(vscode5.StatusBarAlignment.Right, 100);
-    this.statusBarItem.text = "\u26A1 GhostForge";
+    this.statusBarItem.text = "\u{1F47B} GhostForge";
     this.statusBarItem.tooltip = "GhostForge AI Toolkit \u2014 Click to open command picker";
     this.statusBarItem.command = "ghostforge.openPicker";
     context.subscriptions.push(this.statusBarItem);

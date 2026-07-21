@@ -5,7 +5,7 @@ export class StatusBarManager {
 
   constructor(context: vscode.ExtensionContext) {
     this.statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    this.statusBarItem.text = '⚡ GhostForge';
+    this.statusBarItem.text = '👻 GhostForge';
     this.statusBarItem.tooltip = 'GhostForge AI Toolkit — Click to open command picker';
     this.statusBarItem.command = 'ghostforge.openPicker';
     context.subscriptions.push(this.statusBarItem);
