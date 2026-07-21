@@ -1378,7 +1378,7 @@ async function screenJarvis() {
   };
 
   if (action in quickCmds) {
-    console.log(T.muted(`\n  Sending to G.F.A.I.: "${quickCmds[action as keyof typeof quickCmds]}"\n`));
+    console.log(T.muted(`\n  Sending to G.F.A.I.: "${quickCmds[action]}"\n`));
     console.log(T.muted('  (Note: Full voice + AI response available in Web UI)\n'));
     // Execute directly for TUI
     if (action === 'time') {
