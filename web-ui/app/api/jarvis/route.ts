@@ -366,8 +366,16 @@ end tell`
 
     case 'terminal_command': {
       const cmd = params.command || ''
-      const blocked = ['rm -rf /', 'sudo rm -rf', 'mkfs', ':(){:|:&}', '> /dev/sda']
-      if (blocked.some(b => cmd.includes(b))) return 'Command blocked for safety'
+      // Regex-based block list — covers whitespace variations and common bypasses
+      const blocked = [
+        /rm\s+-[rRf]{1,3}\s+\/[^a-z]?$/, /rm\s+-[rRf]{1,3}\s+\/\s/,
+        /sudo\s+rm\s+-[rRf]/,
+        /:\(\)\s*\{.*fork\s*bomb/i,
+        />\s*\/dev\/(sda|disk|null\s+&&)/,
+        /mkfs\./i, /dd\s+if=\/dev\/zero/i,
+        /csrutil\s+disable/i, /nvram.*erase/i,
+      ]
+      if (blocked.some(b => b.test(cmd))) return 'Command blocked for safety'
       try {
         const { stdout, stderr } = await execAsync(cmd, { timeout: 12000, cwd: process.env.HOME })
         return ((stdout + stderr).trim() || 'Command completed').slice(0, 1000)
@@ -793,20 +801,36 @@ end tell`
       const code = params.code || ''
       if (!code.trim()) return 'No code provided'
 
-      // Safety: block dangerous patterns
-      const dangerous = [/rm\s+-rf\s+\//, /sudo\s+rm/, /format\s+c:/, /mkfs\./, /dd\s+if=\/dev\/zero/]
+      // Safety: block dangerous patterns in code
+      const dangerous = [
+        /rm\s+-rf\s+\//, /sudo\s+rm/, /format\s+c:/, /mkfs\./,
+        /dd\s+if=\/dev\/zero/, /shred\s+/, /csrutil\s+disable/i,
+        /launchctl\s+(unload|disable)/i, /nvram.*erase/i,
+      ]
       if (dangerous.some(p => p.test(code))) return 'Code blocked: dangerous operation detected'
 
+      // Write to temp file to avoid shell injection (never pass code inline to shell)
+      const tmpFile = join(tmpdir(), `gfai-code-${Date.now()}`)
       try {
         if (lang === 'python' || lang === 'python3') {
-          const { stdout, stderr } = await execAsync(`python3 -c '${code.replace(/'/g, "'\\''")}'`, { timeout: 10000 })
+          const pyFile = `${tmpFile}.py`
+          await writeFile(pyFile, code, 'utf8')
+          const { stdout, stderr } = await execAsync(`python3 "${pyFile}"`, { timeout: 10000 })
+          await unlink(pyFile).catch(() => {})
           return (stdout + stderr).trim().slice(0, 1500) || 'No output'
         } else if (lang === 'javascript' || lang === 'node') {
-          const { stdout, stderr } = await execAsync(`node -e '${code.replace(/'/g, "'\\''")}'`, { timeout: 10000 })
+          const jsFile = `${tmpFile}.js`
+          await writeFile(jsFile, code, 'utf8')
+          const { stdout, stderr } = await execAsync(`node "${jsFile}"`, { timeout: 10000 })
+          await unlink(jsFile).catch(() => {})
           return (stdout + stderr).trim().slice(0, 1500) || 'No output'
         } else {
-          // Shell
-          const { stdout, stderr } = await execAsync(code, { timeout: 15000, shell: '/bin/bash' })
+          // Shell — write to .sh file, no inline interpolation
+          const shFile = `${tmpFile}.sh`
+          await writeFile(shFile, `#!/bin/bash\nset -euo pipefail\n${code}`, 'utf8')
+          await execAsync(`chmod +x "${shFile}"`)
+          const { stdout, stderr } = await execAsync(`/bin/bash "${shFile}"`, { timeout: 15000 })
+          await unlink(shFile).catch(() => {})
           return (stdout + stderr).trim().slice(0, 1500) || 'Done (no output)'
         }
       } catch (e: unknown) {
@@ -834,9 +858,14 @@ end tell`
     case 'task_steps': {
       // Multi-step task execution — run each step as a shell command
       const stepsRaw = params.steps || ''
-      const lines = stepsRaw.split(/\n|;/).map(l => l.trim()).filter(Boolean)
+      const lines = stepsRaw.split(/\n/).map((l: string) => l.trim()).filter(Boolean)
+      const dangerous = [/rm\s+-rf\s+\//, /sudo\s+rm/, /mkfs\./, /dd\s+if=\/dev\//, /csrutil\s+disable/i]
       const results: string[] = []
-      for (const step of lines.slice(0, 5)) { // max 5 steps for safety
+      for (const step of lines.slice(0, 5)) { // max 5 steps
+        if (dangerous.some(p => p.test(step))) {
+          results.push(`✗ ${step}: BLOCKED — dangerous pattern`)
+          continue
+        }
         try {
           const { stdout, stderr } = await execAsync(step, { timeout: 10000, shell: '/bin/bash' })
           results.push(`✓ ${step}: ${(stdout + stderr).trim().slice(0, 200) || 'done'}`)
