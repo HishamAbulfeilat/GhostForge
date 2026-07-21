@@ -33,7 +33,9 @@ function findToolkitRoot(): string {
   const path = require('path') as typeof import('path');
   const fs = require('fs') as typeof import('fs');
   const candidates = [
+    path.join(os.homedir(), 'GhostForge'),
     path.join(os.homedir(), 'ghostforge'),
+    path.join(os.homedir(), 'Documents', 'GhostForge'),
     path.join(os.homedir(), 'Documents', 'ghostforge'),
   ];
 

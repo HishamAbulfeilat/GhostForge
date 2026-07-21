@@ -137,6 +137,31 @@ function pickPersona(pool: keyof typeof PERSONA_POOLS): string {
   return arr[Math.floor(Math.random() * arr.length)]
 }
 
+function generateContextualFallback(message: string, lang?: string): string {
+  const m = message.toLowerCase().trim()
+  const isAr = lang === 'ar'
+
+  if (/^(hello|hi|hey|مرحبا|السلام)/.test(m)) {
+    return isAr
+      ? 'مرحباً. أنا G.F.A.I.، مساعدك الذكي. كيف يمكنني مساعدتك؟'
+      : "G.F.A.I. online. All systems operational — how can I assist you today, sir?"
+  }
+  if (/who are you|what are you|من أنت/.test(m)) {
+    return isAr
+      ? 'أنا G.F.A.I.، ذكاء اصطناعي من GhostForge — مساعدك الشخصي للتطوير والتحكم بالنظام.'
+      : "I'm G.F.A.I. — GhostForge Artificial Intelligence. Think JARVIS, built for developers. At your service, sir."
+  }
+  if (/who is (better|best)|compare|vs\b|statistics|proof/.test(m)) {
+    return "Let me pull that analysis for you, sir. Stand by."
+  }
+  if (/^(ok|okay|sure|alright|got it|thanks|thank you|شكرا)/.test(m)) {
+    return isAr ? 'بالتأكيد. هل تحتاج إلى شيء آخر؟' : "Understood. Anything else you need, sir?"
+  }
+  return isAr
+    ? 'جارٍ المعالجة. لحظة من فضلك.'
+    : "Processing your request, sir. One moment."
+}
+
 // ── Language detection (server-side) ─────────────────────────────────────────
 
 function detectMsgLanguage(text: string): string {
@@ -208,7 +233,9 @@ TOOLS: ${toolList}
 OUTPUT: valid JSON only, starting with '{':
 {"speech":"1-2 spoken sentences","tool":null,"toolParams":{},"emotion":"neutral","confidence":95}
 - "tool": null if no tool needed, else exact tool name
-- speech: natural, brief, JARVIS-style. Contractions ok. Address as "sir" unless named.
+- speech: MANDATORY non-empty. For greetings/questions answer directly. Never just "At once." or "Certainly." as the only speech — use those only when ALSO calling a tool.
+- Greetings → introduce yourself briefly. Questions about yourself → answer in 1-2 sentences.
+- Natural, brief, JARVIS-style. Contractions ok. Address as "sir" unless named.
 - NEVER output thoughts/reasoning — JSON only`
 
   _promptCache.set(cacheKey, { prompt, ts: Date.now() })
@@ -1635,25 +1662,33 @@ export async function POST(req: NextRequest) {
         try {
           const parsed = JSON.parse(jsonMatch[0])
           aiResp = { ...aiResp, ...parsed }
-          if (!aiResp.speech || !aiResp.speech.trim()) {
-            aiResp.speech = pickPersona('acknowledge')
-          }
-          if (
-            aiResp.speech.includes('We need to respond') ||
-            aiResp.speech.includes('According to tools') ||
-            aiResp.speech.includes('The user wants to') ||
-            aiResp.speech.includes('I should') ||
-            aiResp.speech.includes('Let me think') ||
-            aiResp.speech.startsWith('<think')
-          ) {
-            aiResp.speech = pickPersona('acknowledge')
+
+          // Check for empty or persona-only speech (acknowledge phrases used without tool)
+          const isAcknowledgeOnly = PERSONA_POOLS.acknowledge.includes((aiResp.speech || '').trim())
+          const isInternalReasoning =
+            aiResp.speech?.includes('We need to respond') ||
+            aiResp.speech?.includes('According to tools') ||
+            aiResp.speech?.includes('The user wants to') ||
+            aiResp.speech?.includes('I should') ||
+            aiResp.speech?.includes('Let me think') ||
+            aiResp.speech?.startsWith('<think')
+
+          if (!aiResp.speech?.trim() || (isAcknowledgeOnly && !aiResp.tool) || isInternalReasoning) {
+            // Try text outside the JSON first
+            const outsideJson = cleaned.replace(/\{[\s\S]*\}/, '').trim()
+            if (outsideJson && outsideJson.length > 10) {
+              aiResp.speech = outsideJson.slice(0, 300)
+            } else {
+              // Generate contextual fallback based on message type
+              aiResp.speech = generateContextualFallback(message, detectedLang)
+            }
           }
         } catch {
           const fallback = cleaned.replace(/\{[\s\S]*\}/, '').trim()
-          aiResp.speech = fallback || cleaned.slice(0, 300) || pickPersona('acknowledge')
+          aiResp.speech = fallback || cleaned.slice(0, 300) || generateContextualFallback(message, detectedLang)
         }
       } else {
-        aiResp.speech = cleaned.slice(0, 300) || pickPersona('acknowledge')
+        aiResp.speech = cleaned.slice(0, 300) || generateContextualFallback(message, detectedLang)
       }
     } catch (e) {
       const msg = String(e)

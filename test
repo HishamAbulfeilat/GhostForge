@@ -1,0 +1,154 @@
+A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <HotReload assetPrefix="" globalError={[...]}>
+      <AppDevOverlayErrorBoundary globalError={[...]}>
+        <ReplaySsrOnlyErrors>
+        <DevRootHTTPAccessFallbackBoundary>
+          <HTTPAccessFallbackBoundary notFound={<NotAllowedRootHTTPFallbackError>}>
+            <HTTPAccessFallbackErrorBoundary pathname="/jarvis" notFound={<NotAllowedRootHTTPFallbackError>} ...>
+              <RedirectBoundary>
+                <RedirectErrorBoundary router={{...}}>
+                  <Head headCacheNode={{lazyData:null, ...}}>
+                    <__next_viewport_boundary__>
+                    <MetadataTree>
+                      <__next_metadata_boundary__>
+                        <__next_metadata_boundary__>
+                          <div
+                            hidden={true}
+-                           bis_skin_checked="1"
+                          >
+                  <__next_root_layout_boundary__>
+                    <SegmentViewNode type="layout" pagePath="layout.tsx">
+                      <SegmentTrieNode>
+                      <link>
+                      <RootLayout>
+                        <html lang="en" dir="auto" className="dark">
+                          <head>
+                          <body
+                            className="min-h-screen bg-gray-950 text-gray-100 antialiased"
+-                           __processed_9816ba7c-9f3b-4b6e-8a94-9996c150cd37__="true"
+-                           bis_register="W3sibWFzdGVyIjp0cnVlLCJleHRlbnNpb25JZCI6Im5pbWxtZWpibW5lY25hZ2hnbWJhaG1iYWRk..."
+                          >
+                            <Providers>
+                              <NotificationProvider>
+                                ...
+                                  <SegmentViewNode type="page" pagePath="jarvis/pag...">
+                                    <SegmentTrieNode>
+                                    <ClientPageRoot Component={function JarvisPage} searchParams={{}} params={{}}>
+                                      <JarvisPage params={Promise} searchParams={Promise}>
+                                        <style>
+                                        <div
+                                          className="relative flex h-[100dvh] flex-col overflow-hidden bg-[#000208] te..."
+-                                         bis_skin_checked="1"
+                                        >
+                                          <div
+                                            className="pointer-events-none absolute inset-0 z-0 gfai-scan"
+                                            style={{background:"linear-gra...",backgroundSize:"100% 4px"}}
+-                                           bis_skin_checked="1"
+                                          >
+                                          <div
+                                            className="relative z-10 flex shrink-0 items-center justify-between border..."
+                                            style={{borderColor:"#1a6fff33",background:"rgba(0,5,2..."}}
+-                                           bis_skin_checked="1"
+                                          >
+                                            <div
+                                              className="flex items-center gap-3"
+-                                             bis_skin_checked="1"
+                                            >
+                                              <LinkComponent>
+                                              <span>
+                                              <div
+                                                className="flex items-center gap-1.5"
+-                                               bis_skin_checked="1"
+                                              >
+                                            <div
+                                              className="flex items-center gap-3"
+-                                             bis_skin_checked="1"
+                                            >
+                                              <span>
+                                              <button>
+                                              <button>
+                                              <button>
+                                              <Clock>
+                                                <div
+                                
+error @ intercept-console-error.js:62
+(anonymous) @ react-dom-client.development.js:4706
+runWithFiberInDEV @ react-dom-client.development.js:871
+emitPendingHydrationWarnings @ react-dom-client.development.js:4705
+completeWork @ react-dom-client.development.js:11540
+runWithFiberInDEV @ react-dom-client.development.js:874
+completeUnitOfWork @ react-dom-client.development.js:15862
+performUnitOfWork @ react-dom-client.development.js:15743
+workLoopConcurrentByScheduler @ react-dom-client.development.js:15720
+renderRootConcurrent @ react-dom-client.development.js:15695
+performWorkOnRoot @ react-dom-client.development.js:14989
+performWorkOnRootViaSchedulerTask @ react-dom-client.development.js:16815
+performWorkUntilDeadline @ scheduler.development.js:45
+<div>
+initializeElement @ react-server-dom-webpack-client.browser.development.js:1377
+(anonymous) @ react-server-dom-webpack-client.browser.development.js:3126
+initializeModelChunk @ react-server-dom-webpack-client.browser.development.js:1273
+getOutlinedModel @ react-server-dom-webpack-client.browser.development.js:1682
+parseModelString @ react-server-dom-webpack-client.browser.development.js:2043
+(anonymous) @ react-server-dom-webpack-client.browser.development.js:3056
+initializeModelChunk @ react-server-dom-webpack-client.browser.development.js:1273
+getOutlinedModel @ react-server-dom-webpack-client.browser.development.js:1682
+parseModelString @ react-server-dom-webpack-client.browser.development.js:2043
+(anonymous) @ react-server-dom-webpack-client.browser.development.js:3056
+initializeModelChunk @ react-server-dom-webpack-client.browser.development.js:1273
+resolveModelChunk @ react-server-dom-webpack-client.browser.development.js:1127
+processFullStringRow @ react-server-dom-webpack-client.browser.development.js:2958
+processFullBinaryRow @ react-server-dom-webpack-client.browser.development.js:2825
+processBinaryChunk @ react-server-dom-webpack-client.browser.development.js:3028
+progress @ react-server-dom-webpack-client.browser.development.js:3294
+<__next_metadata_boundary__>
+initializeFakeTask @ react-server-dom-webpack-client.browser.development.js:2590
+initializeDebugInfo @ react-server-dom-webpack-client.browser.development.js:2613
+initializeDebugChunk @ react-server-dom-webpack-client.browser.development.js:1220
+processFullStringRow @ react-server-dom-webpack-client.browser.development.js:2909
+processFullBinaryRow @ react-server-dom-webpack-client.browser.development.js:2825
+processBinaryChunk @ react-server-dom-webpack-client.browser.development.js:3028
+progress @ react-server-dom-webpack-client.browser.development.js:3294
+<MetadataTree>
+initializeFakeTask @ react-server-dom-webpack-client.browser.development.js:2588
+initializeDebugInfo @ react-server-dom-webpack-client.browser.development.js:2613
+initializeDebugChunk @ react-server-dom-webpack-client.browser.development.js:1220
+processFullStringRow @ react-server-dom-webpack-client.browser.development.js:2909
+processFullBinaryRow @ react-server-dom-webpack-client.browser.development.js:2825
+processBinaryChunk @ react-server-dom-webpack-client.browser.development.js:3028
+progress @ react-server-dom-webpack-client.browser.development.js:3294
+"use server"
+ResponseInstance @ react-server-dom-webpack-client.browser.development.js:2091
+createResponseFromOptions @ react-server-dom-webpack-client.browser.development.js:3155
+(anonymous) @ react-server-dom-webpack-client.browser.development.js:3540
+(anonymous) @ app-index.tsx:156
+(app-pages-browser)/./node_modules/next/dist/client/app-index.js @ main-app.js?v=1784665545748:160
+(anonymous) @ webpack.js:1
+__webpack_require__ @ webpack.js:1
+(anonymous) @ webpack.js:1
+(anonymous) @ app-next-dev.ts:14
+(anonymous) @ app-bootstrap.ts:76
+loadScriptsInSequence @ app-bootstrap.ts:22
+appBootstrap @ app-bootstrap.ts:58
+(anonymous) @ app-next-dev.ts:13
+(app-pages-browser)/./node_modules/next/dist/client/app-next-dev.js @ main-app.js?v=1784665545748:182
+(anonymous) @ webpack.js:1
+__webpack_require__ @ webpack.js:1
+__webpack_exec__ @ main-app.js?v=1784665545748:1889
+(anonymous) @ main-app.js?v=1784665545748:1890
+(anonymous) @ webpack.js:1
+(anonymous) @ main-app.js?v=1784665545748:9
+jarvis:1 Unchecked runtime.lastError: The message port closed before a response was received.
+favicon.ico:1  GET http://192.168.1.100:3001/favicon.ico 404 (Not Found)

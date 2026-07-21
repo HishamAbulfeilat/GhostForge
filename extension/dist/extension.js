@@ -797,7 +797,9 @@ function findToolkitRoot() {
   const path4 = require("path");
   const fs4 = require("fs");
   const candidates = [
+    path4.join(os.homedir(), "GhostForge"),
     path4.join(os.homedir(), "ghostforge"),
+    path4.join(os.homedir(), "Documents", "GhostForge"),
     path4.join(os.homedir(), "Documents", "ghostforge")
   ];
   for (const candidate of candidates) {
