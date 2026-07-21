@@ -726,13 +726,14 @@ export default function DashboardPage() {
           {[
             { href: '/jarvis',       icon: '🤖', label: 'G.F.A.I.',   desc: 'JARVIS mode',     color: 'hover:border-blue-500/60 hover:bg-blue-950/20' },
             { href: '/chat',         icon: '💬', label: 'Chat',      desc: 'AI assistant',    color: 'hover:border-violet-600/60 hover:bg-violet-950/20' },
-            { href: '/terminal',     icon: '🖥️', label: 'Terminal',  desc: 'Remote shell',    color: 'hover:border-emerald-600/60 hover:bg-emerald-950/20' },
+            { href: '/models',       icon: '🧠', label: 'Models',    desc: 'Local AI models', color: 'hover:border-purple-500/60 hover:bg-purple-950/20' },
+            { href: '/remote',       icon: '🖥️', label: 'Remote',    desc: 'Control Mac',     color: 'hover:border-teal-600/60 hover:bg-teal-950/20' },
+            { href: '/terminal',     icon: '⬛', label: 'Terminal',  desc: 'Remote shell',    color: 'hover:border-emerald-600/60 hover:bg-emerald-950/20' },
             { href: '/files',        icon: '🗂️', label: 'Files',     desc: 'Browse & edit',   color: 'hover:border-sky-600/60 hover:bg-sky-950/20' },
             { href: '/mac-control',  icon: '🍎', label: 'Mac Control', desc: 'Automate Mac',  color: 'hover:border-pink-600/60 hover:bg-pink-950/20' },
             { href: '/features',     icon: '⚡', label: 'Features',  desc: 'Run commands',    color: 'hover:border-amber-600/60 hover:bg-amber-950/20' },
             { href: '/marketplace',  icon: '🏪', label: 'Market',    desc: 'Plugins',         color: 'hover:border-rose-600/60 hover:bg-rose-950/20' },
             { href: '/settings',     icon: '⚙️', label: 'Settings',  desc: 'AI models',       color: 'hover:border-gray-500/60 hover:bg-gray-800/40' },
-            { href: '/chat',         icon: '🐙', label: 'Copilot',   desc: 'Suggest mode',    color: 'hover:border-sky-600/60 hover:bg-sky-950/20' },
           ].map(item => (
             <Link
               key={item.href + item.label}

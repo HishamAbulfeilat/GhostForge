@@ -32,7 +32,9 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   lock:        '- lock_screen',
   screenshot:  '- take_screenshot { filename? } | - describe_screen',
   math:        '- execute_code { language: "python", code }',
-  general:     '- get_time | - get_weather { city } | - web_search { query } | - open_app { app } | - open_url { url } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site }',
+  models:      '- llmfit_recommend { task? } | - list_local_models | - install_model { model, runner? } | - open_url { url }',
+  remote:      '- take_screenshot { filename? } | - describe_screen | - terminal_command { command } | - open_url { url }',
+  general:     '- get_time | - get_weather { city } | - web_search { query } | - open_app { app } | - open_url { url } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site }',
   design:      '- apply_design_md { site } | - list_design_md | - design_resources { category? }',
   security:    '- vigolium_scan { target, strategy? } | - vigolium_agent { target, mode? } | - terminal_command { command }',
 }
@@ -46,7 +48,7 @@ const PROMPT_CACHE_TTL = 60_000 // 1 minute
 type Domain =
   | 'weather' | 'time' | 'system' | 'music' | 'messaging' | 'search'
   | 'code' | 'math' | 'files' | 'reminder' | 'mac_control' | 'vision'
-  | 'github' | 'copilot' | 'lock' | 'screenshot' | 'general'
+  | 'github' | 'copilot' | 'lock' | 'screenshot' | 'models' | 'remote' | 'general'
 
 const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   weather:     ['weather','temperature','forecast','rain','sunny','cold','hot','humidity','wind','storm','degrees'],
@@ -65,6 +67,8 @@ const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   copilot:     ['copilot','gh copilot','suggest command','github copilot','ask copilot'],
   lock:        ['lock screen','lock the screen','lock computer','lock mac'],
   screenshot:  ['screenshot','capture screen','take screenshot'],
+  models:      ['model','install model','ollama','llamafile','lm studio','jan.ai','qwen','llama','mistral','phi','gemma','local model','best model','recommend model','llmfit','download model','list models','which model','switch model'],
+  remote:      ['remote','control remotely','screen share remote','vnc','websockify','connect from','access mac from','remote desktop','control my mac from'],
   general:     [],
 }
 
@@ -1020,9 +1024,65 @@ end tell`
         return `Hardware: ${cpu} · ${ramGB}GB RAM · Available for AI: ~${available}GB
 Best model for your system: ${bestPick} (${reason})
 Currently installed: ${ollama.join(', ') || 'none'}
-Recommended: ${bestPick}${isInstalled ? ' ✓ installed' : ' — not yet installed'}${installCmd}`
+Recommended: ${bestPick}${isInstalled ? ' ✓ installed' : ' — not yet installed'}${installCmd}
+→ Open /models page to browse and install models`
       } catch (e) {
         return `Could not analyze hardware: ${(e as Error).message?.slice(0, 100)}`
+      }
+    }
+
+    case 'list_local_models': {
+      try {
+        const results = await Promise.allSettled([
+          execAsync('ollama list 2>/dev/null'),
+          fetch('http://localhost:1234/v1/models', { signal: AbortSignal.timeout(1000) }).then(r => r.json()).catch(() => null),
+          fetch('http://localhost:1337/v1/models', { signal: AbortSignal.timeout(1000) }).then(r => r.json()).catch(() => null),
+          fetch('http://localhost:8080/v1/models', { signal: AbortSignal.timeout(1000) }).then(r => r.json()).catch(() => null),
+        ])
+
+        const lines: string[] = []
+
+        if (results[0].status === 'fulfilled') {
+          const ollamaModels = results[0].value.stdout.split('\n').slice(1).map((l: string) => l.split(/\s+/)[0]).filter(Boolean)
+          if (ollamaModels.length) lines.push(`Ollama (${ollamaModels.length}): ${ollamaModels.join(', ')}`)
+          else lines.push('Ollama: no models installed (try: ollama pull qwen3:14b)')
+        } else {
+          lines.push('Ollama: not running')
+        }
+
+        const lmData = results[1].status === 'fulfilled' ? results[1].value : null
+        if (lmData?.data?.length) lines.push(`LM Studio (${lmData.data.length}): ${lmData.data.map((m: {id: string}) => m.id).join(', ')}`)
+        else lines.push('LM Studio: not running')
+
+        const janData = results[2].status === 'fulfilled' ? results[2].value : null
+        if (janData?.data?.length) lines.push(`Jan.ai (${janData.data.length}): ${janData.data.map((m: {id: string}) => m.id).join(', ')}`)
+        else lines.push('Jan.ai: not running')
+
+        const lfData = results[3].status === 'fulfilled' ? results[3].value : null
+        if (lfData?.data?.length) lines.push(`llamafile (${lfData.data.length}): running on :8080`)
+        else lines.push('llamafile: not running')
+
+        return lines.join('\n') + '\n→ Open /models to install more'
+      } catch (e) {
+        return `Error listing models: ${(e as Error).message?.slice(0, 100)}`
+      }
+    }
+
+    case 'install_model': {
+      const model = params.model || params.modelName || ''
+      const runner = params.runner || 'ollama'
+      if (!model) return 'Please specify a model name. Example: install qwen3:14b'
+      try {
+        if (runner === 'ollama') {
+          execAsync(`ollama pull ${model}`, {
+            env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:${process.env.PATH || ''}` },
+            timeout: 300_000,
+          }).catch(() => {})
+          return `Installing ${model} via Ollama in the background. This may take a few minutes. Check /models page for progress.`
+        }
+        return `To install via ${runner}, open the /models page and click Install.`
+      } catch (e) {
+        return `Install error: ${(e as Error).message?.slice(0, 100)}`
       }
     }
 
@@ -1398,6 +1458,10 @@ function formatToolSpeech(tool: string, result: string): string {
       return r.slice(0, 250)
     case 'llmfit_recommend':
       return r.split('\n')[0]?.slice(0, 200) || `${done} Recommendation ready.`
+    case 'list_local_models':
+      return r.split('\n')[0]?.slice(0, 200) || `${done} Models listed.`
+    case 'install_model':
+      return r.slice(0, 200) || `${done} Installing model…`
     case 'set_goal':
     case 'list_goals':
       return r.slice(0, 200)
