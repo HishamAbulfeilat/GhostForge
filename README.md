@@ -1,11 +1,75 @@
-# 👻 GhostForge — v4.5.0
+# 👻 GhostForge — v4.6.0
 
 > *Operator-grade dev tools, forged in the shadows.*
 > Developed by **Hisham Abulfeilat**
 
 The ultimate AI developer toolkit supercharging GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, green coding, and more.
 
-**240+ files · 14 agents · 70+ commands · 67 scripts · 24 instruction files · MCP server · React Doctor · Marketplace (63 sources) · Web UI (6 pages) · Mac Bridge · ttyd Terminal · Gemini 2.5 Pro · Live Model Switcher · Agent Skills · Developer Dashboard · Snippet Library · VS Code Extension + `@ghostforge` Chat · Terminal UI (`ghostforge` / `gf`) · Carbon Monitor v2 · Career Tools · Security Scanner · Git Autopilot · Lighthouse CI · i18n/RTL · Storybook · Figma Tokens**
+**G.F.A.I. (GhostForge Artificial Intelligence)** — JARVIS-style AI assistant with voice control, Mac automation, multi-model support (Gemini · Grok · OpenRouter · Ollama), Fish Audio JARVIS voice, wake word detection, full computer-use, remote screen sharing, audit logs, and biometric security.
+
+**250+ files · 14 agents · 70+ commands · 67 scripts · Web UI (33 pages) · G.F.A.I. JARVIS AI · Grok/Gemini/Ollama/OpenRouter · Voice Biometrics (Resemblyzer) · Audit Logs · Mac Remote Control · Screen Share (WebRTC + noVNC) · VS Code Extension + `@ghostforge` Chat · TUI Full Chat · Computer-Use Tools · Wake Word "Hey JARVIS" · Health Score 100%**
+
+---
+
+## 🤖 G.F.A.I. — GhostForge Artificial Intelligence (JARVIS Mode)
+
+G.F.A.I. is your personal AI assistant — inspired by JARVIS from Iron Man. It runs on your Mac, controls it, speaks with your voice, and learns your identity.
+
+### Features
+| Feature | Status | Details |
+|---------|--------|---------|
+| **Voice (Fish Audio)** | ✅ Active | Movie-accurate JARVIS voice clone |
+| **Wake Word** | ✅ Fixed | "Hey JARVIS", "Jarvis", "Hey GhostForge" |
+| **Mac Control** | ✅ 20+ tools | Click, type, scroll, apps, messages, lock |
+| **Model Switch** | ✅ Live | Gemini → Grok → OpenRouter → Ollama → auto |
+| **Grok (xAI)** | ✅ Ready | Add `XAI_API_KEY` to enable |
+| **Ollama Local** | ✅ Running | llama3.2:3b — 100% private, no API key |
+| **Computer Use** | ✅ Multi-step | execute_code, task_steps, describe_screen |
+| **Audit Log** | ✅ Active | All tool calls logged to `~/.ghostforge/audit.log` |
+| **Risk Check** | ✅ Active | Dangerous commands blocked until confirmed |
+| **Voice Biometrics** | ✅ Ready | Resemblyzer — enroll voice to lock out imposters |
+| **Screen Share** | ✅ New | WebRTC + noVNC at `/remote` |
+| **Copilot CLI** | ✅ Active | Toggle `🤖 COPILOT` to chat with gh copilot |
+| **Health Score** | ✅ **100%** | 32 pass, 0 fail, 2 optional warns |
+
+### Quick Access
+```
+http://localhost:3001/jarvis        — JARVIS Web UI (voice + tools + memory)
+http://localhost:3001/remote        — Remote control + screen share
+http://localhost:3001/dashboard     — Developer dashboard
+```
+
+### Wake Words (all work)
+- "Hey JARVIS" / "JARVIS"
+- "Hey GhostForge" / "GhostForge"
+- "GFAI" / "G.F.A.I."
+
+### Available AI Models
+```
+Auto chain: Gemini 2.0 Flash → Gemma 4 26B (free) → Nemotron 120B (free) → Ollama llama3.2:3b
+Optional:   Grok 3 Mini (add XAI_API_KEY) · DeepSeek R1 · Qwen 2.5 Coder
+```
+
+### API Keys (add to `web-ui/.env.local`)
+```bash
+GOOGLE_GENERATIVE_AI_API_KEY=...   # Gemini — free tier
+OPENROUTER_API_KEY=...             # Free models — Gemma, Nemotron, DeepSeek
+XAI_API_KEY=...                    # Grok (xAI) — optional
+FISH_AUDIO_API_KEY=...             # JARVIS voice — free tier
+ELEVENLABS_API_KEY=...             # ElevenLabs TTS — optional
+```
+
+### VS Code Chat Commands (`@ghostforge`)
+```
+@ghostforge /jarvis what time is it?    — Ask G.F.A.I. directly
+@ghostforge /model grok                 — Switch to Grok
+@ghostforge /model ollama               — Switch to local Ollama
+@ghostforge /model auto                 — Reset to fallback chain
+@ghostforge /models                     — List all available models
+@ghostforge /maccontrol lock            — Lock screen via AppleScript
+@ghostforge /review                     — Code review current file
+@ghostforge /health                     — Project health check
+```
 
 ---
 
