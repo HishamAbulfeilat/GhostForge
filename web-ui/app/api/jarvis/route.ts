@@ -453,16 +453,19 @@ export async function POST(req: NextRequest) {
   type GenOpts = Omit<Parameters<typeof generateText>[0], 'model'>
   async function aiGenerate(opts: GenOpts): Promise<string> {
     const { model, fallbackModel } = await selectAIModel(modelOpts)
-    const isQuotaErr = (e: unknown) => {
-      const msg = String(e)
-      return msg.includes('quota') || msg.includes('exceeded') || msg.includes('429') || msg.includes('rate')
+    const shouldFallback = (e: unknown) => {
+      const msg = String(e).toLowerCase()
+      return msg.includes('quota') || msg.includes('exceeded') || msg.includes('429')
+          || msg.includes('rate') || msg.includes('no longer available')
+          || msg.includes('not found') || msg.includes('deprecated')
+          || msg.includes('unavailable') || msg.includes('model_not_found')
     }
     try {
       const { text } = await generateText({ ...opts, model })
       return text
     } catch (e) {
-      if (fallbackModel && isQuotaErr(e)) {
-        console.warn('[G.F.A.I.] Primary model quota hit — falling back')
+      if (fallbackModel && shouldFallback(e)) {
+        console.warn('[G.F.A.I.] Primary model unavailable — falling back:', String(e).slice(0, 80))
         const { text } = await generateText({ ...opts, model: fallbackModel })
         return text
       }

@@ -86,18 +86,20 @@ export async function generateGhostforgeReply(
   modelOverride?: ModelOverride
 ) {
   const { model, fallbackModel } = await selectAIModel(modelOverride)
+  const shouldFallback = (msg: string) =>
+    msg.includes('quota') || msg.includes('exceeded') || msg.includes('429') ||
+    msg.includes('rate') || msg.includes('no longer available') ||
+    msg.includes('not found') || msg.includes('deprecated') || msg.includes('unavailable')
   try {
     const response = await generateText({ model, system: GHOSTFORGE_SYSTEM, messages })
     return response.text
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    if ((msg.includes('quota') || msg.includes('exceeded') || msg.includes('429')) && fallbackModel) {
-      console.warn('Primary model quota exceeded, falling back')
+    if (shouldFallback(msg) && fallbackModel) {
+      console.warn('[GhostForge AI] Primary model unavailable, falling back:', msg.slice(0, 80))
       const response = await generateText({ model: fallbackModel, system: GHOSTFORGE_SYSTEM, messages })
       return response.text
     }
-    throw new Error(msg.includes('no longer available') || msg.includes('not found')
-      ? '⚠️ Gemini model unavailable. Set GEMINI_MODEL=gemini-2.5-flash in .env.local'
-      : `AI error: ${msg}`)
+    throw new Error(`AI error: ${msg}`)
   }
 }
