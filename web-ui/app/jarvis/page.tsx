@@ -903,18 +903,18 @@ export default function JarvisPage() {
 
   // ── Voice recognition ─────────────────────────────────────────────────────
 
-  // Request mic permission explicitly — required before SpeechRecognition on many browsers
+  // Request mic permission explicitly — called ONCE, result cached in micPermGranted ref
   const requestMicPermission = useCallback(async (): Promise<boolean> => {
     if (micPermGranted.current) return true
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      stream.getTracks().forEach(t => t.stop())  // release immediately
+      stream.getTracks().forEach(t => t.stop())
       micPermGranted.current = true
       return true
     } catch (e) {
-      const msg = (e as Error).name || ''
-      if (msg === 'NotAllowedError' || msg === 'PermissionDeniedError') {
-        toast('error', '🎤 Microphone access denied. Click the 🔒 icon in your browser address bar and allow microphone.')
+      const name = (e as Error).name || ''
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        toast('error', '🎤 Mic denied. Click the 🔒 icon in the address bar and allow microphone.')
       } else {
         toast('error', `Mic error: ${(e as Error).message}`)
       }
@@ -927,9 +927,11 @@ export default function JarvisPage() {
     if (!SR) { toast('error', 'Speech recognition not supported. Use Chrome or Edge.'); return }
     window.speechSynthesis?.cancel()
 
-    // Step 1: request explicit mic permission so browser doesn't silently deny SpeechRecognition
-    const granted = await requestMicPermission()
-    if (!granted) return
+    // Only request permission once — subsequent restarts skip this
+    if (!micPermGranted.current) {
+      const granted = await requestMicPermission()
+      if (!granted) return
+    }
 
     // Abort wake listener and any existing session
     if (wakeRecognitionRef.current) {
@@ -943,11 +945,16 @@ export default function JarvisPage() {
 
     setMode('listening')
 
-    // Delay to let browser fully release mic before re-acquiring
-    setTimeout(() => {
-      const rec = new SR()
+    // ── Inner restart function — no permission check, no abort dance ──────
+    // Called from onend/onerror to keep listening alive without full setup overhead
+    const createAndStart = () => {
+      if (modeRef.current !== 'listening') return  // user stopped — don't restart
+      const SRInner = getSR()
+      if (!SRInner) return
+
+      const rec = new SRInner()
       rec.lang = speechLang
-      rec.continuous = true       // stay listening — don't stop after first utterance
+      rec.continuous = true
       rec.interimResults = true
       rec.maxAlternatives = 1
       recognitionRef.current = rec
@@ -955,68 +962,65 @@ export default function JarvisPage() {
       let pendingTranscript = ''
       let silenceTimer: ReturnType<typeof setTimeout> | null = null
 
-      const sendIfReady = () => {
-        const t = pendingTranscript.trim()
-        if (t) {
-          pendingTranscript = ''
-          setInput('')
-          void sendToJarvis(t)
-        }
-      }
-
       rec.onresult = (e: Any) => {
         if (silenceTimer) clearTimeout(silenceTimer)
-        let interim = ''
         pendingTranscript = ''
         for (let i = 0; i < e.results.length; i++) {
           if (e.results[i].isFinal) pendingTranscript += e.results[i][0].transcript + ' '
-          else interim += e.results[i][0].transcript
         }
-        // Auto-send after 1.5s silence if there's a final transcript
         if (pendingTranscript.trim()) {
-          silenceTimer = setTimeout(sendIfReady, 1500)
+          silenceTimer = setTimeout(() => {
+            const t = pendingTranscript.trim()
+            pendingTranscript = ''
+            if (t) { setInput(''); void sendToJarvis(t) }
+          }, 1500)
         }
-        void interim  // suppress unused var warning
       }
+
       rec.onerror = (ev: Any) => {
         if (silenceTimer) clearTimeout(silenceTimer)
+        recognitionRef.current = null
         if (ev?.error === 'not-allowed') {
           micPermGranted.current = false
-          toast('error', '🎤 Microphone blocked. Allow mic in browser address bar settings.')
+          toast('error', '🎤 Mic blocked. Allow in browser address bar → then click 🎤 again.')
           setMode('idle')
+        } else if (ev?.error === 'aborted') {
+          // intentional — do nothing, onend will fire and handle it
         } else if (ev?.error === 'no-speech') {
-          // normal — just restart if still in listening mode
-          if (modeRef.current === 'listening') {
-            setTimeout(() => {
-              if (modeRef.current === 'listening') startListening()
-            }, 300)
-          }
-        } else if (ev?.error !== 'aborted') {
-          setMode('idle')
+          // silence timeout — immediately restart, stay in listening mode
+          setTimeout(createAndStart, 50)
+        } else {
+          // network/service error — brief pause then restart
+          if (modeRef.current === 'listening') setTimeout(createAndStart, 600)
+          else setMode('idle')
         }
       }
+
       rec.onend = () => {
         if (silenceTimer) clearTimeout(silenceTimer)
-        // If mode is still listening and wasn't manually stopped, restart
+        recognitionRef.current = null
         if (modeRef.current === 'listening') {
-          setTimeout(() => {
-            if (modeRef.current === 'listening') startListening()
-          }, 300)
-        }
-        // Restart wake listener after active listening ends
-        if (wakeWordActiveRef.current && !wakeRecognitionRef.current && modeRef.current !== 'listening') {
-          setTimeout(() => { if (wakeWordActiveRef.current) startWakeListener() }, 600)
+          // recognition ended while we still want to listen — restart immediately
+          setTimeout(createAndStart, 100)
+        } else {
+          // user stopped or JARVIS took over — restart wake word if active
+          if (wakeWordActiveRef.current && !wakeRecognitionRef.current) {
+            setTimeout(() => { if (wakeWordActiveRef.current) startWakeListener() }, 600)
+          }
         }
       }
+
       try {
         rec.start()
       } catch {
-        setMode('idle')
-        setTimeout(() => {
-          try { if (recognitionRef.current) recognitionRef.current.start() } catch { setMode('idle') }
-        }, 400)
+        // start() failed (e.g. mic briefly busy) — retry after short delay
+        recognitionRef.current = null
+        setTimeout(() => { if (modeRef.current === 'listening') createAndStart() }, 400)
       }
-    }, 200)
+    }
+
+    // Small initial delay to let browser fully release mic from any prior session
+    setTimeout(createAndStart, 150)
   }, [sendToJarvis, speechLang, toast, requestMicPermission])
 
   // ── Wake word ─────────────────────────────────────────────────────────────
