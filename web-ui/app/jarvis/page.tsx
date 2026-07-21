@@ -277,13 +277,17 @@ function AuditPanel({ onClose }: { onClose: () => void }) {
 function VoiceEnrollPanel({ mc }: { mc: { ring: string } }) {
   const [status, setStatus]   = useState<'idle' | 'recording' | 'uploading' | 'done' | 'error'>('idle')
   const [message, setMessage] = useState('')
+  const [challengeQ, setChallengeQ]   = useState('')
+  const [challengeAns, setChallengeAns] = useState('')
+  const [showChallenge, setShowChallenge] = useState(false)
   const mediaRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
 
   const startEnroll = async () => {
     try {
+      // Explicitly request mic permission first
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const rec = new MediaRecorder(stream)
+      const rec = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm' })
       mediaRef.current = rec
       chunksRef.current = []
       rec.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
@@ -291,30 +295,62 @@ function VoiceEnrollPanel({ mc }: { mc: { ring: string } }) {
         setStatus('uploading')
         stream.getTracks().forEach(t => t.stop())
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        const fd = new FormData()
-        fd.append('audio', blob, 'voice-sample.webm')
-        fd.append('action', 'enroll-voice')
+        // Convert blob to base64 — API expects JSON body
+        const arrayBuffer = await blob.arrayBuffer()
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
         try {
-          const res = await fetch('/api/jarvis/biometrics', { method: 'POST', body: fd })
-          const data = await res.json()
-          setStatus(data.success ? 'done' : 'error')
-          setMessage(data.success ? '✓ Voice profile saved — JARVIS will recognize you' : data.error || 'Enrollment failed')
+          const res = await fetch('/api/jarvis/biometrics', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'enroll-voice', audio: base64 }),
+          })
+          const data = await res.json() as { success?: boolean; error?: string; message?: string }
+          if (data.success) {
+            setStatus('done')
+            setMessage(data.message || '✓ Voice profile saved — JARVIS will recognize you')
+          } else {
+            setStatus('error')
+            setMessage(data.error || 'Enrollment failed — try again')
+          }
         } catch {
           setStatus('error')
-          setMessage('Upload failed — try again')
+          setMessage('Upload failed — check connection and try again')
         }
       }
-      rec.start()
+      rec.start(1000)  // collect data every 1s
       setStatus('recording')
-      setMessage('Recording... speak naturally for 10 seconds')
+      setMessage('Recording… speak naturally for 10 seconds. Say your name and a few sentences.')
       setTimeout(() => { if (mediaRef.current?.state === 'recording') mediaRef.current.stop() }, 10_000)
-    } catch {
+    } catch (e) {
       setStatus('error')
-      setMessage('Microphone access denied')
+      const msg = (e as Error).message || ''
+      setMessage(msg.includes('NotAllowed') || msg.includes('Permission') ? 'Microphone access denied — allow in browser settings' : `Recording error: ${msg}`)
     }
   }
 
   const stopEarly = () => { if (mediaRef.current?.state === 'recording') mediaRef.current.stop() }
+
+  const askChallenge = async () => {
+    const res = await fetch('/api/jarvis/biometrics', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'identity-challenge' }),
+    })
+    const data = await res.json() as { challengeQuestion?: string }
+    setChallengeQ(data.challengeQuestion || 'What is your full name?')
+    setShowChallenge(true)
+  }
+
+  const submitChallenge = async () => {
+    const res = await fetch('/api/jarvis/biometrics', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'identity-challenge', question: challengeQ, answer: challengeAns }),
+    })
+    const data = await res.json() as { verified: boolean; message: string }
+    setShowChallenge(false)
+    setChallengeAns('')
+    setMessage(data.message)
+    setStatus(data.verified ? 'done' : 'error')
+  }
 
   return (
     <div className="min-w-[220px]">
@@ -322,25 +358,58 @@ function VoiceEnrollPanel({ mc }: { mc: { ring: string } }) {
       <p className="text-[9px] text-blue-400/30 mb-2 leading-relaxed">
         Enroll your voice so JARVIS can verify your identity and lock out imposters.
       </p>
-      <div className="flex gap-1.5 items-center flex-wrap">
-        {status !== 'recording' ? (
-          <button type="button" onClick={() => void startEnroll()}
-            disabled={status === 'uploading'}
-            className="rounded px-2 py-1 border transition text-[10px] disabled:opacity-40"
-            style={{ borderColor: `${mc.ring}66`, color: mc.ring, background: `${mc.ring}12` }}>
-            🎙 {status === 'uploading' ? 'PROCESSING...' : status === 'done' ? 'RE-ENROLL VOICE' : 'ENROLL VOICE'}
+      {showChallenge ? (
+        <div className="space-y-1.5">
+          <p className="text-[9px]" style={{ color: mc.ring }}>{challengeQ}</p>
+          <input
+            type="text"
+            value={challengeAns}
+            onChange={e => setChallengeAns(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') void submitChallenge() }}
+            placeholder="Your answer…"
+            className="w-full rounded px-2 py-1 text-[10px] bg-black/40 border outline-none"
+            style={{ borderColor: `${mc.ring}44`, color: mc.ring }}
+            autoFocus
+          />
+          <div className="flex gap-1">
+            <button type="button" onClick={() => void submitChallenge()}
+              className="rounded px-2 py-1 border text-[10px]"
+              style={{ borderColor: `${mc.ring}66`, color: mc.ring, background: `${mc.ring}12` }}>
+              SUBMIT
+            </button>
+            <button type="button" onClick={() => setShowChallenge(false)}
+              className="rounded px-2 py-1 border text-[10px] border-white/20 text-white/40">
+              CANCEL
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-1.5 items-center flex-wrap">
+          {status !== 'recording' ? (
+            <button type="button" onClick={() => void startEnroll()}
+              disabled={status === 'uploading'}
+              className="rounded px-2 py-1 border transition text-[10px] disabled:opacity-40"
+              style={{ borderColor: `${mc.ring}66`, color: mc.ring, background: `${mc.ring}12` }}>
+              🎙 {status === 'uploading' ? 'PROCESSING…' : status === 'done' ? 'RE-ENROLL VOICE' : 'ENROLL VOICE'}
+            </button>
+          ) : (
+            <button type="button" onClick={stopEarly}
+              className="rounded px-2 py-1 border transition text-[10px] animate-pulse"
+              style={{ borderColor: '#ff4444', color: '#ff4444', background: 'rgba(255,68,68,0.1)' }}>
+              ⏹ STOP RECORDING
+            </button>
+          )}
+          {status === 'recording' && (
+            <span className="text-[9px] text-red-400/60 animate-pulse">● REC</span>
+          )}
+          <button type="button" onClick={() => void askChallenge()}
+            className="rounded px-2 py-1 border transition text-[10px]"
+            style={{ borderColor: `${mc.ring}44`, color: `${mc.ring}88`, background: 'transparent' }}
+            title="Verify identity via questions if voice recognition is uncertain">
+            🆔 ID CHECK
           </button>
-        ) : (
-          <button type="button" onClick={stopEarly}
-            className="rounded px-2 py-1 border transition text-[10px] animate-pulse"
-            style={{ borderColor: '#ff4444', color: '#ff4444', background: 'rgba(255,68,68,0.1)' }}>
-            ⏹ STOP RECORDING
-          </button>
-        )}
-        {status === 'recording' && (
-          <span className="text-[9px] text-red-400/60 animate-pulse">● REC</span>
-        )}
-      </div>
+        </div>
+      )}
       {message && (
         <p className="mt-1 text-[9px] leading-relaxed" style={{ color: status === 'done' ? '#00ff88' : status === 'error' ? '#ff6666' : `${mc.ring}99` }}>
           {message}
@@ -387,6 +456,7 @@ export default function JarvisPage() {
   const modeRef            = useRef<Mode>('idle')
   const ttsFailCountRef    = useRef(0)
   const wakeRestartingRef  = useRef(false)  // persists across re-renders (fixes stale closure)
+  const micPermGranted     = useRef(false)  // tracks whether mic permission has been granted
 
   useEffect(() => { wakeWordActiveRef.current = wakeWordActive }, [wakeWordActive])
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -833,17 +903,39 @@ export default function JarvisPage() {
 
   // ── Voice recognition ─────────────────────────────────────────────────────
 
-  const startListening = useCallback(() => {
+  // Request mic permission explicitly — required before SpeechRecognition on many browsers
+  const requestMicPermission = useCallback(async (): Promise<boolean> => {
+    if (micPermGranted.current) return true
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach(t => t.stop())  // release immediately
+      micPermGranted.current = true
+      return true
+    } catch (e) {
+      const msg = (e as Error).name || ''
+      if (msg === 'NotAllowedError' || msg === 'PermissionDeniedError') {
+        toast('error', '🎤 Microphone access denied. Click the 🔒 icon in your browser address bar and allow microphone.')
+      } else {
+        toast('error', `Mic error: ${(e as Error).message}`)
+      }
+      return false
+    }
+  }, [toast])
+
+  const startListening = useCallback(async () => {
     const SR = getSR()
-    if (!SR) { toast('error', 'Speech recognition not supported in this browser. Try Chrome.'); return }
+    if (!SR) { toast('error', 'Speech recognition not supported. Use Chrome or Edge.'); return }
     window.speechSynthesis?.cancel()
 
-    // Abort (not stop) wake listener — abort is synchronous in Chrome
+    // Step 1: request explicit mic permission so browser doesn't silently deny SpeechRecognition
+    const granted = await requestMicPermission()
+    if (!granted) return
+
+    // Abort wake listener and any existing session
     if (wakeRecognitionRef.current) {
       try { wakeRecognitionRef.current.abort() } catch { /* ignore */ }
       wakeRecognitionRef.current = null
     }
-    // Also abort any existing recognition session
     if (recognitionRef.current) {
       try { recognitionRef.current.abort() } catch { /* ignore */ }
       recognitionRef.current = null
@@ -851,36 +943,68 @@ export default function JarvisPage() {
 
     setMode('listening')
 
-    // Small delay to let browser fully release the mic before re-acquiring
+    // Delay to let browser fully release mic before re-acquiring
     setTimeout(() => {
       const rec = new SR()
       rec.lang = speechLang
-      rec.continuous = false
+      rec.continuous = true       // stay listening — don't stop after first utterance
       rec.interimResults = true
+      rec.maxAlternatives = 1
       recognitionRef.current = rec
 
-      let finalTranscript = ''
-      rec.onresult = (e: Any) => {
-        finalTranscript = ''
-        for (let i = 0; i < e.results.length; i++) {
-          if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript
+      let pendingTranscript = ''
+      let silenceTimer: ReturnType<typeof setTimeout> | null = null
+
+      const sendIfReady = () => {
+        const t = pendingTranscript.trim()
+        if (t) {
+          pendingTranscript = ''
+          setInput('')
+          void sendToJarvis(t)
         }
+      }
+
+      rec.onresult = (e: Any) => {
+        if (silenceTimer) clearTimeout(silenceTimer)
+        let interim = ''
+        pendingTranscript = ''
+        for (let i = 0; i < e.results.length; i++) {
+          if (e.results[i].isFinal) pendingTranscript += e.results[i][0].transcript + ' '
+          else interim += e.results[i][0].transcript
+        }
+        // Auto-send after 1.5s silence if there's a final transcript
+        if (pendingTranscript.trim()) {
+          silenceTimer = setTimeout(sendIfReady, 1500)
+        }
+        void interim  // suppress unused var warning
       }
       rec.onerror = (ev: Any) => {
+        if (silenceTimer) clearTimeout(silenceTimer)
         if (ev?.error === 'not-allowed') {
-          toast('error', 'Microphone permission denied. Allow mic access in browser settings.')
-        }
-        if (ev?.error !== 'aborted') setMode('idle')
-      }
-      rec.onend = () => {
-        if (finalTranscript.trim()) {
-          setInput('')
-          void sendToJarvis(finalTranscript.trim())
-        } else if (modeRef.current === 'listening') {
+          micPermGranted.current = false
+          toast('error', '🎤 Microphone blocked. Allow mic in browser address bar settings.')
+          setMode('idle')
+        } else if (ev?.error === 'no-speech') {
+          // normal — just restart if still in listening mode
+          if (modeRef.current === 'listening') {
+            setTimeout(() => {
+              if (modeRef.current === 'listening') startListening()
+            }, 300)
+          }
+        } else if (ev?.error !== 'aborted') {
           setMode('idle')
         }
+      }
+      rec.onend = () => {
+        if (silenceTimer) clearTimeout(silenceTimer)
+        // If mode is still listening and wasn't manually stopped, restart
+        if (modeRef.current === 'listening') {
+          setTimeout(() => {
+            if (modeRef.current === 'listening') startListening()
+          }, 300)
+        }
         // Restart wake listener after active listening ends
-        if (wakeWordActiveRef.current && !wakeRecognitionRef.current) {
+        if (wakeWordActiveRef.current && !wakeRecognitionRef.current && modeRef.current !== 'listening') {
           setTimeout(() => { if (wakeWordActiveRef.current) startWakeListener() }, 600)
         }
       }
@@ -888,13 +1012,12 @@ export default function JarvisPage() {
         rec.start()
       } catch {
         setMode('idle')
-        // Retry once after a short delay if start fails
         setTimeout(() => {
-          try { rec.start() } catch { setMode('idle') }
-        }, 300)
+          try { if (recognitionRef.current) recognitionRef.current.start() } catch { setMode('idle') }
+        }, 400)
       }
-    }, 150)
-  }, [sendToJarvis, speechLang, toast])
+    }, 200)
+  }, [sendToJarvis, speechLang, toast, requestMicPermission])
 
   // ── Wake word ─────────────────────────────────────────────────────────────
 
@@ -953,7 +1076,7 @@ export default function JarvisPage() {
     try { rec.start() } catch { wakeRecognitionRef.current = null }
   }, [speak, startListening, toast])
 
-  const toggleWakeWord = useCallback(() => {
+  const toggleWakeWord = useCallback(async () => {
     const SR = getSR()
     if (!SR) { toast('error', 'Speech recognition not supported in this browser.'); return }
 
@@ -967,11 +1090,15 @@ export default function JarvisPage() {
       return
     }
 
+    // Request mic permission before enabling wake word
+    const granted = await requestMicPermission()
+    if (!granted) return
+
     setWakeWordActive(true)
     wakeWordActiveRef.current = true
     wakeRestartingRef.current = false
     startWakeListener()
-  }, [startWakeListener, toast])
+  }, [startWakeListener, requestMicPermission, toast])
 
   // ── Form submit ───────────────────────────────────────────────────────────
 
@@ -1352,8 +1479,8 @@ export default function JarvisPage() {
               <button type="button"
                 onClick={
                   mode === 'speaking' ? stopSpeaking :
-                  mode === 'listening' ? () => recognitionRef.current?.stop() :
-                  mode === 'idle' ? startListening : undefined
+                  mode === 'listening' ? () => { recognitionRef.current?.abort(); recognitionRef.current = null; setMode('idle') } :
+                  mode === 'idle' ? () => { void startListening() } : undefined
                 }
                 disabled={mode === 'thinking'}
                 className="relative cursor-pointer disabled:cursor-wait transition-transform active:scale-95"
@@ -1371,13 +1498,13 @@ export default function JarvisPage() {
               <div className="flex items-center gap-2">
                 {voiceSupported && (
                   <>
-                    <button type="button" onClick={startListening}
+                    <button type="button" onClick={() => void startListening()}
                       disabled={mode !== 'idle' && mode !== 'speaking'}
                       className="font-mono text-[10px] rounded px-3 py-1.5 border transition disabled:opacity-30"
                       style={{ borderColor: `${mc.ring}66`, color: mc.ring, background: `${mc.ring}11` }}>
                       🎤 SPEAK
                     </button>
-                    <button type="button" onClick={toggleWakeWord}
+                    <button type="button" onClick={() => void toggleWakeWord()}
                       className="font-mono text-[10px] rounded px-3 py-1.5 border transition"
                       style={{
                         borderColor: wakeWordActive ? '#00ff88' : `${mc.ring}44`,
