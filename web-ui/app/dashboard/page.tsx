@@ -40,6 +40,7 @@ interface Release {
 
 interface DashboardData {
   bridgeConnected: boolean
+  githubEnabled: boolean
   issues: Issue[]
   runs: Run[]
   prs: PR[]
@@ -47,6 +48,39 @@ interface DashboardData {
   activity: string[]
   version: string
   timestamp: string
+  system: {
+    cpu: number
+    ram: { usedGB: number; totalGB: number; pct: number }
+    disk: { usedGB: number; totalGB: number; pct: number }
+    battery: { pct: number | null; charging: boolean; present: boolean }
+  }
+  services: Array<{
+    name: string
+    port: number
+    status: 'online' | 'warn' | 'offline'
+    detail: string
+  }>
+  ai: {
+    ollamaRunning: boolean
+    ollamaModels: string[]
+    modelCount: number
+    activeTts: string
+    tts: Array<{ name: string; available: boolean; detail: string }>
+    keys: {
+      fishAudio: boolean
+      elevenlabs: boolean
+      openrouter: boolean
+      gemini: boolean
+    }
+  }
+  audit: Array<{
+    ts: string
+    level: string
+    event: string
+    tool?: string
+    result?: string
+  }>
+  warnings: string[]
   error?: string
 }
 
@@ -263,6 +297,164 @@ function ReleasesPanel({ releases }: { releases: Release[] }) {
   )
 }
 
+function HealthBadge({ status }: { status: 'online' | 'warn' | 'offline' }) {
+  const styles = {
+    online: 'bg-emerald-950/60 text-emerald-300',
+    warn: 'bg-amber-950/60 text-amber-300',
+    offline: 'bg-red-950/60 text-red-300',
+  }
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase ${styles[status]}`}>
+      {status}
+    </span>
+  )
+}
+
+function SystemPanel({ system }: { system: DashboardData['system'] }) {
+  const stats = [
+    { label: 'CPU', value: `${system.cpu}%`, detail: 'live local snapshot' },
+    { label: 'RAM', value: `${system.ram.pct}%`, detail: `${system.ram.usedGB}/${system.ram.totalGB} GB` },
+    { label: 'Disk', value: `${system.disk.pct}%`, detail: `${system.disk.usedGB}/${system.disk.totalGB} GB` },
+    {
+      label: 'Battery',
+      value: system.battery.present && system.battery.pct !== null ? `${system.battery.pct}%` : 'N/A',
+      detail: system.battery.present ? (system.battery.charging ? 'charging' : 'battery power') : 'not detected',
+    },
+  ]
+
+  return (
+    <PanelShell label="🖥 Local System" accent="#38BDF8">
+      <div className="grid gap-px bg-white/[0.04]">
+        {stats.map(stat => (
+          <div key={stat.label} className="grid grid-cols-[72px_1fr] gap-3 bg-[#080d18] px-3 py-2 text-xs">
+            <span className="font-mono text-gray-500">{stat.label}</span>
+            <div className="min-w-0">
+              <p className="font-semibold text-gray-200">{stat.value}</p>
+              <p className="truncate text-[10px] text-gray-600">{stat.detail}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </PanelShell>
+  )
+}
+
+function ServicesPanel({ services }: { services: DashboardData['services'] }) {
+  return (
+    <PanelShell label="🩺 Service Health" accent="#F59E0B">
+      {services.length === 0 ? (
+        <EmptyRow message="No service checks available" />
+      ) : (
+        <table className="w-full text-xs">
+          <tbody>
+            {services.map(service => (
+              <tr key={`${service.name}-${service.port}`} className="border-b border-white/[0.04]">
+                <td className="px-3 py-2 font-medium text-gray-200">{service.name}</td>
+                <td className="px-1 py-2 font-mono text-gray-500">:{service.port}</td>
+                <td className="px-1 py-2 text-gray-500">{service.detail}</td>
+                <td className="px-3 py-2 text-right">
+                  <HealthBadge status={service.status} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </PanelShell>
+  )
+}
+
+function AIStatusPanel({ ai }: { ai: DashboardData['ai'] }) {
+  const keyItems = [
+    { label: 'Ollama', value: ai.ollamaRunning },
+    { label: 'Fish Audio', value: ai.keys.fishAudio },
+    { label: 'ElevenLabs', value: ai.keys.elevenlabs },
+    { label: 'OpenRouter', value: ai.keys.openrouter },
+    { label: 'Gemini', value: ai.keys.gemini },
+  ]
+
+  return (
+    <PanelShell label="🤖 GhostForge AI" accent="#A855F7">
+      <div className="space-y-3 px-3 py-3 text-xs">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="font-semibold text-gray-200">Ollama</p>
+            <p className="text-[10px] text-gray-600">
+              {ai.ollamaRunning
+                ? `${ai.modelCount} model${ai.modelCount === 1 ? '' : 's'}: ${ai.ollamaModels.slice(0, 3).join(', ') || 'available'}`
+                : 'local model server offline'}
+            </p>
+          </div>
+          <HealthBadge status={ai.ollamaRunning ? 'online' : 'warn'} />
+        </div>
+
+        <div>
+          <p className="mb-1 text-[10px] uppercase tracking-widest text-gray-500">TTS</p>
+          <div className="flex flex-wrap gap-2">
+            {ai.tts.map(engine => (
+              <span
+                key={engine.name}
+                className={`rounded border px-2 py-1 text-[10px] ${
+                  engine.available
+                    ? 'border-emerald-800/40 bg-emerald-950/30 text-emerald-300'
+                    : 'border-white/[0.06] bg-white/[0.03] text-gray-500'
+                }`}
+                title={engine.detail}
+              >
+                {engine.name}{engine.name === ai.activeTts ? ' • active' : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-1 text-[10px] uppercase tracking-widest text-gray-500">Keys</p>
+          <div className="grid gap-1">
+            {keyItems.map(item => (
+              <div key={item.label} className="flex items-center justify-between gap-3">
+                <span className="text-gray-400">{item.label}</span>
+                <span className={item.value ? 'text-emerald-400' : 'text-amber-400'}>
+                  {item.value ? 'configured' : 'missing'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </PanelShell>
+  )
+}
+
+function AuditPanel({ audit }: { audit: DashboardData['audit'] }) {
+  return (
+    <PanelShell label="📜 Audit Log" accent="#F97316">
+      {audit.length === 0 ? (
+        <EmptyRow message="No recent audit entries" />
+      ) : (
+        <ul className="divide-y divide-white/[0.04]">
+          {audit.map(entry => (
+            <li key={`${entry.ts}-${entry.event}-${entry.tool ?? 'none'}`} className="px-3 py-2 text-xs">
+              <div className="flex items-center justify-between gap-3">
+                <span className="truncate font-medium text-gray-200">
+                  {entry.event}
+                  {entry.tool ? ` · ${entry.tool}` : ''}
+                </span>
+                <span className="shrink-0 font-mono text-[10px] text-gray-600">
+                  {new Date(entry.ts).toLocaleTimeString()}
+                </span>
+              </div>
+              <p className="truncate text-[10px] text-gray-500">
+                {entry.level}
+                {entry.result ? ` · ${entry.result}` : ''}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </PanelShell>
+  )
+}
+
 function BridgeSetupPanel() {
   const envVars = [
     { key: 'ACCESS_PIN', desc: 'Your login PIN', required: true },
@@ -317,6 +509,7 @@ interface DoctorResult {
   warn: number
   fail: number
   total: number
+  healthScore?: number   // pass/(pass+fail) — critical failures only
   healthy: boolean
   checks: DoctorCheck[]
 }
@@ -342,7 +535,7 @@ function DoctorWidget() {
 
   useEffect(() => { void run() }, [run])
 
-  const score = result ? Math.round((result.pass / result.total) * 100) : 0
+  const score = result ? (result.healthScore ?? Math.round((result.pass / Math.max(result.pass + result.fail, 1)) * 100)) : 0
   const scoreColor = score >= 90 ? 'text-emerald-400' : score >= 70 ? 'text-amber-400' : 'text-red-400'
   const borderColor = score >= 90 ? 'border-emerald-800/40' : score >= 70 ? 'border-amber-800/40' : 'border-red-800/40'
 
@@ -511,7 +704,7 @@ export default function DashboardPage() {
             <span
               className={`h-1.5 w-1.5 rounded-full ${bridgeOk ? 'bg-emerald-400 shadow-[0_0_6px_#34d399]' : 'bg-gray-600'} ${loading ? 'animate-pulse' : ''}`}
             />
-            <span className="hidden text-[10px] text-gray-400 sm:block">{bridgeOk ? 'bridge online' : 'bridge offline'}</span>
+            <span className="hidden text-[10px] text-gray-400 sm:block">{bridgeOk ? 'bridge online' : 'bridge optional'}</span>
           </div>
 
           <LiveClock />
@@ -558,15 +751,19 @@ export default function DashboardPage() {
         {/* ── Bridge offline notice ── */}
         {data && !bridgeOk && (
           <div className="rounded-lg border border-amber-800/40 bg-amber-950/30 px-4 py-2.5 text-xs text-amber-300">
-            <span className="font-semibold">Bridge not connected.</span>
-            {data.error ? ` ${data.error}. ` : ' '}
-            Run{' '}
-            <code className="rounded bg-amber-900/40 px-1.5 py-0.5">
-              bash ~/GhostForge/scripts/bridge.sh start
-            </code>{' '}
-            on your Mac to enable live data.
+            <span className="font-semibold">Bridge is offline.</span> Local dashboard data still works; only bridge-backed features are degraded.
           </div>
         )}
+
+        {data?.warnings?.length ? (
+          <div className="space-y-2">
+            {data.warnings.map(warning => (
+              <div key={warning} className="rounded-lg border border-white/[0.06] bg-[#080d18] px-4 py-2 text-xs text-gray-400">
+                {warning}
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         {/* ── Last refresh ── */}
         {lastRefreshed && (
@@ -580,6 +777,28 @@ export default function DashboardPage() {
           <DoctorWidget />
           <MacMetricsWidget />
         </div>
+
+        {data ? (
+          <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
+            <SystemPanel system={data.system} />
+            <ServicesPanel services={data.services} />
+            <AIStatusPanel ai={data.ai} />
+            <AuditPanel audit={data.audit} />
+          </div>
+        ) : (
+          <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
+            <PanelSkeleton label="🖥 Local System" accent="#38BDF8" />
+            <PanelSkeleton label="🩺 Service Health" accent="#F59E0B" />
+            <PanelSkeleton label="🤖 GhostForge AI" accent="#A855F7" />
+            <PanelSkeleton label="📜 Audit Log" accent="#F97316" />
+          </div>
+        )}
+
+        {data && !data.githubEnabled && (
+          <div className="rounded-lg border border-sky-900/40 bg-sky-950/20 px-4 py-2.5 text-xs text-sky-300">
+            GitHub token is not configured, so tickets, PRs, and workflow panels stay in local-only mode.
+          </div>
+        )}
 
         {/* ── Top row: Tickets · Pipelines · PRs ── */}
         {!data ? (

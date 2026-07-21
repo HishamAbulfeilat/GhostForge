@@ -4,7 +4,7 @@
     {
       "path": "/",
       "page": "page.tsx",
-      "icon": "🏠",
+      "icon": "\ud83c\udfe0",
       "label": "Home",
       "desc": "Redirects to /chat (authenticated) or /login",
       "public": true,
@@ -13,7 +13,7 @@
     {
       "path": "/login",
       "page": "login/page.tsx",
-      "icon": "🔐",
+      "icon": "\ud83d\udd10",
       "label": "Login",
       "desc": "PIN-based authentication page",
       "public": true,
@@ -22,43 +22,43 @@
     {
       "path": "/chat",
       "page": "chat/page.tsx",
-      "icon": "💬",
+      "icon": "\ud83d\udcac",
       "label": "AI Chat",
-      "desc": "AI chat powered by **Gemini 2.5 Pro** (Google AI Plus) with 🐙 Copilot Suggest mode toggle and bridge command execution",
+      "desc": "AI chat powered by **Gemini 2.5 Pro** (Google AI Plus) with \ud83d\udc19 Copilot Suggest mode toggle and bridge command execution",
       "public": false,
       "hidden": false
     },
     {
       "path": "/dashboard",
       "page": "dashboard/page.tsx",
-      "icon": "📊",
+      "icon": "\ud83d\udcca",
       "label": "Dashboard",
-      "desc": "Live project overview — GitHub issues, PRs, CI pipelines, releases, bridge status, and quick-launch nav",
+      "desc": "Live project overview \u2014 GitHub issues, PRs, CI pipelines, releases, bridge status, and quick-launch nav",
       "public": false,
       "hidden": false
     },
     {
       "path": "/terminal",
       "page": "terminal/page.tsx",
-      "icon": "💻",
+      "icon": "\ud83d\udcbb",
       "label": "Terminal",
-      "desc": "Full **ttyd** xterm.js web terminal — run GhostForge TUI and any shell command directly from browser/phone",
+      "desc": "Full **ttyd** xterm.js web terminal \u2014 run GhostForge TUI and any shell command directly from browser/phone",
       "public": false,
       "hidden": false
     },
     {
       "path": "/features",
       "page": "features/page.tsx",
-      "icon": "🔧",
+      "icon": "\ud83d\udd27",
       "label": "Features",
-      "desc": "24 command cards across 6 categories (Carbon, Health, AI, Git, Generate, System) — run any GhostForge command without a terminal",
+      "desc": "24 command cards across 6 categories (Carbon, Health, AI, Git, Generate, System) \u2014 run any GhostForge command without a terminal",
       "public": false,
       "hidden": false
     },
     {
       "path": "/marketplace",
       "page": "marketplace/page.tsx",
-      "icon": "🛒",
+      "icon": "\ud83d\uded2",
       "label": "Marketplace",
       "desc": "Browse & install plugins, agents, and templates from the GhostForge catalog. Filter by type, category, or search",
       "public": false,
@@ -67,11 +67,17 @@
     {
       "path": "/settings",
       "page": "settings/page.tsx",
-      "icon": "⚙️",
+      "icon": "\u2699\ufe0f",
       "label": "Models & Settings",
-      "desc": "Live AI model switcher — Gemini 2.5 Pro/Flash, OpenRouter free models, Groq, NVIDIA NIM. Shows API key status",
+      "desc": "Live AI model switcher \u2014 Gemini 2.5 Pro/Flash, OpenRouter free models, Groq, NVIDIA NIM. Shows API key status",
       "public": false,
       "hidden": false
+    },
+    {
+      "page": "remote/page.tsx",
+      "path": "/remote",
+      "label": "Remote Control",
+      "icon": "\ud83d\udda5\ufe0f"
     }
   ]
 }

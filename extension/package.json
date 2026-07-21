@@ -1,7 +1,7 @@
 {
   "name": "ghostforge",
   "displayName": "GhostForge Developer Toolkit",
-  "description": "GitHub Copilot supercharger for React/Next.js/TypeScript — commands, snippets, RTL audit, bundle analyzer, and more",
+  "description": "GitHub Copilot supercharger for React/Next.js/TypeScript \u2014 commands, snippets, RTL audit, bundle analyzer, and more",
   "version": "2.6.0",
   "publisher": "ghostforge",
   "license": "MIT",
@@ -48,77 +48,77 @@
       },
       {
         "command": "ghostforge.context",
-        "title": "GhostForge: /context — Read current file as context",
+        "title": "GhostForge: /context \u2014 Read current file as context",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.rtl",
-        "title": "GhostForge: /rtl — RTL Audit (dry run)",
+        "title": "GhostForge: /rtl \u2014 RTL Audit (dry run)",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.rtlFix",
-        "title": "GhostForge: /rtl --fix — RTL Auto-fix",
+        "title": "GhostForge: /rtl --fix \u2014 RTL Auto-fix",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.bundle",
-        "title": "GhostForge: /bundle — Bundle Analyzer",
+        "title": "GhostForge: /bundle \u2014 Bundle Analyzer",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.health",
-        "title": "GhostForge: /health — Project Health Check",
+        "title": "GhostForge: /health \u2014 Project Health Check",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.storybook",
-        "title": "GhostForge: /storybook — Generate Stories for this file",
+        "title": "GhostForge: /storybook \u2014 Generate Stories for this file",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.ticket",
-        "title": "GhostForge: /ticket — Scaffold from Ticket ID",
+        "title": "GhostForge: /ticket \u2014 Scaffold from Ticket ID",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.snippet",
-        "title": "GhostForge: /snippet — Insert Snippet at Cursor",
+        "title": "GhostForge: /snippet \u2014 Insert Snippet at Cursor",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.commit",
-        "title": "GhostForge: /commit — Generate Commit Message",
+        "title": "GhostForge: /commit \u2014 Generate Commit Message",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.review",
-        "title": "GhostForge: /review — Code Review",
+        "title": "GhostForge: /review \u2014 Code Review",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.test",
-        "title": "GhostForge: /test — Run Tests",
+        "title": "GhostForge: /test \u2014 Run Tests",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.security",
-        "title": "GhostForge: /security — Security Audit",
+        "title": "GhostForge: /security \u2014 Security Audit",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.optimize",
-        "title": "GhostForge: /optimize — Optimize Code",
+        "title": "GhostForge: /optimize \u2014 Optimize Code",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.docs",
-        "title": "GhostForge: /docs — Generate Docs",
+        "title": "GhostForge: /docs \u2014 Generate Docs",
         "category": "GhostForge AI"
       },
       {
         "command": "ghostforge.i18n",
-        "title": "GhostForge: /i18n — i18n Translation Check",
+        "title": "GhostForge: /i18n \u2014 i18n Translation Check",
         "category": "GhostForge AI"
       },
       {
@@ -219,7 +219,7 @@
           },
           {
             "name": "rtl",
-            "description": "RTL audit (Tailwind LTR → RTL)"
+            "description": "RTL audit (Tailwind LTR \u2192 RTL)"
           },
           {
             "name": "bundle",
@@ -252,6 +252,22 @@
           {
             "name": "help",
             "description": "List all available commands"
+          },
+          {
+            "name": "jarvis",
+            "description": "Ask G.F.A.I. (JARVIS) \u2014 route to GhostForge AI"
+          },
+          {
+            "name": "model",
+            "description": "Switch AI model (gemini/grok/ollama/openrouter/auto)"
+          },
+          {
+            "name": "models",
+            "description": "List all available AI models and their status"
+          },
+          {
+            "name": "maccontrol",
+            "description": "Mac control via AppleScript (lock, screenshot, open app...)"
           }
         ]
       }

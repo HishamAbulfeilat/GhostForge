@@ -40,7 +40,13 @@ export function isFallbackError(e: unknown): boolean {
     msg.includes('model_not_found') ||
     msg.includes('invalid model') ||
     msg.includes('does not exist') ||
-    msg.includes('not supported')
+    msg.includes('not supported') ||
+    msg.includes('no endpoints') ||
+    msg.includes('provider returned error') ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('overloaded') ||
+    msg.includes('503') ||
+    msg.includes('502')
   )
 }
 
@@ -80,16 +86,52 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
     push({ provider: 'google', modelId: mid, model: createGoogleGenerativeAI({ apiKey: geminiKey })(mid) })
   }
 
-  // 3. OpenRouter free model
+  // 3. OpenRouter free models (confirmed working July 2025)
   if (orKey) {
-    const mid = process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free'
-    push({ provider: 'openrouter', modelId: mid, model: createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })(mid) })
-    // Also add a second free fallback
-    push({ provider: 'openrouter', modelId: 'meta-llama/llama-3.3-70b-instruct:free',
-      model: createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })('meta-llama/llama-3.3-70b-instruct:free') })
+    const or = createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })
+    // Primary: Gemma 4 26B (working)
+    push({ provider: 'openrouter', modelId: 'google/gemma-4-26b-a4b-it:free', model: or('google/gemma-4-26b-a4b-it:free') })
+    // Secondary: Nemotron 120B (working)
+    push({ provider: 'openrouter', modelId: 'nvidia/nemotron-3-super-120b-a12b:free', model: or('nvidia/nemotron-3-super-120b-a12b:free') })
+    // Tertiary: env override (if set manually)
+    const mid = process.env.OPENROUTER_MODEL
+    if (mid && mid !== 'google/gemma-2.0-flash-exp:free' && mid !== 'google/gemini-2.0-flash-exp:free') {
+      push({ provider: 'openrouter', modelId: mid, model: or(mid) })
+    }
+    // Additional free fallbacks
+    push({ provider: 'openrouter', modelId: 'nvidia/nemotron-nano-12b-v2-vl:free', model: or('nvidia/nemotron-nano-12b-v2-vl:free') })
   }
 
-  // 4. OmniRoute (local, always last)
+  // 4. xAI Grok (OpenAI-compatible API)
+  const xaiKey = process.env.XAI_API_KEY
+  if (xaiKey) {
+    const grok = createOpenAI({ baseURL: 'https://api.x.ai/v1', apiKey: xaiKey })
+    if (opts?.activeProvider === 'xai') {
+      const grokModel = opts.activeModel || 'grok-3-mini'
+      push({ provider: 'xai', modelId: grokModel, model: grok(grokModel) })
+    } else {
+      // Always include grok-3-mini as a fallback option when key is set
+      push({ provider: 'xai', modelId: 'grok-3-mini', model: grok('grok-3-mini') })
+    }
+  }
+
+  // 5. Ollama (local, fully private, no API key needed)
+  try {
+    const ollamaRes = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1500) })
+    if (ollamaRes.ok) {
+      const ollamaData = await ollamaRes.json() as { models: Array<{ name: string }> }
+      const ollamaModels = ollamaData.models || []
+      // Prefer qwen2.5-coder > llama3.2 > first available
+      const preferred = ['qwen2.5-coder:7b','qwen2.5:7b','llama3.2:3b','llama3.1:8b','mistral:7b']
+      const pick = preferred.find(p => ollamaModels.some(m => m.name === p)) || ollamaModels[0]?.name
+      if (pick) {
+        const ollamaClient = createOpenAI({ baseURL: 'http://localhost:11434/v1', apiKey: 'ollama' })
+        push({ provider: 'ollama', modelId: pick, model: ollamaClient(pick) })
+      }
+    }
+  } catch { /* Ollama not running */ }
+
+  // 6. OmniRoute (local free gateway, always last)
   if (omniUrl) {
     push({ provider: 'omniroute', modelId: 'auto/coding', model: makeOmniRouteModel('auto/coding') })
   }

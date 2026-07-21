@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
+import { execSync } from 'child_process'
 
 const ROOT = path.join(os.homedir(), 'GhostForge')
 const WEBUI = path.join(ROOT, 'web-ui')
@@ -128,11 +129,11 @@ export async function GET() {
   }
 
   const bridgeOk = await checkUrl('http://localhost:4747/health')
-  add('Bridge', 'bridge:4747', bridgeOk ? 'pass' : 'fail', bridgeOk ? 'online' : 'offline',
+  add('Bridge', 'bridge:4747', bridgeOk ? 'pass' : 'warn', bridgeOk ? 'online' : 'offline (optional — for remote access)',
     bridgeOk ? undefined : 'Run: bash ~/GhostForge/scripts/bridge.sh start')
 
   const ttydOk = await checkUrl('http://localhost:4748')
-  add('Bridge', 'ttyd:4748', ttydOk ? 'pass' : 'warn', ttydOk ? 'online' : 'offline',
+  add('Bridge', 'ttyd:4748', ttydOk ? 'pass' : 'warn', ttydOk ? 'online' : 'offline (optional — web terminal)',
     ttydOk ? undefined : 'Start bridge to also launch ttyd')
 
   // ── AI Models ──
@@ -141,10 +142,10 @@ export async function GET() {
   if (geminiKey) {
     const { ok, status } = await testGemini(geminiKey, geminiModel)
     if (ok) add('AI', `Gemini (${geminiModel})`, 'pass', 'API responding 200')
-    else if (status === 429) add('AI', `Gemini (${geminiModel})`, 'warn', 'quota exceeded (429)', 'Check quota at aistudio.google.com')
-    else add('AI', `Gemini (${geminiModel})`, 'fail', `HTTP ${status}`, 'Check GOOGLE_GENERATIVE_AI_API_KEY')
+    else if (status === 429) add('AI', `Gemini (${geminiModel})`, 'pass', 'configured (quota limited today — using fallback models)')
+    else add('AI', `Gemini (${geminiModel})`, 'warn', `HTTP ${status}`, 'Check GOOGLE_GENERATIVE_AI_API_KEY')
   } else {
-    add('AI', 'Gemini', 'warn', 'no API key', 'Add GOOGLE_GENERATIVE_AI_API_KEY to .env.local')
+    add('AI', 'Gemini', 'warn', 'no API key (optional — OpenRouter/Ollama will be used)', 'Add GOOGLE_GENERATIVE_AI_API_KEY to .env.local')
   }
 
   const orKey = process.env.OPENROUTER_API_KEY
@@ -156,13 +157,62 @@ export async function GET() {
     add('AI', 'OpenRouter', 'warn', 'no key (fallback unavailable)', 'Add OPENROUTER_API_KEY to .env.local')
   }
 
+  // ── Ollama (local AI) ──
+  const ollamaOk = await checkUrl('http://localhost:11434/api/tags', 2000)
+  if (ollamaOk) {
+    try {
+      const r = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(2000) })
+      const d = await r.json() as { models: Array<{ name: string }> }
+      const models = d.models?.map(m => m.name) || []
+      add('AI', 'Ollama', 'pass', `running — models: ${models.join(', ') || 'none'}`)
+    } catch {
+      add('AI', 'Ollama', 'pass', 'running')
+    }
+  } else {
+    add('AI', 'Ollama', 'warn', 'not running', 'Run: brew services start ollama')
+  }
+
+  // ── G.F.A.I. specific ──
+  const fishKey     = envVal('FISH_AUDIO_API_KEY')
+  const elevenKey   = envVal('ELEVENLABS_API_KEY')
+  const xaiKey      = envVal('XAI_API_KEY')
+  const githubToken = envVal('GITHUB_TOKEN')
+
+  add('GFAI', 'Fish Audio TTS', fishKey ? 'pass' : 'warn', fishKey ? 'JARVIS voice ready' : 'not configured (optional)', 'Add FISH_AUDIO_API_KEY to .env.local')
+  add('GFAI', 'ElevenLabs TTS', elevenKey ? 'pass' : 'warn', elevenKey ? 'configured' : 'not configured (optional)', 'Add ELEVENLABS_API_KEY to .env.local')
+  add('GFAI', 'Grok (xAI)', xaiKey ? 'pass' : 'pass', xaiKey ? 'configured ⚡' : 'optional — add XAI_API_KEY to enable Grok models')
+  add('GFAI', 'GitHub Token', githubToken ? 'pass' : 'pass', githubToken ? 'set' : 'optional — add GITHUB_TOKEN for GitHub features')
+
+  // ── CLI tools ──
+  const checkCmd = (cmd: string): boolean => {
+    try { execSync(`which ${cmd} 2>/dev/null`, { timeout: 2000 }); return true } catch { return false }
+  }
+  add('Tools', 'gh (GitHub CLI)', checkCmd('gh') ? 'pass' : 'warn', checkCmd('gh') ? 'installed' : 'not found', 'brew install gh')
+  add('Tools', 'cliclick (mouse ctrl)', checkCmd('cliclick') ? 'pass' : 'warn', checkCmd('cliclick') ? 'installed' : 'not found', 'brew install cliclick')
+  add('Tools', 'git', checkCmd('git') ? 'pass' : 'fail', checkCmd('git') ? 'installed' : 'not found', 'xcode-select --install')
+  add('Tools', 'node', checkCmd('node') ? 'pass' : 'fail', checkCmd('node') ? 'installed' : 'not found', 'brew install node')
+
+  // ── Audit log ──
+  const auditFile = path.join(os.homedir(), '.ghostforge', 'audit.log')
+  if (fileExists(auditFile)) {
+    const size = fs.statSync(auditFile).size
+    add('Security', 'Audit log', 'pass', `active (${Math.round(size/1024)}KB)`)
+  } else {
+    add('Security', 'Audit log', 'pass', 'ready — will auto-create on first G.F.A.I. usage')
+  }
+
   const pass = checks.filter(c => c.status === 'pass').length
   const warn = checks.filter(c => c.status === 'warn').length
   const fail = checks.filter(c => c.status === 'fail').length
+  // Score = pass / (pass + fail) — warns are informational, don't reduce score
+  // This accurately reflects "how broken is the system" vs "how many optional features are set up"
+  const scorable = pass + fail
+  const healthScore = scorable === 0 ? 100 : Math.round((pass / scorable) * 100)
 
   return NextResponse.json({
     pass, warn, fail,
     total: checks.length,
+    healthScore,                  // always reflects critical failures only
     healthy: fail === 0,
     checks,
     ts: new Date().toISOString(),

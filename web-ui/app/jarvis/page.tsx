@@ -27,6 +27,10 @@ interface Message {
   toolResult?: string | null
   emotion?: Emotion
   usedModel?: string
+  domain?: string
+  confidence?: number
+  risk?: { risk: number; level: string; reason: string; requires_confirmation: boolean } | null
+  requiresConfirmation?: boolean
   ts: number
 }
 
@@ -204,6 +208,69 @@ function ToolCard({ tool, result, ringColor }: { tool: string; result: string; r
   )
 }
 
+// ── Audit Log Panel ───────────────────────────────────────────────────────────
+
+interface AuditEntry { ts: string; level: string; event: string; tool?: string; result?: string; risk?: number; blocked?: boolean }
+
+function AuditPanel({ onClose }: { onClose: () => void }) {
+  const [entries, setEntries] = useState<AuditEntry[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/jarvis/audit?limit=30')
+      .then(r => r.json())
+      .then((d: { entries?: AuditEntry[] }) => { setEntries(d.entries || []); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+
+  const levelColor = (l: string) => ({ danger: '#ef4444', security: '#f97316', warn: '#f59e0b', info: '#22c55e', access: '#60a5fa' })[l] || '#60a5fa'
+
+  return (
+    <div className="relative z-20 border-b font-mono text-[10px]" style={{ borderColor: '#f59e0b22', background: 'rgba(0,5,20,0.98)', maxHeight: '220px' }}>
+      <div className="flex items-center justify-between px-4 py-2 border-b" style={{ borderColor: '#f59e0b22' }}>
+        <span className="text-amber-400/80 tracking-widest">📋 AUDIT LOG — LAST 30 EVENTS</span>
+        <button type="button" onClick={onClose} className="text-blue-400/50 hover:text-blue-300">✕ CLOSE</button>
+      </div>
+      <div className="overflow-y-auto" style={{ maxHeight: '170px' }}>
+        {loading ? (
+          <div className="px-4 py-3 text-blue-400/40">Loading...</div>
+        ) : entries.length === 0 ? (
+          <div className="px-4 py-3 text-blue-400/40">No audit entries yet.</div>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="text-blue-400/30 text-[9px]">
+                <th className="px-3 py-1 text-left">TIME</th>
+                <th className="px-3 py-1 text-left">LEVEL</th>
+                <th className="px-3 py-1 text-left">EVENT</th>
+                <th className="px-3 py-1 text-left">TOOL</th>
+                <th className="px-3 py-1 text-left">RISK</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e, i) => (
+                <tr key={i} className="border-b" style={{ borderColor: '#ffffff05' }}>
+                  <td className="px-3 py-1 text-blue-400/40">{new Date(e.ts).toLocaleTimeString()}</td>
+                  <td className="px-3 py-1" style={{ color: levelColor(e.level) }}>{e.level.toUpperCase()}</td>
+                  <td className="px-3 py-1 text-blue-200/70">{e.event}</td>
+                  <td className="px-3 py-1 text-blue-400/60">{e.tool || '—'}</td>
+                  <td className="px-3 py-1">
+                    {e.risk != null && (
+                      <span style={{ color: e.risk > 70 ? '#ef4444' : e.risk > 40 ? '#f59e0b' : '#22c55e' }}>
+                        {e.blocked ? '🚫 ' : ''}{e.risk}%
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function JarvisPage() {
@@ -216,6 +283,7 @@ export default function JarvisPage() {
   const [voiceEngine, setVoiceEngine]       = useState<VoiceEngine>('browser')
   const [ttsInfo, setTtsInfo]               = useState<TtsInfo | null>(null)
   const [showSettings, setShowSettings]     = useState(false)
+  const [showAudit, setShowAudit]           = useState(false)
   const [models, setModels]                 = useState<ModelInfo[]>([])
   const [activeModel, setActiveModel]       = useState<{ provider: string; model: string } | null>(null)
   const [selectedProvider, setSelectedProvider] = useState<string>('')
@@ -224,6 +292,9 @@ export default function JarvisPage() {
   const [lastToolUsed, setLastToolUsed]     = useState<string | null>(null)
   const [liveModel, setLiveModel]           = useState<{ provider: string; model: string } | null>(null)
   const [toasts, setToasts]                 = useState<Toast[]>([])
+  const [copilotMode, setCopilotMode]       = useState(false)
+  const [copilotThinking, setCopilotThinking] = useState(false)
+  const [pendingRiskMsg, setPendingRiskMsg] = useState<{ message: string; tool: string } | null>(null)
 
   const recognitionRef     = useRef<Any>(null)
   const wakeRecognitionRef = useRef<Any>(null)
@@ -301,8 +372,8 @@ export default function JarvisPage() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  const addAIMessage = useCallback((text: string, emotion: Emotion, tool: string | null, toolResult: string | null, usedModel?: string) => {
-    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'ai', text, emotion, tool, toolResult, usedModel, ts: Date.now() }])
+  const addAIMessage = useCallback((text: string, emotion: Emotion, tool: string | null, toolResult: string | null, usedModel?: string, domain?: string, confidence?: number, risk?: Message['risk'], requiresConfirmation?: boolean) => {
+    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'ai', text, emotion, tool, toolResult, usedModel, domain, confidence, risk, requiresConfirmation, ts: Date.now() }])
   }, [])
 
   const addUserMessage = useCallback((text: string) => {
@@ -383,10 +454,45 @@ export default function JarvisPage() {
     speakBrowser(text)
   }, [voiceEngine, speakExternal, speakBrowser])
 
-  // ── Send to G.F.A.I. ─────────────────────────────────────────────────────
+  // ── Send directly to Copilot CLI ─────────────────────────────────────────
 
+  const sendToCopilot = useCallback(async (text: string) => {
+    if (!text.trim()) return
+    addUserMessage(`[Copilot CLI] ${text}`)
+    setMode('thinking')
+    setCopilotThinking(true)
+    try {
+      const res = await fetch('/api/jarvis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `Use the copilot_ask tool to answer this for the user: ${text}`,
+          memory,
+        }),
+      })
+      const data = await res.json() as { speech: string; tool: string | null; toolResult: string | null; emotion: string }
+      const answer = data.toolResult || data.speech || 'No response from Copilot CLI'
+      addAIMessage(`🤖 ${answer}`, 'done', 'copilot_ask', data.toolResult)
+      await speak(data.speech || 'Here is what Copilot CLI says.')
+    } catch {
+      const err = 'Copilot CLI unreachable.'
+      addAIMessage(err, 'alert', null, null)
+    } finally {
+      setCopilotThinking(false)
+      setMode('idle')
+    }
+  }, [memory, addUserMessage, addAIMessage, speak])
+
+  // ── Send to G.F.A.I. ─────────────────────────────────────────
   const sendToJarvis = useCallback(async (text: string) => {
     if (!text.trim()) return
+    // If Copilot Mode is ON, route directly to Copilot CLI
+    if (copilotMode) { void sendToCopilot(text); return }
+    // Re-route "Ask Copilot: ..." quick commands
+    const copilotMatch = text.match(/^Ask Copilot:\s*(.+)/i)
+    if (copilotMatch) {
+      text = `Ask GitHub Copilot CLI: ${copilotMatch[1]}`
+    }
     addUserMessage(text)
     setMode('thinking')
     setLastToolUsed(null)
@@ -415,13 +521,17 @@ export default function JarvisPage() {
           memory,
           selectedProvider: selectedProvider || undefined,
           selectedModel: selectedModel || undefined,
+          confirmRisk: /^(confirm|yes|proceed|do it)$/i.test(text.trim()) && pendingRiskMsg != null,
         }),
       })
       const data = await res.json() as {
         speech: string; tool: string | null; toolResult: string | null
         emotion: Emotion; usedModel?: string; usedProvider?: string
+        domain?: string; confidence?: number
+        risk?: { risk: number; level: string; reason: string; requires_confirmation: boolean }
+        requiresConfirmation?: boolean
       }
-      const { speech, tool, toolResult, emotion, usedModel, usedProvider } = data
+      const { speech, tool, toolResult, emotion, usedModel, usedProvider, domain, confidence, risk, requiresConfirmation } = data
 
       if (tool) setLastToolUsed(tool)
 
@@ -436,8 +546,15 @@ export default function JarvisPage() {
         }
       }
 
-      addAIMessage(speech, emotion || 'neutral', tool, toolResult, usedModel)
+      addAIMessage(speech, emotion || 'neutral', tool, toolResult, usedModel, domain, confidence, risk, requiresConfirmation)
       await speak(speech)
+
+      if (requiresConfirmation) {
+        toast('warn', `⚠️ High-risk action detected. Reply "confirm" to proceed or "cancel" to abort.`, 10000)
+        setPendingRiskMsg({ message: text, tool: tool || '' })
+      } else {
+        setPendingRiskMsg(null)
+      }
 
       fetch('/api/jarvis/memory', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -451,7 +568,7 @@ export default function JarvisPage() {
       setMode('idle')
       console.error(e)
     }
-  }, [messages, memory, selectedProvider, selectedModel, addUserMessage, addAIMessage, speak, toast])
+  }, [messages, memory, selectedProvider, selectedModel, copilotMode, sendToCopilot, addUserMessage, addAIMessage, speak, toast])
 
   // ── Voice recognition ─────────────────────────────────────────────────────
 
@@ -459,22 +576,35 @@ export default function JarvisPage() {
     const SR = getSR()
     if (!SR) return
     window.speechSynthesis?.cancel()
+    // Stop wake listener while actively listening
+    wakeRecognitionRef.current?.stop()
     setMode('listening')
 
     const rec = new SR()
     rec.lang = 'en-US'
     rec.continuous = false
-    rec.interimResults = false
+    rec.interimResults = true
     recognitionRef.current = rec
 
+    let finalTranscript = ''
     rec.onresult = (e: Any) => {
-      const transcript = e.results[0][0].transcript
-      setInput('')
-      void sendToJarvis(transcript)
+      finalTranscript = ''
+      for (let i = 0; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript
+      }
     }
-    rec.onerror = () => setMode('idle')
-    rec.onend   = () => { if (modeRef.current === 'listening') setMode('idle') }
-    rec.start()
+    rec.onerror = (ev: Any) => {
+      if (ev?.error !== 'aborted') setMode('idle')
+    }
+    rec.onend = () => {
+      if (finalTranscript.trim()) {
+        setInput('')
+        void sendToJarvis(finalTranscript.trim())
+      } else if (modeRef.current === 'listening') {
+        setMode('idle')
+      }
+    }
+    try { rec.start() } catch { setMode('idle') }
   }, [sendToJarvis])
 
   // ── Wake word ─────────────────────────────────────────────────────────────
@@ -485,13 +615,18 @@ export default function JarvisPage() {
 
     if (wakeWordActiveRef.current) {
       wakeRecognitionRef.current?.stop()
+      wakeRecognitionRef.current = null
       setWakeWordActive(false)
       return
     }
 
     setWakeWordActive(true)
+    let isRestarting = false
+
+    const WAKE_PHRASES = ['hey jarvis', 'jarvis', 'hey ghostforge', 'ghost forge', 'hey forge', 'gfai', 'g f a i', 'hey gfai']
 
     const startWake = () => {
+      if (!wakeWordActiveRef.current || isRestarting) return
       const rec = new SR()
       rec.lang = 'en-US'
       rec.continuous = true
@@ -499,28 +634,40 @@ export default function JarvisPage() {
       wakeRecognitionRef.current = rec
 
       rec.onresult = (e: Any) => {
+        if (modeRef.current !== 'idle') return // Don't trigger while busy
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const transcript = Array.from(e.results as any[])
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((r: any) => r[0].transcript).join(' ').toLowerCase()
-        if (transcript.includes('hey ghostforge') || transcript.includes('ghost forge') || transcript.includes('hey forge')) {
-          rec.stop()
-          void speak("Yes? I'm listening.")
-          setTimeout(startListening, 800)
+          .map((r: any) => r[0].transcript).join(' ').toLowerCase().trim()
+        const triggered = WAKE_PHRASES.some(phrase => transcript.includes(phrase))
+        if (triggered) {
+          rec.abort?.() ?? rec.stop()
+          void speak("Yes, I'm listening.")
+          setTimeout(startListening, 1000)
         }
       }
       rec.onend = () => {
-        // Use ref (not closure-captured state) to decide whether to restart
-        if (wakeWordActiveRef.current) setTimeout(startWake, 300)
+        if (wakeWordActiveRef.current && !isRestarting) {
+          isRestarting = true
+          setTimeout(() => { isRestarting = false; startWake() }, 400)
+        }
       }
-      rec.onerror = () => {
-        if (wakeWordActiveRef.current) setTimeout(startWake, 500)
+      rec.onerror = (ev: Any) => {
+        if (ev?.error === 'not-allowed') {
+          setWakeWordActive(false)
+          toast('error', 'Microphone permission denied. Enable in browser settings.')
+          return
+        }
+        if (wakeWordActiveRef.current && !isRestarting) {
+          isRestarting = true
+          setTimeout(() => { isRestarting = false; startWake() }, 600)
+        }
       }
-      try { rec.start() } catch { /* ignore if already started */ }
+      try { rec.start() } catch { /* ignore */ }
     }
 
     startWake()
-  }, [speak, startListening])
+  }, [speak, startListening, toast])
 
   // ── Form submit ───────────────────────────────────────────────────────────
 
@@ -551,6 +698,7 @@ export default function JarvisPage() {
     { label: '🔔 Remind',    cmd: 'Remind me to check my tasks in 1 hour' },
     { label: '📋 Clipboard', cmd: 'What\'s in my clipboard?' },
     { label: '📝 Note',      cmd: 'Save note: reviewed code today' },
+    { label: '🤖 Copilot',   cmd: 'Ask Copilot: how do I list all running processes on Mac?' },
     ...(integrations.github ? [{ label: '🐙 GitHub', cmd: 'Show my GitHub repositories' }] : []),
     ...(integrations.discord ? [{ label: '💬 Discord', cmd: 'Send a Discord message: GhostForge AI is online' }] : []),
   ]
@@ -621,13 +769,50 @@ export default function JarvisPage() {
               style={{ borderColor: `${mc.ring}44`, color: `${mc.ring}99`, background: showSettings ? `${mc.ring}18` : 'transparent' }}>
               ⚙ SETTINGS
             </button>
+            <button type="button" onClick={() => setShowAudit(s => !s)}
+              className="font-mono text-[10px] rounded px-2 py-1 border transition"
+              style={{ borderColor: `${mc.ring}44`, color: '#f59e0b99', background: showAudit ? 'rgba(245,158,11,0.08)' : 'transparent' }}
+              title="View audit log of all tool actions">
+              📋 AUDIT
+            </button>
+            {/* ── Copilot CLI Mode Toggle ── */}
+            <button type="button"
+              onClick={() => {
+                const next = !copilotMode
+                setCopilotMode(next)
+                toast(next ? 'success' : 'info',
+                  next ? '🤖 Copilot CLI mode ON — all messages go to gh copilot' : '🤖 Copilot CLI mode OFF — back to G.F.A.I.')
+              }}
+              className="font-mono text-[10px] rounded px-2 py-1 border transition"
+              style={{
+                borderColor: copilotMode ? '#00ff88' : `${mc.ring}44`,
+                color:       copilotMode ? '#00ff88' : `${mc.ring}88`,
+                background:  copilotMode ? 'rgba(0,255,136,0.08)' : 'transparent',
+                boxShadow:   copilotMode ? '0 0 8px rgba(0,255,136,0.2)' : 'none',
+              }}
+              title="Toggle GitHub Copilot CLI mode — routes messages directly to gh copilot">
+              {copilotMode ? '🤖 COPILOT ON' : '🤖 COPILOT'}
+            </button>
             <Clock />
           </div>
         </div>
 
+        {/* ── Copilot CLI mode banner ── */}
+        {copilotMode && (
+          <div className="gfai-fade relative z-20 flex items-center justify-between border-b px-4 py-1.5 font-mono text-[10px]"
+            style={{ borderColor: '#00ff8844', background: 'rgba(0,255,136,0.05)' }}>
+            <div className="flex items-center gap-2">
+              <span className="gfai-blink h-1.5 w-1.5 rounded-full bg-green-400" />
+              <span style={{ color: '#00ff88' }}>COPILOT CLI MODE ACTIVE</span>
+              <span className="text-blue-400/40">— messages route directly to <code className="text-green-400/70">gh copilot -p</code></span>
+            </div>
+            <button type="button" onClick={() => { setCopilotMode(false); toast('info', 'Copilot CLI mode OFF') }}
+              className="text-green-400/50 hover:text-green-300 transition">✕ EXIT</button>
+          </div>
+        )}
+
         {/* ── Settings panel (collapsible) ── */}
-        {showSettings && (
-          <div className="relative z-20 border-b px-4 py-3 gfai-fade"
+        {showSettings && (          <div className="relative z-20 border-b px-4 py-3 gfai-fade"
             style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,25,0.97)' }}>
             <div className="flex flex-wrap gap-6 font-mono text-[10px]">
 
@@ -760,6 +945,11 @@ export default function JarvisPage() {
           </div>
         )}
 
+        {/* ── Audit Log Panel ── */}
+        {showAudit && (
+          <AuditPanel onClose={() => setShowAudit(false)} />
+        )}
+
         {/* ── Main body ── */}
         <div className="relative z-10 flex flex-1 overflow-hidden">
 
@@ -806,14 +996,33 @@ export default function JarvisPage() {
                   <div key={m.id}
                     className={`gfai-fade rounded-lg px-3 py-2 text-sm ${m.role === 'user' ? 'gfai-msg-user ml-8' : 'gfai-msg-ai mr-8'}`}
                     style={{ borderLeftColor: borderColor }}>
-                    <div className="flex items-center gap-2 mb-0.5">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                       <span className="font-mono text-[10px] opacity-60" style={{ color: borderColor }}>
                         {m.role === 'user' ? 'YOU' : 'G.F.A.I.'}
                       </span>
                       {m.tool && (
                         <span className="font-mono text-[9px] rounded px-1 py-0.5"
                           style={{ background: `${mc.ring}22`, color: mc.ring }}>
-                          {m.tool.replace(/_/g, ' ')}
+                          ⚙ {m.tool.replace(/_/g, ' ')}
+                        </span>
+                      )}
+                      {m.domain && m.domain !== 'general' && m.role === 'ai' && (
+                        <span className="font-mono text-[9px] rounded px-1 py-0.5 uppercase tracking-wide"
+                          style={{ background: 'rgba(170,68,255,0.12)', color: 'rgba(170,68,255,0.8)', border: '1px solid rgba(170,68,255,0.2)' }}>
+                          {m.domain}
+                        </span>
+                      )}
+                      {m.confidence !== undefined && m.role === 'ai' && (
+                        <span className="flex items-center gap-1" title={`Confidence: ${m.confidence}%`}>
+                          <span className="font-mono text-[9px]" style={{ color: m.confidence >= 80 ? '#00ff88' : m.confidence >= 50 ? '#ffaa00' : '#ff4444' }}>
+                            {m.confidence}%
+                          </span>
+                          <span className="h-1 w-12 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+                            <span className="h-full block rounded-full transition-all" style={{
+                              width: `${m.confidence}%`,
+                              background: m.confidence >= 80 ? '#00ff88' : m.confidence >= 50 ? '#ffaa00' : '#ff4444',
+                            }} />
+                          </span>
                         </span>
                       )}
                     </div>

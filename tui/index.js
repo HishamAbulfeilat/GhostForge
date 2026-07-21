@@ -116,6 +116,38 @@ function expandHome(targetPath) {
   return targetPath.replace(/^~(?=$|\/)/, process.env.HOME || '~');
 }
 
+function readEnvValueFromFile(filePath, key) {
+  const full = resolve(ROOT, filePath);
+  if (!existsSync(full)) return '';
+  const content = readFileSync(full, 'utf8');
+  const line = content.split('\n').find(entry => entry.trim().startsWith(`${key}=`));
+  if (!line) return '';
+  return line.slice(line.indexOf('=') + 1).trim().replace(/^['"]|['"]$/g, '');
+}
+
+function runShellCheck(command) {
+  const result = spawnSync('bash', ['-lc', command], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return {
+    ok: result.status === 0,
+    output: `${result.stdout || ''}${result.stderr || ''}`.trim(),
+  };
+}
+
+function doctorStatusTone(status) {
+  if (status === 'pass') return T.success.bold(' PASS ');
+  if (status === 'warn') return T.warning.bold(' WARN ');
+  return T.danger.bold(' FAIL ');
+}
+
+function doctorStatusLabel(status) {
+  if (status === 'pass') return T.success('pass');
+  if (status === 'warn') return T.warning('warn');
+  return T.danger('fail');
+}
+
 function ensureRegisteredProjectsFile() {
   if (!existsSync(REGISTERED_PROJECTS_FILE)) writeFileSync(REGISTERED_PROJECTS_FILE, '');
 }
@@ -1329,34 +1361,22 @@ async function screenDeploy() {
 }
 
 async function screenJarvis() {
-  sectionHeader('🤖  GhostForge AI (G.F.A.I.)', 'Your personal JARVIS — voice, tools, persistent memory');
-
-  console.log(boxen(
-    T.cyan.bold('  G.F.A.I. — GhostForge Artificial Intelligence\n\n') +
-    T.white('  Inspired by OpenJarvis (Stanford), J.A.R.V.I.S. from Iron Man\n\n') +
-    T.success('  ✓ 10+ tools: time, weather, web search, iMessage, music\n') +
-    T.success('  ✓ Mac automation: open apps, reminders, screenshots, lock\n') +
-    T.success('  ✓ Persistent memory: knows your name & preferences\n') +
-    T.success('  ✓ Voice I/O: speak commands, hear responses (Web UI)\n') +
-    T.success('  ✓ Wake word: "Hey GhostForge" (Web UI)\n') +
-    T.muted('  ─────────────────────────────────────────────────\n') +
-    T.cyan('  Full UI: ') + T.white('http://localhost:3001/jarvis') + '\n' +
-    T.muted('  Sources: openjarvis.stanford.edu · github/rezaulhreza/jarvis\n'),
-    { padding: 1, margin: { left: 2 }, borderColor: 'cyan', borderStyle: 'double', title: ' G.F.A.I. Online ' }
-  ));
+  sectionHeader('🤖  G.F.A.I. — GhostForge Artificial Intelligence', 'JARVIS-style AI — chat, tools, Mac control, voice');
 
   const action = await select({
-    message: T.cyan('What would you like to do?'),
+    message: T.cyan('G.F.A.I. options:'),
     choices: [
-      { name: T.cyan.bold('🌐  Open G.F.A.I. Web UI')    + T.muted('      — full JARVIS interface in browser'), value: 'webui' },
-      { name: T.success.bold('⏰  Ask: What time is it?')  + T.muted('   — quick time check'), value: 'time' },
-      { name: T.white.bold('🌤  Ask: Weather today')      + T.muted('     — current conditions'), value: 'weather' },
-      { name: T.white.bold('💻  Ask: System status')      + T.muted('     — CPU, battery'), value: 'sysinfo' },
-      { name: T.accent.bold('💬  Send iMessage')          + T.muted('         — message a contact'), value: 'imessage' },
-      { name: T.warning.bold('📸  Take Screenshot')       + T.muted('        — saves to Desktop'), value: 'screenshot' },
+      { name: T.cyan.bold('💬  AI Chat (TUI)')          + T.muted('        — chat with any model in terminal'), value: 'chat' },
+      { name: T.success.bold('🌐  Open Web UI')          + T.muted('          — full JARVIS with voice in browser'), value: 'webui' },
+      { name: T.accent.bold('🔄  Switch Model')          + T.muted('         — change active AI model'), value: 'model' },
+      { name: T.white.bold('⏰  Quick: Time')            + T.muted('          — ask current time'), value: 'time' },
+      { name: T.white.bold('🌤  Quick: Weather')         + T.muted('         — current conditions'), value: 'weather' },
+      { name: T.white.bold('💻  Quick: System Status')   + T.muted('     — CPU, battery'), value: 'sysinfo' },
+      { name: T.white.bold('📸  Quick: Screenshot')      + T.muted('        — saves to Desktop'), value: 'screenshot' },
+      { name: T.accent.bold('💬  Quick: iMessage')       + T.muted('         — send a message'), value: 'imessage' },
       { name: T.warning('↩  Back'), value: 'back' },
     ],
-    pageSize: 10,
+    pageSize: 12,
   });
 
   if (action === 'back') return;
@@ -1365,6 +1385,16 @@ async function screenJarvis() {
     console.log(T.cyan('\n  Opening http://localhost:3001/jarvis ...\n'));
     try { execSync('open http://localhost:3001/jarvis 2>/dev/null || xdg-open http://localhost:3001/jarvis 2>/dev/null', { stdio: 'ignore' }); } catch {}
     await pressEnter(); return;
+  }
+
+  if (action === 'model') {
+    await screenModelSelect();
+    return screenJarvis();
+  }
+
+  if (action === 'chat') {
+    await screenGFAIChat();
+    return;
   }
 
   const quickCmds = {
@@ -1377,7 +1407,6 @@ async function screenJarvis() {
   if (action in quickCmds) {
     console.log(T.muted(`\n  Sending to G.F.A.I.: "${quickCmds[action]}"\n`));
     console.log(T.muted('  (Note: Full voice + AI response available in Web UI)\n'));
-    // Execute directly for TUI
     if (action === 'time') {
       console.log(T.success(`  ${new Date().toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}\n`));
     } else if (action === 'weather') {
@@ -1407,6 +1436,213 @@ async function screenJarvis() {
     const script = `tell application "Messages"\n  try\n    set s to 1st service whose service type = iMessage\n    send "${msg.replace(/"/g,'\\"')}" to buddy "${contact.replace(/"/g,'\\"')}" of s\n    return "sent"\n  on error e\n    return e\n  end try\nend tell`;
     await runAppleScript(script); return;
   }
+}
+
+// ── Model selection screen ────────────────────────────────────────────────────
+
+const _tuiSelectedModel = { provider: '', id: '' };
+
+async function screenModelSelect() {
+  sectionHeader('🔄  Switch AI Model', 'Select which AI model G.F.A.I. will use');
+
+  let availableModels = [];
+  const spinner = ora(T.muted('  Fetching available models...')).start();
+  try {
+    const { default: http } = await import('http');
+    availableModels = await new Promise((resolve) => {
+      const req = http.get('http://localhost:3001/api/jarvis/models', {
+        headers: { Cookie: 'gf_token=2001' },
+      }, (res) => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => {
+          try { resolve(JSON.parse(data).models || []); } catch { resolve([]); }
+        });
+      });
+      req.on('error', () => resolve([]));
+      req.setTimeout(3000, () => { req.destroy(); resolve([]); });
+    });
+    spinner.stop();
+  } catch {
+    spinner.stop();
+  }
+
+  // Fallback models if server is down
+  if (!availableModels.length) {
+    availableModels = [
+      { provider: 'google',     id: 'gemini-2.0-flash',                  label: 'Gemini 2.0 Flash' },
+      { provider: 'xai',        id: 'grok-3-mini',                       label: 'Grok 3 Mini (xAI)' },
+      { provider: 'openrouter', id: 'google/gemma-4-26b-a4b-it:free',    label: 'Gemma 4 26B (Free)' },
+      { provider: 'openrouter', id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 120B (Free)' },
+      { provider: 'ollama',     id: 'llama3.2:3b',                       label: 'Llama 3.2 3B (Local)' },
+      { provider: 'ollama',     id: 'qwen2.5-coder:7b',                  label: 'Qwen 2.5 Coder 7B (Local)' },
+    ];
+  }
+
+  const choices = availableModels.map(m => ({
+    name: `${m.available !== false ? T.success('✓') : T.danger('✗')} ${T.white.bold((m.label || m.id).padEnd(35))} ${T.muted(m.provider)}`,
+    value: `${m.provider}::${m.id}`,
+  }));
+  choices.push({ name: T.muted('← Back'), value: '__back__' });
+
+  const picked = await select({ message: 'Choose a model:', choices, pageSize: 15 });
+  if (picked === '__back__') return;
+
+  const [provider, id] = picked.split('::');
+  _tuiSelectedModel.provider = provider;
+  _tuiSelectedModel.id = id;
+
+  console.log(T.success(`\n  ✓ Model set to: ${T.white.bold(id)} (${provider})\n`));
+  console.log(T.muted('  This model will be used in TUI chat sessions.\n'));
+  await pressEnter();
+}
+
+// ── G.F.A.I. TUI Chat session ─────────────────────────────────────────────────
+
+async function screenGFAIChat() {
+  sectionHeader('💬  G.F.A.I. Chat', 'Chat with any AI model — type your message, /model to switch, /exit to quit');
+
+  const history = [];
+  const modelInfo = _tuiSelectedModel.id
+    ? `${_tuiSelectedModel.id} (${_tuiSelectedModel.provider})`
+    : 'auto (fallback chain)';
+
+  console.log(boxen(
+    T.cyan.bold('  G.F.A.I. Chat Session\n') +
+    T.muted('  Model: ') + T.white(modelInfo) + '\n' +
+    T.muted('  Commands: ') + T.accent('/model') + T.muted(' switch model · ') +
+    T.accent('/clear') + T.muted(' clear history · ') +
+    T.accent('/features') + T.muted(' list features · ') +
+    T.accent('/exit') + T.muted(' quit chat'),
+    { padding: 1, margin: { left: 2 }, borderColor: 'cyan', borderStyle: 'round' }
+  ));
+
+  const { default: http } = await import('http');
+
+  async function askGFAI(message) {
+    const body = JSON.stringify({
+      message,
+      history: history.slice(-6).map(h => ({ role: h.role, content: h.text })),
+      selectedProvider: _tuiSelectedModel.provider || undefined,
+      selectedModel: _tuiSelectedModel.id || undefined,
+    });
+
+    return new Promise((resolve) => {
+      const req = http.request({
+        hostname: 'localhost',
+        port: 3001,
+        path: '/api/jarvis',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Cookie: 'gf_token=2001' },
+      }, (res) => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); }
+          catch { resolve({ speech: data, tool: null, toolResult: null }); }
+        });
+      });
+      req.on('error', (e) => resolve({ speech: `Error: ${e.message}`, tool: null, toolResult: null }));
+      req.setTimeout(30000, () => { req.destroy(); resolve({ speech: 'Request timed out.', tool: null, toolResult: null }); });
+      req.write(body);
+      req.end();
+    });
+  }
+
+  while (true) {
+    let userInput;
+    try {
+      userInput = await input({
+        message: T.cyan('You:'),
+        theme: { prefix: '' },
+      });
+    } catch { break; }
+
+    if (!userInput.trim()) continue;
+
+    const cmd = userInput.trim().toLowerCase();
+
+    if (cmd === '/exit' || cmd === 'exit' || cmd === 'quit') break;
+
+    if (cmd === '/clear') {
+      history.length = 0;
+      console.log(T.muted('  History cleared.\n'));
+      continue;
+    }
+
+    if (cmd === '/model' || cmd === '/switch') {
+      await screenModelSelect();
+      const newModel = _tuiSelectedModel.id ? `${_tuiSelectedModel.id} (${_tuiSelectedModel.provider})` : 'auto';
+      console.log(T.success(`  Active model: ${newModel}\n`));
+      continue;
+    }
+
+    if (cmd === '/features' || cmd === '/help') {
+      console.log(boxen(
+        T.cyan.bold('G.F.A.I. Features (type naturally or use these):\n\n') +
+        T.white('  🕐 Time & Date') +         T.muted('   — "what time is it?"\n') +
+        T.white('  🌤 Weather') +             T.muted('      — "weather in Riyadh"\n') +
+        T.white('  🖥 System') +              T.muted('       — "system status", "battery"\n') +
+        T.white('  📸 Screenshot') +          T.muted('   — "take a screenshot"\n') +
+        T.white('  🔒 Lock Screen') +         T.muted('   — "lock the screen"\n') +
+        T.white('  🖱 Mouse/Click') +         T.muted('    — "click at 500 300"\n') +
+        T.white('  ⌨️ Key Combo') +           T.muted('     — "press cmd+space"\n') +
+        T.white('  📋 Clipboard') +           T.muted('     — "copy to clipboard: hello"\n') +
+        T.white('  🤖 Copilot CLI') +         T.muted('  — "ask copilot: how to..."\n') +
+        T.white('  💬 iMessage') +            T.muted('      — "send iMessage to John: hi"\n') +
+        T.white('  🔍 Web Search') +          T.muted('   — "search for React hooks"\n') +
+        T.white('  🐙 GitHub') +              T.muted('       — "list my repos"\n') +
+        T.white('  💻 Run Code') +            T.muted('      — "run: python3 -c \'print(1+1)\'"\n'),
+        { padding: 1, borderColor: '#06B6D4', borderStyle: 'round', title: ' G.F.A.I. Capabilities ' }
+      ));
+      continue;
+    }
+
+    // Handle direct run commands
+    if (cmd.startsWith('/run ') || cmd.startsWith('run: ')) {
+      const runCmd = userInput.replace(/^\/run |^run: /i, '').trim();
+      console.log(T.muted(`\n  Running: ${runCmd}\n`));
+      try {
+        const out = execSync(runCmd, { encoding: 'utf8', timeout: 15000, stdio: ['pipe','pipe','pipe'] }).trim();
+        console.log(T.success('  Output:\n') + T.white(`  ${out.split('\n').join('\n  ')}\n`));
+      } catch (e) {
+        console.log(T.danger(`  Error: ${e.message}\n`));
+      }
+      continue;
+    }
+
+    history.push({ role: 'user', text: userInput });
+
+    const spinner = ora(T.muted('  G.F.A.I. thinking...')).start();
+    let response;
+    try {
+      response = await askGFAI(userInput);
+      spinner.stop();
+    } catch (e) {
+      spinner.stop();
+      console.log(T.danger(`\n  Error: ${e.message}\n`));
+      continue;
+    }
+
+    const speech = response.speech || response.text || 'No response.';
+    const usedModel = response.usedModel ? T.muted(` [${response.usedModel}]`) : '';
+    const domain = response.domain ? T.muted(` {${response.domain}}`) : '';
+    const tool = response.tool ? T.muted(` ⚙ ${response.tool}`) : '';
+
+    console.log();
+    console.log(boxen(
+      T.cyan.bold('G.F.A.I.:') + usedModel + domain + tool + '\n\n' +
+      T.white(speech) +
+      (response.toolResult ? '\n\n' + T.accent('Result:\n') + T.dim(String(response.toolResult).slice(0, 800)) : ''),
+      { padding: 1, margin: { left: 2 }, borderColor: 'cyan', borderStyle: 'round' }
+    ));
+    console.log();
+
+    history.push({ role: 'assistant', text: speech });
+  }
+
+  console.log(T.muted('\n  Chat ended. Returning to menu...\n'));
+  await new Promise(r => setTimeout(r, 800));
 }
 
 async function screenMacControl() {
@@ -1851,36 +2087,76 @@ async function screenOpenProject() {
 }
 
 async function screenDoctor() {
-  sectionHeader('🩺  GhostForge Doctor', 'Health check — env, bridge, AI models, tools, web UI pages');
+  sectionHeader('🩺  GhostForge Doctor', 'Live health checks — services, AI keys, and required CLI tools');
 
-  const doctorScript = resolve(ROOT, 'scripts/doctor.sh');
+  const checks = [];
+  const addCheck = (label, status, detail, weight = 1) => checks.push({ label, status, detail, weight });
 
-  console.log(T.muted('  Running checks...\n'));
+  const server = runShellCheck('curl -fsS --max-time 2 http://localhost:3001 >/dev/null');
+  addCheck('Server :3001', server.ok ? 'pass' : 'fail', server.ok ? 'responding' : 'not reachable');
 
-  const result = spawnSync('bash', [doctorScript], {
-    env: { ...process.env, GHOSTFORGE_ROOT: ROOT },
-    encoding: 'utf8',
-    stdio: ['inherit', 'pipe', 'pipe'],
+  const ollama = runShellCheck('curl -fsS --max-time 2 http://localhost:11434/api/tags >/dev/null');
+  addCheck('Ollama :11434', ollama.ok ? 'pass' : 'warn', ollama.ok ? 'responding' : 'offline');
+
+  const cliclick = runShellCheck('command -v cliclick');
+  addCheck('cliclick', cliclick.ok ? 'pass' : 'fail', cliclick.ok ? cliclick.output : 'not installed');
+
+  const fishAudio = readEnvValueFromFile('web-ui/.env.local', 'FISH_AUDIO_API_KEY');
+  addCheck('Fish Audio key', fishAudio ? 'pass' : 'warn', fishAudio ? `set (${fishAudio.length} chars)` : 'missing in web-ui/.env.local');
+
+  const elevenlabs = readEnvValueFromFile('web-ui/.env.local', 'ELEVENLABS_API_KEY');
+  addCheck('ElevenLabs key', elevenlabs ? 'pass' : 'warn', elevenlabs ? `set (${elevenlabs.length} chars)` : 'missing in web-ui/.env.local');
+
+  const openrouter = readEnvValueFromFile('web-ui/.env.local', 'OPENROUTER_API_KEY');
+  addCheck('OpenRouter key', openrouter ? 'pass' : 'warn', openrouter ? `set (${openrouter.length} chars)` : 'missing in web-ui/.env.local');
+
+  const gemini = readEnvValueFromFile('web-ui/.env.local', 'GOOGLE_GENERATIVE_AI_API_KEY')
+    || readEnvValueFromFile('web-ui/.env.local', 'GEMINI_API_KEY');
+  addCheck('Gemini key', gemini ? 'pass' : 'warn', gemini ? `set (${gemini.length} chars)` : 'missing in web-ui/.env.local');
+
+  const gh = runShellCheck('command -v gh');
+  addCheck('GitHub CLI', gh.ok ? 'pass' : 'fail', gh.ok ? gh.output : 'not installed');
+
+  const git = runShellCheck('command -v git');
+  addCheck('Git CLI', git.ok ? 'pass' : 'fail', git.ok ? git.output : 'not installed');
+
+  const table = new Table({
+    head: [T.white.bold('Check'), T.white.bold('Status'), T.white.bold('Details')],
+    colWidths: [24, 12, 40],
+    wordWrap: true,
+    style: { head: [], border: [] },
   });
 
-  const output = (result.stdout || '') + (result.stderr || '');
-  if (output.trim()) {
-    console.log(output);
-  } else {
-    console.log(T.muted('  (no output — check that scripts/doctor.sh is executable)'));
-  }
+  checks.forEach(check => {
+    table.push([
+      T.white(check.label),
+      doctorStatusTone(check.status),
+      check.status === 'pass' ? T.success(check.detail) : check.status === 'warn' ? T.warning(check.detail) : T.danger(check.detail),
+    ]);
+  });
 
-  const openFix = await confirm({ message: 'Auto-fix issues? (starts bridge if offline, installs missing deps)' }).catch(() => false);
-  if (openFix) {
-    console.log(T.muted('\n  Running auto-fix...\n'));
-    const fix = spawnSync('bash', [doctorScript, '--fix'], {
-      env: { ...process.env, GHOSTFORGE_ROOT: ROOT },
-      encoding: 'utf8',
-      stdio: ['inherit', 'pipe', 'pipe'],
-    });
-    console.log((fix.stdout || '') + (fix.stderr || ''));
-  }
+  const scoreValue = checks.reduce((sum, check) => {
+    if (check.status === 'pass') return sum + check.weight;
+    if (check.status === 'warn') return sum + (check.weight * 0.5);
+    return sum;
+  }, 0);
+  const maxScore = checks.reduce((sum, check) => sum + check.weight, 0) || 1;
+  const healthScore = Math.round((scoreValue / maxScore) * 100);
+  const passCount = checks.filter(check => check.status === 'pass').length;
+  const warnCount = checks.filter(check => check.status === 'warn').length;
+  const failCount = checks.filter(check => check.status === 'fail').length;
+  const scoreTone = healthScore >= 85 ? T.success : healthScore >= 65 ? T.warning : T.danger;
 
+  console.log(table.toString());
+  console.log();
+  console.log(boxen(
+    T.white(' Health Score ') + scoreTone.bold(`${healthScore}%`) + '\n' +
+    T.success(` Pass: ${passCount} `) + T.muted('│') +
+    T.warning(` Warn: ${warnCount} `) + T.muted('│') +
+    T.danger(` Fail: ${failCount} `) + '\n' +
+    checks.map(check => `${doctorStatusLabel(check.status)} ${check.label}`).join('\n'),
+    { padding: 1, borderColor: healthScore >= 85 ? '#22C55E' : healthScore >= 65 ? '#F59E0B' : '#EF4444', borderStyle: 'round' }
+  ));
   await pressEnter();
 }
 

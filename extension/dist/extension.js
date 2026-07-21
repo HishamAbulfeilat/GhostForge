@@ -34,7 +34,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode5 = __toESM(require("vscode"));
+var vscode6 = __toESM(require("vscode"));
 
 // src/commands.ts
 var fs = __toESM(require("fs"));
@@ -135,7 +135,7 @@ async function runStorybook(toolkitRoot, resource) {
   }
   const terminal = getGhostForgeTerminal(toolkitRoot);
   terminal.show(true);
-  terminal.sendText(buildShellCommand(path.join(toolkitRoot, "scripts", "storybook-gen.sh"), [targetUri.fsPath]));
+  terminal.sendText(buildShellCommand(path.join(toolkitRoot, "scripts", "storybook.sh"), ["generate", targetUri.fsPath]));
 }
 async function runTicket(toolkitRoot) {
   const ticketId = await vscode.window.showInputBox({
@@ -250,18 +250,382 @@ async function copySlashCommand(slashCommand) {
   vscode.window.showInformationMessage(`Copied! Paste in Copilot Chat: ${slashCommand}`);
 }
 function getToolkitRootFromActiveExtension() {
-  const extension = vscode.extensions.getExtension("ghostforge.ghostforge-ai");
+  const extension = vscode.extensions.getExtension("ghostforge.ghostforge");
   return extension?.extensionPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
 }
 
-// src/snippetProvider.ts
-var fs2 = __toESM(require("fs"));
-var path2 = __toESM(require("path"));
+// src/chatParticipant.ts
 var vscode2 = __toESM(require("vscode"));
+var path2 = __toESM(require("path"));
+var fs2 = __toESM(require("fs"));
+var http = __toESM(require("http"));
+var PARTICIPANT_ID = "ghostforge";
+var SLASH_COMMANDS = [
+  { name: "health", description: "Run project health check" },
+  { name: "review", description: "Code review current file" },
+  { name: "test", description: "Generate tests for current file" },
+  { name: "docs", description: "Generate documentation" },
+  { name: "rtl", description: "RTL audit (Tailwind LTR \u2192 RTL)" },
+  { name: "bundle", description: "Bundle size analysis" },
+  { name: "commit", description: "Suggest a commit message" },
+  { name: "security", description: "Security audit" },
+  { name: "optimize", description: "Optimize current code" },
+  { name: "estimate", description: "Estimate story points for task" },
+  { name: "changelog", description: "Generate CHANGELOG entry" },
+  { name: "snippet", description: "Browse and insert snippets" },
+  { name: "jarvis", description: "Ask G.F.A.I. (JARVIS) via GhostForge API" },
+  { name: "model", description: "Switch AI model (gemini/grok/ollama/openrouter)" },
+  { name: "maccontrol", description: "Control Mac via AppleScript (e.g. /maccontrol lock)" },
+  { name: "models", description: "List all available AI models" },
+  { name: "help", description: "List all available commands" }
+];
+var selectedProvider = "";
+var selectedModelId = "";
+var GF_API_BASE = "http://localhost:3001";
+var GF_COOKIE = "gf_token=2001";
+function getActiveFileContent() {
+  const editor = vscode2.window.activeTextEditor;
+  if (!editor) return null;
+  const doc = editor.document;
+  const content = doc.getText();
+  const relativePath = vscode2.workspace.asRelativePath(doc.uri);
+  return `File: ${relativePath}
+\`\`\`${doc.languageId}
+${content.slice(0, 8e3)}
+\`\`\``;
+}
+function getProjectContext(toolkitRoot) {
+  const lines = [];
+  const versionFile = path2.join(toolkitRoot, "..", "VERSION");
+  if (fs2.existsSync(versionFile)) {
+    lines.push(`Toolkit version: ${fs2.readFileSync(versionFile, "utf8").trim()}`);
+  }
+  const instrFile = path2.join(
+    vscode2.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "",
+    ".github",
+    "copilot-instructions.md"
+  );
+  if (fs2.existsSync(instrFile)) {
+    const content = fs2.readFileSync(instrFile, "utf8");
+    lines.push(`
+---
+Project instructions:
+${content.slice(0, 3e3)}`);
+  }
+  return lines.join("\n");
+}
+function buildSystemPrompt(toolkitRoot) {
+  return [
+    "You are @ghostforge, the GhostForge AI Developer Toolkit assistant (G.F.A.I.).",
+    "You help developers with React, Next.js, TypeScript, Tailwind CSS, RTL, Arabic localisation, AI integration, Mac automation, and all GhostForge toolkit features.",
+    "You are opinionated about code quality, accessibility, and performance.",
+    "",
+    getProjectContext(toolkitRoot),
+    "",
+    "When asked to run a script (health, rtl, bundle, etc.), tell the user to use Cmd+Shift+E or run the bash script directly.",
+    "Keep responses concise and actionable. Use code blocks for code examples.",
+    "",
+    `Active model: ${selectedModelId ? `${selectedModelId} (${selectedProvider})` : "Copilot default"}`
+  ].join("\n");
+}
+function callGhostForgeAPI(apiPath, body) {
+  return new Promise((resolve) => {
+    const bodyStr = JSON.stringify(body);
+    const req = http.request({
+      hostname: "localhost",
+      port: 3001,
+      path: apiPath,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(bodyStr),
+        "Cookie": GF_COOKIE
+      }
+    }, (res) => {
+      let data = "";
+      res.on("data", (c) => data += c);
+      res.on("end", () => resolve(data));
+    });
+    req.on("error", (e) => resolve(JSON.stringify({ error: e.message })));
+    req.setTimeout(3e4, () => {
+      req.destroy();
+      resolve(JSON.stringify({ error: "timeout" }));
+    });
+    req.write(bodyStr);
+    req.end();
+  });
+}
+function getGhostForgeAPI(apiPath) {
+  return new Promise((resolve) => {
+    const req = http.get(`${GF_API_BASE}${apiPath}`, {
+      headers: { "Cookie": GF_COOKIE }
+    }, (res) => {
+      let data = "";
+      res.on("data", (c) => data += c);
+      res.on("end", () => resolve(data));
+    });
+    req.on("error", (e) => resolve(JSON.stringify({ error: e.message })));
+    req.setTimeout(8e3, () => {
+      req.destroy();
+      resolve(JSON.stringify({ error: "timeout" }));
+    });
+  });
+}
+function renderHelp() {
+  const lines = [
+    "## \u26A1 @ghostforge \u2014 GhostForge AI Toolkit (G.F.A.I.)",
+    "",
+    "### Chat Commands",
+    ...SLASH_COMMANDS.map((cmd) => `- \`/${cmd.name}\` \u2014 ${cmd.description}`),
+    "",
+    "### Model Selection",
+    "- `@ghostforge /model gemini` \u2014 Switch to Gemini",
+    "- `@ghostforge /model grok` \u2014 Switch to Grok (xAI)",
+    "- `@ghostforge /model ollama` \u2014 Switch to local Ollama",
+    "- `@ghostforge /model openrouter` \u2014 Switch to OpenRouter free models",
+    "- `@ghostforge /model auto` \u2014 Reset to auto fallback chain",
+    "",
+    "### G.F.A.I. Direct Chat",
+    "- `@ghostforge /jarvis what time is it?` \u2014 Ask JARVIS",
+    "- `@ghostforge /jarvis lock the screen` \u2014 Mac control via JARVIS",
+    "- `@ghostforge /jarvis search for React 19 features` \u2014 Web search",
+    "",
+    "### Mac Control",
+    "- `@ghostforge /maccontrol lock` \u2014 Lock screen",
+    "- `@ghostforge /maccontrol screenshot` \u2014 Take screenshot",
+    "- `@ghostforge /maccontrol open Safari` \u2014 Open app",
+    "",
+    "### Examples",
+    "- `@ghostforge /health` \u2014 Check project health score",
+    "- `@ghostforge /review` \u2014 Review the current file",
+    "- `@ghostforge /models` \u2014 List all available AI models"
+  ];
+  return lines.join("\n");
+}
+function registerChatParticipant(context, toolkitRoot) {
+  const handler = async (request2, chatContext, stream, token) => {
+    const command = request2.command ?? "";
+    const prompt = request2.prompt.trim();
+    if (command === "help" || !command && !prompt) {
+      stream.markdown(renderHelp());
+      return;
+    }
+    if (command === "models") {
+      stream.markdown("### \u{1F916} Available AI Models\n\nFetching from GhostForge API...\n");
+      try {
+        const raw = await getGhostForgeAPI("/api/jarvis/models");
+        const data = JSON.parse(raw);
+        const lines = [
+          `**Active model:** \`${data.active?.model || "auto"}\` (${data.active?.provider || "unknown"})`,
+          `**Ollama:** ${data.ollama?.running ? `\u2705 Running \u2014 models: ${data.ollama.models.join(", ")}` : "\u274C Not running"}`,
+          "",
+          "| Provider | Model | Available | Free |",
+          "|----------|-------|-----------|------|"
+        ];
+        for (const m of data.models || []) {
+          lines.push(`| ${m.provider} | \`${m.id}\` | ${m.available ? "\u2705" : "\u274C"} | ${m.free ? "\u{1F193}" : "\u{1F4B3}"} |`);
+        }
+        lines.push("", `**Currently selected in chat:** \`${selectedModelId || "auto"}\` (${selectedProvider || "fallback chain"})`);
+        stream.markdown(lines.join("\n"));
+      } catch {
+        stream.markdown("\u26A0\uFE0F GhostForge server not running at localhost:3001. Start it with `npm start -- -p 3001` in GhostForge/web-ui/");
+      }
+      return;
+    }
+    if (command === "model") {
+      const target = prompt.toLowerCase().trim();
+      if (!target || target === "auto") {
+        selectedProvider = "";
+        selectedModelId = "";
+        stream.markdown("\u2705 **Model reset to auto** \u2014 GhostForge will use the best available model automatically.");
+        return;
+      }
+      if (target.includes("grok") || target === "xai") {
+        selectedProvider = "xai";
+        selectedModelId = target.includes("3") && !target.includes("mini") ? "grok-3" : "grok-3-mini";
+      } else if (target.includes("gemini") || target === "google") {
+        selectedProvider = "google";
+        selectedModelId = target.includes("2.5") ? "gemini-2.5-flash" : "gemini-2.0-flash";
+      } else if (target.includes("ollama") || target.includes("llama") || target.includes("qwen")) {
+        selectedProvider = "ollama";
+        selectedModelId = target.includes("qwen") ? "qwen2.5-coder:7b" : "llama3.2:3b";
+      } else if (target.includes("openrouter") || target.includes("gemma") || target.includes("nemotron")) {
+        selectedProvider = "openrouter";
+        selectedModelId = target.includes("120") ? "nvidia/nemotron-3-super-120b-a12b:free" : "google/gemma-4-26b-a4b-it:free";
+      } else if (target.includes("deepseek") || target.includes("r1")) {
+        selectedProvider = "openrouter";
+        selectedModelId = "deepseek/deepseek-r1:free";
+      } else {
+        selectedModelId = prompt.trim();
+        selectedProvider = prompt.includes("/") ? "openrouter" : "custom";
+      }
+      stream.markdown(`\u2705 **Model switched to** \`${selectedModelId}\` (${selectedProvider})
+
+All subsequent \`@ghostforge\` messages will use this model.`);
+      return;
+    }
+    if (command === "jarvis") {
+      const message = prompt || "Hello, G.F.A.I. Status?";
+      stream.markdown(`**G.F.A.I.** *(${selectedModelId || "auto"})* \u2014 asking: *"${message}"*
+
+`);
+      try {
+        const raw = await callGhostForgeAPI("/api/jarvis", {
+          message,
+          selectedProvider: selectedProvider || void 0,
+          selectedModel: selectedModelId || void 0
+        });
+        const data = JSON.parse(raw);
+        if (data.usedModel) {
+          stream.markdown(`> \u{1F916} **Model used:** \`${data.usedModel}\` (${data.usedProvider || ""})${data.domain ? ` | **Domain:** ${data.domain}` : ""}${data.confidence !== void 0 ? ` | **Confidence:** ${data.confidence}%` : ""}
+
+`);
+        }
+        stream.markdown(data.speech || "G.F.A.I. returned no response.");
+        if (data.tool && data.toolResult) {
+          stream.markdown(`
+
+---
+**Tool used:** \`${data.tool}\`
+\`\`\`
+${String(data.toolResult).slice(0, 1500)}
+\`\`\``);
+        }
+      } catch {
+        stream.markdown("\u26A0\uFE0F G.F.A.I. unavailable. Make sure GhostForge web server is running on port 3001.");
+      }
+      return;
+    }
+    if (command === "maccontrol") {
+      const action = prompt || "system status";
+      stream.markdown(`**Mac Control** \u2014 executing: *"${action}"*
+
+`);
+      try {
+        const raw = await callGhostForgeAPI("/api/jarvis", {
+          message: `Execute Mac control: ${action}`,
+          selectedProvider: selectedProvider || void 0,
+          selectedModel: selectedModelId || void 0
+        });
+        const data = JSON.parse(raw);
+        stream.markdown(data.speech || "Done.");
+        if (data.toolResult) {
+          stream.markdown(`
+
+\`\`\`
+${String(data.toolResult).slice(0, 1500)}
+\`\`\``);
+        }
+      } catch {
+        stream.markdown("\u26A0\uFE0F Mac control requires GhostForge server running on port 3001.");
+      }
+      return;
+    }
+    const messages = [
+      vscode2.LanguageModelChatMessage.User(buildSystemPrompt(toolkitRoot))
+    ];
+    for (const turn of chatContext.history.slice(-4)) {
+      if (turn instanceof vscode2.ChatRequestTurn) {
+        messages.push(vscode2.LanguageModelChatMessage.User(turn.prompt));
+      } else if (turn instanceof vscode2.ChatResponseTurn) {
+        const text = turn.response.filter((part) => part instanceof vscode2.ChatResponseMarkdownPart).map((part) => part.value.value).join("");
+        if (text) messages.push(vscode2.LanguageModelChatMessage.Assistant(text));
+      }
+    }
+    let userMessage = "";
+    if (command) userMessage = `Command: /${command}
+`;
+    const fileAwareCommands = ["review", "test", "docs", "optimize", "rtl", "security", "commit", "snippet"];
+    if (fileAwareCommands.includes(command) || !command) {
+      const fileContent = getActiveFileContent();
+      if (fileContent) userMessage += `
+Active file:
+${fileContent}
+`;
+    }
+    if (prompt) userMessage += `
+User request: ${prompt}`;
+    if (!userMessage.trim()) {
+      stream.markdown(renderHelp());
+      return;
+    }
+    messages.push(vscode2.LanguageModelChatMessage.User(userMessage));
+    if (selectedModelId && selectedProvider && selectedProvider !== "copilot") {
+      stream.markdown(`> \u{1F504} **Routing to GhostForge API** \u2014 model: \`${selectedModelId}\` (${selectedProvider})
+
+`);
+      try {
+        const raw = await callGhostForgeAPI("/api/chat", {
+          messages: messages.map((m) => ({
+            role: m.role === vscode2.LanguageModelChatMessageRole.User ? "user" : "assistant",
+            content: typeof m.content === "string" ? m.content : m.content.map((p) => p.value || "").join("")
+          })),
+          selectedProvider,
+          selectedModel: selectedModelId
+        });
+        const data = JSON.parse(raw);
+        if (data.error) {
+          stream.markdown(`\u26A0\uFE0F API error: ${data.error}
+
+*Falling back to Copilot...*
+`);
+        } else {
+          stream.markdown(data.text || data.response || "No response from model.");
+          return;
+        }
+      } catch {
+        stream.markdown("\u26A0\uFE0F GhostForge API unreachable \u2014 falling back to Copilot.\n\n");
+      }
+    }
+    let model;
+    try {
+      const models = await vscode2.lm.selectChatModels({ vendor: "copilot" });
+      model = models.find((m) => m.id.includes("gpt-4") || m.id.includes("claude")) ?? models[0];
+    } catch {
+      stream.markdown("\u26A0\uFE0F No language model available. Make sure GitHub Copilot is active.");
+      return;
+    }
+    if (!model) {
+      stream.markdown("\u26A0\uFE0F No language model available.");
+      return;
+    }
+    try {
+      const response = await model.sendRequest(messages, {}, token);
+      for await (const chunk of response.text) {
+        stream.markdown(chunk);
+      }
+    } catch (err) {
+      if (err instanceof vscode2.LanguageModelError) {
+        stream.markdown(`\u26A0\uFE0F Model error: ${err.message}`);
+      } else {
+        stream.markdown("\u26A0\uFE0F An error occurred. Please try again.");
+      }
+    }
+  };
+  const participant = vscode2.chat.createChatParticipant(PARTICIPANT_ID, handler);
+  participant.iconPath = vscode2.Uri.joinPath(context.extensionUri, "media", "icon.png");
+  participant.followupProvider = {
+    provideFollowups(_result, _context, _token) {
+      return [
+        { prompt: "", label: "\u{1F4CB} List all commands", command: "help" },
+        { prompt: "", label: "\u2695\uFE0F Health check", command: "health" },
+        { prompt: "", label: "\u{1F50D} Review this file", command: "review" },
+        { prompt: "", label: "\u{1F916} List AI models", command: "models" },
+        { prompt: "what time is it?", label: "\u{1F550} Ask JARVIS", command: "jarvis" }
+      ];
+    }
+  };
+  context.subscriptions.push(participant);
+}
+
+// src/snippetProvider.ts
+var fs3 = __toESM(require("fs"));
+var path3 = __toESM(require("path"));
+var vscode3 = __toESM(require("vscode"));
 var SnippetTreeProvider = class {
   constructor(toolkitRoot) {
     this.toolkitRoot = toolkitRoot;
-    this.changeEmitter = new vscode2.EventEmitter();
+    this.changeEmitter = new vscode3.EventEmitter();
     this.onDidChangeTreeData = this.changeEmitter.event;
   }
   refresh() {
@@ -283,26 +647,26 @@ var SnippetTreeProvider = class {
     return [];
   }
   loadSnippetItems(kind) {
-    const snippetsDir = path2.join(this.toolkitRoot, "snippets");
+    const snippetsDir = path3.join(this.toolkitRoot, "snippets");
     const descriptionMap = loadSnippetDescriptions(snippetsDir);
     const allowedExtensions = kind === "md" ? [".md"] : [".ts", ".tsx"];
-    return fs2.readdirSync(snippetsDir).filter((entry) => allowedExtensions.includes(path2.extname(entry))).sort((left, right) => left.localeCompare(right)).map((entry) => {
-      const filePath = path2.join(snippetsDir, entry);
+    return fs3.readdirSync(snippetsDir).filter((entry) => allowedExtensions.includes(path3.extname(entry))).sort((left, right) => left.localeCompare(right)).map((entry) => {
+      const filePath = path3.join(snippetsDir, entry);
       const description = descriptionMap.get(entry) ?? inferSnippetDescription(filePath);
-      return new SnippetItem(entry, filePath, description, vscode2.TreeItemCollapsibleState.None);
+      return new SnippetItem(entry, filePath, description, vscode3.TreeItemCollapsibleState.None);
     });
   }
 };
-var SnippetGroupItem = class extends vscode2.TreeItem {
+var SnippetGroupItem = class extends vscode3.TreeItem {
   constructor(label, kind) {
-    super(label, vscode2.TreeItemCollapsibleState.Expanded);
+    super(label, vscode3.TreeItemCollapsibleState.Expanded);
     this.label = label;
     this.kind = kind;
-    this.iconPath = new vscode2.ThemeIcon(kind === "ts" ? "symbol-class" : "book");
+    this.iconPath = new vscode3.ThemeIcon(kind === "ts" ? "symbol-class" : "book");
     this.contextValue = `snippet-group-${kind}`;
   }
 };
-var SnippetItem = class extends vscode2.TreeItem {
+var SnippetItem = class extends vscode3.TreeItem {
   constructor(label, filePath, description, collapsibleState) {
     super(label, collapsibleState);
     this.label = label;
@@ -315,15 +679,15 @@ var SnippetItem = class extends vscode2.TreeItem {
       title: "Insert Snippet",
       arguments: [filePath]
     };
-    this.iconPath = new vscode2.ThemeIcon(filePath.endsWith(".ts") || filePath.endsWith(".tsx") ? "symbol-snippet" : "book");
+    this.iconPath = new vscode3.ThemeIcon(filePath.endsWith(".ts") || filePath.endsWith(".tsx") ? "symbol-snippet" : "book");
   }
 };
 function loadSnippetDescriptions(snippetsDir) {
-  const readmePath = path2.join(snippetsDir, "README.md");
-  if (!fs2.existsSync(readmePath)) {
+  const readmePath = path3.join(snippetsDir, "README.md");
+  if (!fs3.existsSync(readmePath)) {
     return /* @__PURE__ */ new Map();
   }
-  const lines = fs2.readFileSync(readmePath, "utf8").split(/\r?\n/);
+  const lines = fs3.readFileSync(readmePath, "utf8").split(/\r?\n/);
   const descriptions = /* @__PURE__ */ new Map();
   for (const line of lines) {
     const match = line.match(/^\|\s*`([^`]+)`\s*\|\s*(.+?)\s*\|$/);
@@ -334,16 +698,16 @@ function loadSnippetDescriptions(snippetsDir) {
   return descriptions;
 }
 function inferSnippetDescription(filePath) {
-  const firstMeaningfulLine = fs2.readFileSync(filePath, "utf8").split(/\r?\n/).map((line) => line.trim()).find((line) => line.length > 0 && !line.startsWith("#"));
+  const firstMeaningfulLine = fs3.readFileSync(filePath, "utf8").split(/\r?\n/).map((line) => line.trim()).find((line) => line.length > 0 && !line.startsWith("#"));
   return firstMeaningfulLine?.slice(0, 80) ?? "GhostForge snippet";
 }
 
 // src/commandProvider.ts
-var vscode3 = __toESM(require("vscode"));
+var vscode4 = __toESM(require("vscode"));
 var CommandTreeProvider = class {
   constructor(toolkitRoot) {
     this.toolkitRoot = toolkitRoot;
-    this.changeEmitter = new vscode3.EventEmitter();
+    this.changeEmitter = new vscode4.EventEmitter();
     this.onDidChangeTreeData = this.changeEmitter.event;
     void this.toolkitRoot;
   }
@@ -371,22 +735,22 @@ var CommandTreeProvider = class {
     return [];
   }
 };
-var CommandGroupItem = class extends vscode3.TreeItem {
+var CommandGroupItem = class extends vscode4.TreeItem {
   constructor(category, count) {
-    super(category, vscode3.TreeItemCollapsibleState.Expanded);
+    super(category, vscode4.TreeItemCollapsibleState.Expanded);
     this.category = category;
     this.description = `${count}`;
-    this.iconPath = new vscode3.ThemeIcon("folder-library");
+    this.iconPath = new vscode4.ThemeIcon("folder-library");
   }
 };
-var CommandItem = class extends vscode3.TreeItem {
+var CommandItem = class extends vscode4.TreeItem {
   constructor(label, description, slashCommand) {
-    super(label, vscode3.TreeItemCollapsibleState.None);
+    super(label, vscode4.TreeItemCollapsibleState.None);
     this.label = label;
     this.slashCommand = slashCommand;
     this.description = description;
     this.tooltip = `${slashCommand} \u2014 ${description}`;
-    this.iconPath = new vscode3.ThemeIcon("terminal");
+    this.iconPath = new vscode4.ThemeIcon("terminal");
     this.command = {
       command: "ghostforge.copySlashCommand",
       title: "Copy Slash Command",
@@ -396,10 +760,10 @@ var CommandItem = class extends vscode3.TreeItem {
 };
 
 // src/statusBar.ts
-var vscode4 = __toESM(require("vscode"));
+var vscode5 = __toESM(require("vscode"));
 var StatusBarManager = class {
   constructor(context) {
-    this.statusBarItem = vscode4.window.createStatusBarItem(vscode4.StatusBarAlignment.Right, 100);
+    this.statusBarItem = vscode5.window.createStatusBarItem(vscode5.StatusBarAlignment.Right, 100);
     this.statusBarItem.text = "\u26A1 GhostForge";
     this.statusBarItem.tooltip = "GhostForge AI Toolkit \u2014 Click to open command picker";
     this.statusBarItem.command = "ghostforge.openPicker";
@@ -414,29 +778,30 @@ var StatusBarManager = class {
 function activate(context) {
   const toolkitRoot = findToolkitRoot();
   registerCommands(context, toolkitRoot);
+  registerChatParticipant(context, toolkitRoot);
   const snippetProvider = new SnippetTreeProvider(toolkitRoot);
-  vscode5.window.registerTreeDataProvider("ghostforge.snippets", snippetProvider);
+  vscode6.window.registerTreeDataProvider("ghostforge.snippets", snippetProvider);
   context.subscriptions.push(
-    vscode5.commands.registerCommand("ghostforge.refreshSnippets", () => snippetProvider.refresh())
+    vscode6.commands.registerCommand("ghostforge.refreshSnippets", () => snippetProvider.refresh())
   );
   const commandProvider = new CommandTreeProvider(toolkitRoot);
-  vscode5.window.registerTreeDataProvider("ghostforge.commands", commandProvider);
+  vscode6.window.registerTreeDataProvider("ghostforge.commands", commandProvider);
   const statusBar = new StatusBarManager(context);
   statusBar.show();
-  vscode5.window.showInformationMessage("\u26A1 GhostForge AI Toolkit ready! (Cmd+Shift+E to open picker)");
+  vscode6.window.showInformationMessage("\u26A1 GhostForge AI Toolkit ready! (Cmd+Shift+E to open picker)");
 }
 function deactivate() {
 }
 function findToolkitRoot() {
   const os = require("os");
-  const path3 = require("path");
-  const fs3 = require("fs");
+  const path4 = require("path");
+  const fs4 = require("fs");
   const candidates = [
-    path3.join(os.homedir(), "ghostforge-agents"),
-    path3.join(os.homedir(), "Documents", "ghostforge-agents")
+    path4.join(os.homedir(), "ghostforge"),
+    path4.join(os.homedir(), "Documents", "ghostforge")
   ];
   for (const candidate of candidates) {
-    if (fs3.existsSync(path3.join(candidate, "VERSION"))) {
+    if (fs4.existsSync(path4.join(candidate, "VERSION"))) {
       return candidate;
     }
   }
