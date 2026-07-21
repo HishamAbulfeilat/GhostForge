@@ -263,13 +263,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No message' }, { status: 400 })
   }
 
+  // ── Shared: generateText with automatic fallback ─────────────────────────
+  type GenOpts = Omit<Parameters<typeof generateText>[0], 'model'>
+  async function aiGenerate(opts: GenOpts): Promise<string> {
+    const { model, fallbackModel } = await selectAIModel()
+    const isQuotaErr = (e: unknown) => {
+      const msg = String(e)
+      return msg.includes('quota') || msg.includes('exceeded') || msg.includes('429') || msg.includes('rate')
+    }
+    try {
+      const { text } = await generateText({ ...opts, model })
+      return text
+    } catch (e) {
+      if (fallbackModel && isQuotaErr(e)) {
+        console.warn('[G.F.A.I.] Primary model quota hit — falling back')
+        try {
+          const { text } = await generateText({ ...opts, model: fallbackModel })
+          return text
+        } catch (e2) {
+          throw e2
+        }
+      }
+      throw e
+    }
+  }
+
   // ── Step 1: AI intent classification + response ───────────────────────────
   let aiResp: AIResponse = { speech: "I'm processing your request, stand by.", tool: null, toolParams: {}, emotion: 'thinking' }
 
   try {
-    const { model } = await selectAIModel()
-    const { text } = await generateText({
-      model,
+    const text = await aiGenerate({
       system: buildSystemPrompt(memory),
       messages: [
         ...history.slice(-8).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
@@ -286,7 +309,14 @@ export async function POST(req: NextRequest) {
       aiResp.speech = text.trim()
     }
   } catch (e) {
-    aiResp = { speech: `Systems interference detected. ${String(e).slice(0, 80)}`, tool: null, toolParams: {}, emotion: 'alert' }
+    const msg = String(e)
+    const isQuota = msg.includes('quota') || msg.includes('exceeded') || msg.includes('429')
+    aiResp = {
+      speech: isQuota
+        ? 'All AI providers are currently rate-limited. Please wait a moment and try again.'
+        : `Systems interference detected. ${msg.slice(0, 80)}`,
+      tool: null, toolParams: {}, emotion: 'alert',
+    }
   }
 
   // ── Step 2: Execute tool if specified ─────────────────────────────────────
@@ -297,9 +327,7 @@ export async function POST(req: NextRequest) {
     // ── Step 3: Generate spoken response from tool result ─────────────────
     if (toolResult && toolResult !== 'Done') {
       try {
-        const { model } = await selectAIModel()
-        const { text } = await generateText({
-          model,
+        const text = await aiGenerate({
           system: `You are GhostForge AI (JARVIS-style). Respond in 1–2 concise sentences, spoken aloud.
 User said: "${message}"
 Tool "${aiResp.tool}" returned: "${toolResult}"

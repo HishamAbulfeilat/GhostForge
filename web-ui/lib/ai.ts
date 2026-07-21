@@ -52,10 +52,10 @@ export async function selectAIModel(opts?: ModelOverride): Promise<ModelSelectio
       ? activeModel
       : (process.env.GEMINI_MODEL || 'gemini-2.5-flash')
 
-    // Build fallback chain: OpenRouter → OmniRoute
+    // Fallback: OpenRouter free model → OmniRoute (local)
     const fallbackModel = openrouterKey
       ? createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: openrouterKey })(
-          process.env.OPENROUTER_MODEL || 'nvidia/nemotron-3-nano-30b-a3b:free'
+          process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free'
         )
       : makeOmniRouteModel()
 
