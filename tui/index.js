@@ -356,59 +356,65 @@ async function screenHome() {
   const choice = await select({
     message: T.white.bold('What would you like to do?'),
     choices: [
-      menuChoice(T.brand.bold, '📊  Developer Dashboard', 'tickets, pipelines, health, releases, charts', 'dashboard'),
-      menuChoice(T.cyan.bold, '👁️  View what\'s new', 'latest release highlights and changelog notes', 'whats-new'),
-      menuChoice(T.brand.bold, '🚀  New Project Setup', 'wizard: choose stack, init repo, scaffold everything', 'setup'),
-      menuChoice(T.brand.bold, '📂  Open Existing Project', 'copy AI files into any existing project + open VS Code', 'open'),
-      menuChoice(T.brand.bold, '🗂  Manage Projects', 'registry of all your projects', 'projects'),
-      menuChoice(T.success.bold, '💊  Project Health Check', 'score /100: deps, tests, security, lint + badge', 'health'),
-      menuChoice(T.success.bold, '🌐  /health-all', 'scan all projects', 'health-all'),
-      menuChoice(T.accent.bold, '⚡  /perf', 'Lighthouse audit', 'perf'),
-      menuChoice(T.accent.bold, '⬆️  /upgrade', 'npm upgrade wizard', 'upgrade'),
-      menuChoice(T.accent.bold, '🔌  /mock-api', 'generate MSW handlers', 'mock-api'),
-      menuChoice(T.brand.bold, '🎓  /onboard-dev', 'new dev setup', 'onboard-dev'),
-      menuChoice(T.white.bold, '📋  /ado', 'Azure DevOps', 'ado'),
-      menuChoice(T.warning.bold, '🎯  /estimate', 'story point estimate', 'estimate'),
-      menuChoice(T.accent.bold, '🔊  /voice', 'voice features (TTS/STT)', 'voice'),
-      menuChoice(T.accent.bold, '📜  /changelog-view', 'browse CHANGELOG', 'changelog-view'),
-      menuChoice(T.accent.bold, '⚡  Run a Command', 'browse all slash commands', 'commands'),
-      menuChoice(T.success.bold, '🤖  Switch Agent / Role', 'activate a specialized AI agent', 'agents'),
-      menuChoice(T.warning.bold, '📚  Browse Instructions', 'view knowledge base / docs', 'instructions'),
-      menuChoice(T.accent.bold, '📋  Snippet Library', 'browse & copy ready-made code snippets', 'snippets'),
-      menuChoice(T.white.bold, '🔍  Bundle Analyzer', 'size, heavy deps, lazy-loading tips', 'bundle'),
-      menuChoice(T.white.bold, '🌐  RTL Audit', 'find & fix non-logical Tailwind classes', 'rtl'),
-      menuChoice(T.accent.bold, '🔑  /api-types', 'OpenAPI/Swagger → TypeScript types', 'api-types'),
-      menuChoice(T.accent.bold, '📝  /changelog', 'generate CHANGELOG from git commits', 'changelog'),
-      menuChoice(T.accent.bold, '🔒  /env-check', 'validate .env vs .env.example', 'env-check'),
-      menuChoice(T.accent.bold, '🧹  /unused', 'find dead code with knip', 'unused'),
-      menuChoice(T.accent.bold, '🪝  /git-hooks', 'install husky + lint-staged', 'git-hooks'),
-      menuChoice(T.white.bold, '🎫  Tickets & Issues', 'view and fix assigned tickets', 'tickets'),
+      menuChoice(T.success.bold, '🔌  Integrations Hub',          'herdr · repowise · Vane · tasteskill', 'integrations'),
+      menuChoice(T.cyan.bold,    '🖥  Command Center',            'full-screen dashboard + chat — everything at once', 'commandcenter'),
+      menuChoice(T.warning.bold, '🧭  Guide Me',                  'I don\'t know what to pick — let the AI guide me', 'guideme'),
       menuSeparator(),
-      menuChoice(T.white.bold, '🔒  Security Audit', 'OWASP scan, dep check, secrets', 'security'),
-      menuChoice(T.white.bold, '🧪  Run Tests', 'auto-detect and run test suite', 'test'),
+      menuChoice(T.cyan.bold,    '🤖  GhostForge AI (G.F.A.I.)', 'JARVIS-style: voice + tools + memory', 'jarvis'),
+      menuChoice(T.brand.bold,   '📊  Developer Dashboard',       'tickets, pipelines, health, releases, charts', 'dashboard'),
+      menuChoice(T.cyan.bold,    '👁️  View what\'s new',           'latest release highlights and changelog notes', 'whats-new'),
+      menuChoice(T.brand.bold,   '🚀  New Project Setup',         'wizard: choose stack, init repo, scaffold everything', 'setup'),
+      menuChoice(T.brand.bold,   '📂  Open Existing Project',     'copy AI files into any existing project + open VS Code', 'open'),
+      menuChoice(T.brand.bold,   '🗂  Manage Projects',           'registry of all your projects', 'projects'),
+      menuChoice(T.success.bold, '💊  Project Health Check',      'score /100: deps, tests, security, lint + badge', 'health'),
+      menuChoice(T.success.bold, '🌐  /health-all',               'scan all projects', 'health-all'),
+      menuChoice(T.accent.bold,  '⚡  /perf',                     'Lighthouse audit', 'perf'),
+      menuChoice(T.accent.bold,  '⬆️  /upgrade',                  'npm upgrade wizard', 'upgrade'),
+      menuChoice(T.accent.bold,  '🔌  /mock-api',                 'generate MSW handlers', 'mock-api'),
+      menuChoice(T.brand.bold,   '🎓  /onboard-dev',              'new dev setup', 'onboard-dev'),
+      menuChoice(T.white.bold,   '📋  /ado',                      'Azure DevOps', 'ado'),
+      menuChoice(T.warning.bold, '🎯  /estimate',                 'story point estimate', 'estimate'),
+      menuChoice(T.accent.bold,  '🔊  /voice',                    'voice features (TTS/STT)', 'voice'),
+      menuChoice(T.accent.bold,  '📜  /changelog-view',           'browse CHANGELOG', 'changelog-view'),
+      menuChoice(T.accent.bold,  '⚡  Run a Command',             'browse all slash commands', 'commands'),
+      menuChoice(T.success.bold, '🤖  Switch Agent / Role',       'activate a specialized AI agent', 'agents'),
+      menuChoice(T.warning.bold, '📚  Browse Instructions',       'view knowledge base / docs', 'instructions'),
+      menuChoice(T.accent.bold,  '📋  Snippet Library',           'browse & copy ready-made code snippets', 'snippets'),
+      menuChoice(T.white.bold,   '🔍  Bundle Analyzer',           'size, heavy deps, lazy-loading tips', 'bundle'),
+      menuChoice(T.white.bold,   '🌐  RTL Audit',                 'find & fix non-logical Tailwind classes', 'rtl'),
+      menuChoice(T.accent.bold,  '🔑  /api-types',                'OpenAPI/Swagger → TypeScript types', 'api-types'),
+      menuChoice(T.accent.bold,  '📝  /changelog',                'generate CHANGELOG from git commits', 'changelog'),
+      menuChoice(T.accent.bold,  '🔒  /env-check',                'validate .env vs .env.example', 'env-check'),
+      menuChoice(T.accent.bold,  '🧹  /unused',                   'find dead code with knip', 'unused'),
+      menuChoice(T.accent.bold,  '🪝  /git-hooks',                'install husky + lint-staged', 'git-hooks'),
+      menuChoice(T.white.bold,   '🎫  Tickets & Issues',          'view and fix assigned tickets', 'tickets'),
       menuSeparator(),
-      menuChoice(T.white.bold, '🚀  Deploy', 'deploy to Azure / GitHub / Vercel', 'deploy'),
-      menuChoice(T.accent.bold, '📱  AppMorphy', 'convert website → Android APK (cloud build)', 'appmorphy'),
-      menuChoice(T.white.bold, '🍎  Mac Control', 'control Mac with natural language → AppleScript', 'maccontrol'),
-      menuChoice(T.cyan.bold, '🤖  GhostForge AI (G.F.A.I.)', 'JARVIS-style: voice + tools + memory', 'jarvis'),
-      menuChoice(T.muted, '🌅  Daily Digest', 'morning summary: tickets, security, deps, git', 'digest'),
-      menuChoice(T.white.bold, '📄  README / Docs', 'view full toolkit documentation', 'readme'),
+      menuChoice(T.white.bold,   '🔒  Security Audit',            'OWASP scan, dep check, secrets', 'security'),
+      menuChoice(T.white.bold,   '🧪  Run Tests',                 'auto-detect and run test suite', 'test'),
       menuSeparator(),
-      menuChoice(T.warning.bold, '🏪  Marketplace', 'browse/install agents, skills, plugins', 'marketplace'),
-      menuChoice(T.success.bold, '⚡  Generate New', 'create custom agent/command/skill/plugin', 'generate'),
-      menuChoice(T.accent.bold, '🆓  Free Models', 'NVIDIA, Groq, OmniRoute, Ollama, HuggingFace', 'freemodels'),
+      menuChoice(T.white.bold,   '🚀  Deploy',                    'deploy to Azure / GitHub / Vercel', 'deploy'),
+      menuChoice(T.accent.bold,  '📱  Install on Device',         'PWA · Android APK · iOS IPA · Desktop', 'deviceinstall'),
+      menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
+      menuChoice(T.white.bold,   '🍎  Mac Control',               'control Mac with natural language → AppleScript', 'maccontrol'),
+      menuChoice(T.muted,        '🌅  Daily Digest',              'morning summary: tickets, security, deps, git', 'digest'),
+      menuChoice(T.white.bold,   '📄  README / Docs',             'view full toolkit documentation', 'readme'),
       menuSeparator(),
-      menuChoice(T.cyan.bold, '🩺  Doctor', 'health check: env, bridge, AI, tools', 'doctor'),
-      menuChoice(T.muted, `🔖  Version: v${VERSION}`, 'bump version / run updater', 'version'),
-      menuChoice(T.accent.bold, '🧩  Install VS Code Extension', 'install ghostforge.vsix into VS Code', 'vscode-install'),
-      menuChoice(T.muted, '❓  Help & Quick Reference', 'reference shortcuts and key flows', 'help'),
+      menuChoice(T.warning.bold, '🏪  Marketplace',               'browse/install agents, skills, plugins', 'marketplace'),
+      menuChoice(T.success.bold, '⚡  Generate New',              'create custom agent/command/skill/plugin', 'generate'),
+      menuChoice(T.accent.bold,  '🆓  Free Models',               'NVIDIA, Groq, OmniRoute, Ollama, HuggingFace', 'freemodels'),
+      menuChoice(T.accent.bold,  '🆓  Free LLM APIs',             'provider list with limits + quick setup', 'freeapis'),
+      menuSeparator(),
+      menuChoice(T.cyan.bold,    '🩺  Doctor',                    'health check: env, bridge, AI, tools', 'doctor'),
+      menuChoice(T.muted,        `🔖  Version: v${VERSION}`,      'bump version / run updater', 'version'),
+      menuChoice(T.accent.bold,  '🧩  Install VS Code Extension', 'install ghostforge.vsix into VS Code', 'vscode-install'),
+      menuChoice(T.muted,        '❓  Help & Quick Reference',    'reference shortcuts and key flows', 'help'),
       { name: T.danger('✖   Exit'), value: 'exit' },
     ],
     pageSize: 24,
   });
   return choice;
 }
-
+      menuChoice(T.cyan.bold, '👁️  View what\'s new', 'latest release highlights and changelog notes', 'whats-new'),
 async function screenCommands() {
   sectionHeader('Slash Commands', 'All commands you can use in GitHub Copilot Chat or the terminal');
 
@@ -5068,6 +5074,749 @@ async function screenChangelogViewer() {
   await pressEnter();
 }
 
+// ── Beautiful Command Center (blessed-style layout with chalk) ────────────────
+
+async function screenCommandCenter() {
+  const { default: http } = await import('http');
+
+  // Fetch live stats in background
+  let hw = null, health = null;
+  try {
+    hw = await new Promise(r => {
+      const req = http.get('http://localhost:3001/api/llmfit', {
+        headers: { Cookie: 'gf_token=' },
+      }, res => {
+        let d = ''; res.on('data', c => d += c);
+        res.on('end', () => { try { r(JSON.parse(d).hardware); } catch { r(null); } });
+      });
+      req.on('error', () => r(null));
+      req.setTimeout(3000, () => { req.destroy(); r(null); });
+    });
+  } catch {}
+
+  const cols = process.stdout.columns || 100;
+  const panelW = Math.max(18, Math.floor((cols - 10) / 4));
+
+  function panel(icon, title, items, color) {
+    const border = color || T.brand;
+    const w = panelW;
+    const top    = border('┌' + '─'.repeat(w - 2) + '┐');
+    const hdr    = border('│') + ' ' + T.white.bold(`${icon} ${title}`).slice(0, w - 4).padEnd(w - 4) + ' ' + border('│');
+    const sep    = border('├' + '─'.repeat(w - 2) + '┤');
+    const rows   = items.map(([k, label]) => {
+      const row = ` ${T.accent.bold(k.padEnd(3))}${T.white(label)}`;
+      const vis  = ` ${k.padEnd(3)}${label}`;
+      const pad  = Math.max(0, w - 2 - vis.length);
+      return border('│') + row + ' '.repeat(pad) + border('│');
+    });
+    const bot    = border('└' + '─'.repeat(w - 2) + '┘');
+    return [top, hdr, sep, ...rows, bot].join('\n');
+  }
+
+  function sideBySide(...panels) {
+    const splitPanels = panels.map(p => p.split('\n'));
+    const height = Math.max(...splitPanels.map(p => p.length));
+    const padded  = splitPanels.map(p => {
+      while (p.length < height) p.push('');
+      return p;
+    });
+    return Array.from({ length: height }, (_, i) =>
+      padded.map(p => (p[i] || '').padEnd(panelW)).join(' ')
+    ).join('\n');
+  }
+
+  const ts = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  const hwLine = hw
+    ? T.muted(` ${hw.cpuBrand || 'CPU'} · ${hw.ramGB}GB RAM · ~${hw.availableGB}GB free`)
+    : T.muted(' Hardware: checking...');
+
+  function render() {
+    clear();
+    // Header
+    const title = T.brand.bold('  ██████╗ ███████╗ █████╗ ██╗ ');
+    console.log(boxen(
+      T.accent.bold(` GhostForge AI Command Center  v${VERSION}`) + T.muted(`  •  ${ts}`) + '\n' +
+      hwLine + T.muted('  •  ') + T.success('Ctrl+C: menu') + T.muted('  •  ') + T.warning('?: guide me'),
+      { padding: { top: 0, bottom: 0, left: 1, right: 1 }, borderColor: '#0077C8', borderStyle: 'double' }
+    ));
+    console.log();
+
+    // 4-column feature grid
+    const p1 = panel('🤖', 'AI & JARVIS', [
+      ['1', ' Chat (TUI)'],
+      ['2', ' Web UI'],
+      ['3', ' Switch Model'],
+      ['4', ' LLMFit'],
+      ['5', ' Cleanup Mac'],
+      ['6', ' Voice'],
+    ], T.cyan);
+
+    const p2 = panel('💻', 'Dev Tools', [
+      ['a', ' Commands'],
+      ['b', ' Projects'],
+      ['c', ' Scripts'],
+      ['d', ' Deploy'],
+      ['e', ' Generate'],
+      ['f', ' Health'],
+    ], T.success);
+
+    const p3 = panel('🔒', 'Security', [
+      ['g', ' Security Audit'],
+      ['h', ' Doctor'],
+      ['i', ' Tickets'],
+      ['j', ' Pentest'],
+      ['k', ' Audit Log'],
+      ['l', ' Env Check'],
+    ], T.warning);
+
+    const p4 = panel('📱', 'Platform', [
+      ['m', ' Mac Control'],
+      ['n', ' Remote Access'],
+      ['o', ' Install APK/IPA'],
+      ['p', ' Computer Use'],
+      ['q', ' Free LLMs'],
+      ['r', ' Free APIs'],
+    ], T.brand);
+
+    console.log(sideBySide(p1, p2, p3, p4));
+    console.log();
+
+    // Status bar
+    const model = _tuiSelectedModel.id || 'auto';
+    console.log(
+      T.muted('  Model: ') + T.accent(model) +
+      T.muted('  │  Server: ') + T.success('localhost:3001') +
+      T.muted('  │  ') + T.dim('Type number/letter to navigate · msg to chat · ? guide me · ESC menu')
+    );
+    console.log(divider());
+  }
+
+  const keyMap = {
+    '1': 'chat', '2': 'webui', '3': 'model', '4': 'llmfit', '5': 'cleanup', '6': 'voice',
+    'a': 'commands', 'b': 'projects', 'c': 'commands', 'd': 'deploy', 'e': 'generate', 'f': 'health',
+    'g': 'security', 'h': 'doctor', 'i': 'tickets', 'j': 'security', 'k': 'audit', 'l': 'env-check',
+    'm': 'maccontrol', 'n': 'remote', 'o': 'deviceinstall', 'p': 'maccontrol', 'q': 'freemodels', 'r': 'freeapis',
+    's': 'integrations',
+  };
+
+  // Handle integrations destination
+  const handleDest = async (dest) => {
+    if (dest === 'integrations') await screenIntegrationsHub();
+    else if (dest === 'chat')    await screenGFAIChat();
+    else if (dest === 'webui')   { try { execSync('open http://localhost:3001/jarvis 2>/dev/null', { stdio: 'ignore' }); } catch {} console.log(T.success('  ✓ Opened browser')); await new Promise(r=>setTimeout(r,1500)); }
+    else if (dest === 'model')   await screenModelSelect();
+    else if (dest === 'llmfit')  await screenLLMFit();
+    else if (dest === 'cleanup') await screenMacCleanup();
+    else if (dest === 'voice')   await screenVoice();
+    else if (dest === 'commands') await screenCommands();
+    else if (dest === 'projects') await screenProjects();
+    else if (dest === 'deploy')  await screenDeploy();
+    else if (dest === 'generate') await screenGenerate();
+    else if (dest === 'health')  await screenHealth();
+    else if (dest === 'security') await screenSecurity();
+    else if (dest === 'doctor')  await screenDoctor();
+    else if (dest === 'tickets') await screenTickets();
+    else if (dest === 'env-check') await screenEnvCheck();
+    else if (dest === 'maccontrol') await screenMacControl();
+    else if (dest === 'remote')  { console.log(T.cyan('\n  Opening remote: http://localhost:3001/remote\n')); try { execSync('open http://localhost:3001/remote 2>/dev/null', { stdio: 'ignore' }); } catch {} await pressEnter(); }
+    else if (dest === 'deviceinstall') await screenDeviceInstall();
+    else if (dest === 'freemodels') await screenFreeModels();
+    else if (dest === 'freeapis') await screenFreeAPIs();
+    else if (dest === 'audit')   await screenAuditLog();
+  };
+
+  render();
+  console.log();
+
+  // Interactive loop
+  while (true) {
+    let inp;
+    try {
+      inp = await input({
+        message: T.cyan('▸'),
+        theme: { prefix: '' },
+      });
+    } catch { break; }
+
+    const cmd = inp.trim().toLowerCase();
+    if (!cmd) { render(); continue; }
+    if (cmd === 'esc' || cmd === 'menu' || cmd === 'exit' || cmd === 'q') break;
+    if (cmd === '?') { await screenGuideMe(); render(); continue; }
+
+    // Single key navigation
+    if (keyMap[cmd]) {
+      await handleDest(keyMap[cmd]);
+      render();
+      continue;
+    }
+
+    // Otherwise: send to JARVIS as a chat message
+    const spinner = ora(T.muted('  G.F.A.I. thinking...')).start();
+    try {
+      const body = JSON.stringify({ message: inp });
+      const resp = await new Promise(r => {
+        const req = http.request({
+          hostname: 'localhost', port: 3001, path: '/api/jarvis', method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Cookie: 'gf_token=' },
+        }, res => {
+          let d = ''; res.on('data', c => d += c);
+          res.on('end', () => { try { r(JSON.parse(d)); } catch { r({ speech: d }); } });
+        });
+        req.on('error', e => r({ speech: `Error: ${e.message}` }));
+        req.setTimeout(30000, () => { req.destroy(); r({ speech: 'Timed out.' }); });
+        req.write(body); req.end();
+      });
+      spinner.stop();
+      const speech = resp.speech || resp.text || 'No response.';
+      const model2 = resp.usedModel ? T.muted(` [${resp.usedModel}]`) : '';
+      console.log();
+      console.log(boxen(
+        T.cyan.bold('G.F.A.I.:') + model2 + '\n\n' + T.white(speech) +
+        (resp.toolResult ? '\n\n' + T.accent('Result:\n') + T.dim(String(resp.toolResult).slice(0, 600)) : ''),
+        { padding: 1, margin: { left: 2 }, borderColor: 'cyan', borderStyle: 'round' }
+      ));
+      console.log();
+    } catch (e) {
+      spinner.stop();
+      console.log(T.danger(`\n  Error: ${e.message}\n`));
+    }
+  }
+}
+
+// ── Guide Me — discovery mode for new users ───────────────────────────────────
+
+async function screenGuideMe() {
+  sectionHeader('🧭  Guide Me', 'I\'ll help you find the right feature based on what you want to do');
+  console.log(T.muted('  Answer a couple of questions and I\'ll guide you to the right feature.\n'));
+
+  const goal = await select({
+    message: T.white('What do you want to do?'),
+    choices: [
+      { name: T.cyan('💬  Talk to an AI / get help with code'), value: 'ai' },
+      { name: T.success('🚀  Start or setup a new project'), value: 'project' },
+      { name: T.accent('🔒  Check security / run tests'), value: 'security' },
+      { name: T.warning('📱  Build for mobile / install on phone'), value: 'mobile' },
+      { name: T.brand('🖥  Control my Mac / remote access'), value: 'control' },
+      { name: T.white('📊  See project health / dashboard'), value: 'health' },
+      { name: T.muted('🆓  Use free AI models (no API key)'), value: 'free' },
+      { name: T.accent('⚡  Run a quick command'), value: 'quick' },
+      { name: T.cyan('🎓  Learn what this tool can do'), value: 'tour' },
+    ],
+  });
+
+  const guides = {
+    ai: {
+      title: '🤖 AI Features',
+      text: [
+        T.white('Great choice! GhostForge has multiple AI entry points:\n'),
+        T.accent('  [1] ') + T.white('TUI Chat') + T.muted('     → quick terminal chat with any model'),
+        T.accent('  [2] ') + T.white('Web UI (JARVIS)') + T.muted(' → voice + tools + memory in browser'),
+        T.accent('  [3] ') + T.white('Switch Model') + T.muted('   → choose: Gemini, OpenAI, Groq, Ollama, etc.'),
+        T.accent('  [4] ') + T.white('LLMFit') + T.muted('         → find the best local model for your hardware'),
+        T.accent('\n  Recommended: ') + T.white('Start with "2" (Web UI) for the full JARVIS experience.'),
+        T.muted('\n  Or type your question directly in the command center!'),
+      ],
+      action: 'chat',
+    },
+    project: {
+      title: '🚀 Project Setup',
+      text: [
+        T.white('GhostForge helps you scaffold, onboard, and manage projects:\n'),
+        T.accent('  /setup') + T.muted('       → wizard: framework, tools, repo init'),
+        T.accent('  /create') + T.muted('      → generate React/Next.js/NestJS project'),
+        T.accent('  /scaffold') + T.muted('    → folder structure + boilerplate'),
+        T.accent('  /open') + T.muted('        → add GhostForge to existing project'),
+        T.accent('\n  Recommended: ') + T.white('Run "New Project Setup" from the main menu.'),
+      ],
+      action: 'setup',
+    },
+    security: {
+      title: '🔒 Security & Testing',
+      text: [
+        T.white('Security + testing features:\n'),
+        T.accent('  /security') + T.muted('   → OWASP scan, deps, secrets'),
+        T.accent('  /test') + T.muted('       → auto-detect + run tests'),
+        T.accent('  /pentest') + T.muted('    → pen test simulation'),
+        T.accent('  Doctor') + T.muted('      → health check: env, AI, bridge'),
+        T.accent('\n  Recommended: ') + T.white('Run "Doctor" first to check your setup, then "Security Audit".'),
+      ],
+      action: 'security',
+    },
+    mobile: {
+      title: '📱 Mobile & Device Install',
+      text: [
+        T.white('GhostForge supports multiple mobile install methods:\n'),
+        T.success('  PWA (Progressive Web App)') + T.muted(' → works on iOS + Android right now!'),
+        T.accent('    Open ') + T.white('http://[your-mac-ip]:3001') + T.muted(' on your phone'),
+        T.accent('    iOS: ') + T.muted('Share → Add to Home Screen'),
+        T.accent('    Android: ') + T.muted('Menu → Install app / Add to Home Screen\n'),
+        T.warning('  Android APK') + T.muted(' → native app via Capacitor'),
+        T.accent('    Run: ') + T.white('gf → Install on Device (o) → Build Android APK\n'),
+        T.brand('  Recommended: ') + T.white('Start with PWA — fastest, no build needed!'),
+      ],
+      action: 'deviceinstall',
+    },
+    control: {
+      title: '🖥 Mac Control & Remote',
+      text: [
+        T.white('Control your Mac with AI or remotely:\n'),
+        T.accent('  Mac Control') + T.muted('   → natural language → AppleScript'),
+        T.accent('              ') + T.muted('   e.g. "open Safari", "lock screen"'),
+        T.accent('  Remote Access') + T.muted(' → screen share + control from any device'),
+        T.accent('              ') + T.muted('   at http://[ip]:3001/remote'),
+        T.accent('  JARVIS') + T.muted('        → "take screenshot", "click at 500 300"'),
+        T.accent('\n  Recommended: ') + T.white('Use JARVIS Web UI for best experience.'),
+      ],
+      action: 'maccontrol',
+    },
+    health: {
+      title: '📊 Health & Dashboard',
+      text: [
+        T.white('Monitor your project and AI system:\n'),
+        T.accent('  /health') + T.muted('     → score /100: deps, tests, security'),
+        T.accent('  Dashboard') + T.muted('   → real-time: tickets, pipelines, charts'),
+        T.accent('  Doctor') + T.muted('      → AI + env + bridge health check'),
+        T.accent('\n  Recommended: ') + T.white('Run "Doctor" first, then "Project Health".'),
+      ],
+      action: 'health',
+    },
+    free: {
+      title: '🆓 Free AI Models',
+      text: [
+        T.white('Many ways to use AI for free:\n'),
+        T.success('  Ollama (local)') + T.muted('  → qwen2.5-coder:7b already installed!'),
+        T.success('  OmniRoute') + T.muted('      → 250+ providers, 90+ free tiers'),
+        T.success('  Groq') + T.muted('           → Llama3 70B free with API key'),
+        T.success('  OpenRouter') + T.muted('     → many free models'),
+        T.success('  NVIDIA NIM') + T.muted('     → free tier API'),
+        T.accent('\n  See all:') + T.white(' gf → Free Models (q)'),
+        T.accent('  Free APIs: ') + T.white('gf → Free APIs (r)'),
+      ],
+      action: 'freemodels',
+    },
+    quick: {
+      title: '⚡ Quick Commands',
+      text: [
+        T.white('Common quick commands:\n'),
+        T.accent('  gf health') + T.muted('   → project health check'),
+        T.accent('  gf doctor') + T.muted('   → system health check'),
+        T.accent('  gf chat') + T.muted('     → quick AI chat'),
+        T.accent('  gf jarvis') + T.muted('   → open JARVIS web UI'),
+        T.muted('\n  Or just type your question in the Command Center!'),
+      ],
+      action: null,
+    },
+    tour: {
+      title: '🎓 What GhostForge Can Do',
+      text: [
+        T.white.bold('GhostForge is an operator-grade AI developer toolkit:\n'),
+        T.cyan('  🤖 G.F.A.I. (JARVIS)') + T.muted(' — voice AI, Mac control, tools, memory'),
+        T.success('  💻 Dev Tools') + T.muted('       — 40+ slash commands for dev workflows'),
+        T.accent('  🔒 Security') + T.muted('        — OWASP, secrets, pen test'),
+        T.warning('  📱 Mobile') + T.muted('          — PWA + Android APK + iOS IPA'),
+        T.brand('  🌐 Remote') + T.muted('          — screen share, remote control'),
+        T.cyan('  🆓 Free AI') + T.muted('         — Ollama, Groq, OpenRouter, NVIDIA'),
+        T.success('  🔀 Git/CI') + T.muted('          — commits, PRs, releases, pipelines'),
+        T.accent('  🏪 Marketplace') + T.muted('     — install agents, skills, plugins'),
+        T.muted('\n  Start with the Command Center (enter "cc" from menu) for overview.'),
+      ],
+      action: null,
+    },
+  };
+
+  const guide = guides[goal];
+  if (!guide) return;
+
+  console.log('\n' + boxen(
+    T.cyan.bold(` ${guide.title} `) + '\n\n' + guide.text.join('\n'),
+    { padding: 1, borderColor: '#06B6D4', borderStyle: 'round', width: 72 }
+  ));
+
+  if (guide.action) {
+    const proceed = await confirm({ message: T.white(`Go to ${guide.title} now?`) });
+    if (proceed) {
+      if (guide.action === 'chat')         await screenGFAIChat();
+      else if (guide.action === 'setup')   await screenSetup();
+      else if (guide.action === 'security') await screenSecurity();
+      else if (guide.action === 'maccontrol') await screenMacControl();
+      else if (guide.action === 'health')  await screenHealth();
+      else if (guide.action === 'freemodels') await screenFreeModels();
+      else if (guide.action === 'deviceinstall') await screenDeviceInstall();
+    }
+  } else {
+    await pressEnter();
+  }
+}
+
+// ── Device Install — APK/IPA/PWA guide ────────────────────────────────────────
+
+async function screenDeviceInstall() {
+  sectionHeader('📱  Install on Device', 'APK (Android) · IPA (iOS) · PWA · Desktop');
+
+  const platform = await select({
+    message: T.white('Target platform:'),
+    choices: [
+      { name: T.success('🌐  PWA (Recommended)') + T.muted('     — works on iOS + Android NOW, no build needed'), value: 'pwa' },
+      { name: T.accent('🤖  Android APK') + T.muted('          — native app via Capacitor + Android Studio'), value: 'android' },
+      { name: T.brand('🍎  iOS IPA') + T.muted('              — native app via Capacitor + Xcode'), value: 'ios' },
+      { name: T.white('🖥  Desktop (Electron)') + T.muted('    — Mac/Windows/Linux native app'), value: 'electron' },
+      { name: T.muted('↩  Back'), value: 'back' },
+    ],
+  });
+
+  if (platform === 'back') return;
+
+  if (platform === 'pwa') {
+    // Get local IP
+    let ip = '192.168.1.x';
+    try { ip = execSync("ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null", { encoding: 'utf8', timeout: 3000 }).trim(); } catch {}
+    console.log('\n' + boxen(
+      T.cyan.bold(' PWA Install (Fastest — no build needed!) \n\n') +
+      T.white.bold('Step 1: ') + T.white('Make sure GhostForge server is running on your Mac\n') +
+      T.muted('         ') + T.accent(`cd ~/GhostForge && npm start -- -p 3001\n\n`) +
+      T.white.bold('Step 2: ') + T.white('Connect your phone to the same WiFi\n\n') +
+      T.white.bold('Step 3: ') + T.white('Open this URL on your phone:\n') +
+      T.success.bold(`         http://${ip}:3001\n\n`) +
+      T.white.bold('Step 4 (iOS): ') + T.white('Safari → Share button → "Add to Home Screen"\n') +
+      T.white.bold('Step 4 (Android): ') + T.white('Chrome → Menu (⋮) → "Add to Home Screen" / "Install app"\n\n') +
+      T.muted('Note: For mic/voice access, use HTTPS. Run: ') + T.accent('bash scripts/setup-https.sh'),
+      { padding: 1, borderColor: '#22C55E', borderStyle: 'round', width: 72 }
+    ));
+    await pressEnter(); return;
+  }
+
+  if (platform === 'android') {
+    console.log('\n' + boxen(
+      T.cyan.bold(' Android APK Build (via Capacitor) \n\n') +
+      T.white.bold('Prerequisites:\n') +
+      T.white('  • Node.js 18+\n  • Java 17+ (brew install openjdk@17)\n  • Android Studio\n\n') +
+      T.white.bold('Build steps:\n') +
+      T.accent('  cd ~/GhostForge/web-ui\n') +
+      T.accent('  npm run build\n') +
+      T.accent('  npx cap init GhostForge com.ghostforge.app --web-dir out\n') +
+      T.accent('  npx cap add android\n') +
+      T.accent('  npx cap sync android\n') +
+      T.accent('  npx cap open android       # Opens Android Studio\n') +
+      T.accent('  # In Android Studio: Build → Generate Signed APK\n\n') +
+      T.muted('Or run the automated script: ') + T.white('bash scripts/build-android.sh\n\n') +
+      T.warning('Features available on Android:\n') +
+      T.success('  ✓ AI Chat, JARVIS, voice\n') +
+      T.success('  ✓ Remote Mac control (via web)\n') +
+      T.success('  ✓ All web-based features\n') +
+      T.muted('  ✗ Mac-specific tools (AppleScript, screencapture) — Mac only'),
+      { padding: 1, borderColor: '#06B6D4', borderStyle: 'round', width: 72 }
+    ));
+    const build = await confirm({ message: T.white('Run the Android build script now?') });
+    if (build) {
+      console.log(T.cyan('\n  Running scripts/build-android.sh ...\n'));
+      runScriptSync('scripts/build-android.sh');
+    }
+    await pressEnter(); return;
+  }
+
+  if (platform === 'ios') {
+    console.log('\n' + boxen(
+      T.cyan.bold(' iOS IPA Build (via Capacitor + Xcode) \n\n') +
+      T.white.bold('Prerequisites:\n') +
+      T.white('  • macOS with Xcode 15+\n  • Apple Developer account (free or paid)\n  • CocoaPods: ') + T.accent('sudo gem install cocoapods\n\n') +
+      T.white.bold('Build steps:\n') +
+      T.accent('  cd ~/GhostForge/web-ui\n') +
+      T.accent('  npm run build\n') +
+      T.accent('  npx cap init GhostForge com.ghostforge.app --web-dir out\n') +
+      T.accent('  npx cap add ios\n') +
+      T.accent('  npx cap sync ios\n') +
+      T.accent('  npx cap open ios           # Opens Xcode\n') +
+      T.accent('  # In Xcode: Product → Archive → Distribute App\n\n') +
+      T.muted('Or run: ') + T.white('bash scripts/build-ios.sh'),
+      { padding: 1, borderColor: '#F59E0B', borderStyle: 'round', width: 72 }
+    ));
+    const build = await confirm({ message: T.white('Run the iOS build script now?') });
+    if (build) {
+      console.log(T.cyan('\n  Running scripts/build-ios.sh ...\n'));
+      runScriptSync('scripts/build-ios.sh');
+    }
+    await pressEnter(); return;
+  }
+
+  if (platform === 'electron') {
+    console.log('\n' + boxen(
+      T.cyan.bold(' Desktop App (Electron) \n\n') +
+      T.white.bold('Build steps:\n') +
+      T.accent('  cd ~/GhostForge/web-ui\n') +
+      T.accent('  npm install electron electron-builder\n') +
+      T.accent('  npm run build\n') +
+      T.accent('  npx electron-builder build --mac    # macOS .dmg\n') +
+      T.accent('  npx electron-builder build --win    # Windows .exe\n') +
+      T.accent('  npx electron-builder build --linux  # Linux .AppImage\n\n') +
+      T.muted('Or run: ') + T.white('bash scripts/build-electron.sh'),
+      { padding: 1, borderColor: '#8B5CF6', borderStyle: 'round', width: 72 }
+    ));
+    await pressEnter(); return;
+  }
+}
+
+// ── Free AI APIs screen ───────────────────────────────────────────────────────
+
+async function screenFreeAPIs() {
+  sectionHeader('🆓  Free LLM API Resources', 'Free API endpoints — no credit card needed');
+
+  console.log(T.muted('  Source: github.com/cheahjs/free-llm-api-resources\n'));
+
+  const freeApis = [
+    { name: 'Google Gemini',     models: 'gemini-2.0-flash, gemini-1.5-pro', limit: '1M tokens/day',  url: 'aistudio.google.com', key: 'GEMINI_API_KEY', status: 'active' },
+    { name: 'Groq',              models: 'llama3-70b, mixtral-8x7b',         limit: '14.4k tok/min',  url: 'console.groq.com',    key: 'GROQ_API_KEY',   status: 'active' },
+    { name: 'OpenRouter (free)', models: '40+ free models',                  limit: '200 req/day',    url: 'openrouter.ai',       key: 'OPENROUTER_API_KEY', status: 'active' },
+    { name: 'Cloudflare AI',     models: 'llama3, mistral, phi-2',           limit: '10k neurons/day',url: 'ai.cloudflare.com',   key: 'CF_API_KEY',     status: 'active' },
+    { name: 'NVIDIA NIM',        models: 'llama3-70b, mistral large',        limit: '1k credits',     url: 'build.nvidia.com',    key: 'NVIDIA_API_KEY', status: 'active' },
+    { name: 'Cohere',            models: 'command-r, command-light',         limit: '1k req/mo free', url: 'cohere.com',          key: 'COHERE_API_KEY', status: 'active' },
+    { name: 'Together AI',       models: 'llama, qwen, mistral',             limit: '$5 free credit', url: 'api.together.ai',     key: 'TOGETHER_API_KEY',status: 'active'},
+    { name: 'HuggingFace',       models: '1000s of models',                  limit: '~10 req/s',      url: 'huggingface.co/api',  key: 'HF_TOKEN',       status: 'active' },
+    { name: 'OmniRoute (local)', models: 'Auto-routes to all above',         limit: 'Unlimited local',url: 'localhost:20128',     key: 'None needed',    status: '✓ setup' },
+    { name: 'Ollama (local)',     models: 'qwen2.5-coder:7b installed',       limit: 'Unlimited',      url: 'localhost:11434',     key: 'None needed',    status: '✓ ready' },
+    { name: 'xAI Grok',          models: 'grok-beta (limited free)',         limit: 'Limited beta',   url: 'console.x.ai',        key: 'XAI_API_KEY',    status: 'beta' },
+    { name: 'Mistral (free)',    models: 'mistral-small',                    limit: '1 req/s free',   url: 'console.mistral.ai',  key: 'MISTRAL_API_KEY',status: 'active'},
+  ];
+
+  const table = new Table({
+    head: [T.cyan('Provider'), T.white('Models'), T.muted('Limit'), T.success('Status')],
+    colWidths: [22, 28, 20, 12],
+    style: { head: [], border: ['cyan'] },
+  });
+
+  freeApis.forEach(api => {
+    const statusColor = api.status.includes('✓') ? T.success(api.status) :
+                        api.status === 'beta' ? T.warning(api.status) : T.white(api.status);
+    table.push([T.white(api.name), T.muted(api.models), T.dim(api.limit), statusColor]);
+  });
+
+  console.log(table.toString());
+  console.log();
+
+  const action = await select({
+    message: T.white('Action:'),
+    choices: [
+      { name: T.accent('📋  View setup guide for a provider'), value: 'view' },
+      { name: T.success('⚡  Open provider website'), value: 'open' },
+      { name: T.cyan('🔄  Add API key to .env.local'), value: 'addkey' },
+      { name: T.muted('↩  Back'), value: 'back' },
+    ],
+  });
+
+  if (action === 'view') {
+    const picked = await select({
+      message: T.white('Choose provider:'),
+      choices: freeApis.map(a => ({ name: T.white(a.name) + T.muted(` — ${a.limit}`), value: a.name })),
+    });
+    const api = freeApis.find(a => a.name === picked);
+    if (api) {
+      console.log('\n' + boxen(
+        T.cyan.bold(` ${api.name} Setup \n\n`) +
+        T.white('Models: ') + T.muted(api.models) + '\n' +
+        T.white('Limit: ') + T.muted(api.limit) + '\n' +
+        T.white('URL: ') + T.accent(api.url) + '\n' +
+        T.white('Env key: ') + T.accent(api.key) + '\n\n' +
+        T.muted('Add to ~/GhostForge/web-ui/.env.local:\n') +
+        T.accent(`${api.key}=your-key-here`),
+        { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
+      ));
+      await pressEnter();
+    }
+  } else if (action === 'open') {
+    const picked = await select({
+      message: T.white('Choose provider:'),
+      choices: freeApis.filter(a => !a.url.includes('localhost')).map(a => ({ name: T.white(a.name), value: a.url })),
+    });
+    try { execSync(`open https://${picked} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+    console.log(T.success(`\n  ✓ Opened https://${picked}\n`));
+    await pressEnter();
+  } else if (action === 'addkey') {
+    const picked = await select({
+      message: T.white('Choose provider:'),
+      choices: freeApis.filter(a => a.key !== 'None needed').map(a => ({ name: T.white(a.name), value: a })),
+    });
+    const keyVal = await input({ message: T.white(`Enter ${picked.key}:`) });
+    if (keyVal.trim()) {
+      const envFile = resolve(ROOT, 'web-ui/.env.local');
+      if (existsSync(envFile)) {
+        const content = readFileSync(envFile, 'utf8');
+        const newLine = `${picked.key}=${keyVal.trim()}`;
+        if (content.includes(`${picked.key}=`)) {
+          writeFileSync(envFile, content.replace(new RegExp(`^${picked.key}=.*$`, 'm'), newLine));
+        } else {
+          writeFileSync(envFile, content + '\n' + newLine + '\n');
+        }
+        console.log(T.success(`\n  ✓ Added ${picked.key} to .env.local\n`));
+      }
+    }
+    await pressEnter();
+  }
+}
+
+// ── Audit Log viewer ──────────────────────────────────────────────────────────
+
+async function screenAuditLog() {
+  sectionHeader('📋  Audit Log', 'Recent JARVIS tool activity and commands');
+  const logPath = resolve(process.env.HOME || '~', '.ghostforge/audit.log');
+  if (!existsSync(logPath)) {
+    console.log(T.muted('\n  No audit log found yet. Actions are logged as you use JARVIS.\n'));
+    await pressEnter(); return;
+  }
+  const lines = readFileSync(logPath, 'utf8').split('\n').filter(Boolean).slice(-30).reverse();
+  console.log(T.muted(`  Last ${lines.length} actions (newest first):\n`));
+  for (const line of lines) {
+    try {
+      const e = JSON.parse(line);
+      const ts = new Date(e.timestamp).toLocaleTimeString();
+      const risk = e.risk === 'high' ? T.danger('HIGH') : e.risk === 'medium' ? T.warning('MED ') : T.muted('low ');
+      const tool = T.accent((e.tool || 'chat').padEnd(20));
+      console.log(`  ${T.muted(ts)}  ${risk}  ${tool}  ${T.dim((e.message || '').slice(0, 60))}`);
+    } catch { console.log(T.dim(`  ${line.slice(0, 80)}`)); }
+  }
+  console.log();
+  await pressEnter();
+}
+
+// ── Integrations Hub — herdr, repowise, Vane, tasteskill ─────────────────────
+
+async function screenIntegrationsHub() {
+  sectionHeader('🔌  Integrations Hub', 'herdr · repowise · Vane · tasteskill — add superpowers');
+
+  const tool = await select({
+    message: T.white('Choose integration:'),
+    choices: [
+      { name: T.success.bold('🐄  herdr') + T.muted('       — agent multiplexer: run all AI agents from one terminal'), value: 'herdr' },
+      { name: T.cyan.bold('🧠  repowise') + T.muted('    — codebase intelligence: 96% fewer tokens for AI agents'), value: 'repowise' },
+      { name: T.accent.bold('🔎  Vane') + T.muted('        — self-hosted AI search engine (Perplexity alternative)'), value: 'vane' },
+      { name: T.brand.bold('🎨  tasteskill') + T.muted('  — frontend UI quality rules for AI coding agents'), value: 'tasteskill' },
+      { name: T.muted('↩  Back'), value: 'back' },
+    ],
+  });
+
+  if (tool === 'back') return;
+
+  if (tool === 'herdr') {
+    console.log('\n' + boxen(
+      T.success.bold(' 🐄 herdr — AI Agent Multiplexer \n\n') +
+      T.white('What it does:\n') +
+      T.muted('  Runs all your AI agents (Claude Code, Cursor, Copilot, etc.) from one\n') +
+      T.muted('  terminal. Sessions persist when you close your laptop. SSH-accessible\n') +
+      T.muted('  from any device including your phone. Zero account, zero telemetry.\n\n') +
+      T.white.bold('Install:\n') +
+      T.accent('  curl -fsSL https://herdr.dev/install.sh | sh\n') +
+      T.accent('  # or: brew install herdr\n\n') +
+      T.white.bold('Usage:\n') +
+      T.accent('  herdr new "claude code"   # start Claude Code agent\n') +
+      T.accent('  herdr ls                  # list all agents + status\n') +
+      T.accent('  herdr attach 1            # reattach to agent\n') +
+      T.accent('  herdr ssh                 # access from phone/remote\n\n') +
+      T.muted('Platform: Linux/macOS stable · Windows preview beta'),
+      { padding: 1, borderColor: '#22C55E', borderStyle: 'round', width: 72 }
+    ));
+    const install = await confirm({ message: T.white('Install herdr now?') });
+    if (install) {
+      console.log(T.cyan('\n  Installing herdr...\n'));
+      try {
+        execSync('curl -fsSL https://herdr.dev/install.sh | sh', { stdio: 'inherit', timeout: 60000 });
+        console.log(T.success('\n  ✓ herdr installed! Run: herdr --help\n'));
+      } catch { console.log(T.warning('\n  Try: brew install herdr\n')); }
+    }
+    await pressEnter(); return;
+  }
+
+  if (tool === 'repowise') {
+    console.log('\n' + boxen(
+      T.cyan.bold(' 🧠 repowise — Codebase Intelligence Layer \n\n') +
+      T.white('What it does:\n') +
+      T.muted('  Indexes your repo (AST, deps, git history) into a knowledge base.\n') +
+      T.muted('  Serves it to AI agents via 9 MCP tools. Result: 96% fewer tokens,\n') +
+      T.muted('  89% fewer file reads, 70% fewer tool calls. Fully local, AGPL.\n\n') +
+      T.white.bold('Install:\n') +
+      T.accent('  pip3 install repowise\n\n') +
+      T.white.bold('Setup for a project:\n') +
+      T.accent('  cd your-project\n') +
+      T.accent('  repowise init              # index the repo\n') +
+      T.accent('  repowise serve             # start MCP server on :8080\n\n') +
+      T.white.bold('Connect to Claude/Cursor (add to .cursor/mcp.json):\n') +
+      T.accent('  { "mcpServers": { "repowise": { "url": "http://localhost:8080" } } }\n\n') +
+      T.muted('Languages: Python, TS, JS, Java, Kotlin, Go, Rust, C++, C#, + 6 more'),
+      { padding: 1, borderColor: '#06B6D4', borderStyle: 'round', width: 72 }
+    ));
+    const install = await confirm({ message: T.white('Install repowise now?') });
+    if (install) {
+      console.log(T.cyan('\n  Installing repowise...\n'));
+      try {
+        execSync('pip3 install repowise', { stdio: 'inherit', timeout: 120000 });
+        console.log(T.success('\n  ✓ repowise installed! Run: repowise --help\n'));
+      } catch { console.log(T.danger('\n  Install failed. Try: pip3 install --user repowise\n')); }
+    }
+    await pressEnter(); return;
+  }
+
+  if (tool === 'vane') {
+    let vaneRunning = false;
+    try { execSync('curl -s http://localhost:3100 -o /dev/null -w "%{http_code}"', { timeout: 2000, encoding: 'utf8' }); vaneRunning = true; } catch {}
+
+    console.log('\n' + boxen(
+      T.accent.bold(' 🔎 Vane — Self-Hosted AI Search Engine \n\n') +
+      T.white('What it does:\n') +
+      T.muted('  Perplexity-style AI answering engine. Pairs SearxNG (private search)\n') +
+      T.muted('  with your LLM (Ollama/OpenAI/Gemini/Groq). Cited answers, file uploads,\n') +
+      T.muted('  image/video search. Fully local — no data leaves your machine.\n\n') +
+      T.white.bold('Run with Docker (one command):\n') +
+      T.accent('  docker run -d --name vane \\\n') +
+      T.accent('    -e OLLAMA_URL=http://host.docker.internal:11434 \\\n') +
+      T.accent('    -p 3100:3000 \\\n') +
+      T.accent('    itzcrazykns1337/vane:latest\n\n') +
+      T.white('Then open: ') + T.success('http://localhost:3100') + '\n\n' +
+      (vaneRunning ? T.success('  ✓ Vane appears to be running on port 3100!') :
+        T.muted('  Status: not detected on port 3100')),
+      { padding: 1, borderColor: '#F59E0B', borderStyle: 'round', width: 72 }
+    ));
+    if (!vaneRunning) {
+      const start = await confirm({ message: T.white('Start Vane via Docker now?') });
+      if (start) {
+        console.log(T.cyan('\n  Starting Vane...\n'));
+        try {
+          execSync(`docker run -d --name vane -e OLLAMA_URL=http://host.docker.internal:11434 -p 3100:3000 itzcrazykns1337/vane:latest 2>&1`, { stdio: 'inherit', timeout: 30000 });
+          console.log(T.success('\n  ✓ Vane started at http://localhost:3100\n'));
+        } catch { console.log(T.danger('\n  Docker error. Make sure Docker Desktop is running.\n')); }
+      }
+    } else {
+      try { execSync('open http://localhost:3100 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      console.log(T.success('\n  ✓ Opened Vane in browser\n'));
+    }
+    await pressEnter(); return;
+  }
+
+  if (tool === 'tasteskill') {
+    console.log('\n' + boxen(
+      T.brand.bold(' 🎨 tasteskill — Frontend UI Quality Rules \n\n') +
+      T.white('What it does:\n') +
+      T.muted('  An agent skill/ruleset that steers AI coding agents (Claude Code,\n') +
+      T.muted('  Cursor, Cline) to produce design-intentional, non-templated UIs.\n') +
+      T.muted('  Instead of generic Bootstrap-like interfaces, your AI writes\n') +
+      T.muted('  components with actual design taste. Zero infrastructure.\n\n') +
+      T.white.bold('Install (adds rules to your project):\n') +
+      T.accent('  npx skills add https://github.com/Leonxlnx/taste-skill \\\n') +
+      T.accent('    --skill "design-taste-frontend"\n\n') +
+      T.white.bold('Or install v1 (stable):\n') +
+      T.accent('  npx skills add https://github.com/Leonxlnx/taste-skill \\\n') +
+      T.accent('    --skill "design-taste-frontend-v1"\n\n') +
+      T.muted('Source: github.com/Leonxlnx/taste-skill (open source, free)'),
+      { padding: 1, borderColor: '#8B5CF6', borderStyle: 'round', width: 72 }
+    ));
+    const install = await confirm({ message: T.white('Install tasteskill for current project?') });
+    if (install) {
+      console.log(T.cyan('\n  Installing tasteskill...\n'));
+      try {
+        execSync('npx skills add https://github.com/Leonxlnx/taste-skill --skill "design-taste-frontend"', { stdio: 'inherit', timeout: 60000 });
+        console.log(T.success('\n  ✓ tasteskill installed! Your AI agents will now generate better UIs.\n'));
+      } catch { console.log(T.danger('\n  Install failed. Try running manually.\n')); }
+    }
+    await pressEnter(); return;
+  }
+}
+
 async function screenWhatsNew() {
   sectionHeader('👁️  What’s New', 'Latest GhostForge updates at a glance');
   const changelogPath = existsSync(resolve(process.cwd(), 'CHANGELOG.md'))
@@ -5130,6 +5879,12 @@ async function main() {
     while (true) {
       const choice = await screenHome();
       switch (choice) {
+        case 'integrations': await screenIntegrationsHub(); break;
+        case 'commandcenter': await screenCommandCenter(); break;
+        case 'guideme':      await screenGuideMe(); break;
+        case 'deviceinstall': await screenDeviceInstall(); break;
+        case 'freeapis':     await screenFreeAPIs(); break;
+        case 'audit':        await screenAuditLog(); break;
         case 'dashboard':    await screenDashboard(); break; // lazy
         case 'whats-new':    await screenWhatsNew(); break;
         case 'setup':        await screenSetup(); break;
