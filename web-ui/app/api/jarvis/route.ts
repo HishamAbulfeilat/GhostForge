@@ -65,6 +65,11 @@ const TOOL_CATALOG = `
 - install_on_device → guide installing GhostForge as PWA/APK on phone or tablet (no params)
 - open_interpreter   → run AI-powered code using open-interpreter (pip install open-interpreter) { prompt: string, model?: string }
 - jsrepl_run         → run code in jsrepl.io sandbox (JS/TS/Python/HTML) { code: string, language?: "javascript"|"typescript"|"python"|"html" }
+- apply_design_md    → fetch and apply a DESIGN.md template to current project for AI-consistent UI generation { site: string, projectPath?: string }
+- list_design_md     → list all available DESIGN.md templates from awesome-design-md (74 sites: stripe, vercel, apple, notion...) (no params)
+- design_resources   → get curated design resources by category from awesome-design { category?: "color"|"typography"|"icons"|"stock"|"prototyping"|"inspiration"|"tools" }
+- vigolium_scan      → run Vigolium native vulnerability scan on a URL (317 modules, OWASP Top 10) { target: string, strategy?: "fast"|"balanced"|"thorough" }
+- vigolium_agent     → run Vigolium AI-driven agentic security scan { target: string, mode?: "autopilot"|"swarm"|"query" }
 `
 
 // ── Domain classifier ─────────────────────────────────────────────────────────
@@ -1223,6 +1228,144 @@ Recommended: ${bestPick}${isInstalled ? ' ✓ installed' : ' — not yet install
       const encoded = encodeURIComponent(code)
       const jsreplUrl = `https://jsrepl.io/?lang=${lang}&code=${encoded.slice(0, 2000)}`
       return `Open in jsrepl.io (${lang}):\n${jsreplUrl}\n\nNote: link may be truncated for very long code — paste directly at https://jsrepl.io`
+    }
+
+    case 'list_design_md': {
+      const sites = [
+        'airbnb','airtable','apple','binance','bmw','cal','claude','coinbase','cursor',
+        'elevenlabs','expo','figma','framer','linear.app','lovable','mastercard','meta',
+        'mintlify','miro','mistral.ai','mongodb','nike','notion','nvidia','ollama',
+        'opencode.ai','posthog','raycast','replicate','resend','revolut','sanity',
+        'sentry','shopify','slack','spotify','stripe','supabase','superhuman','tesla',
+        'uber','vercel','voltagent','warp','webflow','wise','x.ai','zapier',
+        'ferrari','lamborghini','bugatti','spacex','nintendo-2001','dell-1996',
+        'playstation','starbucks','pinterest','theverge','wired','ibm','hp','hashicorp',
+        'clickhouse','composio','clay','kraken','framer','runwayml','together.ai',
+        'cohere','minimax','bmw-m','renault','vodafone','intercom',
+      ]
+      return `74 DESIGN.md templates available (github.com/VoltAgent/awesome-design-md):\n\n${sites.join(', ')}\n\nUsage: "apply design of stripe to my project" or ask me to apply any site's DESIGN.md`
+    }
+
+    case 'apply_design_md': {
+      const site = (params.site || '').toLowerCase().replace(/\s+/g, '-')
+      const projectPath = params.projectPath || process.cwd()
+      if (!site) return 'Please specify a site name, e.g. "stripe", "vercel", "apple", "notion"'
+
+      try {
+        const rawUrl = `https://raw.githubusercontent.com/VoltAgent/awesome-design-md/main/design-md/${site}/DESIGN.md`
+        const res = await fetch(rawUrl, { signal: AbortSignal.timeout(10000) })
+        if (!res.ok) {
+          // Try alternate URL format (getdesign.md)
+          return `DESIGN.md not found for "${site}". Available sites: stripe, vercel, apple, notion, figma, slack, spotify, linear.app, cursor, uber, shopify, and 63 more. Ask me to list all.`
+        }
+        const content = await res.text()
+        const destPath = join(projectPath, 'DESIGN.md')
+        writeFileSync(destPath, content, 'utf8')
+        const lines = content.split('\n').length
+        return `✓ DESIGN.md applied for ${site} (${lines} lines)\n\nSaved to: ${destPath}\n\nYour AI coding agents (Claude, Cursor, Cline) will now automatically read this file and generate UI that matches ${site}'s design language.\n\nKey design tokens extracted — check DESIGN.md for colors, typography, spacing, and component patterns.`
+      } catch (e: unknown) {
+        return `Could not fetch DESIGN.md for "${site}": ${(e as Error).message?.slice(0, 100)}`
+      }
+    }
+
+    case 'design_resources': {
+      const category = (params.category || 'tools').toLowerCase()
+      const resources: Record<string, Array<{name: string, url: string, desc: string}>> = {
+        color: [
+          { name: 'Coolors', url: 'coolors.co', desc: 'Fast color palette generator' },
+          { name: 'Adobe Color', url: 'color.adobe.com', desc: 'Color wheel and palette explorer' },
+          { name: 'Paletton', url: 'paletton.com', desc: 'Color scheme designer' },
+          { name: 'Color Hunt', url: 'colorhunt.co', desc: 'Curated color palettes' },
+          { name: 'uicolors.app', url: 'uicolors.app', desc: 'Tailwind color palette generator' },
+        ],
+        typography: [
+          { name: 'Google Fonts', url: 'fonts.google.com', desc: '1000+ free fonts' },
+          { name: 'Font Pair', url: 'fontpair.co', desc: 'Google font pairings' },
+          { name: 'Typescale', url: 'typescale.com', desc: 'Typography scale calculator' },
+          { name: 'Fontjoy', url: 'fontjoy.com', desc: 'AI-generated font pairings' },
+        ],
+        icons: [
+          { name: 'Heroicons', url: 'heroicons.com', desc: 'Beautiful hand-crafted SVG icons by Tailwind' },
+          { name: 'Lucide', url: 'lucide.dev', desc: 'Beautiful & consistent icons (React/Vue/Svelte)' },
+          { name: 'Phosphor Icons', url: 'phosphoricons.com', desc: 'Flexible icon family' },
+          { name: 'Feather Icons', url: 'feathericons.com', desc: 'Simply beautiful open source icons' },
+          { name: 'Simple Icons', url: 'simpleicons.org', desc: 'Brand SVG icons' },
+        ],
+        stock: [
+          { name: 'Unsplash', url: 'unsplash.com', desc: 'Free high-resolution photos' },
+          { name: 'Pexels', url: 'pexels.com', desc: 'Free stock photos and videos' },
+          { name: 'Undraw', url: 'undraw.co', desc: 'Free customizable SVG illustrations' },
+          { name: 'Storyset', url: 'storyset.com', desc: 'Customizable illustrations' },
+          { name: 'UI Faces', url: 'uifaces.co', desc: 'AI-generated avatar photos' },
+        ],
+        prototyping: [
+          { name: 'Figma', url: 'figma.com', desc: 'Collaborative design tool' },
+          { name: 'Framer', url: 'framer.com', desc: 'Design + publish websites' },
+          { name: 'Penpot', url: 'penpot.app', desc: 'Open-source Figma alternative (self-hostable)' },
+          { name: 'Excalidraw', url: 'excalidraw.com', desc: 'Virtual whiteboard for sketching' },
+        ],
+        inspiration: [
+          { name: 'Dribbble', url: 'dribbble.com', desc: 'Design portfolio community' },
+          { name: 'Behance', url: 'behance.net', desc: 'Creative portfolio showcase' },
+          { name: 'Awwwards', url: 'awwwards.com', desc: 'Best web design awards' },
+          { name: 'Siteinspire', url: 'siteinspire.com', desc: 'Web design inspiration' },
+          { name: 'Mobbin', url: 'mobbin.com', desc: 'Mobile app design patterns' },
+        ],
+        tools: [
+          { name: 'Tailwind CSS', url: 'tailwindcss.com', desc: 'Utility-first CSS framework' },
+          { name: 'shadcn/ui', url: 'ui.shadcn.com', desc: 'Beautiful React components' },
+          { name: 'Radix UI', url: 'radix-ui.com', desc: 'Unstyled accessible components' },
+          { name: 'Storybook', url: 'storybook.js.org', desc: 'Component development & docs' },
+          { name: 'v0.dev', url: 'v0.dev', desc: 'AI component generator by Vercel' },
+          { name: 'DESIGN.md', url: 'getdesign.md', desc: 'AI-ready design system docs (74 sites)' },
+        ],
+      }
+      const list = resources[category] || resources.tools
+      return `Design Resources — ${category.toUpperCase()} (from github.com/gztchan/awesome-design):\n\n${list.map(r => `• ${r.name} (${r.url})\n  ${r.desc}`).join('\n')}\n\nCategories: color, typography, icons, stock, prototyping, inspiration, tools`
+    }
+
+    case 'vigolium_scan': {
+      const target = params.target || ''
+      if (!target) return 'Please provide a target URL to scan, e.g. "scan https://example.com"'
+
+      // Safety: only allow http/https URLs
+      if (!/^https?:\/\//.test(target)) return 'Target must be a valid http/https URL'
+
+      try {
+        await execAsync('command -v vigolium', { timeout: 3000 })
+      } catch {
+        return `Vigolium not installed. Install with:\n  npm install -g @vigolium/vigolium\nor:\n  curl -fsSL https://vigolium.com/install.sh | bash\n\nThen run: vigolium scan -t ${target}`
+      }
+
+      const strategy = params.strategy || 'fast'
+      try {
+        console.log(`[JARVIS] Starting Vigolium ${strategy} scan on ${target}...`)
+        const { stdout, stderr } = await execAsync(
+          `vigolium scan -t "${target}" --strategy ${strategy} --json 2>&1 | tail -50`,
+          { timeout: 120000 }
+        )
+        const output = (stdout + stderr).trim().slice(0, 3000)
+        return `Vigolium ${strategy} scan complete for ${target}:\n\n${output}\n\nFor full results: vigolium scan -t ${target} --output report.html`
+      } catch (e: unknown) {
+        const err = e as { stdout?: string; stderr?: string; message?: string }
+        const out = (err.stdout || '') + (err.stderr || '')
+        return out.trim() ? out.trim().slice(0, 2000) : `Scan error: ${err.message?.slice(0, 200)}`
+      }
+    }
+
+    case 'vigolium_agent': {
+      const target = params.target || ''
+      if (!target) return 'Please provide a target URL for agentic scan'
+      if (!/^https?:\/\//.test(target)) return 'Target must be a valid http/https URL'
+
+      try {
+        await execAsync('command -v vigolium', { timeout: 3000 })
+      } catch {
+        return `Vigolium not installed. Install: npm install -g @vigolium/vigolium\n\nAgentic scan command: vigolium agent --mode ${params.mode || 'autopilot'} -t ${target}`
+      }
+
+      const mode = params.mode || 'autopilot'
+      return `Starting Vigolium agentic scan (${mode} mode) on ${target}...\n\nThis runs an AI-driven scan that autonomously plans attacks, selects modules, and triages results. This may take several minutes.\n\nRun in terminal:\n  vigolium agent --mode ${mode} -t "${target}"\n\nFor source code audit:\n  vigolium agent --mode swarm --diff HEAD~5 -t "${target}"\n\nCloud dashboard: https://console.vigolium.com/`
     }
 
     default:
