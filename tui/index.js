@@ -1345,9 +1345,7 @@ async function screenJarvis() {
     { padding: 1, margin: { left: 2 }, borderColor: 'cyan', borderStyle: 'double', title: ' G.F.A.I. Online ' }
   ));
 
-  const { action } = await inquirer.prompt([{
-    type: 'list',
-    name: 'action',
+  const action = await select({
     message: T.cyan('What would you like to do?'),
     choices: [
       { name: T.cyan.bold('🌐  Open G.F.A.I. Web UI')    + T.muted('      — full JARVIS interface in browser'), value: 'webui' },
@@ -1356,11 +1354,10 @@ async function screenJarvis() {
       { name: T.white.bold('💻  Ask: System status')      + T.muted('     — CPU, battery'), value: 'sysinfo' },
       { name: T.accent.bold('💬  Send iMessage')          + T.muted('         — message a contact'), value: 'imessage' },
       { name: T.warning.bold('📸  Take Screenshot')       + T.muted('        — saves to Desktop'), value: 'screenshot' },
-      { name: T.muted('  ──────────────────────────────'), value: 'sep', disabled: true },
       { name: T.warning('↩  Back'), value: 'back' },
     ],
     pageSize: 10,
-  }]);
+  });
 
   if (action === 'back') return;
 
@@ -1396,17 +1393,17 @@ async function screenJarvis() {
       } catch { console.log(T.muted('  System info unavailable\n')); }
     } else if (action === 'screenshot') {
       const ts = new Date().toISOString().slice(0,19).replace(/[:.]/g,'-');
-      execSync(`screencapture ~/Desktop/screenshot-${ts}.png`, { stdio: 'ignore' });
-      console.log(T.success(`  ✓ Screenshot saved to ~/Desktop/screenshot-${ts}.png\n`));
+      try {
+        execSync(`screencapture ~/Desktop/screenshot-${ts}.png`, { stdio: 'ignore' });
+        console.log(T.success(`  ✓ Screenshot saved to ~/Desktop/screenshot-${ts}.png\n`));
+      } catch { console.log(T.muted('  screencapture not available\n')); }
     }
     await pressEnter(); return;
   }
 
   if (action === 'imessage') {
-    const { contact, msg } = await inquirer.prompt([
-      { type: 'input', name: 'contact', message: 'Contact name:' },
-      { type: 'input', name: 'msg', message: 'Message:' },
-    ]);
+    const contact = await input({ message: 'Contact name:' });
+    const msg     = await input({ message: 'Message:' });
     const script = `tell application "Messages"\n  try\n    set s to 1st service whose service type = iMessage\n    send "${msg.replace(/"/g,'\\"')}" to buddy "${contact.replace(/"/g,'\\"')}" of s\n    return "sent"\n  on error e\n    return e\n  end try\nend tell`;
     await runAppleScript(script); return;
   }
@@ -1426,9 +1423,7 @@ async function screenMacControl() {
     { padding: 1, margin: { left: 2 }, borderColor: 'white', borderStyle: 'round', title: ' Mac Control — appmorphy.app ' }
   ));
 
-  const { action } = await inquirer.prompt([{
-    type: 'list',
-    name: 'action',
+  const action = await select({
     message: T.accent('Choose an action:'),
     choices: [
       { name: T.success.bold('💬  iMessage / SMS')         + T.muted('   — send a message via Messages app'), value: 'imessage' },
@@ -1438,11 +1433,10 @@ async function screenMacControl() {
       { name: T.warning.bold('🔒  Lock Screen')           + T.muted('         — lock your Mac immediately'), value: 'lock' },
       { name: T.success.bold('🔔  Notification')          + T.muted('         — show a system notification'), value: 'notify' },
       { name: T.white.bold('🌐  Open Web UI')            + T.muted('         — full UI in browser'), value: 'webui' },
-      { name: T.muted('  ──────────────────────────────'), value: 'sep', disabled: true },
       { name: T.warning('↩  Back'), value: 'back' },
     ],
-    pageSize: 12,
-  }]);
+    pageSize: 10,
+  });
 
   if (action === 'back') return;
 
@@ -1468,7 +1462,7 @@ async function screenMacControl() {
   }
 
   if (action === 'volume') {
-    const { vol } = await inquirer.prompt([{ type: 'input', name: 'vol', message: 'Volume level (0–100, or "mute"/"unmute"):', default: '50' }]);
+    const vol = await input({ message: 'Volume level (0–100, or "mute"/"unmute"):', default: '50' });
     let script;
     if (vol.toLowerCase() === 'mute') script = 'set volume with output muted';
     else if (vol.toLowerCase() === 'unmute') script = 'set volume without output muted';
@@ -1478,19 +1472,15 @@ async function screenMacControl() {
   }
 
   if (action === 'notify') {
-    const { msg, title } = await inquirer.prompt([
-      { type: 'input', name: 'title', message: 'Notification title:', default: 'GhostForge' },
-      { type: 'input', name: 'msg', message: 'Message:' },
-    ]);
+    const title = await input({ message: 'Notification title:', default: 'GhostForge' });
+    const msg   = await input({ message: 'Message:' });
     await runAppleScript(`display notification "${msg.replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}"`);
     return;
   }
 
   if (action === 'imessage') {
-    const { contact, msg } = await inquirer.prompt([
-      { type: 'input', name: 'contact', message: 'Contact name (as it appears in Messages):' },
-      { type: 'input', name: 'msg', message: 'Message:' },
-    ]);
+    const contact = await input({ message: 'Contact name (as it appears in Messages):' });
+    const msg     = await input({ message: 'Message:' });
     const script = `tell application "Messages"
   try
     set targetService to 1st service whose service type = iMessage
@@ -1506,10 +1496,8 @@ end tell`;
   }
 
   if (action === 'teams') {
-    const { contact, msg } = await inquirer.prompt([
-      { type: 'input', name: 'contact', message: 'Contact name (as it appears in Teams):' },
-      { type: 'input', name: 'msg', message: 'Message:' },
-    ]);
+    const contact = await input({ message: 'Contact name (as it appears in Teams):' });
+    const msg     = await input({ message: 'Message:' });
     const script = `tell application "Microsoft Teams" to activate
 delay 1.5
 tell application "System Events"
@@ -1547,7 +1535,7 @@ async function runAppleScript(script) {
     if (result) console.log(T.success(`  Result: ${result}\n`));
     else console.log(T.success('  ✓ Script ran successfully\n'));
   } catch (e) {
-    console.log(T.error(`  ✗ Error: ${e.message || e}\n`));
+    console.log(T.danger(`  ✗ Error: ${e.message || e}\n`));
   } finally {
     try { unlinkSync(tmpPath); } catch {}
   }

@@ -83,12 +83,14 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
       term.write('\x1b[32m[✓ Connected — GhostForge TUI ready]\x1b[0m\r\n')
       ws.send('\x01' + JSON.stringify({ rows: term.rows, cols: term.cols }))
       // Send initial size after brief delay to let ttyd settle
-      setTimeout(() => {
+      const sizeTimer = setTimeout(() => {
         fit.fit()
         if (ws.readyState === WebSocket.OPEN) {
           ws.send('\x01' + JSON.stringify({ rows: term.rows, cols: term.cols }))
         }
       }, 200)
+      // Store so cleanup can cancel if ws closes before timer fires
+      ws.addEventListener('close', () => clearTimeout(sizeTimer), { once: true })
     }
 
     ws.onmessage = (e) => {

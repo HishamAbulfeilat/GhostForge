@@ -129,7 +129,7 @@ export default function FilesPage() {
             const cumulativePath = '/' + parts.slice(0, i + 1).join('/')
             return (
               <span key={cumulativePath} className="flex items-center gap-1 shrink-0">
-                <button
+                <button type="button"
                   onClick={() => navigate(cumulativePath)}
                   className="hover:text-white transition"
                 >{part}</button>
@@ -139,7 +139,7 @@ export default function FilesPage() {
           })}
         </div>
         {openFile && (
-          <button
+          <button type="button"
             onClick={saveFile}
             disabled={!dirty || saving}
             className={`shrink-0 rounded border px-2.5 py-1 text-xs transition ${
@@ -170,7 +170,7 @@ export default function FilesPage() {
           )}
           {error && <div className="px-3 py-2 text-xs text-red-400 animate-fade-in">{error}</div>}
           {dirData?.items.map(item => (
-            <button
+            <button type="button"
               key={item.path}
               onClick={() => item.isDir ? navigate(item.path) : openFileHandler(item.path)}
               className={`group flex items-center gap-2 px-3 py-2 text-left text-xs transition-all ${

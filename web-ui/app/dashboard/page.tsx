@@ -516,8 +516,7 @@ export default function DashboardPage() {
 
           <LiveClock />
 
-          <button
-            type="button"
+          <button type="button"
             onClick={() => void fetchData()}
             disabled={loading}
             className="rounded border border-white/[0.06] bg-[#080d18] px-3 py-1 text-[10px] text-gray-400 transition hover:border-[#00A3E0]/40 hover:text-[#00A3E0] disabled:opacity-40"

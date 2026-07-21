@@ -316,8 +316,7 @@ export function ChatInterface() {
           </div>
           <div className="flex items-center gap-2">
             <MacStatus status={bridgeStatus} />
-            <button
-              type="button"
+            <button type="button"
               title="Toggle Copilot CLI mode (tap to cycle: GhostForge AI → Copilot Suggest → Copilot Explain)"
               onClick={() => setCopilotMode(m => m === 'off' ? 'suggest' : m === 'suggest' ? 'explain' : 'off')}
               className={`rounded-full border px-2.5 py-1 text-xs transition ${
@@ -330,16 +329,14 @@ export function ChatInterface() {
             >
               {copilotMode === 'off' ? '🤖 GF AI' : copilotMode === 'suggest' ? '🐙 Suggest' : '🐙 Explain'}
             </button>
-            <button
-              type="button"
+            <button type="button"
               onClick={() => setSearchOpen(o => !o)}
               title="Search chat history"
               className={`text-xs transition ${searchOpen ? 'text-sky-400' : 'text-gray-600 hover:text-sky-400'}`}
             >
               🔍
             </button>
-            <button
-              type="button"
+            <button type="button"
               onClick={clearHistory}
               title="Clear chat history"
               className="text-xs text-gray-600 transition hover:text-red-400"
@@ -411,8 +408,7 @@ export function ChatInterface() {
       <div className="border-t border-gray-800 bg-gray-950/95 px-4 py-3 backdrop-blur">
         <div className="flex gap-2">
           {hasVoice && (
-            <button
-              type="button"
+            <button type="button"
               onClick={toggleVoice}
               title={listening ? 'Stop listening' : 'Voice input'}
               className={`rounded-2xl px-3 py-3 text-sm transition ${listening ? 'animate-pulse bg-red-600 text-white' : 'border border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'}`}
@@ -433,8 +429,7 @@ export function ChatInterface() {
             }}
             className={`flex-1 rounded-2xl border bg-gray-900 px-4 py-3 text-sm text-white placeholder-gray-500 outline-none transition focus:border-sky-500 ${listening ? 'border-red-600' : 'border-gray-700'}`}
           />
-          <button
-            type="button"
+          <button type="button"
             onClick={() => void sendMessage()}
             disabled={loading || !input.trim()}
             className="rounded-2xl bg-sky-600 px-4 py-3 text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-gray-700"

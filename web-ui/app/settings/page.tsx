@@ -155,9 +155,8 @@ export default function SettingsPage() {
                   const isSwitching = switching === model.id
                   const hasKey = data?.keysAvailable[model.provider] ?? false
                   return (
-                    <button
+                    <button type="button"
                       key={model.id}
-                      type="button"
                       onClick={() => switchModel(model.id, model.provider)}
                       disabled={isSwitching || isActive}
                       className={`

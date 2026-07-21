@@ -101,9 +101,8 @@ export default function MacControlPage() {
             <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-2">Quick Actions</p>
             <div className="flex flex-wrap gap-1.5">
               {QUICK_ACTIONS.map(qa => (
-                <button
+                <button type="button"
                   key={qa.label}
-                  type="button"
                   onClick={() => { setCommand(qa.template); setTab('natural'); inputRef.current?.focus() }}
                   className="rounded-lg border border-gray-700 bg-gray-800/60 px-2.5 py-1.5 text-xs text-gray-300 hover:border-violet-600 hover:bg-violet-950/40 hover:text-violet-300 transition active:scale-95"
                 >
@@ -116,15 +115,13 @@ export default function MacControlPage() {
           {/* Input tabs */}
           <div className="rounded-xl border border-gray-800 bg-gray-900/50 overflow-hidden">
             <div className="flex border-b border-gray-800">
-              <button
-                type="button"
+              <button type="button"
                 onClick={() => setTab('natural')}
                 className={`px-4 py-2.5 text-xs font-semibold transition ${tab === 'natural' ? 'bg-gray-800 text-white border-b-2 border-violet-500' : 'text-gray-500 hover:text-gray-300'}`}
               >
                 💬 Natural Language
               </button>
-              <button
-                type="button"
+              <button type="button"
                 onClick={() => setTab('script')}
                 className={`px-4 py-2.5 text-xs font-semibold transition ${tab === 'script' ? 'bg-gray-800 text-white border-b-2 border-violet-500' : 'text-gray-500 hover:text-gray-300'}`}
               >
@@ -146,8 +143,7 @@ export default function MacControlPage() {
                   />
                   <div className="mt-2 flex items-center justify-between">
                     <span className="text-[10px] text-gray-600">⌘ Enter to run • AI will generate and execute AppleScript</span>
-                    <button
-                      type="button"
+                    <button type="button"
                       onClick={() => void run()}
                       disabled={loading || !command.trim()}
                       className="rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 px-4 py-1.5 text-xs font-semibold text-white transition active:scale-95"
@@ -170,8 +166,7 @@ export default function MacControlPage() {
                   />
                   <div className="mt-2 flex items-center justify-between">
                     <span className="text-[10px] text-gray-600">⌘ Enter to run directly (skips AI generation)</span>
-                    <button
-                      type="button"
+                    <button type="button"
                       onClick={() => void run(undefined, script)}
                       disabled={loading || !script.trim()}
                       className="rounded-lg bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 px-4 py-1.5 text-xs font-semibold text-white transition active:scale-95"
@@ -235,17 +230,15 @@ export default function MacControlPage() {
             <div className="rounded-xl border border-gray-800 bg-gray-900/50 overflow-hidden">
               <div className="flex items-center justify-between border-b border-gray-800 px-3 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">History</p>
-                <button
-                  type="button"
+                <button type="button"
                   onClick={() => setHistory([])}
                   className="text-[10px] text-gray-600 hover:text-red-400 transition"
                 >Clear</button>
               </div>
               <div className="max-h-96 overflow-y-auto divide-y divide-gray-800/60">
                 {history.map(entry => (
-                  <button
+                  <button type="button"
                     key={entry.id}
-                    type="button"
                     onClick={() => { setCommand(entry.command); setScript(entry.script); setOutput(entry.output); setError(entry.error); setTab('script') }}
                     className="w-full px-3 py-2 text-left hover:bg-gray-800/50 transition group"
                   >

@@ -50,8 +50,7 @@ function LoginForm() {
           className="mb-3 w-full rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-white placeholder-gray-500 outline-none transition focus:border-sky-500"
         />
         {error ? <p className="mb-3 text-sm text-red-400">{error}</p> : null}
-        <button
-          type="button"
+        <button type="button"
           onClick={() => void handleLogin()}
           disabled={loading}
           className="w-full rounded-xl bg-sky-600 py-3 font-medium text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-gray-700"

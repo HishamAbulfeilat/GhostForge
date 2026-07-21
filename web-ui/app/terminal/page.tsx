@@ -195,8 +195,7 @@ export default function TerminalPage() {
       {/* ── Header ── */}
       <div className="flex shrink-0 items-center justify-between border-b border-gray-800 bg-gray-950/95 px-3 py-2 gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <button
-            type="button"
+          <button type="button"
             onClick={() => setSidebarOpen(o => !o)}
             className="rounded p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white transition active:scale-95 shrink-0"
             title="Toggle commands panel"
@@ -220,8 +219,7 @@ export default function TerminalPage() {
         <div className="flex items-center gap-1.5 shrink-0">
           {/* Reconnect button — shown when not connected */}
           {connStatus !== 'connected' && (
-            <button
-              type="button"
+            <button type="button"
               onClick={() => reconnectRefs.current.get(activeTab)?.()}
               className="rounded border border-amber-800/60 bg-amber-950/40 px-2.5 py-1 text-xs text-amber-300 hover:bg-amber-900/50 transition active:scale-95"
             >
@@ -260,8 +258,7 @@ export default function TerminalPage() {
               <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${s.dot}`} />
               <span className="font-mono whitespace-nowrap">{tab.name}</span>
               {tabs.length > 1 && (
-                <button
-                  type="button"
+                <button type="button"
                   onClick={e => { e.stopPropagation(); closeTab(tab.id) }}
                   className="ml-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-red-400 transition"
                 >✕</button>
@@ -269,8 +266,7 @@ export default function TerminalPage() {
             </div>
           )
         })}
-        <button
-          type="button"
+        <button type="button"
           onClick={addTab}
           className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-600 hover:bg-gray-800 hover:text-white transition"
           title="New terminal"
@@ -310,9 +306,8 @@ export default function TerminalPage() {
               <p className={`mb-1 px-1 text-xs font-semibold ${HEADER_COLOR[group.color]}`}>{group.label}</p>
               <div className="grid grid-cols-2 gap-1">
                 {group.cmds.map(item => (
-                  <button
+                  <button type="button"
                     key={item.label}
-                    type="button"
                     onClick={() => runCommand(item.cmd)}
                     className={`rounded border px-1.5 py-1.5 text-xs font-medium transition touch-manipulation ${COLOR_MAP[group.color]}`}
                   >

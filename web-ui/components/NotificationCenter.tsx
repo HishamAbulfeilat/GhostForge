@@ -96,7 +96,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
       {/* Bell button */}
       <div className="fixed top-3 right-3 z-[9997]" ref={panelRef}>
-        <button
+        <button type="button"
           onClick={() => { setOpen(o => !o); if (!open) markAllRead() }}
           className="relative flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-gray-900/80 text-white/60 backdrop-blur-sm hover:border-white/20 hover:text-white transition-colors"
           title="Notifications"

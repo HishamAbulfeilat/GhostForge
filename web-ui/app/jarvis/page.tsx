@@ -194,6 +194,8 @@ export default function JarvisPage() {
     loadVoices()
     window.speechSynthesis?.addEventListener('voiceschanged', loadVoices)
 
+    let greetTimer: ReturnType<typeof setTimeout>
+
     // Load memory
     fetch('/api/jarvis/memory')
       .then(r => r.json())
@@ -205,15 +207,16 @@ export default function JarvisPage() {
           ? `Welcome back, ${name}. ${greeting}`
           : `GhostForge AI online. ${greeting} You can say "my name is [name]" to personalize your experience.`
         addAIMessage(welcome, 'neutral', null)
-        setTimeout(() => speak(welcome), 600)
+        greetTimer = setTimeout(() => speak(welcome), 600)
       })
       .catch(() => {
         const welcome = "GhostForge AI online. All systems operational."
         addAIMessage(welcome, 'neutral', null)
-        setTimeout(() => speak(welcome), 600)
+        greetTimer = setTimeout(() => speak(welcome), 600)
       })
 
     return () => {
+      clearTimeout(greetTimer)
       window.speechSynthesis?.cancel()
       window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices)
       recognitionRef.current?.stop()
@@ -519,8 +522,7 @@ export default function JarvisPage() {
 
             {/* Orb */}
             <div className="shrink-0 py-4 flex flex-col items-center gap-3">
-              <button
-                type="button"
+              <button type="button"
                 onClick={mode === 'speaking' ? stopSpeaking : mode === 'listening' ? () => recognitionRef.current?.stop() : startListening}
                 disabled={mode === 'thinking'}
                 className="relative cursor-pointer disabled:cursor-wait transition-transform active:scale-95"
@@ -534,8 +536,7 @@ export default function JarvisPage() {
               <div className="flex items-center gap-2">
                 {voiceSupported && (
                   <>
-                    <button
-                      type="button"
+                    <button type="button"
                       onClick={startListening}
                       disabled={mode !== 'idle' && mode !== 'speaking'}
                       className="font-mono text-[10px] rounded px-3 py-1.5 border transition disabled:opacity-30"
@@ -543,8 +544,7 @@ export default function JarvisPage() {
                     >
                       🎤 SPEAK
                     </button>
-                    <button
-                      type="button"
+                    <button type="button"
                       onClick={toggleWakeWord}
                       className="font-mono text-[10px] rounded px-3 py-1.5 border transition"
                       style={{
@@ -584,8 +584,7 @@ export default function JarvisPage() {
                 className="gfai-input flex-1 rounded-lg border bg-transparent px-4 py-2.5 font-mono text-sm text-gray-100 placeholder-gray-600 transition disabled:opacity-40"
                 style={{ borderColor: `${mc.ring}44` }}
               />
-              <button
-                type="submit"
+              <button type="submit"
                 disabled={!input.trim() || mode === 'thinking'}
                 className="shrink-0 rounded-lg border px-4 py-2.5 font-mono text-xs font-bold transition disabled:opacity-30 active:scale-95"
                 style={{ borderColor: mc.ring, color: mc.ring, background: `${mc.ring}18` }}
@@ -611,9 +610,8 @@ export default function JarvisPage() {
               { label: '💻 Sysinfo', cmd: 'System status report' },
               { label: '📝 Note', cmd: 'Note: remember to review PR tomorrow' },
             ].map(q => (
-              <button
+              <button type="button"
                 key={q.label}
-                type="button"
                 onClick={() => { void sendToJarvis(q.cmd) }}
                 disabled={mode === 'thinking' || mode === 'listening'}
                 className="w-full text-left rounded px-2 py-1.5 font-mono text-[10px] border transition disabled:opacity-30 hover:border-blue-600/60"

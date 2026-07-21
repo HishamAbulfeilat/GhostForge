@@ -131,7 +131,7 @@ export function CommandPalette() {
               {filtered.filter(i => i.group === group).map((item, idx) => {
                 const globalIdx = filtered.indexOf(item)
                 return (
-                  <button
+                  <button type="button"
                     key={item.id}
                     onClick={item.action}
                     className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${

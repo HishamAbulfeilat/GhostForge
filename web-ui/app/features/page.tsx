@@ -200,17 +200,15 @@ export default function FeaturesPage() {
 
         {/* Category filter tabs */}
         <div className="flex gap-1 overflow-x-auto px-4 pb-2.5 scrollbar-none">
-          <button
-            type="button"
+          <button type="button"
             onClick={() => setActiveGroup('all')}
             className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${activeGroup === 'all' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
           >
             All
           </button>
           {FEATURE_GROUPS.map(g => (
-            <button
+            <button type="button"
               key={g.id}
-              type="button"
               onClick={() => setActiveGroup(g.id)}
               className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${activeGroup === g.id ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
             >
@@ -237,9 +235,8 @@ export default function FeaturesPage() {
               {group.cmds.map(item => {
                 const isRunning = running === item.cmd
                 return (
-                  <button
+                  <button type="button"
                     key={item.cmd}
-                    type="button"
                     onClick={() => runCommand(item.cmd)}
                     disabled={!!running}
                     className={`

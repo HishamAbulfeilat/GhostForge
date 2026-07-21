@@ -39,8 +39,7 @@ export function MessageBubble({
           )}
         </p>
         {runCommand ? (
-          <button
-            type="button"
+          <button type="button"
             onClick={() => onRunCommand(runCommand)}
             className="mt-3 rounded-full bg-emerald-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-emerald-500"
           >
