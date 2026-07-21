@@ -1,13 +1,13 @@
-# 👻 GhostForge — v4.6.0
+# 👻 GhostForge — v5.0.0
 
 > *Operator-grade dev tools, forged in the shadows.*
 > Developed by **Hisham Abulfeilat**
 
 The ultimate AI developer toolkit supercharging GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, green coding, and more.
 
-**G.F.A.I. (GhostForge Artificial Intelligence)** — JARVIS-style AI assistant with voice control, Mac automation, multi-model support (Gemini · Grok · OpenRouter · Ollama), Fish Audio JARVIS voice, wake word detection, full computer-use, remote screen sharing, audit logs, and biometric security.
+**G.F.A.I. (GhostForge Artificial Intelligence)** — JARVIS-style AI assistant with voice control, Mac automation, multi-model support (Gemini · Grok · OpenRouter · Ollama · DeepSeek), Fish Audio JARVIS voice, wake word detection, full computer-use, remote screen sharing, audit logs, biometric security, **SSE streaming (ack within 50ms)**, DESIGN.md templates (74 sites), Vigolium security scanner, and LLMFit model scoring.
 
-**250+ files · 14 agents · 70+ commands · 67 scripts · Web UI (33 pages) · G.F.A.I. JARVIS AI · Grok/Gemini/Ollama/OpenRouter · Voice Biometrics (Resemblyzer) · Audit Logs · Mac Remote Control · Screen Share (WebRTC + noVNC) · VS Code Extension + `@ghostforge` Chat · TUI Full Chat · Computer-Use Tools · Wake Word "Hey JARVIS" · Health Score 100%**
+**250+ files · 14 agents · 70+ commands · 67 scripts · Web UI (33 pages) · G.F.A.I. JARVIS AI · Grok/Gemini/Ollama/OpenRouter/DeepSeek · Voice Biometrics (Resemblyzer) · Audit Logs · Mac Remote Control · Screen Share (WebRTC + noVNC) · VS Code Extension + `@ghostforge` Chat · TUI Full Chat · Computer-Use Tools · Wake Word "Hey JARVIS" · JARVIS SSE Streaming · 28-item Marketplace · Health Score 100%**
 
 ---
 
@@ -23,7 +23,12 @@ G.F.A.I. is your personal AI assistant — inspired by JARVIS from Iron Man. It 
 | **Mac Control** | ✅ 20+ tools | Click, type, scroll, apps, messages, lock |
 | **Model Switch** | ✅ Live | Gemini → Grok → OpenRouter → Ollama → auto |
 | **Grok (xAI)** | ✅ Ready | Add `XAI_API_KEY` to enable |
-| **Ollama Local** | ✅ Running | llama3.2:3b — 100% private, no API key |
+| **Ollama Local** | ✅ Running | qwen3:14b (recommended) · llama3.2:3b — 100% private |
+| **LLMFit Scorer** | ✅ Active | Auto-selects best local model for each task |
+| **DeepSeek** | ✅ New | deepseek-v4-flash ($0.14/M) · deepseek-v4-pro — add `DEEPSEEK_API_KEY` |
+| **JARVIS Streaming** | ✅ New | SSE — ack speech within ~50ms, tool result streamed |
+| **DESIGN.md** | ✅ New | 74 design resource templates via VoltAgent/awesome-design-md |
+| **Vigolium Security** | ✅ New | Security scanner + bots via vigolium.com |
 | **Computer Use** | ✅ Multi-step | execute_code, task_steps, describe_screen |
 | **Audit Log** | ✅ Active | All tool calls logged to `~/.ghostforge/audit.log` |
 | **Risk Check** | ✅ Active | Dangerous commands blocked until confirmed |
@@ -46,8 +51,9 @@ http://localhost:3001/dashboard     — Developer dashboard
 
 ### Available AI Models
 ```
-Auto chain: Gemini 2.0 Flash → Gemma 4 26B (free) → Nemotron 120B (free) → Ollama llama3.2:3b
-Optional:   Grok 3 Mini (add XAI_API_KEY) · DeepSeek R1 · Qwen 2.5 Coder
+Auto chain: Gemini 2.0 Flash → Gemma 4 26B (free) → Nemotron 120B (free) → Ollama qwen3:14b → llama3.2:3b
+Optional:   Grok 3 Mini (add XAI_API_KEY) · DeepSeek V4 Flash/Pro · qwen2.5-coder:7b
+LLMFit:     Auto-recommends best model based on task type
 ```
 
 ### API Keys (add to `web-ui/.env.local`)
@@ -55,6 +61,7 @@ Optional:   Grok 3 Mini (add XAI_API_KEY) · DeepSeek R1 · Qwen 2.5 Coder
 GOOGLE_GENERATIVE_AI_API_KEY=...   # Gemini — free tier
 OPENROUTER_API_KEY=...             # Free models — Gemma, Nemotron, DeepSeek
 XAI_API_KEY=...                    # Grok (xAI) — optional
+DEEPSEEK_API_KEY=...               # DeepSeek V4 Flash/Pro — optional
 FISH_AUDIO_API_KEY=...             # JARVIS voice — free tier
 ELEVENLABS_API_KEY=...             # ElevenLabs TTS — optional
 ```
@@ -252,6 +259,23 @@ OPENROUTER_API_KEY=your_key             # openrouter.ai/keys (free tier)
 WS_BRIDGE_URL=http://localhost:4747
 WS_BRIDGE_TOKEN=auto-read-from-disk     # bridge.sh writes ~/.ghostforge/bridge/token
 ```
+
+### v5.0.0 Highlights — JARVIS Streaming + Full Bug Fix Batch
+
+- ⚡ **JARVIS SSE Streaming** — ack speech within ~50ms, tool results streamed in real-time
+- 🧠 **qwen3:14b** — best local model via Ollama (thinking model support with token stripping)
+- 🤖 **DeepSeek V4** — Flash ($0.14/M) + Pro available via `DEEPSEEK_API_KEY`
+- 🎨 **74 DESIGN.md templates** — from VoltAgent/awesome-design-md
+- 🔒 **Vigolium security scanner** — security bots and agents integration
+- 📊 **LLMFit model scorer** — auto-recommends best model for each task
+- 🛒 **Marketplace 28 items** — expanded from 10 (Vigolium, DeepSeek, qwen3, LLMFit…)
+- 🐛 **TTS 400 fixed** — Fish Audio model field moved to JSON body
+- 🎤 **Mic/wake word fixed** — abort() + delay + ref-based restart
+- 💬 **/chat response fixed** — JSON response instead of SSE mismatch
+- 🍎 **Mac control fixed** — thinking token stripping from AppleScript
+- 🔧 **ghostforge PATH fixed** — shell commands now find binary correctly
+
+---
 
 ### v4.5.0 Highlights
 
