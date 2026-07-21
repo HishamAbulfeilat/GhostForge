@@ -357,7 +357,7 @@ async function screenHome() {
       menuSeparator(),
       menuChoice(T.white.bold, '🚀  Deploy', 'deploy to Azure / GitHub / Vercel', 'deploy'),
       menuChoice(T.accent.bold, '📱  AppMorphy', 'convert website → Android APK (cloud build)', 'appmorphy'),
-      menuChoice(T.pink.bold || T.white.bold, '🍎  Mac Control', 'control Mac with natural language → AppleScript', 'maccontrol'),
+      menuChoice(T.white.bold, '🍎  Mac Control', 'control Mac with natural language → AppleScript', 'maccontrol'),
       menuChoice(T.cyan.bold, '🤖  GhostForge AI (G.F.A.I.)', 'JARVIS-style: voice + tools + memory', 'jarvis'),
       menuChoice(T.muted, '🌅  Daily Digest', 'morning summary: tickets, security, deps, git', 'digest'),
       menuChoice(T.white.bold, '📄  README / Docs', 'view full toolkit documentation', 'readme'),
