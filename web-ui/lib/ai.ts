@@ -50,11 +50,23 @@ export function isFallbackError(e: unknown): boolean {
   )
 }
 
+// ── Model chain cache (30s TTL) — avoids Ollama ping + dynamic imports per request ──
+let _chainCache: { chain: ModelEntry[]; ts: number } | null = null
+const CHAIN_CACHE_TTL = 30_000
+
 /**
  * Build an ordered fallback chain of AI models.
- * Order: user-selected → gemini → openrouter → omniroute
+ * Order: user-selected → gemini → openrouter → xAI → deepseek → ollama → omniroute
+ * Result is cached for 30s unless a model override is specified.
  */
 export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[]> {
+  const hasPref = !!(opts?.activeProvider && opts?.activeModel)
+
+  // Return cached chain for default (no override) calls
+  if (!hasPref && _chainCache && Date.now() - _chainCache.ts < CHAIN_CACHE_TTL) {
+    return _chainCache.chain
+  }
+
   const chain: ModelEntry[] = []
   const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
   const orKey     = process.env.OPENROUTER_API_KEY
@@ -79,68 +91,55 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
     }
   }
 
-  // 2. Gemini (env default)
+  // 2. Gemini (fastest cloud option)
   if (geminiKey) {
     const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
     const mid = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
     push({ provider: 'google', modelId: mid, model: createGoogleGenerativeAI({ apiKey: geminiKey })(mid) })
   }
 
-  // 3. OpenRouter free models (confirmed working July 2025)
+  // 3. OpenRouter free models
   if (orKey) {
     const or = createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })
-    // Primary: Gemma 4 26B (working)
     push({ provider: 'openrouter', modelId: 'google/gemma-4-26b-a4b-it:free', model: or('google/gemma-4-26b-a4b-it:free') })
-    // Secondary: Nemotron 120B (working)
     push({ provider: 'openrouter', modelId: 'nvidia/nemotron-3-super-120b-a12b:free', model: or('nvidia/nemotron-3-super-120b-a12b:free') })
-    // Tertiary: env override (if set manually)
     const mid = process.env.OPENROUTER_MODEL
     if (mid && mid !== 'google/gemma-2.0-flash-exp:free' && mid !== 'google/gemini-2.0-flash-exp:free') {
       push({ provider: 'openrouter', modelId: mid, model: or(mid) })
     }
-    // Additional free fallbacks
     push({ provider: 'openrouter', modelId: 'nvidia/nemotron-nano-12b-v2-vl:free', model: or('nvidia/nemotron-nano-12b-v2-vl:free') })
   }
 
-  // 4. xAI Grok (OpenAI-compatible API)
+  // 4. xAI Grok
   const xaiKey = process.env.XAI_API_KEY
   if (xaiKey) {
     const grok = createOpenAI({ baseURL: 'https://api.x.ai/v1', apiKey: xaiKey })
-    if (opts?.activeProvider === 'xai') {
-      const grokModel = opts.activeModel || 'grok-3-mini'
-      push({ provider: 'xai', modelId: grokModel, model: grok(grokModel) })
-    } else {
-      push({ provider: 'xai', modelId: 'grok-3-mini', model: grok('grok-3-mini') })
-    }
+    const grokModel = opts?.activeProvider === 'xai' ? (opts.activeModel || 'grok-3-mini') : 'grok-3-mini'
+    push({ provider: 'xai', modelId: grokModel, model: grok(grokModel) })
   }
 
-  // 4b. DeepSeek (official @ai-sdk/deepseek — deepseek-v4-flash, deepseek-v4-pro, deepseek-reasoner)
+  // 5. DeepSeek
   const deepseekKey = process.env.DEEPSEEK_API_KEY
   if (deepseekKey) {
     const { createDeepSeek } = await import('@ai-sdk/deepseek')
     const deepseek = createDeepSeek({ apiKey: deepseekKey })
-    if (opts?.activeProvider === 'deepseek') {
-      // Map legacy model names to current ones
-      const modelMap: Record<string, string> = {
-        'deepseek-chat':     'deepseek-v4-flash',   // deprecated alias → v4-flash
-        'deepseek-reasoner': 'deepseek-v4-flash',   // deprecated alias → v4-flash (thinking mode)
-        'deepseek-coder':    'deepseek-v4-flash',   // legacy → v4-flash
-      }
-      const dsModel = modelMap[opts.activeModel || ''] || opts.activeModel || 'deepseek-v4-flash'
-      push({ provider: 'deepseek', modelId: dsModel, model: deepseek(dsModel) })
-    } else {
-      // v4-flash: $0.14/M tokens, 1M context — best speed/cost as of July 2026
-      push({ provider: 'deepseek', modelId: 'deepseek-v4-flash', model: deepseek('deepseek-v4-flash') })
+    const modelMap: Record<string, string> = {
+      'deepseek-chat':     'deepseek-v4-flash',
+      'deepseek-reasoner': 'deepseek-v4-flash',
+      'deepseek-coder':    'deepseek-v4-flash',
     }
+    const dsModel = opts?.activeProvider === 'deepseek'
+      ? (modelMap[opts.activeModel || ''] || opts.activeModel || 'deepseek-v4-flash')
+      : 'deepseek-v4-flash'
+    push({ provider: 'deepseek', modelId: dsModel, model: deepseek(dsModel) })
   }
 
-  // 5. Ollama (local, fully private, no API key needed)
+  // 6. Ollama (local — probe with short timeout, cached so no per-request overhead)
   try {
-    const ollamaRes = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1500) })
+    const ollamaRes = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1200) })
     if (ollamaRes.ok) {
       const ollamaData = await ollamaRes.json() as { models: Array<{ name: string }> }
       const ollamaModels = ollamaData.models || []
-      // Prefer qwen3:14b > qwen2.5-coder > llama3.2 > first available
       const preferred = ['qwen3:14b','qwen2.5-coder:7b','qwen2.5:7b','llama3.2:3b','llama3.1:8b','mistral:7b']
       const pick = preferred.find(p => ollamaModels.some(m => m.name === p)) || ollamaModels[0]?.name
       if (pick) {
@@ -150,9 +149,14 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
     }
   } catch { /* Ollama not running */ }
 
-  // 6. OmniRoute (local free gateway, always last)
+  // 7. OmniRoute (local free gateway, always last)
   if (omniUrl) {
     push({ provider: 'omniroute', modelId: 'auto/coding', model: makeOmniRouteModel('auto/coding') })
+  }
+
+  // Cache default chain only (not user-overridden)
+  if (!hasPref) {
+    _chainCache = { chain, ts: Date.now() }
   }
 
   return chain
@@ -175,7 +179,7 @@ export async function generateWithFallback(
   let lastError: unknown
   for (const entry of chain) {
     try {
-      const { text } = await generateText({ ...opts, model: entry.model })
+      const { text } = await generateText({ ...opts, model: entry.model, maxRetries: 0 })
       return { text, usedProvider: entry.provider, usedModel: entry.modelId }
     } catch (e) {
       if (isFallbackError(e)) {
@@ -183,7 +187,7 @@ export async function generateWithFallback(
         lastError = e
         continue
       }
-      throw e // Non-recoverable error
+      throw e
     }
   }
 

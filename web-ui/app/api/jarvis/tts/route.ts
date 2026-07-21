@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 // ── Fish Audio — JARVIS voice model ───────────────────────────────────────────
-// Model: https://fish.audio/app/text-to-speech/?modelId=612b878b113047d9a770c069c8b4fdfe
-// Free tier: s2.1-pro-free model, no character limits for dev use
 
 async function fishAudioTTS(text: string, voiceId: string, apiKey: string): Promise<ArrayBuffer | null> {
   try {
@@ -11,20 +9,16 @@ async function fishAudioTTS(text: string, voiceId: string, apiKey: string): Prom
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        model: 's2.1-pro-free',  // Free tier — same quality as paid
       },
       body: JSON.stringify({
         text,
         reference_id: voiceId,
+        model: 's2.1-pro-free',   // in body (not header) — fixes 400 Bad Request
         format: 'mp3',
         mp3_bitrate: 128,
         temperature: 0.65,
         top_p: 0.7,
-        prosody: {
-          speed: 0.92,          // Slightly slower — more JARVIS gravitas
-          volume: 0,
-          normalize_loudness: true,
-        },
+        prosody: { speed: 0.92, volume: 0, normalize_loudness: true },
         latency: 'normal',
         repetition_penalty: 1.2,
         chunk_length: 300,
@@ -71,7 +65,11 @@ async function elevenLabsTTS(text: string, voiceKey: string, apiKey: string): Pr
       }),
       signal: AbortSignal.timeout(12000),
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      console.error(`[ElevenLabs] ${res.status}:`, errBody.slice(0, 200))
+      return null
+    }
     return res.arrayBuffer()
   } catch {
     return null
@@ -92,37 +90,38 @@ export async function POST(req: NextRequest) {
 
   if (!text.trim()) return NextResponse.json({ error: 'No text' }, { status: 400 })
 
+  // Truncate very long texts to avoid slow TTS
+  const ttsText = text.trim().slice(0, 500)
+
   const fishKey  = process.env.FISH_AUDIO_API_KEY
   const elKey    = process.env.ELEVENLABS_API_KEY
   const jarvisId = process.env.FISH_AUDIO_JARVIS_MODEL || '612b878b113047d9a770c069c8b4fdfe'
 
-  // ── Try engines in order: Fish Audio → ElevenLabs → fallback ─────────────
-
   // Explicit engine override
   if (engine === 'fish' && fishKey) {
-    const audio = await fishAudioTTS(text, jarvisId, fishKey)
+    const audio = await fishAudioTTS(ttsText, jarvisId, fishKey)
     if (audio) return new NextResponse(audio, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-TTS-Engine': 'fish-audio' } })
   }
   if (engine === 'elevenlabs' && elKey) {
-    const audio = await elevenLabsTTS(text, voice, elKey)
+    const audio = await elevenLabsTTS(ttsText, voice, elKey)
     if (audio) return new NextResponse(audio, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-TTS-Engine': 'elevenlabs' } })
   }
   if (engine === 'browser') {
     return NextResponse.json({ fallback: true, reason: 'browser_requested' })
   }
 
-  // Auto chain: Fish Audio (JARVIS voice) → ElevenLabs → browser fallback
+  // Auto chain: Fish Audio → ElevenLabs → browser fallback
   if (fishKey) {
-    const audio = await fishAudioTTS(text, jarvisId, fishKey)
+    const audio = await fishAudioTTS(ttsText, jarvisId, fishKey)
     if (audio) return new NextResponse(audio, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-TTS-Engine': 'fish-audio' } })
   }
 
   if (elKey) {
-    const audio = await elevenLabsTTS(text, 'adam', elKey)
+    const audio = await elevenLabsTTS(ttsText, 'adam', elKey)
     if (audio) return new NextResponse(audio, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-TTS-Engine': 'elevenlabs' } })
   }
 
-  // No TTS keys configured — fall back to browser
+  // No TTS keys configured — fall back to browser Web Speech API
   return NextResponse.json({
     fallback: true,
     reason: fishKey ? 'fish_audio_error' : elKey ? 'elevenlabs_error' : 'no_keys',
