@@ -386,6 +386,7 @@ export default function JarvisPage() {
   const wakeWordActiveRef  = useRef(false)
   const modeRef            = useRef<Mode>('idle')
   const ttsFailCountRef    = useRef(0)
+  const wakeRestartingRef  = useRef(false)  // persists across re-renders (fixes stale closure)
 
   useEffect(() => { wakeWordActiveRef.current = wakeWordActive }, [wakeWordActive])
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -669,102 +670,143 @@ export default function JarvisPage() {
 
   const startListening = useCallback(() => {
     const SR = getSR()
-    if (!SR) return
+    if (!SR) { toast('error', 'Speech recognition not supported in this browser. Try Chrome.'); return }
     window.speechSynthesis?.cancel()
-    // Stop wake listener while actively listening
-    wakeRecognitionRef.current?.stop()
+
+    // Abort (not stop) wake listener — abort is synchronous in Chrome
+    if (wakeRecognitionRef.current) {
+      try { wakeRecognitionRef.current.abort() } catch { /* ignore */ }
+      wakeRecognitionRef.current = null
+    }
+    // Also abort any existing recognition session
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort() } catch { /* ignore */ }
+      recognitionRef.current = null
+    }
+
     setMode('listening')
 
-    const rec = new SR()
-    // Use detected language or browser language for multilingual support
-    rec.lang = speechLang
-    rec.continuous = false
-    rec.interimResults = true
-    recognitionRef.current = rec
-
-    let finalTranscript = ''
-    rec.onresult = (e: Any) => {
-      finalTranscript = ''
-      for (let i = 0; i < e.results.length; i++) {
-        if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript
-      }
-    }
-    rec.onerror = (ev: Any) => {
-      if (ev?.error !== 'aborted') setMode('idle')
-    }
-    rec.onend = () => {
-      if (finalTranscript.trim()) {
-        setInput('')
-        void sendToJarvis(finalTranscript.trim())
-      } else if (modeRef.current === 'listening') {
-        setMode('idle')
-      }
-    }
-    try { rec.start() } catch { setMode('idle') }
-  }, [sendToJarvis])
-
-  // ── Wake word ─────────────────────────────────────────────────────────────
-
-  const toggleWakeWord = useCallback(() => {
-    const SR = getSR()
-    if (!SR) return
-
-    if (wakeWordActiveRef.current) {
-      wakeRecognitionRef.current?.stop()
-      wakeRecognitionRef.current = null
-      setWakeWordActive(false)
-      return
-    }
-
-    setWakeWordActive(true)
-    let isRestarting = false
-
-    const WAKE_PHRASES = ['hey jarvis', 'jarvis', 'hey ghostforge', 'ghost forge', 'hey forge', 'gfai', 'g f a i', 'hey gfai']
-
-    const startWake = () => {
-      if (!wakeWordActiveRef.current || isRestarting) return
+    // Small delay to let browser fully release the mic before re-acquiring
+    setTimeout(() => {
       const rec = new SR()
-      // Wake word always uses English (jarvis / hey jarvis) — don't change this
-      rec.lang = 'en-US'
-      rec.continuous = true
+      rec.lang = speechLang
+      rec.continuous = false
       rec.interimResults = true
-      wakeRecognitionRef.current = rec
+      recognitionRef.current = rec
 
+      let finalTranscript = ''
       rec.onresult = (e: Any) => {
-        if (modeRef.current !== 'idle') return // Don't trigger while busy
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const transcript = Array.from(e.results as any[])
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((r: any) => r[0].transcript).join(' ').toLowerCase().trim()
-        const triggered = WAKE_PHRASES.some(phrase => transcript.includes(phrase))
-        if (triggered) {
-          rec.abort?.() ?? rec.stop()
-          void speak("Yes, I'm listening.")
-          setTimeout(startListening, 1000)
-        }
-      }
-      rec.onend = () => {
-        if (wakeWordActiveRef.current && !isRestarting) {
-          isRestarting = true
-          setTimeout(() => { isRestarting = false; startWake() }, 400)
+        finalTranscript = ''
+        for (let i = 0; i < e.results.length; i++) {
+          if (e.results[i].isFinal) finalTranscript += e.results[i][0].transcript
         }
       }
       rec.onerror = (ev: Any) => {
         if (ev?.error === 'not-allowed') {
-          setWakeWordActive(false)
-          toast('error', 'Microphone permission denied. Enable in browser settings.')
-          return
+          toast('error', 'Microphone permission denied. Allow mic access in browser settings.')
         }
-        if (wakeWordActiveRef.current && !isRestarting) {
-          isRestarting = true
-          setTimeout(() => { isRestarting = false; startWake() }, 600)
+        if (ev?.error !== 'aborted') setMode('idle')
+      }
+      rec.onend = () => {
+        if (finalTranscript.trim()) {
+          setInput('')
+          void sendToJarvis(finalTranscript.trim())
+        } else if (modeRef.current === 'listening') {
+          setMode('idle')
+        }
+        // Restart wake listener after active listening ends
+        if (wakeWordActiveRef.current && !wakeRecognitionRef.current) {
+          setTimeout(() => { if (wakeWordActiveRef.current) startWakeListener() }, 600)
         }
       }
-      try { rec.start() } catch { /* ignore */ }
+      try {
+        rec.start()
+      } catch {
+        setMode('idle')
+        // Retry once after a short delay if start fails
+        setTimeout(() => {
+          try { rec.start() } catch { setMode('idle') }
+        }, 300)
+      }
+    }, 150)
+  }, [sendToJarvis, speechLang, toast])
+
+  // ── Wake word ─────────────────────────────────────────────────────────────
+
+  const WAKE_PHRASES = ['hey jarvis', 'jarvis', 'hey ghostforge', 'ghost forge', 'hey forge', 'gfai', 'g f a i', 'hey gfai']
+
+  const startWakeListener = useCallback(() => {
+    const SR = getSR()
+    if (!SR || !wakeWordActiveRef.current) return
+    if (wakeRecognitionRef.current) return  // already running
+
+    const rec = new SR()
+    rec.lang = 'en-US'
+    rec.continuous = true
+    rec.interimResults = true
+    rec.maxAlternatives = 1
+    wakeRecognitionRef.current = rec
+
+    rec.onresult = (e: Any) => {
+      if (modeRef.current !== 'idle') return
+      const transcript = Array.from(e.results as Any[])
+        .map((r: Any) => r[0].transcript).join(' ').toLowerCase().trim()
+      const triggered = WAKE_PHRASES.some(phrase => transcript.includes(phrase))
+      if (triggered) {
+        try { rec.abort() } catch { /* ignore */ }
+        wakeRecognitionRef.current = null
+        void speak("Yes, I'm listening.")
+        setTimeout(startListening, 800)
+      }
+    }
+    rec.onend = () => {
+      wakeRecognitionRef.current = null
+      if (wakeWordActiveRef.current && !wakeRestartingRef.current) {
+        wakeRestartingRef.current = true
+        setTimeout(() => {
+          wakeRestartingRef.current = false
+          if (wakeWordActiveRef.current) startWakeListener()
+        }, 500)
+      }
+    }
+    rec.onerror = (ev: Any) => {
+      wakeRecognitionRef.current = null
+      if (ev?.error === 'not-allowed') {
+        setWakeWordActive(false)
+        wakeWordActiveRef.current = false
+        toast('error', 'Microphone permission denied. Enable in browser settings.')
+        return
+      }
+      if (wakeWordActiveRef.current && !wakeRestartingRef.current) {
+        wakeRestartingRef.current = true
+        setTimeout(() => {
+          wakeRestartingRef.current = false
+          if (wakeWordActiveRef.current) startWakeListener()
+        }, 700)
+      }
+    }
+    try { rec.start() } catch { wakeRecognitionRef.current = null }
+  }, [speak, startListening, toast])
+
+  const toggleWakeWord = useCallback(() => {
+    const SR = getSR()
+    if (!SR) { toast('error', 'Speech recognition not supported in this browser.'); return }
+
+    if (wakeWordActiveRef.current) {
+      wakeWordActiveRef.current = false
+      setWakeWordActive(false)
+      if (wakeRecognitionRef.current) {
+        try { wakeRecognitionRef.current.abort() } catch { /* ignore */ }
+        wakeRecognitionRef.current = null
+      }
+      return
     }
 
-    startWake()
-  }, [speak, startListening, toast])
+    setWakeWordActive(true)
+    wakeWordActiveRef.current = true
+    wakeRestartingRef.current = false
+    startWakeListener()
+  }, [startWakeListener, toast])
 
   // ── Form submit ───────────────────────────────────────────────────────────
 

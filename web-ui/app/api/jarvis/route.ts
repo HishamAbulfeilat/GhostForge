@@ -1522,33 +1522,55 @@ export async function POST(req: NextRequest) {
   let aiResp: AIResponse = { speech: pickPersona('processing'), tool: null, toolParams: {}, emotion: 'thinking', confidence: 80 }
 
   try {
+    // Thinking models (qwen3, deepseek-r1) need more tokens for <think>...</think> + JSON
+    const isThinkingModel = (usedModel || selectedModel || '').toLowerCase().includes('qwen3') ||
+      (usedModel || selectedModel || '').toLowerCase().includes('deepseek-r1') ||
+      (selectedProvider === 'ollama')
+    const maxTok = isThinkingModel ? 1200 : 320
+
     const text = await aiGenerate({
       system: buildSystemPrompt(memory, domain, { lang: detectedLang, isMobile, isMac }),
       messages: [
         ...history.slice(-5).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
         { role: 'user' as const, content: message },
       ],
-      maxTokens: 320,
+      maxTokens: maxTok,
     })
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    // Strip thinking tokens from models like qwen3:14b and deepseek-r1
+    const cleaned = text
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/gi, '')
+      .trim()
+
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
     if (jsonMatch) {
       try {
         const parsed = JSON.parse(jsonMatch[0])
         aiResp = { ...aiResp, ...parsed }
+        // Ensure speech is never empty
+        if (!aiResp.speech || !aiResp.speech.trim()) {
+          aiResp.speech = pickPersona('acknowledge')
+        }
         // Safety: clean thinking leakage in speech
-        if (aiResp.speech && (
+        if (
           aiResp.speech.includes('We need to respond') ||
           aiResp.speech.includes('According to tools') ||
           aiResp.speech.includes('The user wants to') ||
           aiResp.speech.includes('I should') ||
-          aiResp.speech.includes('Let me think')
-        )) {
+          aiResp.speech.includes('Let me think') ||
+          aiResp.speech.startsWith('<think')
+        ) {
           aiResp.speech = pickPersona('acknowledge')
         }
-      } catch { aiResp.speech = text.replace(/\{[\s\S]*\}/, '').trim() || text.trim() }
+      } catch {
+        // JSON parse failed — use cleaned text as speech
+        const fallback = cleaned.replace(/\{[\s\S]*\}/, '').trim()
+        aiResp.speech = fallback || cleaned.slice(0, 300) || pickPersona('acknowledge')
+      }
     } else {
-      aiResp.speech = text.trim().slice(0, 300)
+      // No JSON found — model returned plain text (common with local models)
+      aiResp.speech = cleaned.slice(0, 300) || pickPersona('acknowledge')
     }
   } catch (e) {
     const msg = String(e)
