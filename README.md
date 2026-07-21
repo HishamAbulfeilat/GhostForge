@@ -1,13 +1,26 @@
-# 👻 GhostForge — v5.0.0
+# 👻 GhostForge — v5.1.0
 
 > *Operator-grade dev tools, forged in the shadows.*
 > Developed by **Hisham Abulfeilat**
 
 The ultimate AI developer toolkit supercharging GitHub Copilot with deep knowledge of your entire tech stack — frontend web, mobile, backend, CMS, DevOps, QA, security, SQL/ETL, AI integration, green coding, and more.
 
-**G.F.A.I. (GhostForge Artificial Intelligence)** — JARVIS-style AI assistant with voice control, Mac automation, multi-model support (Gemini · Grok · OpenRouter · Ollama · DeepSeek), Fish Audio JARVIS voice, wake word detection, full computer-use, remote screen sharing, audit logs, biometric security, **SSE streaming (ack within 50ms)**, DESIGN.md templates (74 sites), Vigolium security scanner, and LLMFit model scoring.
+**G.F.A.I. (GhostForge Artificial Intelligence)** — JARVIS-style AI assistant with voice control, Mac automation, multi-model support (Gemini · Grok · OpenRouter · Ollama · DeepSeek), Fish Audio JARVIS voice, wake word detection, full computer-use, remote screen sharing, audit logs, biometric security, **SSE streaming (ack within 50ms)**, DESIGN.md templates (74 sites), Vigolium security scanner, LLMFit model scoring, and cross-device support (Android · iOS · Windows · Mac · Linux).
 
-**250+ files · 14 agents · 70+ commands · 67 scripts · Web UI (33 pages) · G.F.A.I. JARVIS AI · Grok/Gemini/Ollama/OpenRouter/DeepSeek · Voice Biometrics (Resemblyzer) · Audit Logs · Mac Remote Control · Screen Share (WebRTC + noVNC) · VS Code Extension + `@ghostforge` Chat · TUI Full Chat · Computer-Use Tools · Wake Word "Hey JARVIS" · JARVIS SSE Streaming · 28-item Marketplace · Health Score 100%**
+**250+ files · 14 agents · 70+ commands · 67 scripts · Web UI (33 pages) · G.F.A.I. JARVIS AI · Grok/Gemini/Ollama/OpenRouter/DeepSeek · Voice Biometrics (Resemblyzer) · Audit Logs · Mac Remote Control · Screen Share (WebRTC + noVNC) · VS Code Extension v2.7.0 + `@ghostforge` Chat · TUI Full Chat · Computer-Use Tools · Wake Word "Hey JARVIS" · JARVIS SSE Streaming · 28-item Marketplace · Health Score 100%**
+
+## 🆕 What's New in v5.1.0
+
+| Fix | Details |
+|-----|---------|
+| ✅ JARVIS real responses | Replaced "At once."/"Certainly." empty fallback with `generateContextualFallback()` — greetings, questions, comparisons all answered properly |
+| ✅ TTS Fish Audio | Fixed `'fish-audio'` engine string match; removed early browser short-circuit — JARVIS voice works again |
+| ✅ Terminal quick commands | API fallback when WebSocket offline — commands run via `/api/execute` and show output inline |
+| ✅ Features page | Fixed "port closed before response" — bridge timeout 30s→2.5s, instant fallback to direct execution |
+| ✅ ghostforge CLI | Subcommand routing: `ghostforge carbon status` → `scripts/carbon.sh status` (21 commands mapped) |
+| ✅ VS Code extension | Fixed `findToolkitRoot()` path case (`~/GhostForge`); renamed GhostForge→GhostForge everywhere; version 2.7.0 |
+| ✅ favicon.ico | Added to web-ui/public — no more 404 on every page load |
+| ✅ Cross-device | Terminal works on all devices via API fallback; web accessible on LAN |
 
 ---
 
