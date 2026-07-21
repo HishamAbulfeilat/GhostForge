@@ -86,6 +86,18 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
       push({ provider: 'google', modelId: am, model: createGoogleGenerativeAI({ apiKey: geminiKey })(am) })
     } else if (ap === 'openrouter' && orKey) {
       push({ provider: 'openrouter', modelId: am, model: createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })(am) })
+    } else if (ap === 'xai') {
+      const xKey = process.env.XAI_API_KEY
+      if (xKey) push({ provider: 'xai', modelId: am, model: createOpenAI({ baseURL: 'https://api.x.ai/v1', apiKey: xKey })(am) })
+    } else if (ap === 'deepseek') {
+      const dsKey = process.env.DEEPSEEK_API_KEY
+      if (dsKey) { const { createDeepSeek } = await import('@ai-sdk/deepseek'); push({ provider: 'deepseek', modelId: am, model: createDeepSeek({ apiKey: dsKey })(am) }) }
+    } else if (ap === 'ollama') {
+      // Local model — go directly, skip all cloud providers entirely
+      const ollamaClient = createOpenAI({ baseURL: 'http://localhost:11434/v1', apiKey: 'ollama' })
+      push({ provider: 'ollama', modelId: am, model: ollamaClient(am) })
+      if (!hasPref) _chainCache = { chain, ts: Date.now() }
+      return chain  // return immediately — don't add cloud fallbacks when local is selected
     } else if (ap === 'omniroute') {
       push({ provider: 'omniroute', modelId: am, model: makeOmniRouteModel(am) })
     }
