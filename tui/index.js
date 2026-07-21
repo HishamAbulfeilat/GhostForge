@@ -358,6 +358,7 @@ async function screenHome() {
       menuChoice(T.white.bold, '🚀  Deploy', 'deploy to Azure / GitHub / Vercel', 'deploy'),
       menuChoice(T.accent.bold, '📱  AppMorphy', 'convert website → Android APK (cloud build)', 'appmorphy'),
       menuChoice(T.pink.bold || T.white.bold, '🍎  Mac Control', 'control Mac with natural language → AppleScript', 'maccontrol'),
+      menuChoice(T.cyan.bold, '🤖  GhostForge AI (G.F.A.I.)', 'JARVIS-style: voice + tools + memory', 'jarvis'),
       menuChoice(T.muted, '🌅  Daily Digest', 'morning summary: tickets, security, deps, git', 'digest'),
       menuChoice(T.white.bold, '📄  README / Docs', 'view full toolkit documentation', 'readme'),
       menuSeparator(),
@@ -1324,6 +1325,90 @@ async function screenDeploy() {
       { padding: 1, borderColor: '#0077C8', borderStyle: 'round', title: ' Copilot Chat Command ' }
     ));
     await pressEnter();
+  }
+}
+
+async function screenJarvis() {
+  sectionHeader('🤖  GhostForge AI (G.F.A.I.)', 'Your personal JARVIS — voice, tools, persistent memory');
+
+  console.log(boxen(
+    T.cyan.bold('  G.F.A.I. — GhostForge Artificial Intelligence\n\n') +
+    T.white('  Inspired by OpenJarvis (Stanford), J.A.R.V.I.S. from Iron Man\n\n') +
+    T.success('  ✓ 10+ tools: time, weather, web search, iMessage, music\n') +
+    T.success('  ✓ Mac automation: open apps, reminders, screenshots, lock\n') +
+    T.success('  ✓ Persistent memory: knows your name & preferences\n') +
+    T.success('  ✓ Voice I/O: speak commands, hear responses (Web UI)\n') +
+    T.success('  ✓ Wake word: "Hey GhostForge" (Web UI)\n') +
+    T.muted('  ─────────────────────────────────────────────────\n') +
+    T.cyan('  Full UI: ') + T.white('http://localhost:3001/jarvis') + '\n' +
+    T.muted('  Sources: openjarvis.stanford.edu · github/rezaulhreza/jarvis\n'),
+    { padding: 1, margin: { left: 2 }, borderColor: 'cyan', borderStyle: 'double', title: ' G.F.A.I. Online ' }
+  ));
+
+  const { action } = await inquirer.prompt([{
+    type: 'list',
+    name: 'action',
+    message: T.cyan('What would you like to do?'),
+    choices: [
+      { name: T.cyan.bold('🌐  Open G.F.A.I. Web UI')    + T.muted('      — full JARVIS interface in browser'), value: 'webui' },
+      { name: T.success.bold('⏰  Ask: What time is it?')  + T.muted('   — quick time check'), value: 'time' },
+      { name: T.white.bold('🌤  Ask: Weather today')      + T.muted('     — current conditions'), value: 'weather' },
+      { name: T.white.bold('💻  Ask: System status')      + T.muted('     — CPU, battery'), value: 'sysinfo' },
+      { name: T.accent.bold('💬  Send iMessage')          + T.muted('         — message a contact'), value: 'imessage' },
+      { name: T.warning.bold('📸  Take Screenshot')       + T.muted('        — saves to Desktop'), value: 'screenshot' },
+      { name: T.muted('  ──────────────────────────────'), value: 'sep', disabled: true },
+      { name: T.warning('↩  Back'), value: 'back' },
+    ],
+    pageSize: 10,
+  }]);
+
+  if (action === 'back') return;
+
+  if (action === 'webui') {
+    console.log(T.cyan('\n  Opening http://localhost:3001/jarvis ...\n'));
+    try { execSync('open http://localhost:3001/jarvis 2>/dev/null || xdg-open http://localhost:3001/jarvis 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter(); return;
+  }
+
+  const quickCmds = {
+    time: 'What is the current time and date?',
+    weather: 'What is the weather today?',
+    sysinfo: 'Give me a system status report.',
+    screenshot: 'Take a screenshot and save it to the Desktop.',
+  };
+
+  if (action in quickCmds) {
+    console.log(T.muted(`\n  Sending to G.F.A.I.: "${quickCmds[action as keyof typeof quickCmds]}"\n`));
+    console.log(T.muted('  (Note: Full voice + AI response available in Web UI)\n'));
+    // Execute directly for TUI
+    if (action === 'time') {
+      console.log(T.success(`  ${new Date().toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}\n`));
+    } else if (action === 'weather') {
+      try {
+        const r = execSync('curl -s "https://wttr.in/?format=3" 2>/dev/null', { encoding: 'utf8', timeout: 5000 });
+        console.log(T.success(`  ${r.trim()}\n`));
+      } catch { console.log(T.muted('  Weather unavailable\n')); }
+    } else if (action === 'sysinfo') {
+      try {
+        const cpu = execSync("top -l 1 -s 0 | awk '/CPU usage/{print $3+$5}'", { encoding: 'utf8', timeout: 5000 }).trim();
+        const bat = execSync("pmset -g batt | grep -o '[0-9]*%' | head -1", { encoding: 'utf8', timeout: 5000 }).trim();
+        console.log(T.success(`  CPU: ${Math.round(parseFloat(cpu))}% used | Battery: ${bat}\n`));
+      } catch { console.log(T.muted('  System info unavailable\n')); }
+    } else if (action === 'screenshot') {
+      const ts = new Date().toISOString().slice(0,19).replace(/[:.]/g,'-');
+      execSync(`screencapture ~/Desktop/screenshot-${ts}.png`, { stdio: 'ignore' });
+      console.log(T.success(`  ✓ Screenshot saved to ~/Desktop/screenshot-${ts}.png\n`));
+    }
+    await pressEnter(); return;
+  }
+
+  if (action === 'imessage') {
+    const { contact, msg } = await inquirer.prompt([
+      { type: 'input', name: 'contact', message: 'Contact name:' },
+      { type: 'input', name: 'msg', message: 'Message:' },
+    ]);
+    const script = `tell application "Messages"\n  try\n    set s to 1st service whose service type = iMessage\n    send "${msg.replace(/"/g,'\\"')}" to buddy "${contact.replace(/"/g,'\\"')}" of s\n    return "sent"\n  on error e\n    return e\n  end try\nend tell`;
+    await runAppleScript(script); return;
   }
 }
 
@@ -4673,6 +4758,7 @@ async function main() {
         case 'deploy':       await screenDeploy(); break;
         case 'appmorphy':    await screenAppmorphy(); break;
         case 'maccontrol':   await screenMacControl(); break;
+        case 'jarvis':       await screenJarvis(); break;
         case 'digest':       await screenDigest(); break;
         case 'readme':       await screenReadme(); break;
         case 'marketplace':  await screenMarketplace(); break; // lazy

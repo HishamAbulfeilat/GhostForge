@@ -12,6 +12,7 @@ const PROTECTED_PREFIXES = [
   '/marketplace',
   '/settings',
   '/mac-control',
+  '/jarvis',
 ]
 
 export function middleware(req: NextRequest) {
@@ -46,5 +47,6 @@ export const config = {
     '/marketplace/:path*',
     '/settings/:path*',
     '/mac-control/:path*',
+    '/jarvis/:path*',
   ],
 }

@@ -532,6 +532,7 @@ export default function DashboardPage() {
         {/* ── Quick nav cards ── */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
           {[
+            { href: '/jarvis',       icon: '🤖', label: 'G.F.A.I.',   desc: 'JARVIS mode',     color: 'hover:border-blue-500/60 hover:bg-blue-950/20' },
             { href: '/chat',         icon: '💬', label: 'Chat',      desc: 'AI assistant',    color: 'hover:border-violet-600/60 hover:bg-violet-950/20' },
             { href: '/terminal',     icon: '🖥️', label: 'Terminal',  desc: 'Remote shell',    color: 'hover:border-emerald-600/60 hover:bg-emerald-950/20' },
             { href: '/files',        icon: '🗂️', label: 'Files',     desc: 'Browse & edit',   color: 'hover:border-sky-600/60 hover:bg-sky-950/20' },

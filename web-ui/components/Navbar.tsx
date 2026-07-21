@@ -14,7 +14,7 @@ const NAV_ITEMS = [
 ]
 
 // Pages that use their own full-screen layout — hide global nav
-const FULLSCREEN_ROUTES = ['/terminal', '/login', '/chat']
+const FULLSCREEN_ROUTES = ['/terminal', '/login', '/chat', '/jarvis']
 
 export function Navbar() {
   const pathname = usePathname()
