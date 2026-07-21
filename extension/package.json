@@ -2,7 +2,7 @@
   "name": "ghostforge",
   "displayName": "GhostForge Developer Toolkit",
   "description": "GitHub Copilot supercharger for React/Next.js/TypeScript \u2014 commands, snippets, RTL audit, bundle analyzer, and more",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "publisher": "ghostforge",
   "license": "MIT",
   "engines": {
