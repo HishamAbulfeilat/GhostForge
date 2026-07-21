@@ -28,17 +28,30 @@ export async function GET(req: NextRequest) {
   const hasGemini = !!process.env.GOOGLE_GENERATIVE_AI_API_KEY
   const activeProvider = hasGemini ? 'google' : process.env.OPENROUTER_API_KEY ? 'openrouter' : 'omniroute'
   const activeModel = hasGemini
-    ? (process.env.GEMINI_MODEL || 'gemini-2.5-flash')
+    ? (process.env.GEMINI_MODEL || 'gemini-2.0-flash')
     : (process.env.OPENROUTER_MODEL || process.env.OMNIROUTE_MODEL || 'auto/coding')
+
+  const hasFishAudio  = !!process.env.FISH_AUDIO_API_KEY
+  const hasElevenLabs = !!process.env.ELEVENLABS_API_KEY
+
+  // Determine best available TTS engine
+  const ttsEngine = hasFishAudio ? 'fish-audio' : hasElevenLabs ? 'elevenlabs' : 'browser'
 
   return NextResponse.json({
     models,
     active: { provider: activeProvider, model: activeModel },
+    tts: {
+      engine: ttsEngine,
+      fishAudio:   hasFishAudio,
+      elevenLabs:  hasElevenLabs,
+      jarvisVoice: hasFishAudio, // True JARVIS movie voice via Fish Audio
+      jarvisModelId: process.env.FISH_AUDIO_JARVIS_MODEL || '612b878b113047d9a770c069c8b4fdfe',
+    },
     integrations: {
-      elevenlabs: !!process.env.ELEVENLABS_API_KEY,
-      github:     !!process.env.GITHUB_TOKEN,
+      elevenlabs:   hasElevenLabs,
+      github:       !!process.env.GITHUB_TOKEN,
       googleSearch: !!(process.env.GOOGLE_SEARCH_API_KEY && process.env.GOOGLE_SEARCH_CX),
-      discord:    !!process.env.DISCORD_WEBHOOK_URL,
+      discord:      !!process.env.DISCORD_WEBHOOK_URL,
     },
   })
 }

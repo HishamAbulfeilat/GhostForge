@@ -17,7 +17,7 @@ const getSR = (): (new () => Any) | null => {
 
 type Mode = 'idle' | 'listening' | 'thinking' | 'speaking'
 type Emotion = 'neutral' | 'happy' | 'thinking' | 'alert' | 'processing' | 'done'
-type VoiceEngine = 'browser' | 'elevenlabs'
+type VoiceEngine = 'browser' | 'elevenlabs' | 'fish-audio'
 
 interface Message {
   id: string
@@ -39,6 +39,10 @@ interface Memory {
 
 interface ModelInfo {
   provider: string; id: string; label: string; free: boolean; available: boolean
+}
+
+interface TtsInfo {
+  engine: VoiceEngine; fishAudio: boolean; elevenLabs: boolean; jarvisVoice: boolean; jarvisModelId: string
 }
 
 interface Toast {
@@ -210,7 +214,7 @@ export default function JarvisPage() {
   const [voiceSupported, setVoiceSupported] = useState(false)
   const [wakeWordActive, setWakeWordActive] = useState(false)
   const [voiceEngine, setVoiceEngine]       = useState<VoiceEngine>('browser')
-  const [hasElevenLabs, setHasElevenLabs]   = useState(false)
+  const [ttsInfo, setTtsInfo]               = useState<TtsInfo | null>(null)
   const [showSettings, setShowSettings]     = useState(false)
   const [models, setModels]                 = useState<ModelInfo[]>([])
   const [activeModel, setActiveModel]       = useState<{ provider: string; model: string } | null>(null)
@@ -228,8 +232,7 @@ export default function JarvisPage() {
   const inputRef           = useRef<HTMLInputElement>(null)
   const wakeWordActiveRef  = useRef(false)
   const modeRef            = useRef<Mode>('idle')
-  // Track ElevenLabs failures to auto-switch
-  const elFailCountRef     = useRef(0)
+  const ttsFailCountRef    = useRef(0)
 
   useEffect(() => { wakeWordActiveRef.current = wakeWordActive }, [wakeWordActive])
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -254,13 +257,18 @@ export default function JarvisPage() {
     loadVoices()
     window.speechSynthesis?.addEventListener('voiceschanged', loadVoices)
 
-    // Load models + integrations
+    // Load models + integrations + TTS info
     fetch('/api/jarvis/models').then(r => r.json()).then(data => {
       setModels(data.models || [])
       setActiveModel(data.active || null)
-      setHasElevenLabs(!!data.integrations?.elevenlabs)
       setIntegrations({ github: !!data.integrations?.github, discord: !!data.integrations?.discord, googleSearch: !!data.integrations?.googleSearch })
-      if (data.integrations?.elevenlabs) setVoiceEngine('elevenlabs')
+      if (data.tts) {
+        setTtsInfo(data.tts)
+        // Auto-select best voice engine
+        setVoiceEngine(data.tts.engine || 'browser')
+        if (data.tts.fishAudio) toast('success', '🎙 JARVIS voice ready — Fish Audio active', 5000)
+        else if (data.tts.elevenLabs) toast('info', '🎙 ElevenLabs voice active')
+      }
     }).catch(() => {})
 
     let greetTimer: ReturnType<typeof setTimeout>
@@ -301,28 +309,30 @@ export default function JarvisPage() {
     setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', text, ts: Date.now() }])
   }, [])
 
-  // ── ElevenLabs TTS — with auto-fallback ────────────────────────────────────
+  // ── External TTS (Fish Audio / ElevenLabs) with auto-fallback chain ───────
 
-  const speakElevenLabs = useCallback(async (text: string): Promise<boolean> => {
+  const speakExternal = useCallback(async (text: string, preferEngine?: VoiceEngine): Promise<{ ok: boolean; usedEngine: string }> => {
+    const engine = preferEngine || voiceEngine
     try {
       const res = await fetch('/api/jarvis/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice: 'adam' }),
+        body: JSON.stringify({ text, engine: engine === 'browser' ? 'browser' : engine }),
       })
       const ct = res.headers.get('content-type') || ''
+      const actualEngine = res.headers.get('X-TTS-Engine') || engine
+
       if (!res.ok || ct.includes('application/json')) {
-        const data = ct.includes('application/json') ? await res.json() : {}
-        const reason = data.reason || 'unknown'
-        elFailCountRef.current += 1
-        if (elFailCountRef.current >= 2) {
-          // Auto-switch after 2 consecutive failures
+        const data = ct.includes('application/json') ? await res.json().catch(() => ({})) : {}
+        ttsFailCountRef.current += 1
+        if (ttsFailCountRef.current >= 2) {
           setVoiceEngine('browser')
-          toast('warn', `ElevenLabs unavailable (${reason}) — switched to browser TTS automatically`)
+          toast('warn', `${engine === 'fish-audio' ? 'Fish Audio' : 'TTS'} unavailable (${data.reason || 'error'}) — switched to browser voice`)
         }
-        return false
+        return { ok: false, usedEngine: '' }
       }
-      elFailCountRef.current = 0
+
+      ttsFailCountRef.current = 0
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
@@ -330,31 +340,31 @@ export default function JarvisPage() {
       audio.onended = () => { setMode('idle'); URL.revokeObjectURL(url) }
       audio.onerror = () => { setMode('idle'); URL.revokeObjectURL(url) }
       await audio.play()
-      return true
+      return { ok: true, usedEngine: actualEngine }
     } catch {
-      elFailCountRef.current += 1
-      return false
+      ttsFailCountRef.current += 1
+      return { ok: false, usedEngine: '' }
     }
-  }, [toast])
+  }, [voiceEngine, toast])
 
-  // ── Browser TTS ───────────────────────────────────────────────────────────
+  // ── Browser TTS (fallback, always available) ──────────────────────────────
 
   const speakBrowser = useCallback((text: string) => {
     window.speechSynthesis?.cancel()
     const utt = new SpeechSynthesisUtterance(text)
     const voices = voicesRef.current
-    // Prefer British/deep male voices for JARVIS feel
+    // Best JARVIS-like browser voices (deep British male)
     const preferred =
-      voices.find(v => v.name === 'Daniel') ||        // macOS British male
-      voices.find(v => v.name === 'Alex') ||           // macOS male
+      voices.find(v => v.name === 'Daniel') ||
+      voices.find(v => v.name === 'Alex') ||
       voices.find(v => v.name === 'Google UK Male') ||
       voices.find(v => v.lang === 'en-GB' && !v.name.toLowerCase().includes('female')) ||
       voices.find(v => v.name === 'Samantha') ||
       voices.find(v => v.lang.startsWith('en') && v.localService) ||
       voices[0]
     if (preferred) utt.voice = preferred
-    utt.rate  = 0.95
-    utt.pitch = 0.85  // Lower pitch = more JARVIS-like
+    utt.rate   = 0.92
+    utt.pitch  = 0.82   // Low pitch = JARVIS gravitas
     utt.volume = 1.0
     utt.onstart = () => setMode('speaking')
     utt.onend   = () => setMode('idle')
@@ -362,14 +372,16 @@ export default function JarvisPage() {
     window.speechSynthesis?.speak(utt)
   }, [])
 
+  // ── Unified speak: external engines → browser fallback ───────────────────
+
   const speak = useCallback(async (text: string) => {
-    if (voiceEngine === 'elevenlabs' && hasElevenLabs) {
-      const ok = await speakElevenLabs(text)
-      if (!ok) speakBrowser(text)
-    } else {
-      speakBrowser(text)
+    if (voiceEngine !== 'browser') {
+      const { ok } = await speakExternal(text)
+      if (ok) return
+      // Auto-fallback to browser if external failed
     }
-  }, [voiceEngine, hasElevenLabs, speakElevenLabs, speakBrowser])
+    speakBrowser(text)
+  }, [voiceEngine, speakExternal, speakBrowser])
 
   // ── Send to G.F.A.I. ─────────────────────────────────────────────────────
 
@@ -676,9 +688,37 @@ export default function JarvisPage() {
               {/* Voice selector */}
               <div>
                 <p className="text-blue-400/40 tracking-widest mb-1.5">VOICE ENGINE</p>
-                <div className="flex gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
+                  {/* Fish Audio — JARVIS movie voice */}
                   <button type="button"
-                    onClick={() => { setVoiceEngine('browser'); elFailCountRef.current = 0; toast('info', 'Browser TTS active') }}
+                    disabled={!ttsInfo?.fishAudio}
+                    onClick={() => { setVoiceEngine('fish-audio'); ttsFailCountRef.current = 0; toast('success', '🎙 Fish Audio JARVIS voice active (movie-accurate)') }}
+                    className="rounded px-2 py-1 border transition disabled:opacity-30"
+                    style={{
+                      borderColor: voiceEngine === 'fish-audio' ? '#00ff88' : `${mc.ring}33`,
+                      color: voiceEngine === 'fish-audio' ? '#00ff88' : 'rgba(150,170,220,0.5)',
+                      background: voiceEngine === 'fish-audio' ? 'rgba(0,255,136,0.1)' : 'transparent',
+                    }}
+                    title={!ttsInfo?.fishAudio ? 'Add FISH_AUDIO_API_KEY to .env.local — free tier available' : 'Fish Audio JARVIS voice from Iron Man movies'}>
+                    {voiceEngine === 'fish-audio' && '✓ '}🎙 JARVIS VOICE {!ttsInfo?.fishAudio ? '(NO KEY)' : 'free'}
+                  </button>
+
+                  {/* ElevenLabs */}
+                  <button type="button"
+                    disabled={!ttsInfo?.elevenLabs}
+                    onClick={() => { setVoiceEngine('elevenlabs'); ttsFailCountRef.current = 0; toast('success', 'ElevenLabs active — Adam voice') }}
+                    className="rounded px-2 py-1 border transition disabled:opacity-30"
+                    style={{
+                      borderColor: voiceEngine === 'elevenlabs' ? '#ff9922' : `${mc.ring}33`,
+                      color: voiceEngine === 'elevenlabs' ? '#ff9922' : 'rgba(150,170,220,0.5)',
+                      background: voiceEngine === 'elevenlabs' ? 'rgba(255,153,34,0.1)' : 'transparent',
+                    }}>
+                    {voiceEngine === 'elevenlabs' && '✓ '}⚡ ELEVENLABS {!ttsInfo?.elevenLabs && '(NO KEY)'}
+                  </button>
+
+                  {/* Browser fallback */}
+                  <button type="button"
+                    onClick={() => { setVoiceEngine('browser'); ttsFailCountRef.current = 0; toast('info', 'Browser TTS active (Daniel/Alex voice)') }}
                     className="rounded px-2 py-1 border transition"
                     style={{
                       borderColor: voiceEngine === 'browser' ? mc.ring : `${mc.ring}33`,
@@ -687,22 +727,14 @@ export default function JarvisPage() {
                     }}>
                     {voiceEngine === 'browser' && '✓ '}BROWSER TTS
                   </button>
-                  <button type="button"
-                    disabled={!hasElevenLabs}
-                    onClick={() => { setVoiceEngine('elevenlabs'); elFailCountRef.current = 0; toast('success', 'ElevenLabs voice active — Adam (JARVIS-style)') }}
-                    className="rounded px-2 py-1 border transition disabled:opacity-30"
-                    style={{
-                      borderColor: voiceEngine === 'elevenlabs' ? '#ff9922' : `${mc.ring}33`,
-                      color: voiceEngine === 'elevenlabs' ? '#ff9922' : 'rgba(150,170,220,0.5)',
-                      background: voiceEngine === 'elevenlabs' ? 'rgba(255,153,34,0.1)' : 'transparent',
-                    }}
-                    title={!hasElevenLabs ? 'Add ELEVENLABS_API_KEY to .env.local' : 'ElevenLabs Adam voice (JARVIS-like)'}>
-                    {voiceEngine === 'elevenlabs' && '✓ '}⚡ ELEVENLABS {!hasElevenLabs && '(NO KEY)'}
-                  </button>
                 </div>
-                {!hasElevenLabs && (
-                  <p className="mt-1 text-[9px] text-blue-400/30">Add ELEVENLABS_API_KEY to .env.local for JARVIS voice</p>
-                )}
+                <p className="mt-1.5 text-[9px] text-blue-400/25 leading-relaxed">
+                  {!ttsInfo?.fishAudio && !ttsInfo?.elevenLabs
+                    ? '⚠ Get free JARVIS voice: fish.audio/app/api-keys → add FISH_AUDIO_API_KEY to .env.local'
+                    : ttsInfo?.fishAudio
+                      ? '🎙 Fish Audio model ID: 612b878b113047d9a770c069c8b4fdfe (Iron Man JARVIS)'
+                      : ''}
+                </p>
               </div>
 
               {/* Integrations status */}
@@ -713,7 +745,8 @@ export default function JarvisPage() {
                     { label: 'GitHub', ok: integrations.github, hint: 'Set GITHUB_TOKEN' },
                     { label: 'Discord', ok: integrations.discord, hint: 'Set DISCORD_WEBHOOK_URL' },
                     { label: 'Google Search', ok: integrations.googleSearch, hint: 'Set GOOGLE_SEARCH_API_KEY + CX' },
-                    { label: 'ElevenLabs TTS', ok: hasElevenLabs, hint: 'Set ELEVENLABS_API_KEY' },
+                    { label: 'Fish Audio (JARVIS)', ok: !!ttsInfo?.fishAudio, hint: 'Set FISH_AUDIO_API_KEY (free)' },
+                    { label: 'ElevenLabs TTS', ok: !!ttsInfo?.elevenLabs, hint: 'Set ELEVENLABS_API_KEY' },
                   ].map(i => (
                     <div key={i.label} className="flex items-center gap-2">
                       <span className="h-1.5 w-1.5 rounded-full" style={{ background: i.ok ? '#00ff88' : '#ff444466' }} />
@@ -739,7 +772,7 @@ export default function JarvisPage() {
                 { label: 'AI ENGINE', val: liveModel ? liveModel.model?.split('/').pop()?.split(':')[0]?.slice(0, 14) || 'ONLINE' : 'ONLINE', ok: true },
                 { label: 'MAC CTRL', val: 'READY', ok: true },
                 { label: 'MEMORY', val: memory.conversationCount > 0 ? `${memory.conversationCount} SES` : 'INIT', ok: true },
-                { label: 'VOICE', val: voiceEngine === 'elevenlabs' ? 'ELEVENLABS' : voiceSupported ? 'BROWSER' : 'N/A', ok: voiceSupported },
+                { label: 'VOICE', val: voiceEngine === 'fish-audio' ? 'JARVIS' : voiceEngine === 'elevenlabs' ? 'ELEVENLABS' : voiceSupported ? 'BROWSER' : 'N/A', ok: voiceSupported || voiceEngine !== 'browser' },
                 { label: 'WAKE WORD', val: wakeWordActive ? 'ACTIVE' : 'OFF', ok: wakeWordActive },
                 { label: 'GITHUB', val: integrations.github ? 'LINKED' : 'N/A', ok: integrations.github },
                 { label: 'DISCORD', val: integrations.discord ? 'LINKED' : 'N/A', ok: integrations.discord },
