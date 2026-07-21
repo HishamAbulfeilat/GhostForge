@@ -10,6 +10,7 @@ import { tmpdir, homedir } from 'os'
 import { join } from 'path'
 
 const execAsync = promisify(exec)
+export const dynamic = 'force-dynamic'
 
 // ── Tool catalog ──────────────────────────────────────────────────────────────
 
@@ -1437,6 +1438,26 @@ interface AIResponse {
   confidence?: number
 }
 
+interface JarvisResponsePayload {
+  speech: string
+  tool: string | null
+  toolParams: Record<string, string>
+  toolResult: string | null
+  emotion: string
+  confidence: number
+  domain: string
+  usedModel: string
+  usedProvider: string
+  risk: ReturnType<typeof assessRisk> | null
+  detectedLang: string
+  device: { isMobile: boolean; isMac: boolean }
+  requiresConfirmation?: boolean
+}
+
+function acceptsEventStream(req: NextRequest) {
+  return (req.headers.get('accept') || '').includes('text/event-stream')
+}
+
 export async function POST(req: NextRequest) {
   const ip = getClientIP(req)
 
@@ -1474,6 +1495,8 @@ export async function POST(req: NextRequest) {
   if (!message?.trim()) {
     return NextResponse.json({ error: 'No message' }, { status: 400 })
   }
+
+  const streamMode = acceptsEventStream(req)
 
   // Detect language from message content (server-side)
   const detectedLang = clientLang || detectMsgLanguage(message)
@@ -1518,134 +1541,218 @@ export async function POST(req: NextRequest) {
     return result.text
   }
 
-  // ── Step 1: AI intent classification + response ───────────────────────────
-  let aiResp: AIResponse = { speech: pickPersona('processing'), tool: null, toolParams: {}, emotion: 'thinking', confidence: 80 }
+  const runJarvis = async (
+    emit?: (payload: Record<string, unknown>) => void,
+  ): Promise<JarvisResponsePayload> => {
+    let aiResp: AIResponse = { speech: pickPersona('processing'), tool: null, toolParams: {}, emotion: 'thinking', confidence: 80 }
 
-  try {
-    // Thinking models (qwen3, deepseek-r1) need more tokens for <think>...</think> + JSON
-    const isThinkingModel = (usedModel || selectedModel || '').toLowerCase().includes('qwen3') ||
-      (usedModel || selectedModel || '').toLowerCase().includes('deepseek-r1') ||
-      (selectedProvider === 'ollama')
-    const maxTok = isThinkingModel ? 1200 : 320
+    try {
+      const isThinkingModel = (usedModel || selectedModel || '').toLowerCase().includes('qwen3') ||
+        (usedModel || selectedModel || '').toLowerCase().includes('deepseek-r1') ||
+        (selectedProvider === 'ollama')
+      const maxTok = isThinkingModel ? 1200 : 320
 
-    const text = await aiGenerate({
-      system: buildSystemPrompt(memory, domain, { lang: detectedLang, isMobile, isMac }),
-      messages: [
-        ...history.slice(-5).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
-        { role: 'user' as const, content: message },
-      ],
-      maxTokens: maxTok,
-    })
+      const text = await aiGenerate({
+        system: buildSystemPrompt(memory, domain, { lang: detectedLang, isMobile, isMac }),
+        messages: [
+          ...history.slice(-5).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
+          { role: 'user' as const, content: message },
+        ],
+        maxTokens: maxTok,
+      })
 
-    // Strip thinking tokens from models like qwen3:14b and deepseek-r1
-    const cleaned = text
-      .replace(/<think>[\s\S]*?<\/think>/gi, '')
-      .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/gi, '')
-      .trim()
+      const cleaned = text
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/gi, '')
+        .trim()
 
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[0])
-        aiResp = { ...aiResp, ...parsed }
-        // Ensure speech is never empty
-        if (!aiResp.speech || !aiResp.speech.trim()) {
-          aiResp.speech = pickPersona('acknowledge')
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0])
+          aiResp = { ...aiResp, ...parsed }
+          if (!aiResp.speech || !aiResp.speech.trim()) {
+            aiResp.speech = pickPersona('acknowledge')
+          }
+          if (
+            aiResp.speech.includes('We need to respond') ||
+            aiResp.speech.includes('According to tools') ||
+            aiResp.speech.includes('The user wants to') ||
+            aiResp.speech.includes('I should') ||
+            aiResp.speech.includes('Let me think') ||
+            aiResp.speech.startsWith('<think')
+          ) {
+            aiResp.speech = pickPersona('acknowledge')
+          }
+        } catch {
+          const fallback = cleaned.replace(/\{[\s\S]*\}/, '').trim()
+          aiResp.speech = fallback || cleaned.slice(0, 300) || pickPersona('acknowledge')
         }
-        // Safety: clean thinking leakage in speech
-        if (
-          aiResp.speech.includes('We need to respond') ||
-          aiResp.speech.includes('According to tools') ||
-          aiResp.speech.includes('The user wants to') ||
-          aiResp.speech.includes('I should') ||
-          aiResp.speech.includes('Let me think') ||
-          aiResp.speech.startsWith('<think')
-        ) {
-          aiResp.speech = pickPersona('acknowledge')
-        }
-      } catch {
-        // JSON parse failed — use cleaned text as speech
-        const fallback = cleaned.replace(/\{[\s\S]*\}/, '').trim()
-        aiResp.speech = fallback || cleaned.slice(0, 300) || pickPersona('acknowledge')
+      } else {
+        aiResp.speech = cleaned.slice(0, 300) || pickPersona('acknowledge')
       }
-    } else {
-      // No JSON found — model returned plain text (common with local models)
-      aiResp.speech = cleaned.slice(0, 300) || pickPersona('acknowledge')
+    } catch (e) {
+      const msg = String(e)
+      aiResp = {
+        speech: msg.toLowerCase().includes('no ai providers') || msg.toLowerCase().includes('all ai providers')
+          ? 'All AI providers failed. Please check your API keys or try again later.'
+          : `${pickPersona('error')} ${msg.slice(0, 60)}`,
+        tool: null,
+        toolParams: {},
+        emotion: 'alert',
+        confidence: 0,
+      }
     }
-  } catch (e) {
-    const msg = String(e)
-    aiResp = {
-      speech: msg.toLowerCase().includes('no ai providers') || msg.toLowerCase().includes('all ai providers')
-        ? 'All AI providers failed. Please check your API keys or try again later.'
-        : `${pickPersona('error')} ${msg.slice(0, 60)}`,
-      tool: null, toolParams: {}, emotion: 'alert', confidence: 0,
+
+    let toolResult: string | null = null
+    let riskAssessment: ReturnType<typeof assessRisk> | null = null
+
+    if (aiResp.tool && aiResp.tool !== 'null') {
+      const risk = assessRisk(aiResp.tool, aiResp.toolParams || {})
+      riskAssessment = risk
+
+      void auditLog({
+        level: risk.level === 'danger' ? 'danger' : risk.level === 'warn' ? 'warn' : 'info',
+        event: 'tool_request',
+        tool: aiResp.tool,
+        params: aiResp.toolParams,
+        risk: risk.risk,
+        blocked: risk.level === 'danger' && !confirmRisk,
+      })
+
+      if (risk.level === 'danger' && !confirmRisk) {
+        const blockedPayload: JarvisResponsePayload = {
+          speech: `I've detected a high-risk operation: ${risk.reason} Please confirm if you want me to proceed.`,
+          tool: aiResp.tool,
+          toolParams: aiResp.toolParams || {},
+          toolResult: null,
+          emotion: 'alert',
+          confidence: 95,
+          domain,
+          usedModel,
+          usedProvider,
+          requiresConfirmation: true,
+          risk: riskAssessment,
+          detectedLang,
+          device: { isMobile, isMac },
+        }
+        emit?.({
+          type: 'response',
+          speech: blockedPayload.speech,
+          tool: blockedPayload.tool,
+          toolParams: blockedPayload.toolParams,
+          emotion: blockedPayload.emotion,
+          confidence: blockedPayload.confidence,
+          domain,
+          risk: blockedPayload.risk,
+          requiresConfirmation: true,
+        })
+        return blockedPayload
+      }
     }
-  }
 
-  // ── Step 2: Risk assessment before tool execution ─────────────────────────
-  let toolResult: string | null = null
-  let riskAssessment = null
-
-  if (aiResp.tool && aiResp.tool !== 'null') {
-    const risk = assessRisk(aiResp.tool, aiResp.toolParams || {})
-    riskAssessment = risk
-
-    // Log the tool request
-    void auditLog({
-      level: risk.level === 'danger' ? 'danger' : risk.level === 'warn' ? 'warn' : 'info',
-      event: 'tool_request',
-      tool: aiResp.tool,
-      params: aiResp.toolParams,
-      risk: risk.risk,
-      blocked: risk.level === 'danger' && !confirmRisk,
+    emit?.({
+      type: 'response',
+      speech: aiResp.speech,
+      tool: aiResp.tool ?? null,
+      toolParams: aiResp.toolParams || {},
+      emotion: aiResp.emotion || 'neutral',
+      confidence: aiResp.confidence ?? 80,
+      domain,
+      risk: riskAssessment,
+      requiresConfirmation: false,
     })
 
-    // Block dangerous tools unless user confirmed
-    if (risk.level === 'danger' && !confirmRisk) {
-      return NextResponse.json({
-        speech: `I've detected a high-risk operation: ${risk.reason} Please confirm if you want me to proceed.`,
-        tool: aiResp.tool,
-        toolResult: null,
-        emotion: 'alert',
-        confidence: 95,
-        domain,
-        usedModel,
-        usedProvider,
-        requiresConfirmation: true,
-        risk: riskAssessment,
+    if (aiResp.tool && aiResp.tool !== 'null') {
+      toolResult = await executeTool(aiResp.tool, aiResp.toolParams || {})
+
+      if (riskAssessment) {
+        void auditLog({
+          level: 'info',
+          event: 'tool_executed',
+          tool: aiResp.tool,
+          params: aiResp.toolParams,
+          result: (toolResult || '').slice(0, 200),
+          risk: riskAssessment.risk,
+        })
+      }
+
+      if (toolResult && toolResult !== 'Done') {
+        aiResp.speech = formatToolSpeech(aiResp.tool, toolResult)
+      }
+
+      emit?.({
+        type: 'tool_done',
+        toolResult,
+        speech: aiResp.speech,
       })
     }
 
-    // Execute tool
-    toolResult = await executeTool(aiResp.tool, aiResp.toolParams || {})
-
-    // Log result
-    void auditLog({
-      level: 'info',
-      event: 'tool_executed',
-      tool: aiResp.tool,
-      params: aiResp.toolParams,
-      result: (toolResult || '').slice(0, 200),
-      risk: risk.risk,
-    })
-
-    // Format tool result as speech — no second AI call (eliminates ~40% of latency)
-    if (toolResult && toolResult !== 'Done') {
-      aiResp.speech = formatToolSpeech(aiResp.tool, toolResult)
+    return {
+      speech: aiResp.speech,
+      tool: aiResp.tool ?? null,
+      toolParams: aiResp.toolParams || {},
+      toolResult,
+      emotion: aiResp.emotion || 'neutral',
+      confidence: aiResp.confidence ?? 80,
+      domain,
+      usedModel,
+      usedProvider,
+      risk: riskAssessment,
+      detectedLang,
+      device: { isMobile, isMac },
     }
   }
 
-  return NextResponse.json({
-    speech: aiResp.speech,
-    tool: aiResp.tool ?? null,
-    toolResult,
-    emotion: aiResp.emotion || 'neutral',
-    confidence: aiResp.confidence ?? 80,
-    domain,
-    usedModel,
-    usedProvider,
-    risk: riskAssessment,
-    detectedLang,
-    device: { isMobile, isMac },
+  if (!streamMode) {
+    return NextResponse.json(await runJarvis())
+  }
+
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (payload: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
+      }
+
+      try {
+        send({ type: 'ack', speech: pickPersona('acknowledge') })
+        const result = await runJarvis(send)
+        send({
+          type: 'done',
+          usedModel: result.usedModel,
+          usedProvider: result.usedProvider,
+          domain: result.domain,
+          detectedLang: result.detectedLang,
+        })
+      } catch {
+        send({
+          type: 'response',
+          speech: 'Systems error. Please try again.',
+          tool: null,
+          toolParams: {},
+          emotion: 'alert',
+          confidence: 0,
+        })
+        send({
+          type: 'done',
+          usedModel,
+          usedProvider,
+          domain,
+          detectedLang,
+        })
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
   })
 }

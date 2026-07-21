@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "updated": "2025-07-16",
+  "updated": "2026-07-21",
   "items": [
     {
       "id": "react-doctor-skill",
@@ -10,7 +10,11 @@
       "description": "React codebase health scanner — scores 0-100 across security, performance, correctness, a11y, bundle, architecture",
       "source": "ghostforge-official",
       "install_command": "npx react-doctor@latest install --yes",
-      "tags": ["react", "health", "quality"],
+      "tags": [
+        "react",
+        "health",
+        "quality"
+      ],
       "installed": true
     },
     {
@@ -21,7 +25,10 @@
       "description": "OWASP full-stack security expert for React/Node/API",
       "source": "ghostforge-official",
       "file": "agents/security.md",
-      "tags": ["security", "owasp"],
+      "tags": [
+        "security",
+        "owasp"
+      ],
       "installed": true
     },
     {
@@ -32,7 +39,10 @@
       "description": "Generates conventional commit messages from staged diff",
       "source": "ghostforge-official",
       "file": "commands/commit.md",
-      "tags": ["git", "commit"],
+      "tags": [
+        "git",
+        "commit"
+      ],
       "installed": true
     },
     {
@@ -43,7 +53,11 @@
       "description": "Production-ready React hook templates from aitmpl.com",
       "source": "aitmpl",
       "url": "https://aitmpl.com",
-      "tags": ["react", "hooks", "templates"],
+      "tags": [
+        "react",
+        "hooks",
+        "templates"
+      ],
       "installed": false
     },
     {
@@ -54,7 +68,11 @@
       "description": "Next.js starter templates with App Router, auth, and Tailwind from aitmpl.com",
       "source": "aitmpl",
       "url": "https://aitmpl.com",
-      "tags": ["nextjs", "templates", "starter"],
+      "tags": [
+        "nextjs",
+        "templates",
+        "starter"
+      ],
       "installed": false
     },
     {
@@ -65,7 +83,11 @@
       "description": "Deep WCAG 2.1 AA/AAA accessibility expert for React",
       "source": "ghostforge-official",
       "file": "commands/a11y.md",
-      "tags": ["a11y", "accessibility", "wcag"],
+      "tags": [
+        "a11y",
+        "accessibility",
+        "wcag"
+      ],
       "installed": true
     },
     {
@@ -78,7 +100,11 @@
       "model_id": "meta/llama-3.3-70b-instruct",
       "api_base": "https://integrate.api.nvidia.com/v1",
       "free_tier": true,
-      "tags": ["llm", "nvidia", "free"],
+      "tags": [
+        "llm",
+        "nvidia",
+        "free"
+      ],
       "installed": false
     },
     {
@@ -91,7 +117,12 @@
       "model_id": "llama-3.1-70b-versatile",
       "api_base": "https://api.groq.com/openai/v1",
       "free_tier": true,
-      "tags": ["llm", "groq", "fast", "free"],
+      "tags": [
+        "llm",
+        "groq",
+        "fast",
+        "free"
+      ],
       "installed": false
     },
     {
@@ -102,7 +133,11 @@
       "description": "SQL Server, ETL pipelines, SSRS reports, Power BI expert",
       "source": "ghostforge-official",
       "file": "agents/sql-etl.md",
-      "tags": ["sql", "etl", "data"],
+      "tags": [
+        "sql",
+        "etl",
+        "data"
+      ],
       "installed": true
     },
     {
@@ -113,8 +148,278 @@
       "description": "System design, scalability, microservices, ADR writing",
       "source": "ghostforge-official",
       "file": "agents/architect.md",
-      "tags": ["architecture", "system-design"],
+      "tags": [
+        "architecture",
+        "system-design"
+      ],
       "installed": true
+    },
+    {
+      "id": "design-md-tool",
+      "name": "DESIGN.md Templates",
+      "type": "tool",
+      "category": "Design",
+      "description": "74 AI-ready design system templates (Stripe, Apple, Vercel, Notion, Tesla…). Drop DESIGN.md in project for consistent AI-generated UI.",
+      "source": "VoltAgent/awesome-design-md",
+      "tags": [
+        "design",
+        "ai",
+        "ui",
+        "templates"
+      ],
+      "install_command": "Ask JARVIS: apply stripe design to my project"
+    },
+    {
+      "id": "awesome-design",
+      "name": "Design Resources Browser",
+      "type": "tool",
+      "category": "Design",
+      "description": "Curated design tools: color palettes, icons, typography, stock photos, prototyping — gztchan/awesome-design.",
+      "source": "gztchan/awesome-design",
+      "tags": [
+        "design",
+        "color",
+        "icons",
+        "typography",
+        "ux"
+      ]
+    },
+    {
+      "id": "vigolium-scanner",
+      "name": "Vigolium Security Scanner",
+      "type": "tool",
+      "category": "Security",
+      "description": "AI-powered vuln scanner: 317 modules, OWASP Top 10, blind XSS/SSRF, IDOR. Supports Ollama for private scanning.",
+      "source": "vigolium/vigolium",
+      "tags": [
+        "security",
+        "owasp",
+        "vulnerability",
+        "ai"
+      ],
+      "install_command": "npm install -g @vigolium/vigolium"
+    },
+    {
+      "id": "llmfit-recommender",
+      "name": "LLMFit Model Recommender",
+      "type": "tool",
+      "category": "AI Models",
+      "description": "Hardware-aware AI model scorer. Analyzes GPU/RAM, recommends optimal local models. Integrated in Doctor screen.",
+      "source": "AlexsJones/llmfit",
+      "tags": [
+        "ai",
+        "models",
+        "hardware",
+        "optimization"
+      ]
+    },
+    {
+      "id": "open-interpreter",
+      "name": "Open Interpreter",
+      "type": "agent",
+      "category": "AI Models",
+      "description": "AI-powered code interpreter. Executes Python, JS, shell with natural language on your machine.",
+      "source": "openinterpreter/openinterpreter",
+      "tags": [
+        "ai",
+        "code",
+        "interpreter",
+        "computer-use"
+      ],
+      "install_command": "pip3 install open-interpreter"
+    },
+    {
+      "id": "herdr-task-agent",
+      "name": "Herdr Task Agent",
+      "type": "agent",
+      "category": "Project Management",
+      "description": "AI task and sprint management. Connect your project workflow.",
+      "source": "herdr.dev",
+      "tags": [
+        "tasks",
+        "sprint",
+        "agile",
+        "pm"
+      ]
+    },
+    {
+      "id": "repowise-agent",
+      "name": "RepoWise Code Intelligence",
+      "type": "agent",
+      "category": "Quality",
+      "description": "Repository-wide code intelligence and analysis agent.",
+      "source": "repowise.dev",
+      "tags": [
+        "code",
+        "analysis",
+        "quality"
+      ]
+    },
+    {
+      "id": "vane-search",
+      "name": "Vane Deep Web Search",
+      "type": "tool",
+      "category": "Search",
+      "description": "AI-powered deep search with citations. Better than Google for research tasks.",
+      "source": "ItzCrazyKns/Vane",
+      "tags": [
+        "search",
+        "ai",
+        "web",
+        "research"
+      ]
+    },
+    {
+      "id": "deepseek-provider",
+      "name": "DeepSeek AI Provider",
+      "type": "model-agent",
+      "category": "AI Models",
+      "description": "DeepSeek V4 Flash ($0.14/M tokens, 1M context). Set DEEPSEEK_API_KEY in .env.local to activate.",
+      "source": "platform.deepseek.com",
+      "tags": [
+        "ai",
+        "llm",
+        "deepseek"
+      ]
+    },
+    {
+      "id": "qwen3-14b",
+      "name": "Qwen3 14B (Local)",
+      "type": "model-agent",
+      "category": "AI Models",
+      "description": "Best local model: Qwen3 14B, score 98/100. Run: ollama pull qwen3:14b (9.3GB). Thinking model with deep reasoning.",
+      "source": "ollama/qwen3:14b",
+      "tags": [
+        "ai",
+        "local",
+        "ollama",
+        "reasoning"
+      ],
+      "install_command": "ollama pull qwen3:14b"
+    },
+    {
+      "id": "jsrepl-tool",
+      "name": "jsrepl.io Code Sandbox",
+      "type": "tool",
+      "category": "Code",
+      "description": "Run JS, TypeScript, Python, HTML in jsrepl.io sandbox. Zero install, instant execution.",
+      "source": "jsrepl.io",
+      "tags": [
+        "code",
+        "sandbox",
+        "javascript",
+        "python"
+      ]
+    },
+    {
+      "id": "gfai-voice-assistant",
+      "name": "G.F.A.I. Voice Assistant",
+      "type": "agent",
+      "category": "AI Models",
+      "description": "JARVIS-style AI with voice commands, wake word, TTS (Fish Audio/ElevenLabs), Mac control, 56 tools.",
+      "source": "GhostForge/gfai",
+      "tags": [
+        "voice",
+        "jarvis",
+        "ai",
+        "mac"
+      ]
+    },
+    {
+      "id": "copilot-cli-integration",
+      "name": "GitHub Copilot CLI",
+      "type": "tool",
+      "category": "Git",
+      "description": "Direct GitHub Copilot CLI access from JARVIS. Ask Copilot questions from web UI.",
+      "source": "github/copilot-cli",
+      "tags": [
+        "copilot",
+        "cli",
+        "github",
+        "ai"
+      ]
+    },
+    {
+      "id": "mac-computer-use",
+      "name": "Mac Computer Use",
+      "type": "agent",
+      "category": "Mac Control",
+      "description": "Full Mac control: mouse, keyboard, AppleScript, window management, 317+ actions.",
+      "source": "GhostForge/mac-control",
+      "tags": [
+        "mac",
+        "automation",
+        "applescript"
+      ]
+    },
+    {
+      "id": "security-audit-agent",
+      "name": "Security Audit Agent",
+      "type": "agent",
+      "category": "Security",
+      "description": "OWASP dep scan, secret detection, Vigolium scan, full audit logs.",
+      "source": "GhostForge/security",
+      "tags": [
+        "security",
+        "owasp",
+        "audit",
+        "secrets"
+      ]
+    },
+    {
+      "id": "tasteskill-integration",
+      "name": "TasteSkill Dev Skills",
+      "type": "tool",
+      "category": "Learning",
+      "description": "Developer skill tracking and learning recommendations via tasteskill.dev.",
+      "source": "tasteskill.dev",
+      "tags": [
+        "learning",
+        "skills",
+        "developer"
+      ]
+    },
+    {
+      "id": "pwas-device-install",
+      "name": "PWA Device Installer",
+      "type": "tool",
+      "category": "Deployment",
+      "description": "Install GhostForge as PWA on any device — iOS, Android, Mac, Windows, Linux.",
+      "source": "GhostForge/pwa",
+      "tags": [
+        "pwa",
+        "mobile",
+        "install",
+        "cross-platform"
+      ]
+    },
+    {
+      "id": "free-llm-apis",
+      "name": "Free LLM API Sources",
+      "type": "tool",
+      "category": "AI Models",
+      "description": "12+ free LLM providers with limits: NVIDIA, Groq, OpenRouter, HuggingFace, Cerebras. No credit card needed.",
+      "source": "cheahjs/free-llm-api-resources",
+      "tags": [
+        "ai",
+        "free",
+        "llm",
+        "api"
+      ]
+    },
+    {
+      "id": "security-audit",
+      "name": "Security Audit Agent",
+      "type": "agent",
+      "category": "Security",
+      "description": "Full security audit: OWASP dependency scan, secret detection, Vigolium native scan, audit logs.",
+      "source": "GhostForge/security",
+      "tags": [
+        "security",
+        "owasp",
+        "audit",
+        "secrets"
+      ]
     }
   ]
 }
