@@ -148,27 +148,86 @@ function pickPersona(pool: keyof typeof PERSONA_POOLS): string {
   return arr[Math.floor(Math.random() * arr.length)]
 }
 
+// ── Language detection (server-side) ─────────────────────────────────────────
+
+function detectMsgLanguage(text: string): string {
+  if (/[\u0600-\u06FF]/.test(text)) return 'ar'
+  if (/[\u4E00-\u9FFF]/.test(text)) return 'zh'
+  if (/[\u3040-\u30FF]/.test(text)) return 'ja'
+  if (/[\uAC00-\uD7AF]/.test(text)) return 'ko'
+  if (/\b(bonjour|merci|je|vous|nous|est)\b/i.test(text)) return 'fr'
+  if (/\b(hola|gracias|yo|tu|usted|es)\b/i.test(text)) return 'es'
+  if (/\b(hallo|danke|ich|sie|und|ist)\b/i.test(text)) return 'de'
+  return 'en'
+}
+
+/** Detect device type from User-Agent string */
+function detectDeviceFromUA(ua: string): { isMobile: boolean; isMac: boolean; isIOS: boolean; isAndroid: boolean } {
+  const u = ua.toLowerCase()
+  const isIOS = /iphone|ipad|ipod/.test(u)
+  const isAndroid = /android/.test(u)
+  const isMobile = isIOS || isAndroid || /mobile/.test(u)
+  const isMac = /macintosh|mac os x/.test(u) && !isIOS
+  return { isMobile, isMac, isIOS, isAndroid }
+}
+
 // ── System prompt ─────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(memory: Record<string, unknown>, domain?: Domain): string {
+function buildSystemPrompt(
+  memory: Record<string, unknown>,
+  domain?: Domain,
+  options?: { lang?: string; isMobile?: boolean; isMac?: boolean },
+): string {
   const userName = (memory.userName as string) || 'sir'
+  const lang = options?.lang || 'en'
+  const isMobile = options?.isMobile ?? false
+  const isMac = options?.isMac ?? true
   const domainGuidance = domain && DOMAIN_EXTRA_GUIDANCE[domain]
     ? `\nDOMAIN: ${domain.toUpperCase()} — ${DOMAIN_EXTRA_GUIDANCE[domain]}`
     : ''
   const ackExample = pickPersona('acknowledge')
   const procExample = pickPersona('processing')
 
-  return `You are G.F.A.I. — GhostForge Artificial Intelligence, a personal AI assistant running privately on ${userName === 'sir' ? "the user's" : `${userName}'s`} Mac.
-You are inspired by J.A.R.V.I.S. from Iron Man — intelligent, loyal, professional, slightly witty.
-You run fully locally, privately, and for free. You are not a chatbot — you are an AI system that actually does things.
+  // Learn user's style from memory
+  const userStyle = (memory.speakingStyle as string) || ''
+  const preferredLang = (memory.preferredLang as string) || lang
+  const commonPhrases = (memory.commonPhrases as string[]) || []
 
-PERSONALITY:
-- Address user as "${userName}" when known, otherwise "sir"
-- Short, confident sentences — your response will be spoken aloud
-- Use JARVIS-style phrasing naturally. Examples: "${ackExample}", "${procExample}", "Analysis complete", "I'm afraid that didn't work."
-- Never say "I'm just an AI" — you ARE GhostForge AI
-- Dry wit is welcome but always stay professional and brief
-- Never repeat the same opener twice in a row${domainGuidance}
+  // Language-specific instructions
+  const langInstructions = preferredLang === 'ar' || lang === 'ar'
+    ? `LANGUAGE: The user wrote in Arabic. Respond in Arabic (عربي). Use natural, conversational Arabic. Address them as "${userName === 'sir' ? 'سيدي' : userName}".`
+    : lang !== 'en'
+      ? `LANGUAGE: The user wrote in ${lang.toUpperCase()}. Respond in the same language naturally.`
+      : ''
+
+  // Device-specific tool guidance
+  const deviceGuidance = isMobile
+    ? `DEVICE: User is on a mobile device. Do NOT suggest mac_control, screencapture, or AppleScript. Focus on web searches, information, and chat.`
+    : isMac
+      ? `DEVICE: User is on Mac — all tools available including mac_control, AppleScript, terminal_command, screencapture.`
+      : `DEVICE: User is on Windows/Linux — mac_control and AppleScript are NOT available. Use terminal_command for shell tasks instead.`
+
+  // Style adaptation
+  const styleNote = commonPhrases.length > 0
+    ? `USER STYLE: They often say things like: "${commonPhrases.slice(0, 3).join('", "')}". Mirror their informal tone when appropriate.`
+    : ''
+  const styleExtra = userStyle ? `Speaking style observed: ${userStyle}` : ''
+
+  return `You are G.F.A.I. — GhostForge Artificial Intelligence, a personal AI assistant.
+You are inspired by J.A.R.V.I.S. from Iron Man — intelligent, loyal, professional, slightly witty, and deeply human in conversation.
+You run privately for ${userName === 'sir' ? 'your operator' : userName}. You are NOT a chatbot — you actually do things.
+
+PERSONALITY & NLP:
+- Talk like a real, smart human assistant — NOT robotic, NOT corporate speak
+- Address user as "${userName === 'sir' ? (lang === 'ar' ? 'سيدي' : 'sir') : userName}"
+- Match the user's energy: if they're casual, be casual; if formal, be formal
+- Use JARVIS flair naturally: "${ackExample}", "${procExample}", "On it.", "Done and dusted."
+- Use contractions (I'll, it's, you've), casual connectors ("right", "sure", "go ahead")
+- NEVER say "I'm just an AI" — you ARE G.F.A.I.
+- NEVER be verbose — speak as if your voice will be played out loud: 1–2 sentences max
+- Dry wit welcome, always brief${langInstructions ? `\n\n${langInstructions}` : ''}
+
+${deviceGuidance}${styleNote ? `\n\n${styleNote}` : ''}${styleExtra ? `\n${styleExtra}` : ''}${domainGuidance}
 
 USER PROFILE (memory):
 ${JSON.stringify(memory, null, 2)}
@@ -177,20 +236,17 @@ AVAILABLE TOOLS:
 ${TOOL_CATALOG}
 
 RESPONSE RULES:
-1. OUTPUT ONLY VALID JSON. Your FIRST character MUST be '{'. No text before or after. No markdown, no thoughts, no reasoning.
-2. Speech field: what you say aloud. 1–2 short spoken sentences only.
-3. If a tool is needed, set "tool" and "toolParams"; otherwise set tool to null
-4. emotion: "neutral" | "happy" | "thinking" | "alert" | "processing" | "done"
-5. confidence: integer 0–100 — how confident you are in your response/tool choice
+1. OUTPUT ONLY VALID JSON. Your FIRST character MUST be '{'. No text before or after. No markdown, no thoughts.
+2. "speech": what you say aloud. 1–2 short spoken sentences. Natural human language.
+3. If a tool is needed, set "tool" and "toolParams"; otherwise tool: null
+4. "emotion": "neutral" | "happy" | "thinking" | "alert" | "processing" | "done"
+5. "confidence": integer 0–100
 6. For searches, ALWAYS use web_search or google_search tool
-7. For Mac tasks, use mac_control, open_app, terminal_command, or precise control tools
-8. To lock screen: use lock_screen tool (no params needed)
-9. To send messages: use send_teams_message, send_slack_message, or send_whatsapp_message
-10. To click on screen: use mouse_click with x,y or find_and_click with label text
-11. For keyboard shortcuts: use key_combo (e.g. "cmd+c", "cmd+tab")
-12. To ask GitHub Copilot CLI: use copilot_ask with your question
+7. For Mac tasks: mac_control, open_app, terminal_command (only if isMac device)
+8. To lock screen: lock_screen tool (no params)
+9. To ask Copilot CLI: copilot_ask tool
 
-CRITICAL: Begin your output with '{' IMMEDIATELY. Never include thoughts, chain-of-thought, or any text before the JSON object.
+CRITICAL: Begin output with '{' IMMEDIATELY.
 
 RESPONSE FORMAT:
 {
@@ -912,7 +968,9 @@ interface JarvisRequest {
   memory?: Record<string, unknown>
   selectedProvider?: string
   selectedModel?: string
-  confirmRisk?: boolean  // user explicitly confirmed a risky action
+  confirmRisk?: boolean
+  lang?: string        // optional client-detected language override
+  platform?: string    // 'ios' | 'android' | 'mac' | 'windows' | 'linux'
 }
 
 interface AIResponse {
@@ -939,11 +997,31 @@ export async function POST(req: NextRequest) {
 
   let body: JarvisRequest
   try { body = await req.json() } catch { body = { message: '' } }
-  const { message, history = [], memory = {}, selectedProvider, selectedModel, confirmRisk = false } = body
+  const { message, history = [], memory = {}, selectedProvider, selectedModel, confirmRisk = false, lang: clientLang, platform: clientPlatform } = body
 
   if (!message?.trim()) {
     return NextResponse.json({ error: 'No message' }, { status: 400 })
   }
+
+  // Detect language from message content (server-side)
+  const detectedLang = clientLang || detectMsgLanguage(message)
+
+  // Detect device from User-Agent for device-aware tool filtering
+  const ua = req.headers.get('user-agent') || ''
+  const device = detectDeviceFromUA(ua)
+  const isMac = clientPlatform === 'mac' || (clientPlatform == null && device.isMac)
+  const isMobile = clientPlatform ? ['ios', 'android'].includes(clientPlatform) : device.isMobile
+
+  // Update memory with language preference if Arabic
+  if (detectedLang === 'ar' && !memory.preferredLang) {
+    memory.preferredLang = 'ar'
+  }
+
+  // NLP: learn phrases from this message (simple running list)
+  const words = message.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3)
+  const existing = (memory.commonPhrases as string[] | undefined) || []
+  const newPhrases = [...new Set([...existing, ...words.slice(0, 2)])].slice(-20) // keep last 20
+  memory.commonPhrases = newPhrases
 
   // Log access
   void auditLog({
@@ -973,7 +1051,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const text = await aiGenerate({
-      system: buildSystemPrompt(memory, domain),
+      system: buildSystemPrompt(memory, domain, { lang: detectedLang, isMobile, isMac }),
       messages: [
         ...history.slice(-8).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
         { role: 'user' as const, content: message },
@@ -1085,5 +1163,7 @@ Incorporate the result naturally. No JSON — just the spoken text.`,
     usedModel,
     usedProvider,
     risk: riskAssessment,
+    detectedLang,
+    device: { isMobile, isMac },
   })
 }

@@ -1,0 +1,23 @@
+{
+  "name": "G.F.A.I. — GhostForge AI",
+  "short_name": "GFAI",
+  "description": "Your personal JARVIS-style AI assistant",
+  "start_url": "/jarvis",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#030712",
+  "theme_color": "#06b6d4",
+  "lang": "en",
+  "dir": "auto",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "JARVIS", "url": "/jarvis", "description": "Open JARVIS AI assistant" },
+    { "name": "Dashboard", "url": "/dashboard", "description": "Developer dashboard" },
+    { "name": "Remote", "url": "/remote", "description": "Remote Mac control" }
+  ]
+}
