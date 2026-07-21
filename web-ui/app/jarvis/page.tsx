@@ -272,6 +272,84 @@ function AuditPanel({ onClose }: { onClose: () => void }) {
   )
 }
 
+// ── Voice Enrollment Panel ────────────────────────────────────────────────────
+
+function VoiceEnrollPanel({ mc }: { mc: { ring: string } }) {
+  const [status, setStatus]   = useState<'idle' | 'recording' | 'uploading' | 'done' | 'error'>('idle')
+  const [message, setMessage] = useState('')
+  const mediaRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+
+  const startEnroll = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const rec = new MediaRecorder(stream)
+      mediaRef.current = rec
+      chunksRef.current = []
+      rec.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
+      rec.onstop = async () => {
+        setStatus('uploading')
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        const fd = new FormData()
+        fd.append('audio', blob, 'voice-sample.webm')
+        fd.append('action', 'enroll-voice')
+        try {
+          const res = await fetch('/api/jarvis/biometrics', { method: 'POST', body: fd })
+          const data = await res.json()
+          setStatus(data.success ? 'done' : 'error')
+          setMessage(data.success ? '✓ Voice profile saved — JARVIS will recognize you' : data.error || 'Enrollment failed')
+        } catch {
+          setStatus('error')
+          setMessage('Upload failed — try again')
+        }
+      }
+      rec.start()
+      setStatus('recording')
+      setMessage('Recording... speak naturally for 10 seconds')
+      setTimeout(() => { if (mediaRef.current?.state === 'recording') mediaRef.current.stop() }, 10_000)
+    } catch {
+      setStatus('error')
+      setMessage('Microphone access denied')
+    }
+  }
+
+  const stopEarly = () => { if (mediaRef.current?.state === 'recording') mediaRef.current.stop() }
+
+  return (
+    <div className="min-w-[220px]">
+      <p className="text-blue-400/40 tracking-widest mb-1.5">VOICE BIOMETRICS</p>
+      <p className="text-[9px] text-blue-400/30 mb-2 leading-relaxed">
+        Enroll your voice so JARVIS can verify your identity and lock out imposters.
+      </p>
+      <div className="flex gap-1.5 items-center flex-wrap">
+        {status !== 'recording' ? (
+          <button type="button" onClick={() => void startEnroll()}
+            disabled={status === 'uploading'}
+            className="rounded px-2 py-1 border transition text-[10px] disabled:opacity-40"
+            style={{ borderColor: `${mc.ring}66`, color: mc.ring, background: `${mc.ring}12` }}>
+            🎙 {status === 'uploading' ? 'PROCESSING...' : status === 'done' ? 'RE-ENROLL VOICE' : 'ENROLL VOICE'}
+          </button>
+        ) : (
+          <button type="button" onClick={stopEarly}
+            className="rounded px-2 py-1 border transition text-[10px] animate-pulse"
+            style={{ borderColor: '#ff4444', color: '#ff4444', background: 'rgba(255,68,68,0.1)' }}>
+            ⏹ STOP RECORDING
+          </button>
+        )}
+        {status === 'recording' && (
+          <span className="text-[9px] text-red-400/60 animate-pulse">● REC</span>
+        )}
+      </div>
+      {message && (
+        <p className="mt-1 text-[9px] leading-relaxed" style={{ color: status === 'done' ? '#00ff88' : status === 'error' ? '#ff6666' : `${mc.ring}99` }}>
+          {message}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function JarvisPage() {
@@ -964,6 +1042,9 @@ export default function JarvisPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Voice Biometrics Enrollment */}
+              <VoiceEnrollPanel mc={mc} />
             </div>
           </div>
         )}

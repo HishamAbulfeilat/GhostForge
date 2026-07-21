@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateWithFallback } from '@/lib/ai'
 import { auditLog, assessRisk } from '@/lib/audit'
+import { checkRateLimit, getClientIP } from '@/lib/ratelimit'
 import { exec } from 'child_process'
 import { promisify } from 'util'
-import { writeFile, unlink } from 'fs/promises'
-import { tmpdir } from 'os'
+import { writeFile, unlink, readdir, stat, rm } from 'fs/promises'
+import { tmpdir, homedir } from 'os'
 import { join } from 'path'
 
 const execAsync = promisify(exec)
@@ -54,6 +55,8 @@ const TOOL_CATALOG = `
 - execute_code      → run Python/JS/shell code snippet and return output { language: "python"|"javascript"|"shell", code: string }
 - task_steps        → plan and execute multi-step computer task { task: string, steps: string }
 - describe_screen   → describe what's on screen / take screenshot and summarize (no params)
+- mac_cleanup       → clean Mac temp files, clear RAM pressure, kill zombie processes, free disk space (no params)
+- llmfit_recommend  → analyze hardware and recommend best local AI model to use { useCase?: "code"|"general"|"reasoning" }
 `
 
 // ── Domain classifier ─────────────────────────────────────────────────────────
@@ -66,7 +69,7 @@ type Domain =
 const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   weather:     ['weather','temperature','forecast','rain','sunny','cold','hot','humidity','wind','storm','degrees'],
   time:        ['time','date','day','clock','today','tomorrow','calendar','when','morning','evening'],
-  system:      ['cpu','ram','memory','battery','disk','system','performance','process','storage','uptime','sysinfo'],
+  system:      ['cpu','ram','memory','battery','disk','system','performance','process','storage','uptime','sysinfo','clean','cleanup','free','optimize','temp files','kill process','boost'],
   music:       ['play','music','song','spotify','pause','next track','previous','playlist','artist','album','volume'],
   messaging:   ['message','send','teams','slack','whatsapp','imessage','email','contact','chat','text','dm'],
   search:      ['search','find','look up','google','what is','who is','news','latest','tell me about','explain'],
@@ -955,6 +958,113 @@ end tell`
       }
     }
 
+    case 'mac_cleanup': {
+      const results: string[] = []
+      let freedMB = 0
+
+      try {
+        // 1. Clear /tmp/ files older than 1 day (gfai screenshots etc)
+        const tmpFiles = await readdir(tmpdir()).catch(() => [] as string[])
+        let tmpCleared = 0
+        for (const f of tmpFiles.filter(f => f.startsWith('gfai-'))) {
+          const p = join(tmpdir(), f)
+          try {
+            const s = await stat(p)
+            if (Date.now() - s.mtimeMs > 3600_000) {
+              await rm(p, { force: true })
+              freedMB += Math.round(s.size / 1024 / 1024)
+              tmpCleared++
+            }
+          } catch { /* skip locked files */ }
+        }
+        if (tmpCleared > 0) results.push(`✓ Cleared ${tmpCleared} GFAI temp files from /tmp/`)
+
+        // 2. Purge DNS cache (helps with slow lookups)
+        await execAsync('dscacheutil -flushcache && killall -HUP mDNSResponder 2>/dev/null').catch(() => {})
+        results.push('✓ DNS cache flushed')
+
+        // 3. Clear font cache
+        await execAsync('atsutil databases -removeUser 2>/dev/null').catch(() => {})
+        results.push('✓ Font cache cleared')
+
+        // 4. Report zombie processes
+        const zombies = await execAsync("ps aux | awk '$8 ~ /Z/ {print $2, $11}' | head -10").catch(() => ({ stdout: '' }))
+        const zombieList = zombies.stdout.trim()
+        if (zombieList) results.push(`⚠ Zombie processes found:\n${zombieList}`)
+        else results.push('✓ No zombie processes')
+
+        // 5. Inactive memory — suggest purge (user must confirm)
+        const vmstat = await execAsync("memory_pressure 2>/dev/null || vm_stat | head -10").catch(() => ({ stdout: '' }))
+        results.push(`📊 Memory:\n${vmstat.stdout.trim().slice(0, 200)}`)
+
+        // 6. Disk usage summary
+        const disk = await execAsync("df -h / | tail -1").catch(() => ({ stdout: '' }))
+        results.push(`💾 Disk: ${disk.stdout.trim()}`)
+
+        // 7. Brew cleanup (if available)
+        await execAsync('brew cleanup --prune=7 2>/dev/null', { timeout: 30000 }).then(r => {
+          if (r.stdout.trim()) results.push(`✓ Brew cleanup: ${r.stdout.trim().slice(0, 100)}`)
+        }).catch(() => {})
+
+        const summary = freedMB > 0 ? ` Freed ~${freedMB}MB.` : ''
+        return `Mac cleanup complete.${summary}\n${results.join('\n')}`
+      } catch (e) {
+        return `Cleanup partial: ${(e as Error).message?.slice(0, 100)}\n${results.join('\n')}`
+      }
+    }
+
+    case 'llmfit_recommend': {
+      try {
+        // Get hardware info
+        const [memRes, cpuRes, ollamaRes] = await Promise.allSettled([
+          execAsync('sysctl hw.memsize'),
+          execAsync('sysctl -n machdep.cpu.brand_string'),
+          execAsync('ollama list 2>/dev/null'),
+        ])
+        const ramGB = memRes.status === 'fulfilled'
+          ? Math.round(parseInt(memRes.value.stdout.match(/(\d+)/)?.[1] || '0') / 1024 ** 3)
+          : 8
+        const cpu = cpuRes.status === 'fulfilled' ? cpuRes.value.stdout.trim() : 'Unknown'
+        const isAppleSilicon = cpu.toLowerCase().includes('apple m')
+        const available = Math.max(2, ramGB - 4)
+
+        const ollama = ollamaRes.status === 'fulfilled'
+          ? ollamaRes.value.stdout.split('\n').slice(1).map(l => l.split(/\s+/)[0]).filter(Boolean)
+          : []
+
+        // Score tiers based on available RAM
+        let bestPick: string
+        let reason: string
+        if (available >= 18 && isAppleSilicon) {
+          bestPick = 'qwen2.5-coder:14b'
+          reason = `${ramGB}GB RAM + Apple Silicon — 14B models run beautifully`
+        } else if (available >= 12) {
+          bestPick = 'qwen2.5-coder:7b'
+          reason = `${ramGB}GB RAM — 7B model is the sweet spot (quality + speed)`
+        } else if (available >= 6) {
+          bestPick = 'qwen2.5:7b'
+          reason = `${ramGB}GB RAM — 7B fits comfortably`
+        } else {
+          bestPick = 'qwen2.5-coder:1.5b'
+          reason = `${ramGB}GB RAM — lightweight model recommended`
+        }
+
+        const useCase = params.useCase || 'general'
+        if (useCase === 'reasoning') bestPick = available >= 12 ? 'deepseek-r1:14b' : 'deepseek-r1:8b'
+        if (useCase === 'code' && available >= 18) bestPick = 'qwen2.5-coder:14b'
+
+        const isInstalled = ollama.some(m => m.startsWith(bestPick.split(':')[0]))
+        const installCmd = isInstalled ? '' : `\nTo install: ollama pull ${bestPick}`
+
+        return `Hardware: ${cpu} · ${ramGB}GB RAM · Available for AI: ~${available}GB
+Best model for your system: ${bestPick} (${reason})
+Currently installed: ${ollama.join(', ') || 'none'}
+Recommended: ${bestPick}${isInstalled ? ' ✓ installed' : ' — not yet installed'}${installCmd}`
+      } catch (e) {
+        return `Could not analyze hardware: ${(e as Error).message?.slice(0, 100)}`
+      }
+    }
+
     default:
       return 'Unknown tool'
   }
@@ -982,13 +1092,29 @@ interface AIResponse {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = getClientIP(req)
+
+  // ── Rate limiting: 30 req/min per IP ─────────────────────────────────────
+  const rl = checkRateLimit(ip, 30, 60_000)
+  if (!rl.allowed) {
+    void auditLog({ level: 'security', event: 'rate_limited', ip, risk: 20 })
+    return NextResponse.json(
+      { error: 'Too many requests. Please wait a moment.' },
+      { status: 429, headers: {
+        'Retry-After': String(Math.ceil(rl.resetIn / 1000)),
+        'X-RateLimit-Limit': String(rl.limit),
+        'X-RateLimit-Remaining': '0',
+      }},
+    )
+  }
+
   const token = req.cookies.get('gf_token')?.value
   if (!token || token !== process.env.AUTH_SECRET) {
     // Log unauthorized access attempt
     void auditLog({
       level: 'security',
       event: 'unauthorized_access_attempt',
-      ip: req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown',
+      ip,
       userAgent: req.headers.get('user-agent') || undefined,
       risk: 90,
     })

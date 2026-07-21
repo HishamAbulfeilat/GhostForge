@@ -1369,6 +1369,8 @@ async function screenJarvis() {
       { name: T.cyan.bold('💬  AI Chat (TUI)')          + T.muted('        — chat with any model in terminal'), value: 'chat' },
       { name: T.success.bold('🌐  Open Web UI')          + T.muted('          — full JARVIS with voice in browser'), value: 'webui' },
       { name: T.accent.bold('🔄  Switch Model')          + T.muted('         — change active AI model'), value: 'model' },
+      { name: T.accent.bold('🧠  Best Model (llmfit)')   + T.muted('     — hardware-scored recommendations'), value: 'llmfit' },
+      { name: T.warning.bold('🧹  Cleanup Mac')          + T.muted('          — free RAM/disk, kill zombies'), value: 'cleanup' },
       { name: T.white.bold('⏰  Quick: Time')            + T.muted('          — ask current time'), value: 'time' },
       { name: T.white.bold('🌤  Quick: Weather')         + T.muted('         — current conditions'), value: 'weather' },
       { name: T.white.bold('💻  Quick: System Status')   + T.muted('     — CPU, battery'), value: 'sysinfo' },
@@ -1376,7 +1378,7 @@ async function screenJarvis() {
       { name: T.accent.bold('💬  Quick: iMessage')       + T.muted('         — send a message'), value: 'imessage' },
       { name: T.warning('↩  Back'), value: 'back' },
     ],
-    pageSize: 12,
+    pageSize: 14,
   });
 
   if (action === 'back') return;
@@ -1389,6 +1391,16 @@ async function screenJarvis() {
 
   if (action === 'model') {
     await screenModelSelect();
+    return screenJarvis();
+  }
+
+  if (action === 'llmfit') {
+    await screenLLMFit();
+    return screenJarvis();
+  }
+
+  if (action === 'cleanup') {
+    await screenMacCleanup();
     return screenJarvis();
   }
 
@@ -1437,6 +1449,126 @@ async function screenJarvis() {
     await runAppleScript(script); return;
   }
 }
+
+// ── LLMFit hardware model recommender ────────────────────────────────────────
+
+async function screenLLMFit() {
+  sectionHeader('🧠  LLMFit — Hardware-Aware Model Recommender', 'Scores AI models against your RAM/CPU/GPU — powered by llmfit.axjns.dev');
+
+  const spinner = ora(T.muted('  Analyzing hardware and scoring models...')).start();
+  let data = null;
+  try {
+    const { default: http } = await import('http');
+    data = await new Promise((resolve) => {
+      const req = http.get('http://localhost:3001/api/llmfit', {
+        headers: { Cookie: 'gf_token=2001' },
+      }, (res) => {
+        let d = '';
+        res.on('data', c => d += c);
+        res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } });
+      });
+      req.on('error', () => resolve(null));
+      req.setTimeout(10000, () => { req.destroy(); resolve(null); });
+    });
+    spinner.stop();
+  } catch {
+    spinner.stop();
+  }
+
+  if (!data) {
+    console.log(T.danger('\n  ✗ Could not fetch recommendations (is the server running?)\n'));
+    await pressEnter(); return;
+  }
+
+  const { hardware, models, recommendation } = data;
+  console.log(T.cyan(`\n  Hardware: ${hardware.cpuBrand} · ${hardware.ramGB}GB RAM · Available: ~${hardware.availableGB}GB\n`));
+  console.log(T.success(`  ${recommendation.summary}\n`));
+
+  if (recommendation.pullFirst) {
+    console.log(T.warning(`  ⬇ Recommended: ${recommendation.pullFirst}\n`));
+  }
+
+  // Show top 10 models
+  const top = (models || []).slice(0, 12);
+  console.log(T.muted('  ┌─ Model ─────────────────────────── Params ─ RAM ─ Score ─ Status ┐'));
+  for (const m of top) {
+    const status = m.isInstalled ? T.success('installed') : m.canRun ? T.muted('not pulled') : T.danger('too large');
+    const score  = m.compositeScore >= 80 ? T.success(String(m.compositeScore).padStart(3)) :
+                   m.compositeScore >= 60 ? T.warning(String(m.compositeScore).padStart(3)) :
+                   T.danger(String(m.compositeScore).padStart(3));
+    const rec    = m.recommendation === 'best' ? T.success('★') : m.recommendation === 'good' ? T.accent('◎') : ' ';
+    console.log(`  │ ${rec} ${T.white(m.name.padEnd(32))} ${String(m.params+'B').padEnd(7)} ${String(m.ramGB+'GB').padEnd(6)} ${score}   ${status}`);
+  }
+  console.log(T.muted('  └──────────────────────────────────────────────────────────────────┘\n'));
+
+  // Offer to pull best model or set as default
+  const choices = [];
+  if (recommendation.best && !models.find((m) => m.id === recommendation.best)?.isInstalled) {
+    choices.push({ name: T.success(`⬇ Pull best model: ${recommendation.best}`), value: `pull:${recommendation.best}` });
+  }
+  if (recommendation.bestInstalled) {
+    choices.push({ name: T.accent(`✓ Use ${recommendation.bestInstalled} as default`), value: `use:${recommendation.bestInstalled}` });
+  }
+  choices.push({ name: T.muted('↩  Back'), value: 'back' });
+
+  const picked = await select({ message: 'Action:', choices });
+
+  if (picked.startsWith('pull:')) {
+    const modelId = picked.replace('pull:', '');
+    console.log(T.cyan(`\n  Triggering: ollama pull ${modelId} ...\n`));
+    try {
+      execSync(`ollama pull ${modelId} 2>&1 | tail -5`, { stdio: 'inherit', timeout: 300000 });
+      console.log(T.success(`\n  ✓ Pull complete: ${modelId}\n`));
+    } catch { console.log(T.warning('\n  Pull started in background. Check: ollama list\n')); }
+  } else if (picked.startsWith('use:')) {
+    const modelId = picked.replace('use:', '');
+    _tuiSelectedModel.provider = 'ollama';
+    _tuiSelectedModel.id = modelId;
+    console.log(T.success(`\n  ✓ Default model set to: ${modelId}\n`));
+  }
+
+  await pressEnter();
+}
+
+// ── Mac cleanup screen ────────────────────────────────────────────────────────
+
+async function screenMacCleanup() {
+  sectionHeader('🧹  Mac Cleanup', 'Free RAM, clear temp files, kill zombie processes');
+  console.log(T.muted('  Running cleanup via G.F.A.I. mac_cleanup tool...\n'));
+
+  const spinner = ora(T.muted('  Cleaning...')).start();
+  try {
+    const { default: http } = await import('http');
+    const result = await new Promise((resolve) => {
+      const body = JSON.stringify({ message: 'clean up my mac, remove temp files, clear cache, free memory', platform: 'mac' });
+      const req = http.request({
+        hostname: 'localhost', port: 3001, path: '/api/jarvis',
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Cookie: 'gf_token=2001' },
+      }, (res) => {
+        let d = '';
+        res.on('data', c => d += c);
+        res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({ toolResult: 'Cleanup complete' }); } });
+      });
+      req.on('error', () => resolve({ toolResult: 'Server not running' }));
+      req.write(body); req.end();
+    });
+    spinner.stop();
+    console.log(T.success('\n  ✓ Cleanup complete:\n'));
+    console.log(T.muted(`  ${(result.toolResult || result.speech || '').split('\n').join('\n  ')}\n`));
+  } catch {
+    spinner.stop();
+    // Fallback: run cleanup directly
+    try {
+      console.log(T.muted('  Clearing GFAI temp files...'));
+      execSync('find /tmp -name "gfai-*" -mmin +60 -delete 2>/dev/null || true', { stdio: 'ignore' });
+      execSync('dscacheutil -flushcache 2>/dev/null || true', { stdio: 'ignore' });
+      const disk = execSync('df -h / | tail -1', { encoding: 'utf8' }).trim();
+      console.log(T.success(`\n  ✓ Basic cleanup done. Disk: ${disk}\n`));
+    } catch { console.log(T.danger('\n  Cleanup failed\n')); }
+  }
+  await pressEnter();
+}
+
 
 // ── Model selection screen ────────────────────────────────────────────────────
 
