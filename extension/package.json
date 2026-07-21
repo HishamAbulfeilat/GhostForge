@@ -1,8 +1,8 @@
 {
   "name": "ghostforge",
   "displayName": "GhostForge Developer Toolkit",
-  "description": "GitHub Copilot supercharger for React/Next.js/TypeScript \u2014 commands, snippets, RTL audit, bundle analyzer, and more",
-  "version": "2.7.1",
+  "description": "GhostForge AI Toolkit \u2014 JARVIS-style AI assistant, command picker, code review, RTL audit, bundle analyzer, snippets, and GitHub Copilot Chat integration (@ghostforge)",
+  "version": "2.7.2",
   "publisher": "ghostforge",
   "license": "MIT",
   "engines": {
@@ -15,12 +15,16 @@
   ],
   "keywords": [
     "ghostforge",
+    "gfai",
+    "jarvis",
     "copilot",
+    "ai",
     "nextjs",
     "react",
     "typescript",
     "snippets",
-    "rtl"
+    "rtl",
+    "bundle"
   ],
   "icon": "assets/icon.png",
   "activationEvents": [
@@ -275,7 +279,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ghostforge-copilot-business/GhostForge"
+    "url": "https://github.com/HishamAbulfeilat/GhostForge"
   },
-  "homepage": "https://github.com/ghostforge-copilot-business/GhostForge"
+  "homepage": "https://github.com/HishamAbulfeilat/GhostForge"
 }

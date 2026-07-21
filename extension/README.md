@@ -8,7 +8,7 @@ GhostForge AI brings the GhostForge Developer Toolkit into VS Code with command-
 - **Editor context menu** actions for `.ts`, `.tsx`, and `.jsx` files
 - **Snippet sidebar** that loads the shared `snippets/` library and inserts content at the cursor
 - **Commands sidebar** that copies slash commands for Copilot Chat
-- **Status bar launcher** with `⚡ GhostForge`
+- **Status bar launcher** with `👻 GhostForge`
 - **Integrated terminal runner** that executes GhostForge scripts in a reusable `GhostForge AI` terminal
 
 ## Installation
