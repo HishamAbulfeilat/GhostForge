@@ -1608,12 +1608,19 @@ async function screenModelSelect() {
   // Fallback models if server is down
   if (!availableModels.length) {
     availableModels = [
-      { provider: 'google',     id: 'gemini-2.0-flash',                  label: 'Gemini 2.0 Flash' },
-      { provider: 'xai',        id: 'grok-3-mini',                       label: 'Grok 3 Mini (xAI)' },
-      { provider: 'openrouter', id: 'google/gemma-4-26b-a4b-it:free',    label: 'Gemma 4 26B (Free)' },
+      { provider: 'google',     id: 'gemini-2.0-flash',                      label: 'Gemini 2.0 Flash (Google)' },
+      { provider: 'deepseek',   id: 'deepseek-v4-flash',                     label: 'DeepSeek V4 Flash ($0.14/M, 1M ctx) ★' },
+      { provider: 'deepseek',   id: 'deepseek-v4-pro',                       label: 'DeepSeek V4 Pro ($1.74/M, best quality)' },
+      { provider: 'deepseek',   id: 'deepseek-chat',                         label: 'DeepSeek Chat (V3, legacy)' },
+      { provider: 'deepseek',   id: 'deepseek-reasoner',                     label: 'DeepSeek Reasoner R1 (legacy)' },
+      { provider: 'xai',        id: 'grok-3-mini',                           label: 'Grok 3 Mini (xAI)' },
+      { provider: 'openrouter', id: 'google/gemma-4-26b-a4b-it:free',        label: 'Gemma 4 26B (Free)' },
       { provider: 'openrouter', id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 120B (Free)' },
-      { provider: 'ollama',     id: 'llama3.2:3b',                       label: 'Llama 3.2 3B (Local)' },
-      { provider: 'ollama',     id: 'qwen2.5-coder:7b',                  label: 'Qwen 2.5 Coder 7B (Local)' },
+      { provider: 'openrouter', id: 'deepseek/deepseek-r1:free',             label: 'DeepSeek R1 (Free via OpenRouter)' },
+      { provider: 'openrouter', id: 'deepseek/deepseek-chat-v3-0324:free',   label: 'DeepSeek V3 (Free via OpenRouter)' },
+      { provider: 'ollama',     id: 'qwen3:14b',                             label: 'Qwen3 14B (Local — best)' },
+      { provider: 'ollama',     id: 'qwen2.5-coder:7b',                      label: 'Qwen2.5-Coder 7B (Local)' },
+      { provider: 'ollama',     id: 'llama3.2:3b',                           label: 'Llama 3.2 3B (Local, fast)' },
     ];
   }
 
@@ -2258,7 +2265,22 @@ async function screenDoctor() {
   const git = runShellCheck('command -v git');
   addCheck('Git CLI', git.ok ? 'pass' : 'fail', git.ok ? git.output : 'not installed');
 
-  const table = new Table({
+  const deepseekKey = readEnvValueFromFile('web-ui/.env.local', 'DEEPSEEK_API_KEY');
+  addCheck('DeepSeek key', deepseekKey ? 'pass' : 'warn', deepseekKey ? `set (${deepseekKey.length} chars)` : 'missing — add DEEPSEEK_API_KEY to .env.local');
+
+  const openInterpreter = runShellCheck('python3 -m interpreter --version 2>/dev/null');
+  addCheck('open-interpreter', openInterpreter.ok ? 'pass' : 'warn', openInterpreter.ok ? `v${(openInterpreter.output.match(/\d+\.\d+\.\d+/) || ['?'])[0]}` : 'pip3 install open-interpreter');
+
+  const mkcertCheck = runShellCheck('command -v mkcert');
+  const mkcertTrusted = runShellCheck('security find-certificate -a -c "mkcert" /Library/Keychains/System.keychain 2>/dev/null | head -1');
+  addCheck('mkcert (HTTPS)', mkcertCheck.ok ? (mkcertTrusted.ok ? 'pass' : 'warn') : 'warn',
+    mkcertCheck.ok ? (mkcertTrusted.ok ? 'CA trusted system-wide' : '⚠ run: sudo mkcert -install') : 'brew install mkcert');
+
+  const qwen3Check = runShellCheck('ollama list 2>/dev/null | grep -c qwen3');
+  addCheck('qwen3:14b model', qwen3Check.output.trim() !== '0' && qwen3Check.ok ? 'pass' : 'warn',
+    qwen3Check.output.trim() !== '0' ? 'installed ✓' : 'pulling... (check: tail -f /tmp/ollama-pull-qwen3-14b.log)');
+
+  const doctorTable = new Table({
     head: [T.white.bold('Check'), T.white.bold('Status'), T.white.bold('Details')],
     colWidths: [24, 12, 40],
     wordWrap: true,
@@ -2266,7 +2288,7 @@ async function screenDoctor() {
   });
 
   checks.forEach(check => {
-    table.push([
+    doctorTable.push([
       T.white(check.label),
       doctorStatusTone(check.status),
       check.status === 'pass' ? T.success(check.detail) : check.status === 'warn' ? T.warning(check.detail) : T.danger(check.detail),
@@ -2285,7 +2307,7 @@ async function screenDoctor() {
   const failCount = checks.filter(check => check.status === 'fail').length;
   const scoreTone = healthScore >= 85 ? T.success : healthScore >= 65 ? T.warning : T.danger;
 
-  console.log(table.toString());
+  console.log(doctorTable.toString());
   console.log();
   console.log(boxen(
     T.white(' Health Score ') + scoreTone.bold(`${healthScore}%`) + '\n' +
@@ -2295,6 +2317,18 @@ async function screenDoctor() {
     checks.map(check => `${doctorStatusLabel(check.status)} ${check.label}`).join('\n'),
     { padding: 1, borderColor: healthScore >= 85 ? '#22C55E' : healthScore >= 65 ? '#F59E0B' : '#EF4444', borderStyle: 'round' }
   ));
+
+  // Show mkcert hint if not trusted
+  if (mkcertCheck.ok && !mkcertTrusted.ok) {
+    console.log('\n' + boxen(
+      T.warning.bold(' ⚠ HTTPS not trusted \n\n') +
+      T.white('Run this ONCE to trust your local HTTPS certificate:\n\n') +
+      T.accent('  sudo mkcert -install\n\n') +
+      T.muted('This enables:\n  • Microphone access on iPhone/iPad\n  • Secure LAN access from any device\n  • Voice features in Safari'),
+      { padding: 1, borderColor: '#F59E0B', borderStyle: 'round', width: 60 }
+    ));
+  }
+
   await pressEnter();
 }
 
@@ -5563,18 +5597,21 @@ async function screenFreeAPIs() {
   console.log(T.muted('  Source: github.com/cheahjs/free-llm-api-resources\n'));
 
   const freeApis = [
-    { name: 'Google Gemini',     models: 'gemini-2.0-flash, gemini-1.5-pro', limit: '1M tokens/day',  url: 'aistudio.google.com', key: 'GEMINI_API_KEY', status: 'active' },
-    { name: 'Groq',              models: 'llama3-70b, mixtral-8x7b',         limit: '14.4k tok/min',  url: 'console.groq.com',    key: 'GROQ_API_KEY',   status: 'active' },
-    { name: 'OpenRouter (free)', models: '40+ free models',                  limit: '200 req/day',    url: 'openrouter.ai',       key: 'OPENROUTER_API_KEY', status: 'active' },
-    { name: 'Cloudflare AI',     models: 'llama3, mistral, phi-2',           limit: '10k neurons/day',url: 'ai.cloudflare.com',   key: 'CF_API_KEY',     status: 'active' },
-    { name: 'NVIDIA NIM',        models: 'llama3-70b, mistral large',        limit: '1k credits',     url: 'build.nvidia.com',    key: 'NVIDIA_API_KEY', status: 'active' },
-    { name: 'Cohere',            models: 'command-r, command-light',         limit: '1k req/mo free', url: 'cohere.com',          key: 'COHERE_API_KEY', status: 'active' },
-    { name: 'Together AI',       models: 'llama, qwen, mistral',             limit: '$5 free credit', url: 'api.together.ai',     key: 'TOGETHER_API_KEY',status: 'active'},
-    { name: 'HuggingFace',       models: '1000s of models',                  limit: '~10 req/s',      url: 'huggingface.co/api',  key: 'HF_TOKEN',       status: 'active' },
-    { name: 'OmniRoute (local)', models: 'Auto-routes to all above',         limit: 'Unlimited local',url: 'localhost:20128',     key: 'None needed',    status: '✓ setup' },
-    { name: 'Ollama (local)',     models: 'qwen2.5-coder:7b installed',       limit: 'Unlimited',      url: 'localhost:11434',     key: 'None needed',    status: '✓ ready' },
-    { name: 'xAI Grok',          models: 'grok-beta (limited free)',         limit: 'Limited beta',   url: 'console.x.ai',        key: 'XAI_API_KEY',    status: 'beta' },
-    { name: 'Mistral (free)',    models: 'mistral-small',                    limit: '1 req/s free',   url: 'console.mistral.ai',  key: 'MISTRAL_API_KEY',status: 'active'},
+    { name: 'Google Gemini',     models: 'gemini-2.0-flash, gemini-1.5-pro', limit: '1M tokens/day',  url: 'aistudio.google.com', key: 'GEMINI_API_KEY',    status: 'active' },
+    { name: 'Groq',              models: 'llama3-70b, qwen3-32b, R1-distill', limit: '14.4k tok/min', url: 'console.groq.com',    key: 'GROQ_API_KEY',      status: 'active' },
+    { name: 'DeepSeek',          models: 'v4-flash $0.14/M, v4-pro $1.74/M',limit: '~5M free on signup', url: 'platform.deepseek.com',key: 'DEEPSEEK_API_KEY', status: 'paid' },
+    { name: 'DeepSeek (free OR)', models: 'deepseek-r1:free, v3:free',       limit: '200 req/day',    url: 'openrouter.ai',       key: 'OPENROUTER_API_KEY',status: '✓ free' },
+    { name: 'OpenRouter (free)', models: '40+ free models incl DeepSeek',    limit: '200 req/day',    url: 'openrouter.ai',       key: 'OPENROUTER_API_KEY',status: 'active' },
+    { name: 'Cloudflare AI',     models: 'llama3, mistral, phi-2',           limit: '10k neurons/day',url: 'ai.cloudflare.com',   key: 'CF_API_KEY',         status: 'active' },
+    { name: 'NVIDIA NIM',        models: 'llama3-70b, mistral large',        limit: '1k credits',     url: 'build.nvidia.com',    key: 'NVIDIA_API_KEY',     status: 'active' },
+    { name: 'Cohere',            models: 'command-r, command-light',         limit: '1k req/mo free', url: 'cohere.com',          key: 'COHERE_API_KEY',     status: 'active' },
+    { name: 'Together AI',       models: 'llama, qwen, mistral, deepseek',   limit: '$5 free credit', url: 'api.together.ai',     key: 'TOGETHER_API_KEY',   status: 'active' },
+    { name: 'HuggingFace',       models: '1000s of models',                  limit: '~10 req/s',      url: 'huggingface.co/api',  key: 'HF_TOKEN',           status: 'active' },
+    { name: 'OmniRoute (local)', models: 'Auto-routes to all above',         limit: 'Unlimited local',url: 'localhost:20128',     key: 'None needed',        status: '✓ setup'},
+    { name: 'Ollama (local)',    models: 'qwen3:14b (pulling), qwen2.5-coder:7b', limit: 'Unlimited', url: 'localhost:11434',     key: 'None needed',        status: '✓ ready'},
+    { name: 'xAI Grok',          models: 'grok-3-mini, grok-3',             limit: 'Paid + free tier',url: 'console.x.ai',       key: 'XAI_API_KEY',        status: 'paid' },
+    { name: 'Mistral (free)',    models: 'mistral-small, codestral',         limit: '1 req/s free',   url: 'console.mistral.ai',  key: 'MISTRAL_API_KEY',    status: 'active'},
+    { name: 'jsrepl.io (code)',  models: 'JS/TS/Python/HTML sandbox',        limit: 'Unlimited free', url: 'jsrepl.io',           key: 'None needed',        status: '✓ free' },
   ];
 
   const table = new Table({
@@ -5684,13 +5721,71 @@ async function screenIntegrationsHub() {
   const tool = await select({
     message: T.white('Choose integration:'),
     choices: [
-      { name: T.success.bold('🐄  herdr') + T.muted('       — agent multiplexer: run all AI agents from one terminal'), value: 'herdr' },
+    { name: T.success.bold('🔵  DeepSeek API') + T.muted('     — deepseek-chat, deepseek-reasoner, deepseek-coder'), value: 'deepseek' },
+    { name: T.success.bold('🐄  herdr') + T.muted('       — agent multiplexer: run all AI agents from one terminal'), value: 'herdr' },
       { name: T.cyan.bold('🧠  repowise') + T.muted('    — codebase intelligence: 96% fewer tokens for AI agents'), value: 'repowise' },
       { name: T.accent.bold('🔎  Vane') + T.muted('        — self-hosted AI search engine (Perplexity alternative)'), value: 'vane' },
       { name: T.brand.bold('🎨  tasteskill') + T.muted('  — frontend UI quality rules for AI coding agents'), value: 'tasteskill' },
       { name: T.muted('↩  Back'), value: 'back' },
     ],
   });
+
+  if (tool === 'deepseek') {
+    console.log('\n' + boxen(
+      T.brand.bold(' 🔵 DeepSeek API — Best Value AI \n\n') +
+      T.white('What it is:\n') +
+      T.muted('  OpenAI-compatible API. deepseek-chat is among the best models at\n') +
+      T.muted('  ~$0.14/M input tokens. deepseek-reasoner (R1) is a Chain-of-Thought\n') +
+      T.muted('  reasoning model rivaling o1. Fully integrated in GhostForge.\n\n') +
+      T.white.bold('Models (July 2026):\n') +
+      T.accent('  deepseek-v4-flash    ') + T.muted('→ $0.14/M tokens, 1M context — RECOMMENDED\n') +
+      T.accent('  deepseek-v4-pro      ') + T.muted('→ $1.74/M tokens, 1M context — highest quality\n') +
+      T.accent('  deepseek-chat        ') + T.muted('→ V3 alias (deprecated, still works)\n') +
+      T.accent('  deepseek-reasoner    ') + T.muted('→ R1 alias (deprecated, still works)\n\n') +
+      T.white.bold('Free tier:\n') +
+      T.muted('  ~5M tokens on signup. Cache hits = 50-100× cheaper!\n\n') +
+      T.white.bold('Setup:\n') +
+      T.accent('  1. Get API key: https://platform.deepseek.com/\n') +
+      T.accent('  2. Add to .env.local: DEEPSEEK_API_KEY=sk-...\n') +
+      T.accent('  3. In model picker: select deepseek → deepseek-chat\n\n') +
+      T.white.bold('Free via OpenRouter (no key needed):\n') +
+      T.accent('  Model: deepseek/deepseek-r1:free\n') +
+      T.accent('  Model: deepseek/deepseek-chat-v3-0324:free\n\n') +
+      T.muted('More integrations: github.com/deepseek-ai/awesome-deepseek-integration'),
+      { padding: 1, borderColor: '#0077C8', borderStyle: 'round', width: 74 }
+    ));
+
+    const dsAction = await select({
+      message: T.white('Action:'),
+      choices: [
+        { name: T.accent('🔑  Add DeepSeek API key to .env.local'), value: 'addkey' },
+        { name: T.success('🌐  Open platform.deepseek.com'), value: 'open' },
+        { name: T.muted('↩  Back'), value: 'back' },
+      ],
+    });
+
+    if (dsAction === 'addkey') {
+      const keyVal = await input({ message: T.white('Enter DEEPSEEK_API_KEY (sk-...):') });
+      if (keyVal.trim().startsWith('sk-')) {
+        const envFile = resolve(ROOT, 'web-ui/.env.local');
+        if (existsSync(envFile)) {
+          const content = readFileSync(envFile, 'utf8');
+          const newLine = `DEEPSEEK_API_KEY=${keyVal.trim()}`;
+          writeFileSync(envFile, content.includes('DEEPSEEK_API_KEY=')
+            ? content.replace(/^DEEPSEEK_API_KEY=.*$/m, newLine)
+            : content + '\n' + newLine + '\n');
+          console.log(T.success('\n  ✓ DEEPSEEK_API_KEY saved! Restart the server to use DeepSeek.\n'));
+        }
+      } else {
+        console.log(T.warning('\n  Key should start with sk- — not saved.\n'));
+      }
+      await pressEnter();
+    } else if (dsAction === 'open') {
+      try { execSync('open https://platform.deepseek.com/ 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      await pressEnter();
+    }
+    return;
+  }
 
   if (tool === 'back') return;
 

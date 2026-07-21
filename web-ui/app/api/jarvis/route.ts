@@ -63,6 +63,8 @@ const TOOL_CATALOG = `
 - web_search_deep   → AI-powered deep web search with citations via Vane { query: string }
 - delegate_agent    → delegate a task to a specialist sub-agent role { role: "code"|"security"|"devops"|"qa"|"research", task: string }
 - install_on_device → guide installing GhostForge as PWA/APK on phone or tablet (no params)
+- open_interpreter   → run AI-powered code using open-interpreter (pip install open-interpreter) { prompt: string, model?: string }
+- jsrepl_run         → run code in jsrepl.io sandbox (JS/TS/Python/HTML) { code: string, language?: "javascript"|"typescript"|"python"|"html" }
 `
 
 // ── Domain classifier ─────────────────────────────────────────────────────────
@@ -1142,6 +1144,85 @@ Recommended: ${bestPick}${isInstalled ? ' ✓ installed' : ' — not yet install
       let ip = '192.168.1.x'
       try { const r = await execAsync('ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null'); ip = r.stdout.trim() } catch {}
       return `Install GhostForge on your device:\n\n📱 PWA (fastest): Open http://${ip}:3001 on your phone → Share → Add to Home Screen\n\n🤖 Android APK: Run 'bash scripts/build-android.sh' on your Mac\n\n🍎 iOS IPA: Run 'bash scripts/build-ios.sh' on your Mac (needs Xcode)\n\n🖥 Desktop: Run 'bash scripts/build-electron.sh'`
+    }
+
+    case 'open_interpreter': {
+      // Uses open-interpreter (pip install open-interpreter) for AI-powered code execution
+      const prompt = params.prompt || ''
+      if (!prompt.trim()) return 'No prompt provided for open-interpreter'
+
+      // Safety check
+      const dangerous = [/rm\s+-rf\s+\//, /sudo\s+rm/, /format\s+c:/, /mkfs\./, /dd\s+if=\/dev\/zero/, /csrutil\s+disable/i]
+      if (dangerous.some(p => p.test(prompt))) return 'Prompt blocked: potentially dangerous operation detected'
+
+      try {
+        // Check if open-interpreter is installed
+        await execAsync('python3 -m interpreter --version', { timeout: 5000 })
+      } catch {
+        return 'open-interpreter not found. Install with: pip3 install open-interpreter\nThen restart GhostForge server.'
+      }
+
+      try {
+        const model = params.model || 'ollama/qwen2.5-coder:7b'
+        // Use --safe mode and --quiet for non-interactive execution
+        const tmpPromptFile = join(tmpdir(), `gfai-oi-${Date.now()}.txt`)
+        await writeFile(tmpPromptFile, prompt, 'utf8')
+        const { stdout, stderr } = await execAsync(
+          `python3 -m interpreter --model "${model}" --safe --quiet --single_message "$(cat ${tmpPromptFile})" 2>&1`,
+          { timeout: 60000 }
+        )
+        await unlink(tmpPromptFile).catch(() => {})
+        return (stdout + stderr).trim().slice(0, 2000) || 'open-interpreter completed (no output)'
+      } catch (e: unknown) {
+        const err = e as { stdout?: string; stderr?: string; message?: string }
+        // open-interpreter often returns partial output even on "error"
+        const out = (err.stdout || '') + (err.stderr || '')
+        if (out.trim()) return out.trim().slice(0, 2000)
+        return `open-interpreter error: ${err.message?.slice(0, 300)}`
+      }
+    }
+
+    case 'jsrepl_run': {
+      // jsrepl.io — online REPL for JS/TS/Python/HTML
+      // We run JS/Python locally if possible, otherwise provide jsrepl.io link
+      const code = params.code || ''
+      const lang = (params.language || 'javascript').toLowerCase()
+
+      if (!code.trim()) return 'No code provided'
+
+      // For JS/Python, run locally first (faster, no network)
+      if (lang === 'javascript' || lang === 'js') {
+        try {
+          const jsFile = join(tmpdir(), `gfai-jsrepl-${Date.now()}.js`)
+          await writeFile(jsFile, code, 'utf8')
+          const { stdout, stderr } = await execAsync(`node "${jsFile}"`, { timeout: 10000 })
+          await unlink(jsFile).catch(() => {})
+          const output = (stdout + stderr).trim().slice(0, 1500) || 'No output'
+          return `✓ JavaScript (local Node.js):\n${output}\n\n💡 Also try online: https://jsrepl.io`
+        } catch (e: unknown) {
+          const err = e as { stderr?: string; message?: string }
+          return `Error: ${(err.stderr || err.message || '').slice(0, 500)}\n\n💡 Try in browser: https://jsrepl.io`
+        }
+      }
+
+      if (lang === 'python' || lang === 'py') {
+        try {
+          const pyFile = join(tmpdir(), `gfai-jsrepl-${Date.now()}.py`)
+          await writeFile(pyFile, code, 'utf8')
+          const { stdout, stderr } = await execAsync(`python3 "${pyFile}"`, { timeout: 10000 })
+          await unlink(pyFile).catch(() => {})
+          const output = (stdout + stderr).trim().slice(0, 1500) || 'No output'
+          return `✓ Python (local):\n${output}\n\n💡 Also try online: https://jsrepl.io`
+        } catch (e: unknown) {
+          const err = e as { stderr?: string; message?: string }
+          return `Error: ${(err.stderr || err.message || '').slice(0, 500)}\n\n💡 Try in browser: https://jsrepl.io`
+        }
+      }
+
+      // For TypeScript or HTML, provide jsrepl.io link with encoded code
+      const encoded = encodeURIComponent(code)
+      const jsreplUrl = `https://jsrepl.io/?lang=${lang}&code=${encoded.slice(0, 2000)}`
+      return `Open in jsrepl.io (${lang}):\n${jsreplUrl}\n\nNote: link may be truncated for very long code — paste directly at https://jsrepl.io`
     }
 
     default:

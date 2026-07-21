@@ -110,8 +110,27 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
       const grokModel = opts.activeModel || 'grok-3-mini'
       push({ provider: 'xai', modelId: grokModel, model: grok(grokModel) })
     } else {
-      // Always include grok-3-mini as a fallback option when key is set
       push({ provider: 'xai', modelId: 'grok-3-mini', model: grok('grok-3-mini') })
+    }
+  }
+
+  // 4b. DeepSeek (official @ai-sdk/deepseek — deepseek-v4-flash, deepseek-v4-pro, deepseek-reasoner)
+  const deepseekKey = process.env.DEEPSEEK_API_KEY
+  if (deepseekKey) {
+    const { createDeepSeek } = await import('@ai-sdk/deepseek')
+    const deepseek = createDeepSeek({ apiKey: deepseekKey })
+    if (opts?.activeProvider === 'deepseek') {
+      // Map legacy model names to current ones
+      const modelMap: Record<string, string> = {
+        'deepseek-chat':     'deepseek-v4-flash',   // deprecated alias → v4-flash
+        'deepseek-reasoner': 'deepseek-v4-flash',   // deprecated alias → v4-flash (thinking mode)
+        'deepseek-coder':    'deepseek-v4-flash',   // legacy → v4-flash
+      }
+      const dsModel = modelMap[opts.activeModel || ''] || opts.activeModel || 'deepseek-v4-flash'
+      push({ provider: 'deepseek', modelId: dsModel, model: deepseek(dsModel) })
+    } else {
+      // v4-flash: $0.14/M tokens, 1M context — best speed/cost as of July 2026
+      push({ provider: 'deepseek', modelId: 'deepseek-v4-flash', model: deepseek('deepseek-v4-flash') })
     }
   }
 
@@ -121,8 +140,8 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
     if (ollamaRes.ok) {
       const ollamaData = await ollamaRes.json() as { models: Array<{ name: string }> }
       const ollamaModels = ollamaData.models || []
-      // Prefer qwen2.5-coder > llama3.2 > first available
-      const preferred = ['qwen2.5-coder:7b','qwen2.5:7b','llama3.2:3b','llama3.1:8b','mistral:7b']
+      // Prefer qwen3:14b > qwen2.5-coder > llama3.2 > first available
+      const preferred = ['qwen3:14b','qwen2.5-coder:7b','qwen2.5:7b','llama3.2:3b','llama3.1:8b','mistral:7b']
       const pick = preferred.find(p => ollamaModels.some(m => m.name === p)) || ollamaModels[0]?.name
       if (pick) {
         const ollamaClient = createOpenAI({ baseURL: 'http://localhost:11434/v1', apiKey: 'ollama' })

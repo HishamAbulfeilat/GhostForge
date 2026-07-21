@@ -52,10 +52,11 @@ export const MODEL_DATABASE: ModelSpec[] = [
   { id: 'mistral:7b',       name: 'Mistral 7B',      provider: 'Mistral', params: 7.2,  ramGB: 4.5, contextK: 32,  useCase: 'Fast general', qualityScore: 72, tags: ['general', 'balanced'] },
   { id: 'mistral-nemo:12b', name: 'Mistral Nemo 12B', provider: 'Mistral', params: 12.2, ramGB: 7.5, contextK: 128, useCase: 'General (long context)', qualityScore: 81, tags: ['general', 'long-context'] },
 
-  // ── DeepSeek series ──
+  // ── DeepSeek series (Ollama local) ──
   { id: 'deepseek-coder-v2:16b', name: 'DeepSeek Coder V2 16B', provider: 'DeepSeek', params: 16.0, ramGB: 10.0, contextK: 128, useCase: 'Code (MoE)', qualityScore: 85, tags: ['code', 'moe'] },
   { id: 'deepseek-r1:8b',        name: 'DeepSeek R1 8B',         provider: 'DeepSeek', params: 8.0,  ramGB: 5.0,  contextK: 128, useCase: 'Reasoning', qualityScore: 82, tags: ['reasoning'] },
   { id: 'deepseek-r1:14b',       name: 'DeepSeek R1 14B',        provider: 'DeepSeek', params: 14.0, ramGB: 8.7,  contextK: 128, useCase: 'Reasoning (high)', qualityScore: 88, tags: ['reasoning', 'high-quality'] },
+  { id: 'deepseek-r1:32b',       name: 'DeepSeek R1 32B',        provider: 'DeepSeek', params: 32.0, ramGB: 19.0, contextK: 128, useCase: 'Reasoning (best local)', qualityScore: 93, tags: ['reasoning', 'large'] },
 
   // ── Phi series ──
   { id: 'phi4:14b',      name: 'Phi-4 14B',      provider: 'Microsoft', params: 14.7, ramGB: 9.0, contextK: 16, useCase: 'STEM, reasoning', qualityScore: 84, tags: ['reasoning', 'stem'] },
