@@ -26,6 +26,7 @@ interface Message {
   tool?: string | null
   toolResult?: string | null
   emotion?: Emotion
+  usedModel?: string
   ts: number
 }
 
@@ -38,6 +39,10 @@ interface Memory {
 
 interface ModelInfo {
   provider: string; id: string; label: string; free: boolean; available: boolean
+}
+
+interface Toast {
+  id: string; type: 'info' | 'warn' | 'error' | 'success'; msg: string
 }
 
 // ── Orb colors ────────────────────────────────────────────────────────────────
@@ -143,6 +148,32 @@ function Clock() {
   )
 }
 
+// ── Toast notifications ───────────────────────────────────────────────────────
+
+function ToastContainer({ toasts, onRemove }: { toasts: Toast[]; onRemove: (id: string) => void }) {
+  if (!toasts.length) return null
+  const colors: Record<Toast['type'], string> = {
+    info:    '#1a6fff',
+    warn:    '#ffaa00',
+    error:   '#ff4444',
+    success: '#00ff88',
+  }
+  return (
+    <div className="fixed top-14 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+      {toasts.map(t => (
+        <div key={t.id}
+          className="gfai-fade pointer-events-auto flex items-start gap-2 rounded-lg border px-3 py-2 font-mono text-[10px] max-w-xs"
+          style={{ borderColor: `${colors[t.type]}66`, background: 'rgba(0,5,20,0.95)', color: colors[t.type], boxShadow: `0 0 12px ${colors[t.type]}22` }}>
+          <span className="shrink-0 mt-0.5">{t.type === 'warn' ? '⚠' : t.type === 'error' ? '✗' : t.type === 'success' ? '✓' : 'ℹ'}</span>
+          <span className="leading-relaxed" style={{ color: 'rgba(200,210,255,0.9)' }}>{t.msg}</span>
+          <button type="button" onClick={() => onRemove(t.id)}
+            className="shrink-0 ml-1 opacity-40 hover:opacity-100 transition">✕</button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Tool result card ──────────────────────────────────────────────────────────
 
 function ToolCard({ tool, result, ringColor }: { tool: string; result: string; ringColor: string }) {
@@ -187,20 +218,31 @@ export default function JarvisPage() {
   const [selectedModel, setSelectedModel]       = useState<string>('')
   const [integrations, setIntegrations]     = useState({ github: false, discord: false, googleSearch: false })
   const [lastToolUsed, setLastToolUsed]     = useState<string | null>(null)
-  const [responseModel, setResponseModel]   = useState<string>('')
+  const [liveModel, setLiveModel]           = useState<{ provider: string; model: string } | null>(null)
+  const [toasts, setToasts]                 = useState<Toast[]>([])
 
-  const recognitionRef    = useRef<Any>(null)
+  const recognitionRef     = useRef<Any>(null)
   const wakeRecognitionRef = useRef<Any>(null)
-  const voicesRef         = useRef<Any[]>([])
-  const messagesEndRef    = useRef<HTMLDivElement>(null)
-  const inputRef          = useRef<HTMLInputElement>(null)
-  // Refs for stale-closure-safe values
-  const wakeWordActiveRef = useRef(false)
-  const modeRef           = useRef<Mode>('idle')
+  const voicesRef          = useRef<Any[]>([])
+  const messagesEndRef     = useRef<HTMLDivElement>(null)
+  const inputRef           = useRef<HTMLInputElement>(null)
+  const wakeWordActiveRef  = useRef(false)
+  const modeRef            = useRef<Mode>('idle')
+  // Track ElevenLabs failures to auto-switch
+  const elFailCountRef     = useRef(0)
 
-  // Keep refs in sync
   useEffect(() => { wakeWordActiveRef.current = wakeWordActive }, [wakeWordActive])
   useEffect(() => { modeRef.current = mode }, [mode])
+
+  // ── Toast helpers ─────────────────────────────────────────────────────────
+
+  const toast = useCallback((type: Toast['type'], msg: string, duration = 4000) => {
+    const id = `${Date.now()}-${Math.random()}`
+    setToasts(prev => [...prev, { id, type, msg }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration)
+  }, [])
+
+  const removeToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), [])
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -251,29 +293,36 @@ export default function JarvisPage() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  const addAIMessage = useCallback((text: string, emotion: Emotion, tool: string | null, toolResult: string | null) => {
-    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'ai', text, emotion, tool, toolResult, ts: Date.now() }])
+  const addAIMessage = useCallback((text: string, emotion: Emotion, tool: string | null, toolResult: string | null, usedModel?: string) => {
+    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'ai', text, emotion, tool, toolResult, usedModel, ts: Date.now() }])
   }, [])
 
   const addUserMessage = useCallback((text: string) => {
     setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', text, ts: Date.now() }])
   }, [])
 
-  // ── ElevenLabs TTS ────────────────────────────────────────────────────────
+  // ── ElevenLabs TTS — with auto-fallback ────────────────────────────────────
 
-  const speakElevenLabs = useCallback(async (text: string) => {
+  const speakElevenLabs = useCallback(async (text: string): Promise<boolean> => {
     try {
       const res = await fetch('/api/jarvis/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, voice: 'adam' }),
       })
-      if (!res.ok) throw new Error('non-ok')
       const ct = res.headers.get('content-type') || ''
-      if (ct.includes('application/json')) {
-        // Fallback signal from server
+      if (!res.ok || ct.includes('application/json')) {
+        const data = ct.includes('application/json') ? await res.json() : {}
+        const reason = data.reason || 'unknown'
+        elFailCountRef.current += 1
+        if (elFailCountRef.current >= 2) {
+          // Auto-switch after 2 consecutive failures
+          setVoiceEngine('browser')
+          toast('warn', `ElevenLabs unavailable (${reason}) — switched to browser TTS automatically`)
+        }
         return false
       }
+      elFailCountRef.current = 0
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
@@ -283,9 +332,10 @@ export default function JarvisPage() {
       await audio.play()
       return true
     } catch {
+      elFailCountRef.current += 1
       return false
     }
-  }, [])
+  }, [toast])
 
   // ── Browser TTS ───────────────────────────────────────────────────────────
 
@@ -357,16 +407,26 @@ export default function JarvisPage() {
       })
       const data = await res.json() as {
         speech: string; tool: string | null; toolResult: string | null
-        emotion: Emotion; activeModel?: string; activeProvider?: string
+        emotion: Emotion; usedModel?: string; usedProvider?: string
       }
-      const { speech, tool, toolResult, emotion } = data
+      const { speech, tool, toolResult, emotion, usedModel, usedProvider } = data
 
       if (tool) setLastToolUsed(tool)
-      if (data.activeModel) setResponseModel(`${data.activeProvider || ''}/${data.activeModel}`)
-      addAIMessage(speech, emotion || 'neutral', tool, toolResult)
+
+      // Update live model display
+      if (usedModel) {
+        const live = { provider: usedProvider || '', model: usedModel }
+        setLiveModel(live)
+
+        // Show toast if fallback occurred (selected model ≠ actually used model)
+        if (selectedModel && selectedModel !== usedModel) {
+          toast('warn', `Selected "${selectedModel}" unavailable — used "${usedModel}" instead`)
+        }
+      }
+
+      addAIMessage(speech, emotion || 'neutral', tool, toolResult, usedModel)
       await speak(speech)
 
-      // Update conversation count
       fetch('/api/jarvis/memory', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversationCount: (memory.conversationCount || 0) + 1 }),
@@ -374,11 +434,12 @@ export default function JarvisPage() {
     } catch (e) {
       const err = 'Systems error. Please try again.'
       addAIMessage(err, 'alert', null, null)
+      toast('error', `Request failed: ${String(e).slice(0, 60)}`)
       await speak(err)
       setMode('idle')
       console.error(e)
     }
-  }, [messages, memory, selectedProvider, selectedModel, addUserMessage, addAIMessage, speak])
+  }, [messages, memory, selectedProvider, selectedModel, addUserMessage, addAIMessage, speak, toast])
 
   // ── Voice recognition ─────────────────────────────────────────────────────
 
@@ -559,31 +620,56 @@ export default function JarvisPage() {
             <div className="flex flex-wrap gap-6 font-mono text-[10px]">
 
               {/* Model selector */}
-              <div>
-                <p className="text-blue-400/40 tracking-widest mb-1.5">AI MODEL</p>
-                <div className="flex flex-wrap gap-1.5 max-w-sm">
+              <div className="flex-1 min-w-[280px]">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <p className="text-blue-400/40 tracking-widest">AI MODEL</p>
+                  {selectedProvider && (
+                    <span className="rounded px-1.5 py-0.5 text-[9px]"
+                      style={{ background: `${mc.ring}22`, color: mc.ring }}>
+                      ✓ OVERRIDE ACTIVE — {selectedModel?.split('/').pop()?.split(':')[0]}
+                    </span>
+                  )}
+                  {liveModel && (
+                    <span className="rounded px-1.5 py-0.5 text-[9px] text-blue-400/40">
+                      last used: {liveModel.model?.split('/').pop()?.split(':')[0]}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
                   <button type="button"
-                    onClick={() => { setSelectedProvider(''); setSelectedModel('') }}
+                    onClick={() => { setSelectedProvider(''); setSelectedModel(''); toast('info', 'Auto mode — will use best available model') }}
                     className="rounded px-2 py-1 border transition"
                     style={{
                       borderColor: !selectedProvider ? mc.ring : `${mc.ring}33`,
                       color: !selectedProvider ? mc.ring : 'rgba(150,170,220,0.5)',
                       background: !selectedProvider ? `${mc.ring}18` : 'transparent',
                     }}>
-                    AUTO (ENV)
+                    AUTO (CHAIN)
                   </button>
-                  {models.filter(m => m.available).map(m => (
-                    <button type="button" key={`${m.provider}/${m.id}`}
-                      onClick={() => { setSelectedProvider(m.provider); setSelectedModel(m.id) }}
-                      className="rounded px-2 py-1 border transition"
-                      style={{
-                        borderColor: (selectedProvider === m.provider && selectedModel === m.id) ? mc.ring : `${mc.ring}33`,
-                        color: (selectedProvider === m.provider && selectedModel === m.id) ? mc.ring : 'rgba(150,170,220,0.5)',
-                        background: (selectedProvider === m.provider && selectedModel === m.id) ? `${mc.ring}18` : 'transparent',
-                      }}>
-                      {m.label}
-                    </button>
-                  ))}
+                  {models.filter(m => m.available).map(m => {
+                    const isActive = selectedProvider === m.provider && selectedModel === m.id
+                    const isLast = liveModel?.provider === m.provider && liveModel?.model === m.id
+                    return (
+                      <button type="button" key={`${m.provider}/${m.id}`}
+                        onClick={() => {
+                          setSelectedProvider(m.provider)
+                          setSelectedModel(m.id)
+                          toast('success', `Model set to ${m.label} — will use next message`)
+                        }}
+                        className="rounded px-2 py-1 border transition relative"
+                        style={{
+                          borderColor: isActive ? mc.ring : isLast ? `${mc.ring}66` : `${mc.ring}22`,
+                          color: isActive ? mc.ring : isLast ? `${mc.ring}cc` : 'rgba(150,170,220,0.5)',
+                          background: isActive ? `${mc.ring}18` : 'transparent',
+                        }}
+                        title={m.free ? 'Free tier' : 'Paid tier'}>
+                        {isActive && <span className="mr-1">✓</span>}
+                        {isLast && !isActive && <span className="mr-1" style={{ color: mc.ring }}>◉</span>}
+                        {m.label}
+                        {m.free && <span className="ml-1 opacity-40">free</span>}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
@@ -591,18 +677,19 @@ export default function JarvisPage() {
               <div>
                 <p className="text-blue-400/40 tracking-widest mb-1.5">VOICE ENGINE</p>
                 <div className="flex gap-1.5">
-                  <button type="button" onClick={() => setVoiceEngine('browser')}
+                  <button type="button"
+                    onClick={() => { setVoiceEngine('browser'); elFailCountRef.current = 0; toast('info', 'Browser TTS active') }}
                     className="rounded px-2 py-1 border transition"
                     style={{
                       borderColor: voiceEngine === 'browser' ? mc.ring : `${mc.ring}33`,
                       color: voiceEngine === 'browser' ? mc.ring : 'rgba(150,170,220,0.5)',
                       background: voiceEngine === 'browser' ? `${mc.ring}18` : 'transparent',
                     }}>
-                    BROWSER TTS
+                    {voiceEngine === 'browser' && '✓ '}BROWSER TTS
                   </button>
                   <button type="button"
                     disabled={!hasElevenLabs}
-                    onClick={() => setVoiceEngine('elevenlabs')}
+                    onClick={() => { setVoiceEngine('elevenlabs'); elFailCountRef.current = 0; toast('success', 'ElevenLabs voice active — Adam (JARVIS-style)') }}
                     className="rounded px-2 py-1 border transition disabled:opacity-30"
                     style={{
                       borderColor: voiceEngine === 'elevenlabs' ? '#ff9922' : `${mc.ring}33`,
@@ -610,9 +697,12 @@ export default function JarvisPage() {
                       background: voiceEngine === 'elevenlabs' ? 'rgba(255,153,34,0.1)' : 'transparent',
                     }}
                     title={!hasElevenLabs ? 'Add ELEVENLABS_API_KEY to .env.local' : 'ElevenLabs Adam voice (JARVIS-like)'}>
-                    ⚡ ELEVENLABS {!hasElevenLabs && '(NO KEY)'}
+                    {voiceEngine === 'elevenlabs' && '✓ '}⚡ ELEVENLABS {!hasElevenLabs && '(NO KEY)'}
                   </button>
                 </div>
+                {!hasElevenLabs && (
+                  <p className="mt-1 text-[9px] text-blue-400/30">Add ELEVENLABS_API_KEY to .env.local for JARVIS voice</p>
+                )}
               </div>
 
               {/* Integrations status */}
@@ -626,9 +716,9 @@ export default function JarvisPage() {
                     { label: 'ElevenLabs TTS', ok: hasElevenLabs, hint: 'Set ELEVENLABS_API_KEY' },
                   ].map(i => (
                     <div key={i.label} className="flex items-center gap-2">
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: i.ok ? '#00ff88' : '#ff4444' }} />
-                      <span style={{ color: i.ok ? '#00ff88' : 'rgba(255,100,100,0.6)' }}>{i.label}</span>
-                      {!i.ok && <span className="text-blue-400/30">— {i.hint}</span>}
+                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: i.ok ? '#00ff88' : '#ff444466' }} />
+                      <span style={{ color: i.ok ? '#00ff88' : 'rgba(255,100,100,0.5)' }}>{i.label}</span>
+                      {!i.ok && <span className="text-blue-400/25">{i.hint}</span>}
                     </div>
                   ))}
                 </div>
@@ -646,7 +736,7 @@ export default function JarvisPage() {
             <div>
               <p className="text-blue-400/40 tracking-widest mb-2">SYSTEMS</p>
               {[
-                { label: 'AI ENGINE', val: responseModel ? responseModel.split('/').pop()?.slice(0, 14) || 'ONLINE' : 'ONLINE', ok: true },
+                { label: 'AI ENGINE', val: liveModel ? liveModel.model?.split('/').pop()?.split(':')[0]?.slice(0, 14) || 'ONLINE' : 'ONLINE', ok: true },
                 { label: 'MAC CTRL', val: 'READY', ok: true },
                 { label: 'MEMORY', val: memory.conversationCount > 0 ? `${memory.conversationCount} SES` : 'INIT', ok: true },
                 { label: 'VOICE', val: voiceEngine === 'elevenlabs' ? 'ELEVENLABS' : voiceSupported ? 'BROWSER' : 'N/A', ok: voiceSupported },
@@ -808,11 +898,20 @@ export default function JarvisPage() {
         <div className="relative z-10 flex shrink-0 items-center justify-between border-t px-4 py-1 font-mono text-[9px]"
           style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.92)', color: `${mc.ring}55` }}>
           <span>G.F.A.I. v4.7 — GHOSTFORGE AI SYSTEM</span>
-          <span style={{ color: responseModel ? mc.ring : `${mc.ring}44` }}>
-            {responseModel ? `⚡ ${responseModel}` : (activeModel ? `${activeModel.provider}/${activeModel.model}` : 'AI ENGINE STANDBY')}
+          <span style={{ color: liveModel ? mc.ring : `${mc.ring}44` }}>
+            {liveModel
+              ? `⚡ ${liveModel.provider}/${liveModel.model?.split('/').pop()?.split(':')[0]}`
+              : selectedProvider
+                ? `→ ${selectedModel?.split('/').pop()?.split(':')[0]} (pending)`
+                : activeModel
+                  ? `${activeModel.provider}/${activeModel.model}`
+                  : 'AI ENGINE STANDBY'}
           </span>
           <span>PRIVATE · LOCAL · SECURE</span>
         </div>
+
+        {/* Toast container */}
+        <ToastContainer toasts={toasts} onRemove={removeToast} />
       </div>
     </>
   )

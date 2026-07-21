@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateText } from 'ai'
-import { selectAIModel } from '@/lib/ai'
+import { generateWithFallback } from '@/lib/ai'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { writeFile, unlink } from 'fs/promises'
@@ -446,36 +445,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No message' }, { status: 400 })
   }
 
-  // Resolve active model (user override → env defaults)
   const modelOpts = selectedProvider ? { activeProvider: selectedProvider, activeModel: selectedModel } : undefined
 
-  // ── Shared: generateText with automatic fallback ─────────────────────────
-  type GenOpts = Omit<Parameters<typeof generateText>[0], 'model'>
-  async function aiGenerate(opts: GenOpts): Promise<string> {
-    const { model, fallbackModel } = await selectAIModel(modelOpts)
-    const shouldFallback = (e: unknown) => {
-      const msg = String(e).toLowerCase()
-      return msg.includes('quota') || msg.includes('exceeded') || msg.includes('429')
-          || msg.includes('rate') || msg.includes('no longer available')
-          || msg.includes('not found') || msg.includes('deprecated')
-          || msg.includes('unavailable') || msg.includes('model_not_found')
-    }
-    try {
-      const { text } = await generateText({ ...opts, model })
-      return text
-    } catch (e) {
-      if (fallbackModel && shouldFallback(e)) {
-        console.warn('[G.F.A.I.] Primary model unavailable — falling back:', String(e).slice(0, 80))
-        const { text } = await generateText({ ...opts, model: fallbackModel })
-        return text
-      }
-      throw e
-    }
-  }
+  // Tracks which model actually answered (updated by each generateWithFallback call)
+  let usedProvider = ''
+  let usedModel    = ''
 
-  // Determine which model is actually active (for client display)
-  const { model: activeModelObj } = await selectAIModel(modelOpts).catch(() => ({ model: null, fallbackModel: null }))
-  const activeModelLabel = selectedModel || process.env.GEMINI_MODEL || process.env.OPENROUTER_MODEL || 'auto'
+  async function aiGenerate(opts: { system?: string; messages: Array<{ role: 'user' | 'assistant'; content: string }>; maxTokens?: number }): Promise<string> {
+    const result = await generateWithFallback(opts, modelOpts)
+    usedProvider = result.usedProvider
+    usedModel    = result.usedModel
+    return result.text
+  }
 
   // ── Step 1: AI intent classification + response ───────────────────────────
   let aiResp: AIResponse = { speech: "I'm processing your request, stand by.", tool: null, toolParams: {}, emotion: 'thinking' }
@@ -498,10 +479,9 @@ export async function POST(req: NextRequest) {
     }
   } catch (e) {
     const msg = String(e)
-    const isQuota = msg.includes('quota') || msg.includes('exceeded') || msg.includes('429')
     aiResp = {
-      speech: isQuota
-        ? 'All AI providers are currently rate-limited. Please wait a moment and try again.'
+      speech: msg.toLowerCase().includes('no ai providers') || msg.toLowerCase().includes('all ai providers')
+        ? 'All AI providers failed. Please check your API keys or try again later.'
         : `Systems interference detected. ${msg.slice(0, 80)}`,
       tool: null, toolParams: {}, emotion: 'alert',
     }
@@ -534,7 +514,7 @@ Incorporate the result naturally. No JSON — just the spoken text.`,
     tool: aiResp.tool ?? null,
     toolResult,
     emotion: aiResp.emotion || 'neutral',
-    activeModel: activeModelLabel,
-    activeProvider: selectedProvider || (process.env.GOOGLE_GENERATIVE_AI_API_KEY ? 'google' : 'openrouter'),
+    usedModel,
+    usedProvider,
   })
 }

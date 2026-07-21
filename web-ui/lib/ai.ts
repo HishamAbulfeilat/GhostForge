@@ -7,99 +7,140 @@ You are concise, technical, and direct. You speak like a senior developer.
 Available GhostForge commands the user can run on their Mac: ghostforge carbon status, ghostforge carbon track <cmd>, ghostforge ai-review staged, ghostforge standup today, ghostforge dep-health check, ghostforge health-score score, ghostforge bundle track, ghostforge lighthouse run <url>, and many more.
 When user asks to run a command, prefix with [RUN]: ghostforge <command> — the UI will offer to execute it.`
 
-interface ModelOverride {
+export interface ModelOverride {
   activeModel?: string
   activeProvider?: string
 }
 
-interface ModelSelection {
+export interface ModelEntry {
+  provider: string
+  modelId: string
   model: LanguageModel
-  fallbackModel?: LanguageModel
 }
 
-/** Build an OmniRoute LanguageModel — no API key required, runs locally */
-function makeOmniRouteModel(modelId = 'auto/coding'): LanguageModel {
+/** Build an OmniRoute LanguageModel — no API key required */
+export function makeOmniRouteModel(modelId = 'auto/coding'): LanguageModel {
   const baseURL = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1'
-  const omni = createOpenAI({ baseURL, apiKey: 'omniroute' }) // key value ignored by OmniRoute
+  const omni = createOpenAI({ baseURL, apiKey: 'omniroute' })
   return omni(modelId)
 }
 
-/** Returns the selected AI model without calling it — used for streaming */
-export async function selectAIModel(opts?: ModelOverride): Promise<ModelSelection> {
-  const openrouterKey = process.env.OPENROUTER_API_KEY
-  const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
-  const omniUrl = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1'
-  const activeProvider = opts?.activeProvider
-  const activeModel = opts?.activeModel
-
-  // Explicit OmniRoute selection
-  if (activeProvider === 'omniroute') {
-    const modelId = activeModel || process.env.OMNIROUTE_MODEL || 'auto/coding'
-    return { model: makeOmniRouteModel(modelId) }
-  }
-
-  // Explicit OpenRouter selection
-  if (activeProvider === 'openrouter' && openrouterKey && activeModel) {
-    const openrouter = createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: openrouterKey })
-    return { model: openrouter(activeModel) }
-  }
-
-  // Gemini first (Google AI Plus = high quota)
-  if (geminiKey) {
-    const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
-    const google = createGoogleGenerativeAI({ apiKey: geminiKey })
-    const modelId = (activeProvider === 'google' && activeModel)
-      ? activeModel
-      : (process.env.GEMINI_MODEL || 'gemini-2.5-flash')
-
-    // Fallback: OpenRouter free model → OmniRoute (local)
-    const fallbackModel = openrouterKey
-      ? createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: openrouterKey })(
-          process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free'
-        )
-      : makeOmniRouteModel()
-
-    return { model: google(modelId), fallbackModel }
-  }
-
-  // OpenRouter with OmniRoute as fallback
-  if (openrouterKey) {
-    const openrouter = createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: openrouterKey })
-    const modelId = (activeProvider === 'openrouter' && activeModel)
-      ? activeModel
-      : (process.env.OPENROUTER_MODEL || 'nvidia/nemotron-3-nano-30b-a3b:free')
-    return { model: openrouter(modelId), fallbackModel: makeOmniRouteModel() }
-  }
-
-  // OmniRoute — free, no key needed (must be running locally)
-  if (omniUrl) {
-    const modelId = process.env.OMNIROUTE_MODEL || 'auto/coding'
-    return { model: makeOmniRouteModel(modelId) }
-  }
-
-  throw new Error('⚠️ No AI configured. Add GOOGLE_GENERATIVE_AI_API_KEY, OPENROUTER_API_KEY, or start OmniRoute locally (npx omniroute).')
+/** Whether an error should trigger a fallback to the next model */
+export function isFallbackError(e: unknown): boolean {
+  const msg = String(e).toLowerCase()
+  return (
+    msg.includes('quota') ||
+    msg.includes('exceeded') ||
+    msg.includes('429') ||
+    msg.includes('rate limit') ||
+    msg.includes('no longer available') ||
+    msg.includes('not found') ||
+    msg.includes('deprecated') ||
+    msg.includes('unavailable') ||
+    msg.includes('model_not_found') ||
+    msg.includes('invalid model') ||
+    msg.includes('does not exist') ||
+    msg.includes('not supported')
+  )
 }
 
-/** Legacy non-streaming helper — kept for scripts/non-chat uses */
-export async function generateGhostforgeReply(
-  messages: CoreMessage[],
-  modelOverride?: ModelOverride
-) {
-  const { model, fallbackModel } = await selectAIModel(modelOverride)
-  const shouldFallback = (msg: string) =>
-    msg.includes('quota') || msg.includes('exceeded') || msg.includes('429') ||
-    msg.includes('rate') || msg.includes('no longer available') ||
-    msg.includes('not found') || msg.includes('deprecated') || msg.includes('unavailable')
-  try {
-    const response = await generateText({ model, system: GHOSTFORGE_SYSTEM, messages })
-    return response.text
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    if (shouldFallback(msg) && fallbackModel) {
-      console.warn('[GhostForge AI] Primary model unavailable, falling back:', msg.slice(0, 80))
-      const response = await generateText({ model: fallbackModel, system: GHOSTFORGE_SYSTEM, messages })
-      return response.text
-    }
-    throw new Error(`AI error: ${msg}`)
+/**
+ * Build an ordered fallback chain of AI models.
+ * Order: user-selected → gemini → openrouter → omniroute
+ */
+export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[]> {
+  const chain: ModelEntry[] = []
+  const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  const orKey     = process.env.OPENROUTER_API_KEY
+  const omniUrl   = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1'
+
+  const added = new Set<string>()
+  const push = (entry: ModelEntry) => {
+    const key = `${entry.provider}/${entry.modelId}`
+    if (!added.has(key)) { added.add(key); chain.push(entry) }
   }
+
+  // 1. User-selected model (highest priority)
+  if (opts?.activeProvider && opts?.activeModel) {
+    const { activeProvider: ap, activeModel: am } = opts
+    if (ap === 'google' && geminiKey) {
+      const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
+      push({ provider: 'google', modelId: am, model: createGoogleGenerativeAI({ apiKey: geminiKey })(am) })
+    } else if (ap === 'openrouter' && orKey) {
+      push({ provider: 'openrouter', modelId: am, model: createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })(am) })
+    } else if (ap === 'omniroute') {
+      push({ provider: 'omniroute', modelId: am, model: makeOmniRouteModel(am) })
+    }
+  }
+
+  // 2. Gemini (env default)
+  if (geminiKey) {
+    const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
+    const mid = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+    push({ provider: 'google', modelId: mid, model: createGoogleGenerativeAI({ apiKey: geminiKey })(mid) })
+  }
+
+  // 3. OpenRouter free model
+  if (orKey) {
+    const mid = process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free'
+    push({ provider: 'openrouter', modelId: mid, model: createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })(mid) })
+    // Also add a second free fallback
+    push({ provider: 'openrouter', modelId: 'meta-llama/llama-3.3-70b-instruct:free',
+      model: createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })('meta-llama/llama-3.3-70b-instruct:free') })
+  }
+
+  // 4. OmniRoute (local, always last)
+  if (omniUrl) {
+    push({ provider: 'omniroute', modelId: 'auto/coding', model: makeOmniRouteModel('auto/coding') })
+  }
+
+  return chain
+}
+
+/**
+ * Generate text with full automatic fallback chain.
+ * Returns text + which model actually answered.
+ */
+export async function generateWithFallback(
+  opts: Omit<Parameters<typeof generateText>[0], 'model'>,
+  overrides?: ModelOverride,
+): Promise<{ text: string; usedProvider: string; usedModel: string }> {
+  const chain = await buildModelChain(overrides)
+
+  if (chain.length === 0) {
+    throw new Error('No AI providers configured. Add GOOGLE_GENERATIVE_AI_API_KEY or OPENROUTER_API_KEY to .env.local')
+  }
+
+  let lastError: unknown
+  for (const entry of chain) {
+    try {
+      const { text } = await generateText({ ...opts, model: entry.model })
+      return { text, usedProvider: entry.provider, usedModel: entry.modelId }
+    } catch (e) {
+      if (isFallbackError(e)) {
+        console.warn(`[GhostForge] ${entry.provider}/${entry.modelId} failed → trying next. Reason: ${String(e).slice(0, 80)}`)
+        lastError = e
+        continue
+      }
+      throw e // Non-recoverable error
+    }
+  }
+
+  throw lastError || new Error('All AI providers failed')
+}
+
+/** Legacy: selectAIModel kept for compatibility with streaming routes */
+export async function selectAIModel(opts?: ModelOverride): Promise<{ model: LanguageModel; fallbackModel?: LanguageModel }> {
+  const chain = await buildModelChain(opts)
+  if (chain.length === 0) throw new Error('No AI providers configured')
+  return { model: chain[0].model, fallbackModel: chain[1]?.model }
+}
+
+/** Legacy non-streaming helper */
+export async function generateGhostforgeReply(messages: CoreMessage[], modelOverride?: ModelOverride) {
+  const { text } = await generateWithFallback(
+    { system: GHOSTFORGE_SYSTEM, messages },
+    modelOverride,
+  )
+  return text
 }
