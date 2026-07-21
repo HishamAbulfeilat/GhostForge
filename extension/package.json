@@ -2,7 +2,7 @@
   "name": "ghostforge",
   "displayName": "GhostForge Developer Toolkit",
   "description": "GhostForge AI Toolkit \u2014 JARVIS-style AI assistant, command picker, code review, RTL audit, bundle analyzer, snippets, and GitHub Copilot Chat integration (@ghostforge)",
-  "version": "2.7.2",
+  "version": "2.7.3",
   "publisher": "ghostforge",
   "license": "MIT",
   "engines": {

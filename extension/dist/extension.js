@@ -602,8 +602,15 @@ User request: ${prompt}`;
       }
     }
   };
+  if (!vscode2.chat?.createChatParticipant) {
+    console.log("[GhostForge] GitHub Copilot Chat not available \u2014 @ghostforge participant skipped");
+    return;
+  }
   const participant = vscode2.chat.createChatParticipant(PARTICIPANT_ID, handler);
-  participant.iconPath = vscode2.Uri.joinPath(context.extensionUri, "media", "icon.png");
+  try {
+    participant.iconPath = vscode2.Uri.joinPath(context.extensionUri, "assets", "icon.png");
+  } catch {
+  }
   participant.followupProvider = {
     provideFollowups(_result, _context, _token) {
       return [
@@ -778,17 +785,29 @@ var StatusBarManager = class {
 function activate(context) {
   const toolkitRoot = findToolkitRoot();
   registerCommands(context, toolkitRoot);
-  registerChatParticipant(context, toolkitRoot);
-  const snippetProvider = new SnippetTreeProvider(toolkitRoot);
-  vscode6.window.registerTreeDataProvider("ghostforge.snippets", snippetProvider);
-  context.subscriptions.push(
-    vscode6.commands.registerCommand("ghostforge.refreshSnippets", () => snippetProvider.refresh())
-  );
-  const commandProvider = new CommandTreeProvider(toolkitRoot);
-  vscode6.window.registerTreeDataProvider("ghostforge.commands", commandProvider);
   const statusBar = new StatusBarManager(context);
   statusBar.show();
-  vscode6.window.showInformationMessage("\u26A1 GhostForge AI Toolkit ready! (Cmd+Shift+E to open picker)");
+  try {
+    const snippetProvider = new SnippetTreeProvider(toolkitRoot);
+    vscode6.window.registerTreeDataProvider("ghostforge.snippets", snippetProvider);
+    context.subscriptions.push(
+      vscode6.commands.registerCommand("ghostforge.refreshSnippets", () => snippetProvider.refresh())
+    );
+  } catch (e) {
+    console.warn("[GhostForge] snippetProvider init failed:", e);
+  }
+  try {
+    const commandProvider = new CommandTreeProvider(toolkitRoot);
+    vscode6.window.registerTreeDataProvider("ghostforge.commands", commandProvider);
+  } catch (e) {
+    console.warn("[GhostForge] commandProvider init failed:", e);
+  }
+  try {
+    registerChatParticipant(context, toolkitRoot);
+  } catch (e) {
+    console.warn("[GhostForge] Copilot Chat participant skipped:", e);
+  }
+  vscode6.window.showInformationMessage("\u{1F47B} GhostForge AI Toolkit ready! (Cmd+Shift+E to open picker)");
 }
 function deactivate() {
 }
