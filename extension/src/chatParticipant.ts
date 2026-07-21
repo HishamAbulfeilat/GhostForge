@@ -366,8 +366,22 @@ export function registerChatParticipant(
     }
   };
 
+  // Guard: vscode.chat is only available when GitHub Copilot Chat is installed.
+  // Without the guard the whole extension activation crashes, breaking the
+  // command picker and status bar even for users without Copilot Chat.
+  if (!vscode.chat?.createChatParticipant) {
+    console.log('[GhostForge] GitHub Copilot Chat not available — @ghostforge participant skipped');
+    return;
+  }
+
   const participant = vscode.chat.createChatParticipant(PARTICIPANT_ID, handler);
-  participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'icon.png');
+
+  // Use assets/icon.png (the real location); gracefully skip if missing
+  try {
+    participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'assets', 'icon.png');
+  } catch {
+    // icon not critical
+  }
 
   participant.followupProvider = {
     provideFollowups(

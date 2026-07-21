@@ -8,22 +8,38 @@ import { StatusBarManager } from './statusBar';
 export function activate(context: vscode.ExtensionContext) {
   const toolkitRoot = findToolkitRoot();
 
+  // Commands + status bar are always registered first — nothing should block these
   registerCommands(context, toolkitRoot);
-  registerChatParticipant(context, toolkitRoot);
-
-  const snippetProvider = new SnippetTreeProvider(toolkitRoot);
-  vscode.window.registerTreeDataProvider('ghostforge.snippets', snippetProvider);
-  context.subscriptions.push(
-    vscode.commands.registerCommand('ghostforge.refreshSnippets', () => snippetProvider.refresh())
-  );
-
-  const commandProvider = new CommandTreeProvider(toolkitRoot);
-  vscode.window.registerTreeDataProvider('ghostforge.commands', commandProvider);
 
   const statusBar = new StatusBarManager(context);
   statusBar.show();
 
-  vscode.window.showInformationMessage('⚡ GhostForge AI Toolkit ready! (Cmd+Shift+E to open picker)');
+  // Tree providers — wrapped so a missing directory can't break activation
+  try {
+    const snippetProvider = new SnippetTreeProvider(toolkitRoot);
+    vscode.window.registerTreeDataProvider('ghostforge.snippets', snippetProvider);
+    context.subscriptions.push(
+      vscode.commands.registerCommand('ghostforge.refreshSnippets', () => snippetProvider.refresh())
+    );
+  } catch (e) {
+    console.warn('[GhostForge] snippetProvider init failed:', e);
+  }
+
+  try {
+    const commandProvider = new CommandTreeProvider(toolkitRoot);
+    vscode.window.registerTreeDataProvider('ghostforge.commands', commandProvider);
+  } catch (e) {
+    console.warn('[GhostForge] commandProvider init failed:', e);
+  }
+
+  // Copilot Chat participant — only available when Copilot Chat extension is installed
+  try {
+    registerChatParticipant(context, toolkitRoot);
+  } catch (e) {
+    console.warn('[GhostForge] Copilot Chat participant skipped:', e);
+  }
+
+  vscode.window.showInformationMessage('👻 GhostForge AI Toolkit ready! (Cmd+Shift+E to open picker)');
 }
 
 export function deactivate() {}
