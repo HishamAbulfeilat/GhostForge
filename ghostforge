@@ -34,6 +34,7 @@ Usage:
   ghostforge                Launch the TUI
   ghostforge -v|--version   Print toolkit version
   ghostforge -h|--help      Show this help
+  ghostforge <command>      Run scripts/<command>.sh
   ghostforge --open PATH    Run open-project.sh directly
   ghostforge --command health [PATH]
   ghostforge --command security [PATH]
@@ -41,6 +42,20 @@ Usage:
   gf                        Alias for ghostforge
 EOF
 }
+
+if [[ $# -gt 0 && "${1#-}" == "$1" ]]; then
+  subcommand="$1"
+  subcommand_script="$SCRIPT_DIR/scripts/${subcommand}.sh"
+
+  if [[ -f "$subcommand_script" ]]; then
+    shift
+    GF_NON_INTERACTIVE=1 bash "$subcommand_script" "$@"
+    exit $?
+  fi
+
+  echo "Unknown command: $subcommand. Run 'ghostforge --help' for usage."
+  exit 1
+fi
 
 case "${1:-}" in
   -v|--version)
@@ -60,23 +75,30 @@ case "${1:-}" in
     shift
     command_name="${1:-}"
     shift || true
+    script_path=""
     case "$command_name" in
       health)
-        bash "$SCRIPT_DIR/scripts/health-check.sh" "${1:-$(pwd)}"
+        script_path="$SCRIPT_DIR/scripts/health-check.sh"
         ;;
       security)
-        bash "$SCRIPT_DIR/scripts/security-check.sh" "${1:-$(pwd)}"
+        script_path="$SCRIPT_DIR/scripts/security-check.sh"
         ;;
       '')
         echo "❌  Missing command name after --command"
         exit 1
         ;;
       *)
-        echo "❌  Unsupported command: $command_name"
-        exit 1
+        script_path="$SCRIPT_DIR/scripts/${command_name}.sh"
         ;;
     esac
-    exit $?
+
+    if [[ -f "$script_path" ]]; then
+      GF_NON_INTERACTIVE=1 bash "$script_path" "$@"
+      exit $?
+    fi
+
+    echo "❌  Unsupported command: $command_name"
+    exit 1
     ;;
   --digest)
     shift

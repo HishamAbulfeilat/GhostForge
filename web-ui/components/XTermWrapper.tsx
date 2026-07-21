@@ -128,7 +128,22 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send('\x00' + cmd + '\n')
     } else if (term) {
-      term.write('\r\n\x1b[33m[Not connected — start bridge then click Reconnect]\x1b[0m\r\n')
+      term.write('\r\n\x1b[33m[WebSocket offline — executing via API...]\x1b[0m\r\n')
+      void fetch('/api/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: cmd }),
+      })
+        .then(r => r.json())
+        .then((data: { output?: string; error?: string }) => {
+          const out = data.output || data.error || 'Done'
+          term.write('\r\n\x1b[36m$ ' + cmd + '\x1b[0m\r\n')
+          term.write(out.replace(/\n/g, '\r\n') + '\r\n')
+          term.write('\x1b[32m[Done]\x1b[0m\r\n\n')
+        })
+        .catch(() => {
+          term.write('\x1b[31m[Execution failed — server unreachable]\x1b[0m\r\n')
+        })
     }
   }, [])
 
@@ -235,4 +250,3 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
     />
   )
 }
-

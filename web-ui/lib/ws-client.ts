@@ -30,7 +30,7 @@ export async function executeBridgeCommand(bridgeUrl: string, bridgeToken: strin
       Authorization: `Bearer ${bridgeToken}`,
     },
     body: JSON.stringify({ command }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(2500),
   })
 
   return (await response.json()) as ExecuteBridgeResponse
