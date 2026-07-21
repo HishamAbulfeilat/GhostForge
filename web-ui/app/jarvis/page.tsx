@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
+import { usePlatform, detectLanguage, getSpeechLang, platformLabel } from '@/lib/platform'
 
 // Web Speech API type shims
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -274,6 +275,7 @@ function AuditPanel({ onClose }: { onClose: () => void }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function JarvisPage() {
+  const platform = usePlatform()
   const [mode, setMode]                     = useState<Mode>('idle')
   const [messages, setMessages]             = useState<Message[]>([])
   const [input, setInput]                   = useState('')
@@ -295,6 +297,8 @@ export default function JarvisPage() {
   const [copilotMode, setCopilotMode]       = useState(false)
   const [copilotThinking, setCopilotThinking] = useState(false)
   const [pendingRiskMsg, setPendingRiskMsg] = useState<{ message: string; tool: string } | null>(null)
+  const [speechLang, setSpeechLang]         = useState('en-US')
+  const [detectedLang, setDetectedLang]     = useState('en')
 
   const recognitionRef     = useRef<Any>(null)
   const wakeRecognitionRef = useRef<Any>(null)
@@ -497,10 +501,17 @@ export default function JarvisPage() {
     setMode('thinking')
     setLastToolUsed(null)
 
+    // Detect language and auto-update speech recognition language
+    const msgLang = detectLanguage(text)
+    if (msgLang !== detectedLang) {
+      setDetectedLang(msgLang)
+      setSpeechLang(getSpeechLang(msgLang))
+    }
+
     // Extract name
-    const nameMatch = text.match(/my name is (\w+)/i)
+    const nameMatch = text.match(/my name is (\w+)|اسمي (\w+)/i)
     if (nameMatch) {
-      const name = nameMatch[1]
+      const name = nameMatch[1] || nameMatch[2]
       setMemory(prev => ({ ...prev, userName: name }))
       fetch('/api/jarvis/memory', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -521,19 +532,25 @@ export default function JarvisPage() {
           memory,
           selectedProvider: selectedProvider || undefined,
           selectedModel: selectedModel || undefined,
-          confirmRisk: /^(confirm|yes|proceed|do it)$/i.test(text.trim()) && pendingRiskMsg != null,
+          confirmRisk: /^(confirm|yes|proceed|do it|تأكيد|نعم)$/i.test(text.trim()) && pendingRiskMsg != null,
+          lang: msgLang,
+          platform: platform.type,
         }),
       })
       const data = await res.json() as {
         speech: string; tool: string | null; toolResult: string | null
         emotion: Emotion; usedModel?: string; usedProvider?: string
-        domain?: string; confidence?: number
+        domain?: string; confidence?: number; detectedLang?: string
         risk?: { risk: number; level: string; reason: string; requires_confirmation: boolean }
         requiresConfirmation?: boolean
       }
-      const { speech, tool, toolResult, emotion, usedModel, usedProvider, domain, confidence, risk, requiresConfirmation } = data
+      const { speech, tool, toolResult, emotion, usedModel, usedProvider, domain, confidence, risk, requiresConfirmation, detectedLang: serverLang } = data
 
       if (tool) setLastToolUsed(tool)
+      if (serverLang && serverLang !== detectedLang) {
+        setDetectedLang(serverLang)
+        setSpeechLang(getSpeechLang(serverLang))
+      }
 
       // Update live model display
       if (usedModel) {
@@ -568,7 +585,7 @@ export default function JarvisPage() {
       setMode('idle')
       console.error(e)
     }
-  }, [messages, memory, selectedProvider, selectedModel, copilotMode, sendToCopilot, addUserMessage, addAIMessage, speak, toast])
+  }, [messages, memory, selectedProvider, selectedModel, copilotMode, detectedLang, platform.type, sendToCopilot, addUserMessage, addAIMessage, speak, toast])
 
   // ── Voice recognition ─────────────────────────────────────────────────────
 
@@ -581,7 +598,8 @@ export default function JarvisPage() {
     setMode('listening')
 
     const rec = new SR()
-    rec.lang = 'en-US'
+    // Use detected language or browser language for multilingual support
+    rec.lang = speechLang
     rec.continuous = false
     rec.interimResults = true
     recognitionRef.current = rec
@@ -628,6 +646,7 @@ export default function JarvisPage() {
     const startWake = () => {
       if (!wakeWordActiveRef.current || isRestarting) return
       const rec = new SR()
+      // Wake word always uses English (jarvis / hey jarvis) — don't change this
       rec.lang = 'en-US'
       rec.continuous = true
       rec.interimResults = true
@@ -764,6 +783,10 @@ export default function JarvisPage() {
                 {memory.userName.toUpperCase()}
               </span>
             )}
+            {/* Platform + language indicator */}
+            <span className="font-mono text-[10px] text-blue-400/40 hidden sm:block" title={`Device: ${platform.type} | Lang: ${detectedLang}`}>
+              {platformLabel(platform)} {detectedLang !== 'en' ? `| ${detectedLang.toUpperCase()}` : ''}
+            </span>
             <button type="button" onClick={() => setShowSettings(s => !s)}
               className="font-mono text-[10px] rounded px-2 py-1 border transition"
               style={{ borderColor: `${mc.ring}44`, color: `${mc.ring}99`, background: showSettings ? `${mc.ring}18` : 'transparent' }}>
