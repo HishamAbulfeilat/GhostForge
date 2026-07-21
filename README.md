@@ -73,6 +73,72 @@ ELEVENLABS_API_KEY=...             # ElevenLabs TTS — optional
 
 ---
 
+## 🌍 Hosting — What Works Where
+
+GhostForge uses **Node.js-only APIs** (AppleScript, shell, file system, screen capture). These **require running on your Mac**.
+
+| Option | Web UI | AI Chat | Mac Control | Shell Exec | Ollama | Verdict |
+|--------|--------|---------|-------------|------------|--------|---------|
+| **Mac + Cloudflare Tunnel** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ **Recommended** |
+| Vercel (free) | ✅ | ✅ (no local) | ❌ | ❌ | ❌ | ⚠️ AI-only mode |
+| Railway / Render (free) | ✅ | ✅ (no local) | ❌ | ❌ | ❌ | ⚠️ AI-only mode |
+| GitHub Pages | ✅ static | ❌ | ❌ | ❌ | ❌ | ❌ Not suitable |
+| Cloudflare Workers | ✅ | ❌ (Edge breaks Node) | ❌ | ❌ | ❌ | ❌ Not suitable |
+
+### ✅ Recommended: Run on Mac + Cloudflare Tunnel (already configured)
+```bash
+# Install Cloudflare tunnel once
+brew install cloudflared
+cloudflared tunnel login
+
+# Start tunnel (your Mac becomes accessible globally)
+bash ~/GhostForge/scripts/tunnel.sh start
+
+# Access from anywhere:
+# https://your-tunnel.trycloudflare.com
+```
+All G.F.A.I. features (Mac control, voice, Ollama, file access) work because the server **is** your Mac.
+
+### ⚠️ Partial: Vercel (AI chat only)
+If you deploy to Vercel, only features using external HTTPS APIs work (Gemini, OpenRouter, Fish Audio, Grok). Mac-local features (AppleScript, `screencapture`, Ollama, shell) are unavailable. Add `GOOGLE_GENERATIVE_AI_API_KEY` + `OPENROUTER_API_KEY` + `FISH_AUDIO_API_KEY` in Vercel environment variables.
+
+---
+
+## 🔒 Security
+
+| Layer | Mechanism | Status |
+|-------|-----------|--------|
+| Web UI auth | PIN cookie (`gf_token`) vs `AUTH_SECRET` | ✅ All API routes protected |
+| Dangerous commands | Regex blocklist (rm -rf /, dd, csrutil, mkfs) | ✅ Blocked at API layer |
+| Shell injection | Code written to temp file, never inline | ✅ Fixed (v4.6.0) |
+| Risk confirmation | UI blocks danger-level tools until confirmed | ✅ Active |
+| Audit log | JSONL at `~/.ghostforge/audit.log` | ✅ All tool calls logged |
+| Voice biometrics | Resemblyzer speaker verification | ✅ API ready (enroll via `/api/jarvis/biometrics`) |
+| Unauthorized access | Logs access attempts, returns 401 | ✅ Active |
+| API keys | `.env.local` — never committed to git | ✅ In `.gitignore` |
+
+---
+
+## 💡 Recommendations (What's Left to Add)
+
+### High Priority
+1. **Voice biometrics enrollment UI** — add "🎙 Enroll Voice" button in JARVIS page to record + save your voice profile (backend API exists at `/api/jarvis/biometrics`)
+2. **Rate limiting** — add per-IP rate limiting to `/api/jarvis` to prevent abuse (e.g. `upstash/ratelimit` or simple in-memory counter)
+3. **HTTPS on local server** — use `mkcert` to add local TLS so cookies/mic work on non-localhost devices on your LAN
+
+### Medium Priority
+4. **Typing biometrics** — install `pynput` and record keystroke timing to detect imposters
+5. **OpenInterpreter** — `pip3 install open-interpreter` for natural language computer control
+6. **Pull better Ollama models** — `ollama pull qwen2.5-coder:7b` for stronger local coding AI
+7. **VNC setup** — `brew install tigervnc` + `websockify` to fully enable noVNC remote control
+
+### Nice to Have
+8. **Mobile PWA** — add `manifest.json` + service worker so JARVIS works offline on iPhone
+9. **Conversation memory** — persist JARVIS chat history in `~/.ghostforge/memory.json`
+10. **Discord bot** — route JARVIS commands from Discord DMs to the API
+
+---
+
 ## 📋 Table of Contents
 
 1. [Quick Start](#-quick-start)
