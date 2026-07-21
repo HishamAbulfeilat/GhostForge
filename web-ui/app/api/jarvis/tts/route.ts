@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
   const jarvisId = process.env.FISH_AUDIO_JARVIS_MODEL || '612b878b113047d9a770c069c8b4fdfe'
 
   // Explicit engine override
-  if (engine === 'fish' && fishKey) {
+  if ((engine === 'fish' || engine === 'fish-audio') && fishKey) {
     const audio = await fishAudioTTS(ttsText, jarvisId, fishKey)
     if (audio) return new NextResponse(audio, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-TTS-Engine': 'fish-audio' } })
   }
@@ -106,9 +106,8 @@ export async function POST(req: NextRequest) {
     const audio = await elevenLabsTTS(ttsText, voice, elKey)
     if (audio) return new NextResponse(audio, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-TTS-Engine': 'elevenlabs' } })
   }
-  if (engine === 'browser') {
-    return NextResponse.json({ fallback: true, reason: 'browser_requested' })
-  }
+  // 'browser' requested but still try cloud first if keys available
+  // Only pure browser-only if no API keys configured at all
 
   // Auto chain: Fish Audio → ElevenLabs → browser fallback
   if (fishKey) {
