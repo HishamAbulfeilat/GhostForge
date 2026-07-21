@@ -199,38 +199,21 @@ export function ChatInterface() {
         return
       }
 
-      if (!response.ok || !response.body) {
-        const errText = await response.text().catch(() => 'Unknown error')
+      const data = (await response.json().catch(() => ({}))) as { reply?: string; error?: string }
+
+      if (!response.ok) {
+        const errText = data.error || 'Unknown error'
         setMessages(previous => [...previous, { role: 'assistant', content: `❌ ${errText}`, timestamp: new Date() }])
         setLoading(false)
         return
       }
 
-      // ── Streaming: show tokens as they arrive ──────────────────────
-      const streamMsg: ChatMessage = { role: 'assistant', content: '', timestamp: new Date(), streaming: true }
-      setMessages(previous => [...previous, streamMsg])
-      setLoading(false) // hide typing indicator — the streaming cursor replaces it
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let fullContent = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        fullContent += decoder.decode(value, { stream: true })
-        setMessages(previous => [
-          ...previous.slice(0, -1),
-          { ...streamMsg, content: fullContent, streaming: true },
-        ])
-      }
-
-      // Finalise — remove streaming cursor
-      const finalMsg: ChatMessage = { role: 'assistant', content: fullContent, timestamp: new Date() }
-      setMessages(previous => [...previous.slice(0, -1), finalMsg])
+      const reply = data.reply || data.error || 'No response'
+      setMessages(previous => [...previous, { role: 'assistant', content: reply, timestamp: new Date() }])
+      setLoading(false)
 
       // Detect [RUN]: commands and show execute button after a short delay
-      const command = parseSuggestedCommand(fullContent)
+      const command = parseSuggestedCommand(reply)
       if (command) {
         window.setTimeout(() => {
           setMessages(previous => [

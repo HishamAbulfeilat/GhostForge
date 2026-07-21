@@ -602,9 +602,40 @@ export default function JarvisPage() {
       const historySlice = messages.slice(-8).map(m => ({
         role: m.role === 'ai' ? 'assistant' : 'user', content: m.text,
       }))
+      const responseId = `${Date.now()}-jarvis`
+      const upsertAIMessage = (patch: Partial<Message> & { text: string }) => {
+        setMessages(prev => {
+          const index = prev.findIndex(message => message.id === responseId)
+          const nextMessage: Message = {
+            id: responseId,
+            role: 'ai',
+            text: patch.text,
+            emotion: patch.emotion,
+            tool: patch.tool,
+            toolResult: patch.toolResult,
+            usedModel: patch.usedModel,
+            domain: patch.domain,
+            confidence: patch.confidence,
+            risk: patch.risk,
+            requiresConfirmation: patch.requiresConfirmation,
+            ts: index >= 0 ? prev[index].ts : Date.now(),
+          }
+
+          if (index === -1) {
+            return [...prev, nextMessage]
+          }
+
+          const updated = [...prev]
+          updated[index] = { ...prev[index], ...nextMessage }
+          return updated
+        })
+      }
       const res = await fetch('/api/jarvis', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
         body: JSON.stringify({
           message: text,
           history: historySlice,
@@ -616,46 +647,180 @@ export default function JarvisPage() {
           platform: platform.type,
         }),
       })
-      const data = await res.json() as {
-        speech: string; tool: string | null; toolResult: string | null
-        emotion: Emotion; usedModel?: string; usedProvider?: string
-        domain?: string; confidence?: number; detectedLang?: string
-        risk?: { risk: number; level: string; reason: string; requires_confirmation: boolean }
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(data.error || 'Request failed')
+      }
+
+      const contentType = res.headers.get('content-type') || ''
+      if (!res.body || !contentType.includes('text/event-stream')) {
+        const data = await res.json() as {
+          speech: string; tool: string | null; toolResult: string | null
+          emotion: Emotion; usedModel?: string; usedProvider?: string
+          domain?: string; confidence?: number; detectedLang?: string
+          risk?: { risk: number; level: string; reason: string; requires_confirmation: boolean }
+          requiresConfirmation?: boolean
+        }
+        const { speech, tool, toolResult, emotion, usedModel, usedProvider, domain, confidence, risk, requiresConfirmation, detectedLang: serverLang } = data
+
+        if (tool) setLastToolUsed(tool)
+        if (serverLang && serverLang !== detectedLang) {
+          setDetectedLang(serverLang)
+          setSpeechLang(getSpeechLang(serverLang))
+        }
+
+        if (usedModel) {
+          const live = { provider: usedProvider || '', model: usedModel }
+          setLiveModel(live)
+          if (selectedModel && selectedModel !== usedModel) {
+            toast('warn', `Selected "${selectedModel}" unavailable — used "${usedModel}" instead`)
+          }
+        }
+
+        addAIMessage(speech, emotion || 'neutral', tool, toolResult, usedModel, domain, confidence, risk, requiresConfirmation)
+        void speak(speech)
+
+        if (requiresConfirmation) {
+          toast('warn', `⚠️ High-risk action detected. Reply "confirm" to proceed or "cancel" to abort.`, 10000)
+          setPendingRiskMsg({ message: text, tool: tool || '' })
+        } else {
+          setPendingRiskMsg(null)
+        }
+
+        fetch('/api/jarvis/memory', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversationCount: (memory.conversationCount || 0) + 1 }),
+        }).catch(() => {})
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let currentTool: string | null = null
+      let currentRisk: Message['risk'] = null
+      let requiresConfirmation = false
+
+      const handleEvent = (payload: {
+        type?: string
+        speech?: string
+        tool?: string | null
+        toolParams?: Record<string, unknown>
+        toolResult?: string | null
+        emotion?: Emotion
+        confidence?: number
+        risk?: Message['risk']
         requiresConfirmation?: boolean
-      }
-      const { speech, tool, toolResult, emotion, usedModel, usedProvider, domain, confidence, risk, requiresConfirmation, detectedLang: serverLang } = data
-
-      if (tool) setLastToolUsed(tool)
-      if (serverLang && serverLang !== detectedLang) {
-        setDetectedLang(serverLang)
-        setSpeechLang(getSpeechLang(serverLang))
-      }
-
-      // Update live model display
-      if (usedModel) {
-        const live = { provider: usedProvider || '', model: usedModel }
-        setLiveModel(live)
-
-        // Show toast if fallback occurred (selected model ≠ actually used model)
-        if (selectedModel && selectedModel !== usedModel) {
-          toast('warn', `Selected "${selectedModel}" unavailable — used "${usedModel}" instead`)
+        usedModel?: string
+        usedProvider?: string
+        domain?: string
+        detectedLang?: string
+      }) => {
+        switch (payload.type) {
+          case 'ack':
+            upsertAIMessage({ text: payload.speech || 'Working on it.', emotion: 'thinking', tool: null, toolResult: null })
+            void speak(payload.speech || 'Working on it.')
+            break
+          case 'response':
+            currentTool = payload.tool ?? null
+            currentRisk = payload.risk ?? null
+            requiresConfirmation = Boolean(payload.requiresConfirmation)
+            if (currentTool) {
+              setLastToolUsed(currentTool)
+              setMode('thinking')
+            }
+            upsertAIMessage({
+              text: payload.speech || 'Done.',
+              emotion: payload.emotion || 'neutral',
+              tool: currentTool,
+              toolResult: null,
+              domain: payload.domain,
+              confidence: payload.confidence,
+              risk: currentRisk,
+              requiresConfirmation,
+            })
+            if (requiresConfirmation) {
+              toast('warn', `⚠️ High-risk action detected. Reply "confirm" to proceed or "cancel" to abort.`, 10000)
+              setPendingRiskMsg({ message: text, tool: currentTool || '' })
+            } else {
+              setPendingRiskMsg(null)
+              if (!currentTool && payload.speech) {
+                void speak(payload.speech)
+              }
+            }
+            break
+          case 'tool_done':
+            upsertAIMessage({
+              text: payload.speech || 'Done.',
+              emotion: 'done',
+              tool: currentTool,
+              toolResult: payload.toolResult || null,
+              confidence: undefined,
+              risk: currentRisk,
+              requiresConfirmation: false,
+            })
+            if (payload.speech) {
+              void speak(payload.speech)
+            }
+            break
+          case 'done':
+            if (payload.detectedLang && payload.detectedLang !== detectedLang) {
+              setDetectedLang(payload.detectedLang)
+              setSpeechLang(getSpeechLang(payload.detectedLang))
+            }
+            if (payload.usedModel) {
+              const live = { provider: payload.usedProvider || '', model: payload.usedModel }
+              setLiveModel(live)
+              if (selectedModel && selectedModel !== payload.usedModel) {
+                toast('warn', `Selected "${selectedModel}" unavailable — used "${payload.usedModel}" instead`)
+              }
+            }
+            fetch('/api/jarvis/memory', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ conversationCount: (memory.conversationCount || 0) + 1 }),
+            }).catch(() => {})
+            if (!currentTool && !requiresConfirmation) {
+              setMode('idle')
+            }
+            break
         }
       }
 
-      addAIMessage(speech, emotion || 'neutral', tool, toolResult, usedModel, domain, confidence, risk, requiresConfirmation)
-      await speak(speech)
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const events = buffer.split('\n\n')
+        buffer = events.pop() || ''
 
-      if (requiresConfirmation) {
-        toast('warn', `⚠️ High-risk action detected. Reply "confirm" to proceed or "cancel" to abort.`, 10000)
-        setPendingRiskMsg({ message: text, tool: tool || '' })
-      } else {
-        setPendingRiskMsg(null)
+        for (const event of events) {
+          for (const line of event.split('\n')) {
+            if (!line.startsWith('data:')) continue
+            const raw = line.slice(5).trim()
+            if (!raw) continue
+            try {
+              handleEvent(JSON.parse(raw) as {
+                type?: string
+                speech?: string
+                tool?: string | null
+                toolParams?: Record<string, unknown>
+                toolResult?: string | null
+                emotion?: Emotion
+                confidence?: number
+                risk?: Message['risk']
+                requiresConfirmation?: boolean
+                usedModel?: string
+                usedProvider?: string
+                domain?: string
+                detectedLang?: string
+              })
+            } catch {
+              // Ignore malformed SSE frames.
+            }
+          }
+        }
       }
-
-      fetch('/api/jarvis/memory', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationCount: (memory.conversationCount || 0) + 1 }),
-      }).catch(() => {})
     } catch (e) {
       const err = 'Systems error. Please try again.'
       addAIMessage(err, 'alert', null, null)
@@ -664,7 +829,7 @@ export default function JarvisPage() {
       setMode('idle')
       console.error(e)
     }
-  }, [messages, memory, selectedProvider, selectedModel, copilotMode, detectedLang, platform.type, sendToCopilot, addUserMessage, addAIMessage, speak, toast])
+  }, [messages, memory, selectedProvider, selectedModel, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast])
 
   // ── Voice recognition ─────────────────────────────────────────────────────
 

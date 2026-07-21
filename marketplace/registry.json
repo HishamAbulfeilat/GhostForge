@@ -1,6 +1,12 @@
 {
   "version": "1.0.0",
-  "installed": [],
+  "installed": [
+    "ghostforge-security-agent",
+    "react-doctor-skill",
+    "groq-code-agent",
+    "nvidia-llama-agent",
+    "ghostforge-architect-agent"
+  ],
   "custom_agents": [],
   "custom_models": []
 }

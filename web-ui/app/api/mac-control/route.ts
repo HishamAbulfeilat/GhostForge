@@ -9,6 +9,7 @@ import { generateText } from 'ai'
 import { selectAIModel } from '@/lib/ai'
 
 const execAsync = promisify(exec)
+export const dynamic = 'force-dynamic'
 
 const SYSTEM_PROMPT = `You are a macOS AppleScript expert. Convert natural language commands to AppleScript code.
 
@@ -122,10 +123,18 @@ export async function POST(req: NextRequest) {
         system: SYSTEM_PROMPT,
         prompt: `Convert this to AppleScript: ${command}`,
         maxTokens: 600,
+        maxRetries: 0,
       })
       script = text.trim()
-      // Strip markdown fences in case AI added them
+      // Strip markdown fences
       script = script.replace(/^```(?:applescript)?\s*/i, '').replace(/\s*```$/, '').trim()
+      // Strip thinking tokens from thinking models (qwen3, deepseek-r1)
+      script = script.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/gi, '').trim()
+      // Remove any HTML/XML-like tags that are invalid AppleScript
+      script = script.split('\n').filter(line => {
+        const t = line.trim()
+        return !t.startsWith('<') || t.startsWith('<!--')
+      }).join('\n').trim()
     } catch (e) {
       return NextResponse.json({ error: 'AI failed to generate script', details: String(e) }, { status: 500 })
     }
