@@ -928,9 +928,21 @@ end tell`
     }
 
     case 'lock_screen': {
-      const script = `tell application "System Events" to keystroke "q" using {command down, control down}`
-      await runScript(script)
-      return 'Screen locked'
+      // CGSession -suspend is the most reliable method — no accessibility permissions needed
+      try {
+        await execAsync('/System/Library/CoreServices/Menu\\ Extras/User.menu/Contents/Resources/CGSession -suspend')
+        return 'Screen locked'
+      } catch {
+        // Fallback: Cmd+Ctrl+Q via AppleScript
+        try {
+          await runScript(`tell application "System Events" to keystroke "q" using {command down, control down}`)
+          return 'Screen locked'
+        } catch {
+          // Last resort: sleep display
+          await execAsync('pmset displaysleepnow')
+          return 'Display sleeping (screen locked)'
+        }
+      }
     }
 
     case 'copilot_ask': {
