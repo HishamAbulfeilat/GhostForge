@@ -162,6 +162,81 @@ function generateContextualFallback(message: string, lang?: string): string {
     : "Processing your request, sir. One moment."
 }
 
+// ── STT Correction Map ────────────────────────────────────────────────────────
+// Fixes common speech-to-text misheard words before they reach the LLM
+
+const STT_CORRECTIONS: [RegExp, string][] = [
+  [/\bcloud code\b/gi, 'Claude Code'],
+  [/\bclawed code\b/gi, 'Claude Code'],
+  [/\bclock code\b/gi, 'Claude Code'],
+  [/\btravis\b/gi, 'JARVIS'],
+  [/\bj[ao]rvis\b/gi, 'JARVIS'],
+  [/\bghostf[oa]rge\b/gi, 'GhostForge'],
+  [/\bghost f[oa]rge\b/gi, 'GhostForge'],
+  [/\bghost force\b/gi, 'GhostForge'],
+  [/\bg\.?f\.?a\.?i\.?\b/gi, 'G.F.A.I.'],
+  [/\bgee eff ay eye\b/gi, 'G.F.A.I.'],
+  [/\bopen ai\b/gi, 'OpenAI'],
+  [/\bjs\b/g, 'JavaScript'],
+  [/\bpy\b/g, 'Python'],
+  [/\bgit hub\b/gi, 'GitHub'],
+  [/\bnext js\b/gi, 'Next.js'],
+  [/\btail wind\b/gi, 'Tailwind'],
+  [/\btype script\b/gi, 'TypeScript'],
+]
+
+function applySttCorrections(text: string): string {
+  let out = text
+  for (const [pattern, replacement] of STT_CORRECTIONS) {
+    out = out.replace(pattern, replacement)
+  }
+  return out
+}
+
+// ── Markdown strip for TTS ────────────────────────────────────────────────────
+// Prevents TTS from speaking "asterisk", "backtick", "hash", etc.
+
+function stripMarkdownForTTS(text: string): string {
+  return text
+    // Remove code blocks entirely (don't speak code)
+    .replace(/```[\s\S]*?```/g, 'code block omitted')
+    .replace(/`[^`]+`/g, (m) => m.slice(1, -1))  // inline code → plain text
+    // Remove headers
+    .replace(/^#{1,6}\s+/gm, '')
+    // Remove bold/italic
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    // Remove links — keep just link text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    // Remove images
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, '')
+    // Remove horizontal rules
+    .replace(/^[-*_]{3,}\s*$/gm, '')
+    // Remove blockquotes
+    .replace(/^>\s+/gm, '')
+    // Remove bullet/numbered lists markers
+    .replace(/^[\s]*[-*+]\s+/gm, '')
+    .replace(/^[\s]*\d+\.\s+/gm, '')
+    // Collapse multiple newlines
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+// ── Bypass phrases (skip planning confirmation) ───────────────────────────────
+
+const BYPASS_PHRASES = [
+  'just do it', 'figure it out', 'just build it', 'wing it', 'surprise me',
+  'just do it already', 'just run it', 'just fix it', 'just go ahead',
+  'go ahead', 'do it now', 'execute', 'proceed', 'confirm', 'yes do it',
+]
+
+function hasBypassPhrase(text: string): boolean {
+  const lower = text.toLowerCase().trim()
+  return BYPASS_PHRASES.some(p => lower.includes(p))
+}
+
 // ── Language detection (server-side) ─────────────────────────────────────────
 
 function detectMsgLanguage(text: string): string {
@@ -190,45 +265,51 @@ function detectDeviceFromUA(ua: string): { isMobile: boolean; isMac: boolean; is
 function buildSystemPrompt(
   memory: Record<string, unknown>,
   domain?: Domain,
-  options?: { lang?: string; isMobile?: boolean; isMac?: boolean },
+  options?: { lang?: string; isMobile?: boolean; isMac?: boolean; lastResponse?: string; bypassPlanning?: boolean },
 ): string {
   const userName = (memory.userName as string) || 'sir'
   const lang = options?.lang || 'en'
   const isMobile = options?.isMobile ?? false
   const isMac = options?.isMac ?? true
+  const lastResponse = options?.lastResponse
+  const bypassPlanning = options?.bypassPlanning ?? false
 
   // Cache key — stable per domain/lang/device (memory excluded, injected separately)
   const cacheKey = `${domain}|${lang}|${isMac}|${isMobile}`
   const cached = _promptCache.get(cacheKey)
+
+  let basePrompt: string
+
   if (cached && Date.now() - cached.ts < PROMPT_CACHE_TTL) {
-    // Re-inject dynamic memory slice (small)
-    return cached.prompt.replace('__MEMORY__', buildMemorySlice(memory, userName, lang))
-  }
-
-  const domainGuidance = domain && DOMAIN_EXTRA_GUIDANCE[domain]
-    ? `\nDOMAIN HINT: ${DOMAIN_EXTRA_GUIDANCE[domain]}`
-    : ''
-
-  const langInstructions = lang === 'ar'
-    ? `LANGUAGE: Respond in Arabic. Address as "سيدي".`
-    : lang !== 'en'
-      ? `LANGUAGE: Respond in ${lang.toUpperCase()}.`
+    basePrompt = cached.prompt.replace('__MEMORY__', buildMemorySlice(memory, userName, lang))
+  } else {
+    const domainGuidance = domain && DOMAIN_EXTRA_GUIDANCE[domain]
+      ? `\nDOMAIN HINT: ${DOMAIN_EXTRA_GUIDANCE[domain]}`
       : ''
 
-  const deviceGuidance = isMobile
-    ? `DEVICE: mobile — skip mac_control/AppleScript tools.`
-    : isMac
-      ? `DEVICE: Mac — all tools available.`
-      : `DEVICE: non-Mac — no mac_control/AppleScript.`
+    const langInstructions = lang === 'ar'
+      ? `LANGUAGE: Respond in Arabic. Address as "سيدي".`
+      : lang !== 'en'
+        ? `LANGUAGE: Respond in ${lang.toUpperCase()}.`
+        : ''
 
-  const toolList = TOOLS_BY_DOMAIN[domain || 'general'] || TOOLS_BY_DOMAIN.general
+    const deviceGuidance = isMobile
+      ? `DEVICE: mobile — skip mac_control/AppleScript tools.`
+      : isMac
+        ? `DEVICE: Mac — all tools available.`
+        : `DEVICE: non-Mac — no mac_control/AppleScript.`
 
-  const prompt = `You are G.F.A.I. — GhostForge AI, JARVIS-style personal assistant.
+    const toolList = TOOLS_BY_DOMAIN[domain || 'general'] || TOOLS_BY_DOMAIN.general
+
+    const prompt = `You are G.F.A.I. — GhostForge AI, JARVIS-style personal assistant.
 Intelligent, loyal, slightly witty. NOT a chatbot — you actually execute things.
 ${langInstructions ? langInstructions + '\n' : ''}${deviceGuidance}${domainGuidance}
 USER: __MEMORY__
 
 TOOLS: ${toolList}
+
+BANNED PHRASES (never say these): "Absolutely", "Great question", "I'd be happy to", "Of course, sir", "Certainly, sir" as a standalone reply with no action.
+RESPONSE RULES: ONE sentence is ideal. TWO is the maximum. Never three. No markdown in speech.
 
 OUTPUT: valid JSON only, starting with '{':
 {"speech":"1-2 spoken sentences","tool":null,"toolParams":{},"emotion":"neutral","confidence":95}
@@ -238,8 +319,20 @@ OUTPUT: valid JSON only, starting with '{':
 - Natural, brief, JARVIS-style. Contractions ok. Address as "sir" unless named.
 - NEVER output thoughts/reasoning — JSON only`
 
-  _promptCache.set(cacheKey, { prompt, ts: Date.now() })
-  return prompt.replace('__MEMORY__', buildMemorySlice(memory, userName, lang))
+    _promptCache.set(cacheKey, { prompt, ts: Date.now() })
+    basePrompt = prompt.replace('__MEMORY__', buildMemorySlice(memory, userName, lang))
+  }
+
+  // Inject dynamic per-request context (not cached)
+  let dynamic = ''
+  if (lastResponse) {
+    dynamic += `\nYOUR LAST RESPONSE (do NOT repeat or rephrase this): "${lastResponse.slice(0, 150)}"`
+  }
+  if (bypassPlanning) {
+    dynamic += '\nUSER SAID: just do it — skip all clarifying questions, execute immediately with best defaults (React+Tailwind, modern design).'
+  }
+
+  return dynamic ? basePrompt + dynamic : basePrompt
 }
 
 function buildMemorySlice(memory: Record<string, unknown>, userName: string, lang: string): string {
@@ -1593,11 +1686,14 @@ export async function POST(req: NextRequest) {
 
   let body: JarvisRequest
   try { body = await req.json() } catch { body = { message: '' } }
-  const { message, history = [], memory = {}, selectedProvider, selectedModel, confirmRisk = false, lang: clientLang, platform: clientPlatform } = body
+  const { message: rawMessage, history = [], memory = {}, selectedProvider, selectedModel, confirmRisk = false, lang: clientLang, platform: clientPlatform } = body
 
-  if (!message?.trim()) {
+  if (!rawMessage?.trim()) {
     return NextResponse.json({ error: 'No message' }, { status: 400 })
   }
+
+  // Apply STT corrections — fix common misheard words before LLM sees them
+  const message = applySttCorrections(rawMessage)
 
   const streamMode = acceptsEventStream(req)
 
@@ -1656,7 +1752,15 @@ export async function POST(req: NextRequest) {
       const maxTok = isThinkingModel ? 1200 : 320
 
       const text = await aiGenerate({
-        system: buildSystemPrompt(memory, domain, { lang: detectedLang, isMobile, isMac }),
+        system: buildSystemPrompt(memory, domain, {
+          lang: detectedLang,
+          isMobile,
+          isMac,
+          lastResponse: history.length > 0
+            ? (history[history.length - 1].role === 'assistant' ? history[history.length - 1].content : undefined)
+            : undefined,
+          bypassPlanning: hasBypassPhrase(message),
+        }),
         messages: [
           ...history.slice(-5).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
           { role: 'user' as const, content: message },
@@ -1800,7 +1904,7 @@ export async function POST(req: NextRequest) {
     }
 
     return {
-      speech: aiResp.speech,
+      speech: stripMarkdownForTTS(aiResp.speech || ''),
       tool: aiResp.tool ?? null,
       toolParams: aiResp.toolParams || {},
       toolResult,

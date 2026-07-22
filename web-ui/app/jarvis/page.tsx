@@ -686,6 +686,7 @@ export default function JarvisPage() {
   const ttsFailCountRef    = useRef(0)
   const wakeRestartingRef  = useRef(false)  // persists across re-renders (fixes stale closure)
   const micPermGranted     = useRef(false)  // tracks whether mic permission has been granted
+  const micPausedRef       = useRef(false)  // true while JARVIS is thinking/speaking (prevents echo)
 
   useEffect(() => { wakeWordActiveRef.current = wakeWordActive }, [wakeWordActive])
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -699,6 +700,24 @@ export default function JarvisPage() {
   }, [])
 
   const removeToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), [])
+
+  // ── Mic pause/resume — stop listening while JARVIS thinks/speaks (prevents echo) ──
+
+  const pauseMic = useCallback(() => {
+    if (micPausedRef.current) return
+    micPausedRef.current = true
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop() } catch { /* already stopped */ }
+    }
+  }, [])
+
+  const resumeMic = useCallback(() => {
+    micPausedRef.current = false
+    // If we were in listening mode before pausing, restart listening
+    if (modeRef.current === 'idle') {
+      setMode('idle')  // trigger wake listener restart in onend handler
+    }
+  }, [])
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -818,16 +837,18 @@ export default function JarvisPage() {
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
+      pauseMic()  // stop mic while JARVIS speaks — prevents echo
       setMode('speaking')
-      audio.onended = () => { setMode('idle'); URL.revokeObjectURL(url) }
-      audio.onerror = () => { setMode('idle'); URL.revokeObjectURL(url) }
+      audio.onended = () => { setMode('idle'); URL.revokeObjectURL(url); resumeMic() }
+      audio.onerror = () => { setMode('idle'); URL.revokeObjectURL(url); resumeMic() }
       await audio.play()
       return { ok: true, usedEngine: actualEngine }
     } catch {
       ttsFailCountRef.current += 1
+      resumeMic()
       return { ok: false, usedEngine: '' }
     }
-  }, [voiceEngine, toast])
+  }, [voiceEngine, toast, pauseMic, resumeMic])
 
   // ── Browser TTS (fallback, always available) ──────────────────────────────
 
@@ -848,11 +869,12 @@ export default function JarvisPage() {
     utt.rate   = 0.92
     utt.pitch  = 0.82   // Low pitch = JARVIS gravitas
     utt.volume = 1.0
+    pauseMic()  // stop mic while speaking — prevents echo
     utt.onstart = () => setMode('speaking')
-    utt.onend   = () => setMode('idle')
-    utt.onerror = () => setMode('idle')
+    utt.onend   = () => { setMode('idle'); resumeMic() }
+    utt.onerror = () => { setMode('idle'); resumeMic() }
     window.speechSynthesis?.speak(utt)
-  }, [])
+  }, [pauseMic, resumeMic])
 
   // ── Unified speak: external engines → browser fallback ───────────────────
 
@@ -906,6 +928,7 @@ export default function JarvisPage() {
     }
     addUserMessage(text)
     setMode('thinking')
+    pauseMic()  // stop mic while thinking — mic restarts when JARVIS finishes speaking
     setLastToolUsed(null)
 
     // Detect language and auto-update speech recognition language
@@ -1155,9 +1178,10 @@ export default function JarvisPage() {
       toast('error', `Request failed: ${String(e).slice(0, 60)}`)
       await speak(err)
       setMode('idle')
+      resumeMic()
       console.error(e)
     }
-  }, [messages, memory, selectedProvider, selectedModel, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast])
+  }, [messages, memory, selectedProvider, selectedModel, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast, pauseMic, resumeMic])
 
   // ── Voice recognition ─────────────────────────────────────────────────────
 
