@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import { Providers } from './providers'
 import { Navbar } from '@/components/Navbar'
+import { ChunkErrorHandler } from '@/components/ChunkErrorHandler'
 
 export const metadata: Metadata = {
   title: 'G.F.A.I. — GhostForge AI',
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-screen bg-gray-950 text-gray-100 antialiased">
         <Providers>
+          <ChunkErrorHandler />
           <Navbar />
           {children}
         </Providers>
