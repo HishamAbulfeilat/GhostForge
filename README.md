@@ -432,7 +432,7 @@ alias ghostforge='node ~/ghostforge/tui/index.js'
 | 🚀 **New Project Setup** | AI mode (describe your app) or 14-step wizard |
 | 🗂 **Manage Projects** | Track registered projects, open them, and sync toolkit updates |
 | 💊 **Project Health Check** | Score across security, deps, coverage, bundle, tickets, lint + health badge |
-| ⚡ **Run a Command** | Browse all 55 slash commands by category, read full docs |
+| ⚡ **Run a Command** | Fuzzy-search all 75 slash commands, expand/collapse categories, read full docs |
 | 🤖 **Switch Agent / Role** | View all 14 agents, copy their activation prompt |
 | 📚 **Browse Instructions** | Read the instruction packs, knowledge base, and team docs inline |
 | 📋 **Snippet Library** | Browse 11 ready-made code snippets — click to copy or insert at cursor |
@@ -459,6 +459,13 @@ alias ghostforge='node ~/ghostforge/tui/index.js'
 ### Requirements
 - Node.js 18+ (`node --version`)
 - macOS / Linux / WSL
+
+### Menu Navigation
+
+- Start typing at **What would you like to do?** to fuzzy-filter the main menu by action name or description.
+- In **Run a Command**, use `↑` / `↓` to move, then press `Enter` on a `▶` category to expand it or a `▼` category to collapse it.
+- Type any part of a slash command, category, or description to search all 75 commands; matching categories expand automatically while searching.
+- The expanded **Recent** section remembers the last five slash commands you opened across GhostForge sessions.
 
 ---
 

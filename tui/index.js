@@ -16,6 +16,8 @@ import { execSync, spawn, spawnSync } from 'child_process';
 import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { filterMenuChoices, groupCommandChoices } from './lib/menu-search.js';
+import { readRecentCommands, rememberCommand } from './lib/recent-commands.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -67,6 +69,7 @@ const menuSeparator = () => ({ name: T.muted('─'.repeat(50)), value: '__sep__'
 const menuChoice = (tone, label, desc, value) => ({
   name: tone(label.padEnd(30)) + T.muted(` — ${desc}`),
   value,
+  searchText: `${label} ${desc}`,
 });
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -353,10 +356,8 @@ async function screenHome() {
   console.log(divider());
   console.log();
 
-  const choice = await select({
-    message: T.white.bold('What would you like to do?'),
-    choices: [
-      menuChoice(T.success.bold, '🔌  Integrations Hub',          'herdr · repowise · Vane · tasteskill', 'integrations'),
+  const choices = [
+    menuChoice(T.success.bold, '🔌  Integrations Hub',          'herdr · repowise · Vane · tasteskill', 'integrations'),
       menuChoice(T.cyan.bold,    '🖥  Command Center',            'full-screen dashboard + chat — everything at once', 'commandcenter'),
       menuChoice(T.warning.bold, '🧭  Guide Me',                  'I don\'t know what to pick — let the AI guide me', 'guideme'),
       menuSeparator(),
@@ -376,7 +377,7 @@ async function screenHome() {
       menuChoice(T.warning.bold, '🎯  /estimate',                 'story point estimate', 'estimate'),
       menuChoice(T.accent.bold,  '🔊  /voice',                    'voice features (TTS/STT)', 'voice'),
       menuChoice(T.accent.bold,  '📜  /changelog-view',           'browse CHANGELOG', 'changelog-view'),
-      menuChoice(T.accent.bold,  '⚡  Run a Command',             'browse all slash commands', 'commands'),
+      menuChoice(T.accent.bold,  '⚡  Run a Command',             'search or browse slash commands by category', 'commands'),
       menuChoice(T.success.bold, '🤖  Switch Agent / Role',       'activate a specialized AI agent', 'agents'),
       menuChoice(T.warning.bold, '📚  Browse Instructions',       'view knowledge base / docs', 'instructions'),
       menuChoice(T.accent.bold,  '📋  Snippet Library',           'browse & copy ready-made code snippets', 'snippets'),
@@ -409,40 +410,84 @@ async function screenHome() {
       menuChoice(T.cyan.bold,    '🩺  Doctor',                    'health check: env, bridge, AI, tools', 'doctor'),
       menuChoice(T.muted,        `🔖  Version: v${VERSION}`,      'bump version / run updater', 'version'),
       menuChoice(T.accent.bold,  '🧩  Install VS Code Extension', 'install ghostforge.vsix into VS Code', 'vscode-install'),
-      menuChoice(T.muted,        '❓  Help & Quick Reference',    'reference shortcuts and key flows', 'help'),
-      { name: T.danger('✖   Exit'), value: 'exit' },
-    ],
+    menuChoice(T.muted,        '❓  Help & Quick Reference',    'reference shortcuts and key flows', 'help'),
+    { name: T.danger('✖   Exit'), value: 'exit', searchText: 'exit quit close' },
+  ];
+
+  const choice = await search({
+    message: T.white.bold('What would you like to do?'),
+    source: async term => filterMenuChoices(choices, term),
     pageSize: 24,
   });
   return choice;
 }
-      menuChoice(T.cyan.bold, '👁️  View what\'s new', 'latest release highlights and changelog notes', 'whats-new'),
+
 async function screenCommands() {
-  sectionHeader('Slash Commands', 'All commands you can use in GitHub Copilot Chat or the terminal');
+  const expandedCategories = new Set();
+  let recentExpanded = true;
+  let picked;
 
-  // Group by category
-  const cats = [...new Set(COMMANDS.map(c => c.cat))];
-  const catChoices = cats.map(cat => ({
-    name: T.accent.bold(cat) + T.muted(` (${COMMANDS.filter(c => c.cat === cat).length})`),
-    value: cat,
-  }));
-  catChoices.push({ name: T.muted('← Back'), value: '__back__' });
+  while (true) {
+    sectionHeader('Slash Commands', 'Type to search · ↑/↓ navigate · Enter expands a category or opens a command');
+    picked = await search({
+      message: T.white.bold('Find a slash command:'),
+      source: async term => {
+        const searching = Boolean(term?.trim());
+        const recentCommands = readRecentCommands()
+          .map(name => COMMANDS.find(command => command.name === name))
+          .filter(Boolean);
+        const recentChoices = !searching && recentCommands.length > 0
+          ? [
+              {
+                name: T.warning.bold(`${recentExpanded ? '▼' : '▶'} 🕘 Recent`) + T.muted(` (${recentCommands.length})`),
+                value: '__recent__',
+                short: 'Recent',
+              },
+              ...(recentExpanded ? recentCommands.map(command => ({
+                name: `   ${T.brand.bold(command.name.padEnd(20))}${T.muted(command.desc)}`,
+                value: command.name,
+                short: command.name,
+              })) : []),
+            ]
+          : [];
 
-  const cat = await select({ message: 'Choose a category:', choices: catChoices, pageSize: 12 });
-  if (cat === '__back__') return;
+        return [
+          ...recentChoices,
+          ...groupCommandChoices(COMMANDS, expandedCategories, term).map(item => {
+          if (item.type === 'category') {
+            return {
+              name: T.accent.bold(`${item.expanded ? '▼' : '▶'} ${item.category}`) + T.muted(` (${item.count})`),
+              value: `__category__:${item.category}`,
+              short: item.category,
+            };
+          }
+          return {
+            name: `   ${T.brand.bold(item.command.name.padEnd(20))}${T.muted(item.command.desc)}`,
+            value: item.command.name,
+            short: item.command.name,
+          };
+          }),
+          { name: T.muted('← Back'), value: '__back__' },
+        ];
+      },
+      pageSize: 20,
+    });
 
-  const filtered = COMMANDS.filter(c => c.cat === cat);
-  const choices = filtered.map(cmd => ({
-    name: T.brand.bold(cmd.name.padEnd(20)) + T.muted(cmd.desc),
-    value: cmd.name,
-  }));
-  choices.push({ name: T.muted('← Back'), value: '__back__' });
+    if (picked === '__back__') return;
+    if (picked === '__recent__') {
+      recentExpanded = !recentExpanded;
+      continue;
+    }
+    if (!picked.startsWith('__category__:')) break;
 
-  const picked = await select({ message: `Select command (${cat}):`, choices, pageSize: 15 });
-  if (picked === '__back__') return screenCommands();
+    const category = picked.slice('__category__:'.length);
+    if (expandedCategories.has(category)) expandedCategories.delete(category);
+    else expandedCategories.add(category);
+  }
 
   const cmd = COMMANDS.find(c => c.name === picked);
   if (cmd) {
+    rememberCommand(cmd.name);
     console.log();
     console.log(boxen(
       T.brand.bold(cmd.name) + '\n' + T.muted(cmd.desc) + '\n\n' +
