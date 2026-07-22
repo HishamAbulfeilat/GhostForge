@@ -789,8 +789,8 @@ export default function JarvisPage() {
       }) => {
         switch (payload.type) {
           case 'ack':
-            upsertAIMessage({ text: payload.speech || 'Working on it.', emotion: 'thinking', tool: null, toolResult: null })
-            void speak(payload.speech || 'Working on it.')
+            // Just show a silent "thinking" bubble — never speak the ack phrase
+            upsertAIMessage({ text: '...', emotion: 'thinking', tool: null, toolResult: null })
             break
           case 'response':
             currentTool = payload.tool ?? null
