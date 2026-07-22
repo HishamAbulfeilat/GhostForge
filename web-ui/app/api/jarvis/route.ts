@@ -1815,7 +1815,7 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        send({ type: 'ack', speech: pickPersona('acknowledge') })
+        send({ type: 'ack' })  // silent thinking signal — no phrase shown or spoken
         const result = await runJarvis(send)
         send({
           type: 'done',
