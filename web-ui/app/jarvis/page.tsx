@@ -906,6 +906,18 @@ export default function JarvisPage() {
   // Request mic permission explicitly — called ONCE, result cached in micPermGranted ref
   const requestMicPermission = useCallback(async (): Promise<boolean> => {
     if (micPermGranted.current) return true
+
+    // navigator.mediaDevices is undefined on HTTP (non-localhost). Requires HTTPS or localhost.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+      if (!isLocal) {
+        toast('error', '🎤 Microphone requires HTTPS. Access via https:// or use localhost:3001 instead of the IP address.')
+      } else {
+        toast('error', '🎤 Microphone API not available in this browser. Use Chrome or Edge.')
+      }
+      return false
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       stream.getTracks().forEach(t => t.stop())
@@ -959,19 +971,31 @@ export default function JarvisPage() {
       rec.maxAlternatives = 1
       recognitionRef.current = rec
 
-      let pendingTranscript = ''
+      let pendingFinal = ''
+      let latestInterim = ''
       let silenceTimer: ReturnType<typeof setTimeout> | null = null
 
       rec.onresult = (e: Any) => {
         if (silenceTimer) clearTimeout(silenceTimer)
-        pendingTranscript = ''
+        pendingFinal = ''
+        latestInterim = ''
+
         for (let i = 0; i < e.results.length; i++) {
-          if (e.results[i].isFinal) pendingTranscript += e.results[i][0].transcript + ' '
+          if (e.results[i].isFinal) {
+            pendingFinal += e.results[i][0].transcript + ' '
+          } else {
+            latestInterim += e.results[i][0].transcript
+          }
         }
-        if (pendingTranscript.trim()) {
+
+        // Use final transcript if available; fall back to interim after silence
+        // (fixes Mac Chrome where isFinal may never be true with continuous:true)
+        const transcript = (pendingFinal || latestInterim).trim()
+        if (transcript) {
           silenceTimer = setTimeout(() => {
-            const t = pendingTranscript.trim()
-            pendingTranscript = ''
+            const t = (pendingFinal || latestInterim).trim()
+            pendingFinal = ''
+            latestInterim = ''
             if (t) { setInput(''); void sendToJarvis(t) }
           }, 1500)
         }
@@ -979,6 +1003,8 @@ export default function JarvisPage() {
 
       rec.onerror = (ev: Any) => {
         if (silenceTimer) clearTimeout(silenceTimer)
+        pendingFinal = ''
+        latestInterim = ''
         recognitionRef.current = null
         if (ev?.error === 'not-allowed') {
           micPermGranted.current = false
