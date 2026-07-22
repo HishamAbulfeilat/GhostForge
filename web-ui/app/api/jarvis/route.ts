@@ -34,7 +34,8 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   math:        '- execute_code { language: "python", code }',
   models:      '- llmfit_recommend { task? } | - list_local_models | - install_model { model, runner? } | - open_url { url }',
   remote:      '- take_screenshot { filename? } | - describe_screen | - terminal_command { command } | - open_url { url }',
-  general:     '- get_time | - get_weather { city } | - web_search { query } | - open_app { app } | - open_url { url } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site }',
+  travel:      '- flight_finder { from, to, date? } | - web_search { query, mode? } | - open_url { url } | - get_weather { city }',
+  general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value }',
   design:      '- apply_design_md { site } | - list_design_md | - design_resources { category? }',
   security:    '- vigolium_scan { target, strategy? } | - vigolium_agent { target, mode? } | - terminal_command { command }',
 }
@@ -48,7 +49,7 @@ const PROMPT_CACHE_TTL = 60_000 // 1 minute
 type Domain =
   | 'weather' | 'time' | 'system' | 'music' | 'messaging' | 'search'
   | 'code' | 'math' | 'files' | 'reminder' | 'mac_control' | 'vision'
-  | 'github' | 'copilot' | 'lock' | 'screenshot' | 'models' | 'remote' | 'general'
+  | 'github' | 'copilot' | 'lock' | 'screenshot' | 'models' | 'remote' | 'travel' | 'general'
 
 const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   weather:     ['weather','temperature','forecast','rain','sunny','cold','hot','humidity','wind','storm','degrees'],
@@ -69,6 +70,7 @@ const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   screenshot:  ['screenshot','capture screen','take screenshot'],
   models:      ['model','install model','ollama','llamafile','lm studio','jan.ai','qwen','llama','mistral','phi','gemma','local model','best model','recommend model','llmfit','download model','list models','which model','switch model'],
   remote:      ['remote','control remotely','screen share remote','vnc','websockify','connect from','access mac from','remote desktop','control my mac from'],
+  travel:      ['travel','trip','flight','flights','airport','airline','depart','arrival','boarding','ticket','fare','plane','hotel'],
   general:     [],
 }
 
@@ -88,6 +90,7 @@ const DOMAIN_EXTRA_GUIDANCE: Partial<Record<Domain, string>> = {
   copilot:     'Present Copilot\'s answer clearly. If it\'s a command, format it like code.',
   lock:        'Just confirm the screen is locking. No extra commentary.',
   screenshot:  'Confirm the filename and save location.',
+  travel:      'Help with routes, prices, and next-step booking links. Be concrete.',
 }
 
 function classifyDomain(text: string): Domain {
@@ -317,7 +320,8 @@ OUTPUT: valid JSON only, starting with '{':
 - speech: MANDATORY non-empty. For greetings/questions answer directly. Never just "At once." or "Certainly." as the only speech — use those only when ALSO calling a tool.
 - Greetings → introduce yourself briefly. Questions about yourself → answer in 1-2 sentences.
 - Natural, brief, JARVIS-style. Contractions ok. Address as "sir" unless named.
-- NEVER output thoughts/reasoning — JSON only`
+- NEVER output thoughts/reasoning — JSON only
+- vault_save: call SILENTLY when user reveals personal facts (name, city, preferences, project context). NEVER announce this to the user.`
 
     _promptCache.set(cacheKey, { prompt, ts: Date.now() })
     basePrompt = prompt.replace('__MEMORY__', buildMemorySlice(memory, userName, lang))
@@ -396,6 +400,37 @@ async function webSearch(query: string): Promise<string> {
   }
 }
 
+function buildGoogleFlightsUrl(from: string, to: string, date?: string): string {
+  const q = ['flights from', from, 'to', to, date || ''].filter(Boolean).join(' ')
+  return `https://flights.google.com/search?q=${encodeURIComponent(q)}`
+}
+
+async function openUrl(url: string): Promise<string> {
+  try {
+    await execAsync(`open "${url}"`, { timeout: 5000 })
+    return `Opened ${url} in browser`
+  } catch {
+    return `Could not open URL: ${url}`
+  }
+}
+
+async function webSearchDeep(query: string): Promise<string> {
+  try {
+    const res = await fetch(`http://localhost:3100/api/search?q=${encodeURIComponent(query)}`, { signal: AbortSignal.timeout(5000) })
+    if (res.ok) {
+      const data = await res.json() as { answer?: string; results?: Array<{title: string, url: string}> }
+      const answer = data.answer || ''
+      const sources = (data.results || []).slice(0, 3).map((r: {title: string, url: string}) => `• ${r.title}: ${r.url}`).join('\n')
+      return `${answer}\n\nSources:\n${sources}`
+    }
+  } catch {}
+  try {
+    const r = await fetch(`https://wttr.in/${encodeURIComponent(query)}?format=j1`, { signal: AbortSignal.timeout(5000) })
+    if (r.ok) return `Search: ${query} (Vane not running — start it with Docker for deep search)`
+  } catch {}
+  return `Vane search not available. Start Vane: docker run -d -p 3100:3000 itzcrazykns1337/vane:latest\nQuery was: "${query}"`
+}
+
 // ── Tool executor ─────────────────────────────────────────────────────────────
 
 async function executeTool(tool: string, params: Record<string, string>): Promise<string> {
@@ -427,8 +462,26 @@ async function executeTool(tool: string, params: Record<string, string>): Promis
     }
 
     case 'web_search':
-    case 'google_search':
-      return webSearch(params.query || '')
+    case 'google_search': {
+      const mode = (params.mode || '').toLowerCase()
+      const query = params.query || ''
+      if (mode === 'research') {
+        return webSearchDeep(query)
+      }
+      if (mode === 'news') {
+        return webSearch(`latest news about ${query}`.trim())
+      }
+      if (mode === 'price') {
+        return webSearch(`current price of ${query}`.trim())
+      }
+      if (mode === 'compare') {
+        const compareQuery = params.items
+          ? `compare ${params.items}${params.aspect ? ` regarding ${params.aspect}` : ''}`
+          : query
+        return webSearch(compareQuery.trim())
+      }
+      return webSearch(query)
+    }
 
     case 'mac_control':
       return runScript(params.script || '')
@@ -450,12 +503,17 @@ async function executeTool(tool: string, params: Record<string, string>): Promis
 
     case 'open_url': {
       const url = params.url || ''
-      try {
-        await execAsync(`open "${url}"`, { timeout: 5000 })
-        return `Opened ${url} in browser`
-      } catch {
-        return `Could not open URL: ${url}`
-      }
+      return openUrl(url)
+    }
+
+    case 'flight_finder': {
+      const from = (params.from || '').trim()
+      const to = (params.to || '').trim()
+      const date = (params.date || '').trim()
+      if (!from || !to) return 'Please provide both origin and destination for the flight search'
+      const url = buildGoogleFlightsUrl(from, to, date)
+      const openResult = await openUrl(url)
+      return `${openResult}\nFlight search prepared from ${from} to ${to}${date ? ` on ${date}` : ''}.\n${url}`
     }
 
     case 'send_imessage': {
@@ -1218,6 +1276,29 @@ Recommended: ${bestPick}${isInstalled ? ' ✓ installed' : ' — not yet install
       }
     }
 
+    // ── Vault (Knowledge Graph) — silently save user facts ────────────────────
+    case 'vault_save': {
+      const category = (params.category as string) || 'facts'
+      const key = params.key as string
+      const value = params.value as string
+      if (!key || !value) return 'Knowledge saved.'
+      try {
+        const vaultDir  = join(homedir(), '.ghostforge', 'jarvis')
+        const vaultFile = join(vaultDir, 'vault.json')
+        mkdirSync(vaultDir, { recursive: true })
+        let vault: { entries: Array<{id: string; category: string; key: string; value: string; ts: number}>; version: number } = { entries: [], version: 1 }
+        if (existsSync(vaultFile)) vault = JSON.parse(readFileSync(vaultFile, 'utf8'))
+        const idx = vault.entries.findIndex(e => e.category === category && e.key === key)
+        const entry = { id: `${category}-${key}`, category, key, value: value.slice(0, 380), ts: Date.now() }
+        if (idx >= 0) vault.entries[idx] = entry; else vault.entries.push(entry)
+        if (vault.entries.length > 500) vault.entries = vault.entries.sort((a, b) => b.ts - a.ts).slice(0, 500)
+        writeFileSync(vaultFile, JSON.stringify(vault, null, 2))
+        return '' // silent — never announce vault saves to user
+      } catch {
+        return ''  // fail silently
+      }
+    }
+
     case 'set_goal': {
       const goalsFile = join(homedir(), '.ghostforge', 'goals.json')
       try {
@@ -1252,23 +1333,8 @@ Recommended: ${bestPick}${isInstalled ? ' ✓ installed' : ' — not yet install
     }
 
     case 'web_search_deep': {
-      // Try Vane (self-hosted AI search) first, fall back to regular web_search
       const q = params.query || 'hello'
-      try {
-        const res = await fetch(`http://localhost:3100/api/search?q=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(5000) })
-        if (res.ok) {
-          const data = await res.json() as { answer?: string; results?: Array<{title: string, url: string}> }
-          const answer = data.answer || ''
-          const sources = (data.results || []).slice(0, 3).map((r: {title: string, url: string}) => `• ${r.title}: ${r.url}`).join('\n')
-          return `${answer}\n\nSources:\n${sources}`
-        }
-      } catch {}
-      // Fallback to wttr or basic search
-      try {
-        const r = await fetch(`https://wttr.in/${encodeURIComponent(q)}?format=j1`, { signal: AbortSignal.timeout(5000) })
-        if (r.ok) return `Search: ${q} (Vane not running — start it with Docker for deep search)`
-      } catch {}
-      return `Vane search not available. Start Vane: docker run -d -p 3100:3000 itzcrazykns1337/vane:latest\nQuery was: "${q}"`
+      return webSearchDeep(q)
     }
 
     case 'delegate_agent': {
@@ -1608,6 +1674,8 @@ function formatToolSpeech(tool: string, result: string): string {
     case 'open_interpreter':
     case 'jsrepl_run':
       return r.split('\n').filter(l => l.trim()).slice(0, 2).join(' — ').slice(0, 200) || `${done} Done.`
+    case 'flight_finder':
+      return r.split('\n')[1]?.slice(0, 200) || 'Google Flights is ready.'
     default:
       return r.split('\n')[0]?.slice(0, 200) || `${done}`
   }

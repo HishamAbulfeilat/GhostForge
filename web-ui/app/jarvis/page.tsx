@@ -54,6 +54,19 @@ interface Toast {
   id: string; type: 'info' | 'warn' | 'error' | 'success'; msg: string
 }
 
+interface ClipboardPanelState {
+  text: string
+  visible: boolean
+}
+
+interface MorningBriefingResponse {
+  greeting: string
+  weather: string
+  news: string[]
+  time: string
+  advice: string
+}
+
 // ── Orb colors ────────────────────────────────────────────────────────────────
 
 const MODE_COLORS: Record<Mode, { ring: string; glow: string }> = {
@@ -641,6 +654,109 @@ function VoiceEnrollPanel({ mc }: { mc: { ring: string } }) {
   )
 }
 
+function metricColor(percent: number) {
+  if (percent >= 80) return '#ff5c5c'
+  if (percent >= 60) return '#ffb347'
+  return '#00ff88'
+}
+
+function ClipboardPanel({ text, onAction, onClose }: { text: string; onAction: (action: 'EXPLAIN' | 'SUMMARISE' | 'TRANSLATE' | 'FIX') => void; onClose: () => void }) {
+  const actions: Array<{ label: 'EXPLAIN' | 'SUMMARISE' | 'TRANSLATE' | 'FIX'; icon: string }> = [
+    { label: 'EXPLAIN', icon: '📋' },
+    { label: 'SUMMARISE', icon: '📝' },
+    { label: 'TRANSLATE', icon: '🔄' },
+    { label: 'FIX', icon: '🐛' },
+  ]
+
+  return (
+    <div className="gfai-fade fixed top-20 right-4 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-xl border p-3 shadow-2xl"
+      style={{ borderColor: 'rgba(34,211,238,0.65)', background: 'rgba(2,12,22,0.96)', boxShadow: '0 0 28px rgba(34,211,238,0.12)' }}>
+      <div className="mb-2 flex items-center justify-between gap-2 font-mono text-[10px]">
+        <span className="tracking-[0.24em] text-cyan-300/80">CLIPBOARD INTELLIGENCE</span>
+        <button type="button" onClick={onClose} className="text-cyan-300/50 transition hover:text-cyan-200">✕</button>
+      </div>
+      <p className="mb-3 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-lg border border-cyan-400/10 bg-black/20 px-2.5 py-2 text-xs leading-relaxed text-slate-200">
+        {text}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {actions.map(action => (
+          <button
+            key={action.label}
+            type="button"
+            onClick={() => onAction(action.label)}
+            className="rounded-lg border px-2 py-2 text-left font-mono text-[10px] tracking-wide text-cyan-200 transition hover:bg-cyan-400/10"
+            style={{ borderColor: 'rgba(34,211,238,0.28)' }}
+          >
+            {action.icon} {action.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function HardwareMetrics({ isMobile }: { isMobile: boolean }) {
+  const [metrics, setMetrics] = useState({ cpu: 0, ram: 0, ramLabel: '—' })
+
+  useEffect(() => {
+    if (isMobile) return
+    let mounted = true
+
+    const loadMetrics = async () => {
+      try {
+        const res = await fetch('/api/dashboard', { cache: 'no-store' })
+        if (!res.ok) return
+        const data = await res.json() as { system?: { cpu?: number; ram?: { pct?: number; usedGB?: number; totalGB?: number } } }
+        if (!mounted) return
+        const cpu = Math.max(0, Math.min(100, Math.round(data.system?.cpu || 0)))
+        const ram = Math.max(0, Math.min(100, Math.round(data.system?.ram?.pct || 0)))
+        const usedGB = data.system?.ram?.usedGB
+        const totalGB = data.system?.ram?.totalGB
+        setMetrics({
+          cpu,
+          ram,
+          ramLabel: usedGB && totalGB ? `${usedGB}/${totalGB} GB` : '—',
+        })
+      } catch {
+        if (mounted) setMetrics(prev => ({ ...prev }))
+      }
+    }
+
+    void loadMetrics()
+    const timer = setInterval(() => { void loadMetrics() }, 10_000)
+    return () => {
+      mounted = false
+      clearInterval(timer)
+    }
+  }, [isMobile])
+
+  if (isMobile) return null
+
+  const cpuColor = metricColor(metrics.cpu)
+  const ramColor = metricColor(metrics.ram)
+
+  return (
+    <div className="w-full max-w-[220px] rounded-xl border px-3 py-2 font-mono text-[10px]"
+      style={{ borderColor: 'rgba(26,111,255,0.18)', background: 'rgba(0,7,20,0.78)' }}>
+      <div className="mb-2 text-center text-[9px] tracking-[0.28em] text-blue-300/55">LIVE METRICS</div>
+      {[
+        { label: 'CPU', pct: metrics.cpu, color: cpuColor, sub: `${metrics.cpu}%` },
+        { label: 'RAM', pct: metrics.ram, color: ramColor, sub: `${metrics.ram}% · ${metrics.ramLabel}` },
+      ].map(metric => (
+        <div key={metric.label} className="mb-2 last:mb-0">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-blue-300/45">{metric.label}</span>
+            <span style={{ color: metric.color }}>{metric.sub}</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-white/8">
+            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${metric.pct}%`, background: metric.color }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function JarvisPage() {
@@ -675,6 +791,8 @@ export default function JarvisPage() {
   const [pendingRiskMsg, setPendingRiskMsg] = useState<{ message: string; tool: string } | null>(null)
   const [speechLang, setSpeechLang]         = useState('en-US')
   const [detectedLang, setDetectedLang]     = useState('en')
+  const [clipboardPanel, setClipboardPanel] = useState<ClipboardPanelState>({ text: '', visible: false })
+  const [interruptFlash, setInterruptFlash] = useState(false)
 
   const recognitionRef     = useRef<Any>(null)
   const wakeRecognitionRef = useRef<Any>(null)
@@ -687,6 +805,15 @@ export default function JarvisPage() {
   const wakeRestartingRef  = useRef(false)  // persists across re-renders (fixes stale closure)
   const micPermGranted     = useRef(false)  // tracks whether mic permission has been granted
   const micPausedRef       = useRef(false)  // true while JARVIS is thinking/speaking (prevents echo)
+  const externalAudioRef   = useRef<HTMLAudioElement | null>(null)
+  const externalAudioUrlRef = useRef<string | null>(null)
+  const lastActivityRef    = useRef(Date.now())
+  const proactiveTriggeredRef = useRef(false)
+  const proactiveTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const clipboardWatchRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const clipboardDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clipboardPrimedRef = useRef(false)
+  const lastClipboardRef   = useRef('')
 
   useEffect(() => { wakeWordActiveRef.current = wakeWordActive }, [wakeWordActive])
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -700,6 +827,24 @@ export default function JarvisPage() {
   }, [])
 
   const removeToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), [])
+
+  const markActivity = useCallback(() => {
+    lastActivityRef.current = Date.now()
+    proactiveTriggeredRef.current = false
+  }, [])
+
+  const stopCurrentAudio = useCallback(() => {
+    if (externalAudioRef.current) {
+      externalAudioRef.current.pause()
+      externalAudioRef.current.currentTime = 0
+      externalAudioRef.current = null
+    }
+    if (externalAudioUrlRef.current) {
+      URL.revokeObjectURL(externalAudioUrlRef.current)
+      externalAudioUrlRef.current = null
+    }
+    window.speechSynthesis?.cancel()
+  }, [])
 
   // ── Mic pause/resume — stop listening while JARVIS thinks/speaks (prevents echo) ──
 
@@ -726,6 +871,7 @@ export default function JarvisPage() {
     setVoiceSupported(!!SR)
     let cancelled = false
     let greetTimer: ReturnType<typeof setTimeout> | null = null
+    let morningTimer: ReturnType<typeof setTimeout> | null = null
 
     const loadVoices = () => { voicesRef.current = window.speechSynthesis?.getVoices() ?? [] }
     loadVoices()
@@ -733,10 +879,43 @@ export default function JarvisPage() {
 
     const queueGreeting = (welcome: string) => {
       if (cancelled) return
+      if (greetTimer) clearTimeout(greetTimer)
       addAIMessage(welcome, 'neutral', null, null)
       greetTimer = setTimeout(() => {
         if (!cancelled) void speak(welcome)
       }, 600)
+    }
+
+    const queueMorningBriefing = () => {
+      if (typeof window === 'undefined') return
+      const today = new Date().toISOString().slice(0, 10)
+      if (localStorage.getItem('gf_morning_date') === today) return
+      if (morningTimer) clearTimeout(morningTimer)
+
+      morningTimer = setTimeout(async () => {
+        if (cancelled) return
+        try {
+          const res = await fetch('/api/jarvis/morning', { cache: 'no-store' })
+          if (!res.ok) return
+          const data = await res.json() as MorningBriefingResponse
+          if (cancelled) return
+
+          const briefing = [
+            '🌅',
+            data.greeting,
+            `Time: ${data.time}.`,
+            data.weather,
+            ...(data.news || []).slice(0, 3).map((item, index) => `Tech ${index + 1}: ${item}.`),
+            data.advice,
+          ].join(' ')
+
+          addAIMessage(briefing, 'happy', null, null)
+          localStorage.setItem('gf_morning_date', today)
+          void speak(briefing)
+        } catch {
+          // Keep startup quiet on briefing failure.
+        }
+      }, 2000)
     }
 
     const loadModels = async () => {
@@ -777,8 +956,10 @@ export default function JarvisPage() {
         const name = m.userName || ''
         const greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
         queueGreeting(name ? `Welcome back, ${name}. ${greeting}` : `G.F.A.I. online. ${greeting}`)
+        queueMorningBriefing()
       } catch {
         queueGreeting('G.F.A.I. online. Systems operational.')
+        queueMorningBriefing()
       }
     }
 
@@ -788,7 +969,8 @@ export default function JarvisPage() {
     return () => {
       cancelled = true
       if (greetTimer) clearTimeout(greetTimer)
-      window.speechSynthesis?.cancel()
+      if (morningTimer) clearTimeout(morningTimer)
+      stopCurrentAudio()
       window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices)
       recognitionRef.current?.stop()
       wakeRecognitionRef.current?.stop()
@@ -799,6 +981,82 @@ export default function JarvisPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    const handleActivity = (event: Event) => {
+      if (event.type === 'mousemove' && Date.now() - lastActivityRef.current < 30_000) return
+      markActivity()
+    }
+
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchstart', 'mousemove']
+    for (const event of events) window.addEventListener(event, handleActivity)
+    return () => {
+      for (const event of events) window.removeEventListener(event, handleActivity)
+    }
+  }, [markActivity])
+
+  useEffect(() => {
+    let interruptTimer: number | null = null
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (modeRef.current === 'speaking' || externalAudioRef.current) {
+        stopSpeaking()
+        setInterruptFlash(true)
+        if (interruptTimer !== null) window.clearTimeout(interruptTimer)
+        interruptTimer = window.setTimeout(() => setInterruptFlash(false), 1200)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      if (interruptTimer !== null) window.clearTimeout(interruptTimer)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (platform.isMobile || typeof navigator === 'undefined' || !navigator.clipboard?.readText) return
+
+    let active = true
+    let dismissTimer: ReturnType<typeof setTimeout> | null = null
+
+    const dismissPanel = () => {
+      if (dismissTimer) clearTimeout(dismissTimer)
+      dismissTimer = setTimeout(() => {
+        if (!active) return
+        setClipboardPanel(prev => ({ ...prev, visible: false }))
+      }, 10_000)
+      clipboardDismissRef.current = dismissTimer
+    }
+
+    const pollClipboard = async () => {
+      if (document.hidden) return
+      try {
+        const nextValue = (await navigator.clipboard.readText()).trim()
+        if (!active) return
+        if (!clipboardPrimedRef.current) {
+          clipboardPrimedRef.current = true
+          lastClipboardRef.current = nextValue
+          return
+        }
+        if (nextValue.length < 15 || nextValue === lastClipboardRef.current) return
+        lastClipboardRef.current = nextValue
+        setClipboardPanel({ text: nextValue, visible: true })
+        dismissPanel()
+      } catch {
+        // Clipboard access can be denied by the browser; stay silent.
+      }
+    }
+
+    void pollClipboard()
+    clipboardWatchRef.current = setInterval(() => { void pollClipboard() }, 3000)
+
+    return () => {
+      active = false
+      if (clipboardWatchRef.current) clearInterval(clipboardWatchRef.current)
+      if (dismissTimer) clearTimeout(dismissTimer)
+    }
+  }, [platform.isMobile])
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -815,6 +1073,7 @@ export default function JarvisPage() {
   const speakExternal = useCallback(async (text: string, preferEngine?: VoiceEngine): Promise<{ ok: boolean; usedEngine: string }> => {
     const engine = preferEngine || voiceEngine
     try {
+      stopCurrentAudio()
       const res = await fetch('/api/jarvis/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -837,10 +1096,21 @@ export default function JarvisPage() {
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
+      externalAudioRef.current = audio
+      externalAudioUrlRef.current = url
       pauseMic()  // stop mic while JARVIS speaks — prevents echo
       setMode('speaking')
-      audio.onended = () => { setMode('idle'); URL.revokeObjectURL(url); resumeMic() }
-      audio.onerror = () => { setMode('idle'); URL.revokeObjectURL(url); resumeMic() }
+      const cleanup = () => {
+        if (externalAudioRef.current === audio) externalAudioRef.current = null
+        if (externalAudioUrlRef.current === url) {
+          URL.revokeObjectURL(url)
+          externalAudioUrlRef.current = null
+        }
+        setMode('idle')
+        resumeMic()
+      }
+      audio.onended = cleanup
+      audio.onerror = cleanup
       await audio.play()
       return { ok: true, usedEngine: actualEngine }
     } catch {
@@ -848,12 +1118,12 @@ export default function JarvisPage() {
       resumeMic()
       return { ok: false, usedEngine: '' }
     }
-  }, [voiceEngine, toast, pauseMic, resumeMic])
+  }, [voiceEngine, toast, pauseMic, resumeMic, stopCurrentAudio])
 
   // ── Browser TTS (fallback, always available) ──────────────────────────────
 
   const speakBrowser = useCallback((text: string) => {
-    window.speechSynthesis?.cancel()
+    stopCurrentAudio()
     const utt = new SpeechSynthesisUtterance(text)
     const voices = voicesRef.current
     // Best JARVIS-like browser voices (deep British male)
@@ -874,7 +1144,7 @@ export default function JarvisPage() {
     utt.onend   = () => { setMode('idle'); resumeMic() }
     utt.onerror = () => { setMode('idle'); resumeMic() }
     window.speechSynthesis?.speak(utt)
-  }, [pauseMic, resumeMic])
+  }, [pauseMic, resumeMic, stopCurrentAudio])
 
   // ── Unified speak: external engines → browser fallback ───────────────────
 
@@ -887,10 +1157,48 @@ export default function JarvisPage() {
     speakBrowser(text)
   }, [voiceEngine, speakExternal, speakBrowser])
 
+  useEffect(() => {
+    proactiveTimerRef.current = setInterval(() => {
+      const silenceMs = Date.now() - lastActivityRef.current
+      if (silenceMs < 15 * 60 * 1000) return
+      if (proactiveTriggeredRef.current) return
+      if (modeRef.current !== 'idle' || recognitionRef.current) return
+
+      proactiveTriggeredRef.current = true
+      const lastTopic = [...messages].reverse().find(message => message.role === 'user')?.text || ''
+      const params = new URLSearchParams({
+        silenceMs: String(silenceMs),
+        lastTopic: lastTopic.slice(0, 160),
+      })
+
+      fetch(`/api/jarvis/proactive?${params.toString()}`, { cache: 'no-store' })
+        .then(async res => {
+          if (!res.ok) return null
+          return res.json() as Promise<{ suggestion?: string; shouldPrompt?: boolean }>
+        })
+        .then(payload => {
+          if (!payload?.shouldPrompt || !payload.suggestion) {
+            proactiveTriggeredRef.current = false
+            return
+          }
+          addAIMessage(`🛰 ${payload.suggestion}`, 'neutral', null, null)
+          void speak(payload.suggestion)
+        })
+        .catch(() => {
+          proactiveTriggeredRef.current = false
+        })
+    }, 60_000)
+
+    return () => {
+      if (proactiveTimerRef.current) clearInterval(proactiveTimerRef.current)
+    }
+  }, [messages, addAIMessage, speak])
+
   // ── Send directly to Copilot CLI ─────────────────────────────────────────
 
   const sendToCopilot = useCallback(async (text: string) => {
     if (!text.trim()) return
+    markActivity()
     addUserMessage(`[Copilot CLI] ${text}`)
     setMode('thinking')
     setCopilotThinking(true)
@@ -914,11 +1222,12 @@ export default function JarvisPage() {
       setCopilotThinking(false)
       setMode('idle')
     }
-  }, [memory, addUserMessage, addAIMessage, speak])
+  }, [memory, addUserMessage, addAIMessage, speak, markActivity])
 
   // ── Send to G.F.A.I. ─────────────────────────────────────────
   const sendToJarvis = useCallback(async (text: string) => {
     if (!text.trim()) return
+    markActivity()
     // If Copilot Mode is ON, route directly to Copilot CLI
     if (copilotMode) { void sendToCopilot(text); return }
     // Re-route "Ask Copilot: ..." quick commands
@@ -1181,7 +1490,7 @@ export default function JarvisPage() {
       resumeMic()
       console.error(e)
     }
-  }, [messages, memory, selectedProvider, selectedModel, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast, pauseMic, resumeMic])
+  }, [messages, memory, selectedProvider, selectedModel, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast, pauseMic, resumeMic, markActivity])
 
   // ── Voice recognition ─────────────────────────────────────────────────────
 
@@ -1409,14 +1718,32 @@ export default function JarvisPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim()) return
+    markActivity()
     void sendToJarvis(input)
     setInput('')
   }
 
-  const stopSpeaking = () => {
-    window.speechSynthesis?.cancel()
-    setMode('idle')
+  const sendClipboardAction = (action: 'EXPLAIN' | 'SUMMARISE' | 'TRANSLATE' | 'FIX') => {
+    const text = clipboardPanel.text.trim()
+    if (!text) return
+    markActivity()
+    setClipboardPanel(prev => ({ ...prev, visible: false }))
+    if (clipboardDismissRef.current) clearTimeout(clipboardDismissRef.current)
+    const prompts: Record<'EXPLAIN' | 'SUMMARISE' | 'TRANSLATE' | 'FIX', string> = {
+      EXPLAIN: `Explain this: ${text}`,
+      SUMMARISE: `Summarise this: ${text}`,
+      TRANSLATE: `Translate this: ${text}`,
+      FIX: `Fix this: ${text}`,
+    }
+    setInput('')
+    void sendToJarvis(prompts[action])
   }
+
+  const stopSpeaking = useCallback(() => {
+    stopCurrentAudio()
+    resumeMic()
+    setMode('idle')
+  }, [resumeMic, stopCurrentAudio])
 
   const mc = MODE_COLORS[mode]
 
@@ -1798,6 +2125,8 @@ export default function JarvisPage() {
                 <OrbSVG mode={mode} />
               </button>
 
+              <HardwareMetrics isMobile={platform.isMobile} />
+
               {/* Voice controls */}
               <div className="flex items-center gap-2">
                 {voiceSupported && (
@@ -1827,6 +2156,11 @@ export default function JarvisPage() {
                   </button>
                 )}
               </div>
+              {interruptFlash && (
+                <div className="gfai-fade font-mono text-[11px] tracking-widest text-yellow-300">
+                  ⚡ Interrupted
+                </div>
+              )}
             </div>
 
             {/* Input */}
@@ -1835,7 +2169,7 @@ export default function JarvisPage() {
                 ref={inputRef}
                 type="text"
                 value={input}
-                onChange={e => setInput(e.target.value)}
+                onChange={e => { markActivity(); setInput(e.target.value) }}
                 placeholder={
                   mode === 'listening' ? 'Listening…'
                   : mode === 'thinking' ? 'Processing…'
@@ -1896,6 +2230,13 @@ export default function JarvisPage() {
 
         {/* Toast container */}
         <ToastContainer toasts={toasts} onRemove={removeToast} />
+        {clipboardPanel.visible && (
+          <ClipboardPanel
+            text={clipboardPanel.text}
+            onAction={sendClipboardAction}
+            onClose={() => setClipboardPanel(prev => ({ ...prev, visible: false }))}
+          />
+        )}
       </div>
     </>
   )

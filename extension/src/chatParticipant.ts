@@ -19,9 +19,12 @@ const SLASH_COMMANDS = [
   { name: 'changelog',    description: 'Generate CHANGELOG entry' },
   { name: 'snippet',      description: 'Browse and insert snippets' },
   { name: 'jarvis',       description: 'Ask G.F.A.I. (JARVIS) via GhostForge API' },
-  { name: 'model',        description: 'Switch AI model (gemini/grok/ollama/openrouter)' },
+  { name: 'model',        description: 'Switch AI model (@ghostforge /model ollama:qwen3:14b)' },
+  { name: 'models',       description: 'List all available AI models + local Ollama models' },
+  { name: 'localmodel',   description: 'Use a local Ollama model in this chat session' },
+  { name: 'install',      description: 'Install a local model via Ollama (e.g. /install qwen3:14b)' },
+  { name: 'llmfit',       description: 'Get LLMfit best-model recommendation for your hardware' },
   { name: 'maccontrol',   description: 'Control Mac via AppleScript (e.g. /maccontrol lock)' },
-  { name: 'models',       description: 'List all available AI models' },
   { name: 'help',         description: 'List all available commands' },
 ];
 
@@ -30,6 +33,7 @@ const SLASH_COMMANDS = [
 let selectedProvider = '';
 let selectedModelId  = '';
 const GF_API_BASE    = 'http://localhost:3001';
+const GF_HTTPS_BASE  = 'https://localhost:3001';
 const GF_COOKIE      = 'gf_token=';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -76,15 +80,19 @@ function buildSystemPrompt(toolkitRoot: string): string {
   ].join('\n');
 }
 
-/** Call GhostForge API at localhost:3001 */
+/** Call GhostForge API — tries HTTPS first, falls back to HTTP */
 function callGhostForgeAPI(apiPath: string, body: object): Promise<string> {
   return new Promise((resolve) => {
     const bodyStr = JSON.stringify(body);
-    const req = http.request({
+    // Try HTTPS with rejectUnauthorized:false (self-signed mkcert cert)
+    const https = require('https') as typeof import('https');
+    const agent = new https.Agent({ rejectUnauthorized: false });
+    const req = https.request({
       hostname: 'localhost',
       port: 3001,
       path: apiPath,
       method: 'POST',
+      agent,
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(bodyStr),
@@ -92,43 +100,66 @@ function callGhostForgeAPI(apiPath: string, body: object): Promise<string> {
       },
     }, (res) => {
       let data = '';
-      res.on('data', c => data += c);
+      res.on('data', (c: Buffer) => data += c);
       res.on('end', () => resolve(data));
     });
-    req.on('error', (e) => resolve(JSON.stringify({ error: e.message })));
+    req.on('error', () => {
+      // Fallback to HTTP
+      const req2 = http.request({
+        hostname: 'localhost', port: 3001, path: apiPath, method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr), 'Cookie': GF_COOKIE },
+      }, (res) => {
+        let data = ''; res.on('data', (c: Buffer) => data += c); res.on('end', () => resolve(data));
+      });
+      req2.on('error', (e: Error) => resolve(JSON.stringify({ error: e.message })));
+      req2.setTimeout(30000, () => { req2.destroy(); resolve(JSON.stringify({ error: 'timeout' })); });
+      req2.write(bodyStr); req2.end();
+    });
     req.setTimeout(30000, () => { req.destroy(); resolve(JSON.stringify({ error: 'timeout' })); });
     req.write(bodyStr);
     req.end();
   });
 }
 
-/** GET GhostForge API */
+/** GET GhostForge API — HTTPS with http fallback */
 function getGhostForgeAPI(apiPath: string): Promise<string> {
   return new Promise((resolve) => {
-    const req = http.get(`${GF_API_BASE}${apiPath}`, {
-      headers: { 'Cookie': GF_COOKIE },
-    }, (res) => {
-      let data = '';
-      res.on('data', c => data += c);
-      res.on('end', () => resolve(data));
+    const https = require('https') as typeof import('https');
+    const agent = new https.Agent({ rejectUnauthorized: false });
+    const req = https.get(`${GF_HTTPS_BASE}${apiPath}`, { agent, headers: { 'Cookie': GF_COOKIE } }, (res: import('http').IncomingMessage) => {
+      let data = ''; res.on('data', (c: Buffer) => data += c); res.on('end', () => resolve(data));
     });
-    req.on('error', (e) => resolve(JSON.stringify({ error: e.message })));
+    req.on('error', () => {
+      // HTTP fallback
+      const req2 = http.get(`${GF_API_BASE}${apiPath}`, { headers: { 'Cookie': GF_COOKIE } }, (res) => {
+        let data = ''; res.on('data', (c: Buffer) => data += c); res.on('end', () => resolve(data));
+      });
+      req2.on('error', (e: Error) => resolve(JSON.stringify({ error: e.message })));
+      req2.setTimeout(8000, () => { req2.destroy(); resolve(JSON.stringify({ error: 'timeout' })); });
+    });
     req.setTimeout(8000, () => { req.destroy(); resolve(JSON.stringify({ error: 'timeout' })); });
   });
 }
 
 function renderHelp(): string {
   const lines = [
-    '## ⚡ @ghostforge — GhostForge AI Toolkit (G.F.A.I.)',
+    '## 👻 @ghostforge — GhostForge AI Toolkit (G.F.A.I.)',
     '',
     '### Chat Commands',
     ...SLASH_COMMANDS.map(cmd => `- \`/${cmd.name}\` — ${cmd.description}`),
     '',
+    '### 🤖 Local Model Selection (Ollama)',
+    '- `@ghostforge /llmfit` — Scan hardware + recommend best local model',
+    '- `@ghostforge /install qwen3:14b` — Install model via Ollama',
+    '- `@ghostforge /install llama3.2:3b` — Install lighter model',
+    '- `@ghostforge /localmodel qwen3:14b` — Use this model for chat in this session',
+    '- `@ghostforge /models` — See all installed local models',
+    '',
     '### Model Selection',
     '- `@ghostforge /model gemini` — Switch to Gemini',
     '- `@ghostforge /model grok` — Switch to Grok (xAI)',
-    '- `@ghostforge /model ollama` — Switch to local Ollama',
-    '- `@ghostforge /model openrouter` — Switch to OpenRouter free models',
+    '- `@ghostforge /model ollama:qwen3:14b` — Switch to specific local Ollama model',
+    '- `@ghostforge /model deepseek-r1` — Switch to DeepSeek R1 (reasoning)',
     '- `@ghostforge /model auto` — Reset to auto fallback chain',
     '',
     '### G.F.A.I. Direct Chat',
@@ -144,7 +175,8 @@ function renderHelp(): string {
     '### Examples',
     '- `@ghostforge /health` — Check project health score',
     '- `@ghostforge /review` — Review the current file',
-    '- `@ghostforge /models` — List all available AI models',
+    '- `@ghostforge /llmfit` — Find best AI model for your hardware',
+    '- `@ghostforge /install qwen2.5-coder:7b` — Install coding model locally',
   ];
   return lines.join('\n');
 }
@@ -207,15 +239,19 @@ export function registerChatParticipant(
         stream.markdown('✅ **Model reset to auto** — GhostForge will use the best available model automatically.');
         return;
       }
-      if (target.includes('grok') || target === 'xai') {
+      // Handle ollama:<model> syntax e.g. /model ollama:qwen3:14b
+      if (target.startsWith('ollama:')) {
+        selectedProvider = 'ollama';
+        selectedModelId  = target.slice(7); // strip "ollama:"
+      } else if (target.includes('grok') || target === 'xai') {
         selectedProvider = 'xai';
         selectedModelId  = target.includes('3') && !target.includes('mini') ? 'grok-3' : 'grok-3-mini';
       } else if (target.includes('gemini') || target === 'google') {
         selectedProvider = 'google';
         selectedModelId  = target.includes('2.5') ? 'gemini-2.5-flash' : 'gemini-2.0-flash';
-      } else if (target.includes('ollama') || target.includes('llama') || target.includes('qwen')) {
+      } else if (target === 'ollama') {
         selectedProvider = 'ollama';
-        selectedModelId  = target.includes('qwen') ? 'qwen2.5-coder:7b' : 'llama3.2:3b';
+        selectedModelId  = 'qwen2.5-coder:7b';
       } else if (target.includes('openrouter') || target.includes('gemma') || target.includes('nemotron')) {
         selectedProvider = 'openrouter';
         selectedModelId  = target.includes('120') ? 'nvidia/nemotron-3-super-120b-a12b:free' : 'google/gemma-4-26b-a4b-it:free';
@@ -223,11 +259,102 @@ export function registerChatParticipant(
         selectedProvider = 'openrouter';
         selectedModelId  = 'deepseek/deepseek-r1:free';
       } else {
-        // Pass through as-is if it looks like a full model ID
+        // Pass through as-is — could be any ollama model name
         selectedModelId  = prompt.trim();
-        selectedProvider = prompt.includes('/') ? 'openrouter' : 'custom';
+        selectedProvider = prompt.includes('/') ? 'openrouter' : 'ollama';
       }
-      stream.markdown(`✅ **Model switched to** \`${selectedModelId}\` (${selectedProvider})\n\nAll subsequent \`@ghostforge\` messages will use this model.`);
+      stream.markdown(`✅ **Model switched to** \`${selectedModelId}\` (${selectedProvider})\n\nAll subsequent \`@ghostforge\` messages will use this model via GhostForge API.`);
+      return;
+    }
+
+    // ── /localmodel <ollama-model> — use specific local Ollama model ──────────
+    if (command === 'localmodel') {
+      const modelName = prompt.trim();
+      if (!modelName) {
+        stream.markdown('**Usage:** `@ghostforge /localmodel qwen3:14b`\n\nThis sets your current session to use that local Ollama model.');
+        return;
+      }
+      selectedProvider = 'ollama';
+      selectedModelId  = modelName;
+      stream.markdown([
+        `✅ **Local model set:** \`${modelName}\` via Ollama`,
+        '',
+        'All @ghostforge queries this session will route to your local Ollama instance.',
+        `Make sure it's installed: run \`ollama pull ${modelName}\` in terminal, or use \`@ghostforge /install ${modelName}\``,
+      ].join('\n'));
+      return;
+    }
+
+    // ── /install <model> — install via Ollama ─────────────────────────────────
+    if (command === 'install') {
+      const modelName = prompt.trim();
+      if (!modelName) {
+        stream.markdown('**Usage:** `@ghostforge /install qwen3:14b`\n\nInstalls the model via Ollama. Run `/llmfit` first to get a recommendation.');
+        return;
+      }
+      stream.markdown(`⏳ **Installing \`${modelName}\`** via Ollama...\n\nThis runs in the background and may take several minutes depending on model size.\n`);
+      try {
+        const raw = await callGhostForgeAPI('/api/llmfit', { customModel: modelName });
+        const data = JSON.parse(raw) as { status?: string; message?: string; error?: string };
+        if (data.error) {
+          stream.markdown(`❌ **Install error:** ${data.error}`);
+        } else {
+          stream.markdown([
+            `✅ **Ollama pull started for \`${modelName}\`**`,
+            '',
+            `${data.message || 'Installing in background...'}`,
+            '',
+            'Check progress in your terminal: `ollama list`',
+            `Once installed, use: \`@ghostforge /localmodel ${modelName}\``,
+          ].join('\n'));
+        }
+      } catch {
+        stream.markdown(`⚠️ GhostForge server not running. Install manually:\n\`\`\`\nollama pull ${modelName}\n\`\`\``);
+      }
+      return;
+    }
+
+    // ── /llmfit — get hardware-aware model recommendation ────────────────────
+    if (command === 'llmfit') {
+      stream.markdown('🔍 **LLMfit** — Analyzing your hardware and finding the best local model...\n');
+      try {
+        const raw = await getGhostForgeAPI('/api/llmfit');
+        const data = JSON.parse(raw) as {
+          hardware?: { ramGB: number; availableGB: number; cpuBrand: string; appleSilicon: boolean };
+          recommendation?: { best: string; bestInstalled: string; pullFirst: string; summary: string };
+          models?: Array<{ id: string; name: string; params: string; ramGB: number; compositeScore: number; recommendation: string; isInstalled: boolean; canRun: boolean }>;
+        };
+        if (data.hardware) {
+          const hw = data.hardware;
+          const rec = data.recommendation;
+          const topModels = (data.models || []).filter(m => m.canRun).slice(0, 6);
+          const lines: string[] = [
+            `## 🖥️ Hardware Profile`,
+            `- **CPU:** ${hw.cpuBrand}${hw.appleSilicon ? ' (Apple Silicon ✓)' : ''}`,
+            `- **RAM:** ${hw.ramGB}GB total, ~${hw.availableGB}GB available for AI`,
+            '',
+            `## 🏆 Best Model Recommendation`,
+            rec?.bestInstalled
+              ? `✅ **Best installed:** \`${rec.bestInstalled}\` — ready to use now`
+              : `📥 **Recommended to install:** \`${rec?.best || 'qwen2.5-coder:7b'}\``,
+            rec?.pullFirst ? `\n> Install with: \`ollama pull ${rec.best}\`` : '',
+            `\n> ${rec?.summary || ''}`,
+            '',
+            '## 📊 Top Compatible Models',
+            '| Model | Params | RAM | Score | Status |',
+            '|-------|--------|-----|-------|--------|',
+            ...topModels.map(m => `| \`${m.id}\` | ${m.params}B | ${m.ramGB}GB | ${m.compositeScore}/100 | ${m.isInstalled ? '✅ installed' : '📥 install'} |`),
+            '',
+            '**Quick install:** `@ghostforge /install ' + (rec?.best || 'qwen2.5-coder:7b') + '`',
+            '**Use in chat:** `@ghostforge /localmodel ' + (rec?.bestInstalled || rec?.best || 'qwen2.5-coder:7b') + '`',
+          ];
+          stream.markdown(lines.join('\n'));
+        } else {
+          stream.markdown('⚠️ Could not reach GhostForge API. Make sure server is running at https://localhost:3001');
+        }
+      } catch {
+        stream.markdown('⚠️ LLMfit analysis failed. Is GhostForge running on port 3001?');
+      }
       return;
     }
 

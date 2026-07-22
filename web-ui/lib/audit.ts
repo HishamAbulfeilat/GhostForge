@@ -117,6 +117,14 @@ export function assessRisk(tool: string, params: Record<string, unknown>): RiskA
     return { risk: 25, level: 'warn', reason: 'Message will be sent to real contact', requires_confirmation: false }
   }
 
+  if (tool === 'flight_finder') {
+    return { risk: 10, level: 'safe', reason: 'Opens a read-only Google Flights search', requires_confirmation: false }
+  }
+
+  if (tool === 'vault_save' || tool === 'write_note' || tool === 'set_reminder' || tool === 'set_goal') {
+    return { risk: 5, level: 'safe', reason: 'Saves data locally', requires_confirmation: false }
+  }
+
   return { risk: 5, level: 'safe', reason: 'Low-risk information tool', requires_confirmation: false }
 }
 

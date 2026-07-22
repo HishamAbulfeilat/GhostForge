@@ -144,6 +144,35 @@ export default function ModelsPage() {
     }
   }, [loadData, router])
 
+  // ── Custom model install via LLMfit API ──────────────────────────────────
+  const [customModelInput, setCustomModelInput] = useState('')
+  const [customInstalling, setCustomInstalling] = useState(false)
+
+  const installCustomModel = useCallback(async () => {
+    const modelId = customModelInput.trim()
+    if (!modelId) return
+    setCustomInstalling(true)
+    try {
+      const res = await fetch('/api/llmfit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customModel: modelId }),
+      })
+      const data = await res.json() as { message?: string; error?: string }
+      if (data.error) {
+        setToast(`Error: ${data.error}`)
+      } else {
+        setToast(data.message || `Installing ${modelId} in background…`)
+        setCustomModelInput('')
+        setTimeout(() => void loadData(), 8000)
+      }
+    } catch {
+      setToast('Install request failed. Is Ollama running?')
+    } finally {
+      setCustomInstalling(false)
+    }
+  }, [customModelInput, loadData])
+
   return (
     <div
       className="min-h-screen bg-[#030712] text-white"
@@ -211,6 +240,33 @@ export default function ModelsPage() {
               </div>
             </div>
           </div>
+        </section>
+
+        {/* ── Custom Model Install (any Ollama model by name) ──────────────── */}
+        <section className="rounded-xl border border-cyan-500/20 bg-cyan-950/10 p-5">
+          <p className="font-mono text-[10px] uppercase tracking-[0.35em] text-cyan-400/80 mb-3">INSTALL ANY MODEL</p>
+          <p className="text-xs text-slate-400 mb-3">
+            Install any model from <a href="https://ollama.com/library" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline">ollama.com/library</a> by entering its name below.
+            Examples: <code className="text-cyan-300 text-[11px]">qwen3:14b</code>, <code className="text-cyan-300 text-[11px]">llama3.2:3b</code>, <code className="text-cyan-300 text-[11px]">deepseek-r1:8b</code>, <code className="text-cyan-300 text-[11px]">mistral:7b</code>
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <input
+              type="text"
+              value={customModelInput}
+              onChange={e => setCustomModelInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !customInstalling) void installCustomModel() }}
+              placeholder="e.g. qwen2.5-coder:7b"
+              className="flex-1 min-w-0 rounded-lg border border-cyan-500/30 bg-cyan-950/20 px-3 py-2 font-mono text-sm text-cyan-100 placeholder-cyan-700 focus:border-cyan-400/60 focus:outline-none"
+            />
+            <button
+              onClick={() => void installCustomModel()}
+              disabled={!customModelInput.trim() || customInstalling}
+              className="rounded-lg border border-cyan-500/40 bg-cyan-600/20 px-4 py-2 font-mono text-sm text-cyan-200 transition hover:bg-cyan-600/30 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {customInstalling ? 'Installing…' : '⬇ Install via Ollama'}
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">Installation runs in the background — check Ollama logs or run <code className="text-cyan-700">ollama list</code> after a few minutes.</p>
         </section>
 
         <section className="rounded-xl border border-blue-500/20 bg-blue-950/10 p-3 sm:p-4">

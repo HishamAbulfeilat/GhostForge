@@ -66,19 +66,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { modelId } = await req.json().catch(() => ({}))
-  if (!modelId) return NextResponse.json({ error: 'modelId required' }, { status: 400 })
+  const { modelId, customModel } = await req.json().catch(() => ({}))
+  const targetModel = customModel || modelId
+  if (!targetModel) return NextResponse.json({ error: 'modelId or customModel required' }, { status: 400 })
 
-  // Only allow models in our database
-  const allowed = MODEL_DATABASE.find(m => m.id === modelId)
-  if (!allowed) return NextResponse.json({ error: 'Model not in approved list' }, { status: 400 })
+  // Sanitize model name — only allow safe ollama model format (no shell injection)
+  const SAFE_MODEL_RE = /^[a-zA-Z0-9_./:@-]{1,120}$/
+  if (!SAFE_MODEL_RE.test(targetModel)) {
+    return NextResponse.json({ error: 'Invalid model name format' }, { status: 400 })
+  }
 
   // Fire and forget — ollama pull can take minutes
-  execAsync(`ollama pull ${modelId}`).catch(() => {})
+  execAsync(`ollama pull ${targetModel}`, {
+    env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:${process.env.PATH || ''}` },
+  }).catch(() => {})
 
+  const known = MODEL_DATABASE.find(m => m.id === targetModel)
   return NextResponse.json({
     status: 'pulling',
-    message: `Pulling ${modelId}... check ollama list in a few minutes`,
-    model: allowed,
+    message: `Pulling ${targetModel}... Check 'ollama list' in a few minutes or run: ollama list`,
+    model: known || { id: targetModel, name: targetModel, custom: true },
   })
 }
