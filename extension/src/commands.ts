@@ -54,6 +54,57 @@ export function registerCommands(context: vscode.ExtensionContext, toolkitRoot: 
     vscode.commands.registerCommand('ghostforge.optimize', async () => openCopilotPrompt('/optimize')),
     vscode.commands.registerCommand('ghostforge.docs', async () => openCopilotPrompt('/docs')),
     vscode.commands.registerCommand('ghostforge.i18n', async () => openCopilotPrompt('/i18n')),
+    // ── Local model management ────────────────────────────────────────────────
+    vscode.commands.registerCommand('ghostforge.localModel', async () => {
+      const model = await vscode.window.showInputBox({
+        prompt: 'Enter Ollama model name (e.g. qwen3:14b, llama3.2:3b)',
+        placeHolder: 'qwen2.5-coder:7b',
+        title: 'GhostForge: Set Local Ollama Model',
+      })
+      if (model) {
+        await vscode.env.clipboard.writeText(`@ghostforge /localmodel ${model}`)
+        const action = await vscode.window.showInformationMessage(
+          `👻 GhostForge: Local model set to "${model}". Open Copilot Chat and paste @ghostforge /localmodel ${model}`,
+          'Open Copilot Chat'
+        )
+        if (action === 'Open Copilot Chat') {
+          await vscode.commands.executeCommand('workbench.panel.chat.view.copilot.focus')
+        }
+      }
+    }),
+    vscode.commands.registerCommand('ghostforge.installModel', async () => {
+      const model = await vscode.window.showInputBox({
+        prompt: 'Enter Ollama model to install (e.g. qwen3:14b)',
+        placeHolder: 'qwen2.5-coder:7b',
+        title: 'GhostForge: Install Ollama Model',
+      })
+      if (model) {
+        const terminal = vscode.window.createTerminal({ name: `GhostForge: Install ${model}` })
+        terminal.show()
+        terminal.sendText(`ollama pull ${model}`)
+        vscode.window.showInformationMessage(`👻 Installing ${model} via Ollama... Check the terminal for progress.`)
+      }
+    }),
+    vscode.commands.registerCommand('ghostforge.llmfit', async () => {
+      const terminal = vscode.window.createTerminal({ name: 'GhostForge: LLMfit' })
+      terminal.show()
+      terminal.sendText(`curl -sk https://localhost:3001/api/llmfit 2>/dev/null | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+hw = d.get('hardware', {})
+rec = d.get('recommendation', {})
+print('\\n🖥  Hardware:', hw.get('cpuBrand','?'), hw.get('ramGB','?'), 'GB RAM')
+print('🏆  Best Model:', rec.get('best','?'))
+if rec.get('bestInstalled'): print('✅  Installed:', rec.get('bestInstalled'))
+if rec.get('pullFirst'): print('📥  Install:', rec.get('pullFirst'))
+print('\\n')
+for m in d.get('models',[])[:5]:
+  st = '✅' if m.get('isInstalled') else '📥'
+  print(f'  {st}  {m[\"id\"]:40} {m[\"params\"]}B  {m[\"ramGB\"]}GB  score:{m[\"compositeScore\"]}')
+print()
+" 2>/dev/null || echo "⚠ GhostForge not running. Start: cd ~/GhostForge/web-ui && npm start"`)
+      vscode.window.showInformationMessage('👻 LLMfit running in terminal — checking your hardware...')
+    }),
   ];
 
   context.subscriptions.push(...disposables);
