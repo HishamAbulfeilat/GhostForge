@@ -170,20 +170,25 @@ If you deploy to Vercel, only features using external HTTPS APIs work (Gemini, O
 
 ## 🖱️ Clicky — AI Cursor Buddy (Integrated)
 
-GhostForge integrates **[Clicky](https://github.com/farzaa/clicky)** (7.2k+ stars) and its local variants — AI assistants that live next to your cursor, see your screen, talk to you, and point at things with a blue cursor overlay.
+GhostForge integrates **Clicky** — a unified AI cursor assistant that lives next to your cursor, sees your screen, talks to you, and points at things with a blue cursor overlay. Built on three open-source projects:
 
-### Clicky Variants
+| Project | Author | What It Contributed |
+|---------|--------|-------------------|
+| **[Clicky](https://github.com/farzaa/clicky)** (7.2k+ stars) | [Farza](https://github.com/farzaa) | Original concept, UI, blue cursor overlay, push-to-talk architecture |
+| **[LocalClicky](https://github.com/tanavc1/LocalClicky)** | [tanavc1](https://github.com/tanavc1) | Fully local rebuild — Ollama vision, Apple Speech, Neural Piper TTS |
+| **[clicky-local](https://github.com/coldiary/clicky-local)** | [coldiary](https://github.com/coldiary) | WhisperKit on-device STT, Kokoro-FastAPI TTS, configurable backends |
 
-| Variant | Cloud? | Vision | STT | TTS | Install |
-|---------|--------|--------|-----|-----|---------|
-| **[Clicky](https://github.com/farzaa/clicky)** (original) | Claude + AssemblyAI + ElevenLabs | Claude | AssemblyAI | ElevenLabs | Manual setup |
-| **[LocalClicky](https://github.com/tanavc1/LocalClicky)** ⭐ | **100% local** | Ollama moondream | Apple Speech | Neural Piper | `curl -fsSL .../web-install.sh \| bash` |
-| **[clicky-local](https://github.com/coldiary/clicky-local)** | **100% local** | Ollama (any) | WhisperKit | Kokoro/AVSpeech | Xcode build |
+### Modes
 
-### Recommended: LocalClicky
+| Mode | Vision | STT | TTS | Best For |
+|------|--------|-----|-----|----------|
+| **Local** (default) | Ollama (moondream) | Apple Speech / WhisperKit | Neural Piper / Kokoro | Privacy, no cost |
+| **Cloud** | Claude | AssemblyAI | ElevenLabs | Highest quality |
+
+### Install
 
 ```bash
-# One-line install (fully local, no API keys)
+# Local mode (recommended — no API keys needed)
 curl -fsSL https://raw.githubusercontent.com/tanavc1/LocalClicky/main/scripts/web-install.sh | bash
 
 # Or via GhostForge
@@ -197,14 +202,14 @@ curl -fsSL https://raw.githubusercontent.com/tanavc1/LocalClicky/main/scripts/we
 │  YOUR MAC                                           │
 │                                                     │
 │  ┌──────────────┐  ┌──────────────────────────────┐ │
-│  │ GhostForge   │  │ LocalClicky                  │ │
+│  │ GhostForge   │  │ Clicky                       │ │
 │  │ JARVIS       │  │ (menu bar app)               │ │
 │  │              │  │                              │ │
 │  │ • Voice chat │  │ • Push-to-talk (⌃⌥)         │ │
 │  │ • Mac control│  │ • Screen capture + vision    │ │
 │  │ • Code gen   │  │ • Blue cursor pointing       │ │
 │  │ • Web UI     │  │ • Voice responses            │ │
-│  │ • Terminal    │  │ • App/browser actions        │ │
+│  │ • Terminal   │  │ • App/browser actions        │ │
 │  └──────┬───────┘  └──────────────┬───────────────┘ │
 │         │                         │                 │
 │         └──────────┬──────────────┘                 │
@@ -218,20 +223,6 @@ curl -fsSL https://raw.githubusercontent.com/tanavc1/LocalClicky/main/scripts/we
 └─────────────────────────────────────────────────────┘
 ```
 
-### Quick Start
-
-```bash
-# 1. Ollama is already running (GhostForge sets this up)
-ollama pull llama3.2:3b moondream qwen2.5vl:3b
-
-# 2. Install LocalClicky
-curl -fsSL https://raw.githubusercontent.com/tanavc1/LocalClicky/main/scripts/web-install.sh | bash
-
-# 3. Grant permissions (Microphone, Accessibility, Screen Recording)
-
-# 4. Hold Control+Option and talk!
-```
-
 ### Clicky Actions
 
 | Say... | What happens |
@@ -242,17 +233,6 @@ curl -fsSL https://raw.githubusercontent.com/tanavc1/LocalClicky/main/scripts/we
 | "Open gmail" | Opens URL in browser |
 | "Launch Spotify" | Opens installed Mac app |
 | "Copy your answer" | Copies response to clipboard |
-
-### Shared Models with GhostForge JARVIS
-
-Both tools use the same Ollama server (`localhost:11434`), so models are shared — no duplication:
-
-| Model | Used By | Purpose |
-|-------|---------|---------|
-| `llama3.2:3b` | Clicky + JARVIS | Text reasoning |
-| `moondream` | Clicky | Screen description |
-| `qwen2.5vl:3b` | Clicky | Blue cursor pointing |
-| `qwen3:14b` | JARVIS | Advanced reasoning (optional) |
 
 ---
 
@@ -1500,5 +1480,94 @@ Based on **Hisham Abulfeilat's** CRP graduation research: *"Reducing the Carbon 
 
 ---
 
+## 🙏 Open Source Credits & References
+
+GhostForge is built on the shoulders of giants. We gratefully acknowledge the following open-source projects, tools, and APIs that make this project possible.
+
+### Core AI & Voice
+
+| Project | Author | License | What GhostForge Uses It For |
+|---------|--------|---------|---------------------------|
+| **[Ollama](https://github.com/ollama/ollama)** | Ollama | MIT | Local LLM inference — the brain behind JARVIS and Clicky |
+| **[OpenAI Whisper](https://github.com/openai/whisper)** | OpenAI | MIT | Speech-to-text (via Groq API or local whisper.cpp) |
+| **[whisper.cpp](https://github.com/ggerganov/whisper.cpp)** | Georgi Gerganov | MIT | Offline local STT — no API key, runs forever |
+| **[Groq](https://groq.com/)** | Groq | Proprietary | Whisper API — 7200s/day free STT |
+| **[Fish Audio](https://fish.audio/)** | Fish Audio | Proprietary | Neural TTS — JARVIS voice engine |
+| **[ElevenLabs](https://elevenlabs.io/)** | ElevenLabs | Proprietary | Cloud TTS — Clicky voice mode |
+| **[Apple Speech](https://developer.apple.com/documentation/speech)** | Apple | Proprietary | On-device STT for Clicky (macOS) |
+| **[edge-tts](https://github.com/rany2/edge-tts)** | rany2 | MIT | Microsoft Edge neural voices — 400+ voices, zero cost |
+| **[Kokoro-FastAPI](https://github.com/remsky/kokoro-fastapi-cpu)** | remsky | MIT | Local TTS for Clicky (clicky-local variant) |
+| **[Neural Piper](https://github.com/rhasspy/piper)** | Rhasspy | MIT | On-device TTS for Clicky (LocalClicky variant) |
+
+### Clicky (AI Cursor Buddy)
+
+| Project | Author | License | Contribution |
+|---------|--------|---------|-------------|
+| **[Clicky](https://github.com/farzaa/clicky)** | [Farza](https://github.com/farzaa) | MIT | Original Clicky concept, UI, blue cursor overlay, push-to-talk architecture (7.2k+ stars) |
+| **[LocalClicky](https://github.com/tanavc1/LocalClicky)** | [tanavc1](https://github.com/tanavc1) | MIT | Fully local rebuild — Ollama vision, Apple Speech, Neural Piper, one-line install |
+| **[clicky-local](https://github.com/coldiary/clicky-local)** | [coldiary](https://github.com/coldiary) | MIT | WhisperKit on-device STT, Kokoro-FastAPI TTS, configurable backends |
+| **[WhisperKit](https://github.com/ml-explore/WhisperKit)** | Apple ML Explore | MIT | On-device Whisper via Core ML / Apple Neural Engine |
+
+### Frontend & UI
+
+| Project | Author | License | What GhostForge Uses It For |
+|---------|--------|---------|---------------------------|
+| **[Next.js](https://nextjs.org/)** | Vercel | MIT | Web UI framework (App Router) |
+| **[React](https://react.dev/)** | Meta | MIT | UI component library |
+| **[Tailwind CSS](https://tailwindcss.com/)** | Tailwind Labs | MIT | Utility-first CSS framework |
+| **[xterm.js](https://xtermjs.org/)** | Microsoft | MIT | Terminal emulator in the web UI |
+| **[Monaco Editor](https://microsoft.github.io/monaco-editor/)** | Microsoft | MIT | Code editor in the web UI |
+| **[styled-jsx](https://github.com/vercel/styled-jsx)** | Vercel | MIT | Scoped CSS in React components (Next.js built-in) |
+
+### Developer Tools & CLI
+
+| Project | Author | License | What GhostForge Uses It For |
+|---------|--------|---------|---------------------------|
+| **[Ink](https://github.com/vadimdemedes/ink)** | Vadim Demedes | MIT | React-based CLI framework for the TUI |
+| **[blessed-contrib](https://github.com/yaroslaff/blessed-contrib)** | Yaroslaff | MIT | Terminal dashboard with live charts |
+| **[Husky](https://typicode.github.io/husky/)** | Typicode | MIT | Git hooks setup |
+| **[lint-staged](https://github.com/lint-staged/lint-staged)** | lint-staged | MIT | Pre-commit linting |
+| **[commitlint](https://commitlint.js.org/)** | Marionebr | MIT | Conventional Commits enforcement |
+| **[knip](https://knip.dev/)** | Lars Kappert | MIT | Dead code / unused dependency detection |
+| **[React Doctor](https://react.doctor/)** | million | MIT | React diagnostics (lint, a11y, bundle, architecture) |
+| **[Vigolium](https://console.vigolium.com/)** | Vigolium | Proprietary | Agentic security scanning |
+| **[Prettier](https://prettier.io/)** | Prettier | MIT | Code formatting |
+| **[ESLint](https://eslint.org/)** | ESLint | MIT | JavaScript/TypeScript linting |
+
+### Security & Infrastructure
+
+| Project | Author | License | What GhostForge Uses It For |
+|---------|--------|---------|---------------------------|
+| **[mkcert](https://github.com/FiloSottile/mkcert)** | Filippo Valsorda | MIT | Local TLS certificates |
+| **[Upstash](https://upstash.com/)** | Upstash | Proprietary | Rate limiting (recommended for API) |
+| **[Azure DevOps](https://azure.microsoft.com/en-us/products/devops/)** | Microsoft | Proprietary | Work items, pipelines, releases integration |
+| **[GitHub Copilot](https://github.com/features/copilot)** | GitHub | Proprietary | AI pair programming — the foundation of GhostForge |
+
+### APIs & Data
+
+| Service | What GhostForge Uses It For |
+|---------|---------------------------|
+| **[OpenWeatherMap](https://openweathermap.org/)** | Weather data for JARVIS morning briefing |
+| **[News API](https://newsapi.org/)** | News headlines for JARVIS |
+| **[Google Custom Search](https://developers.google.com/custom-search)** | Web search capability |
+| **[Anthropic Claude API](https://docs.anthropic.com/)** | Cloud vision + reasoning (Clicky cloud mode) |
+| **[AssemblyAI](https://www.assemblyai.com/)** | Cloud STT (Clicky cloud mode) |
+| **[OpenRouter](https://openrouter.ai/)** | Multi-model access hub |
+| **[DeepSeek](https://platform.deepseek.com/)** | Reasoning model access |
+| **[Groq](https://groq.com/)** | Fast inference + Whisper API |
+
+### Inspiration & References
+
+| Project | What We Learned |
+|---------|----------------|
+| **[a]11y](https://www.a11yproject.com/)** | Accessibility best practices |
+| **[Vercel AI SDK](https://sdk.vercel.ai/)** | Streaming AI response patterns |
+| **[OpenAI Whisper](https://github.com/openai/whisper)** | Speech recognition architecture |
+| **[Home Assistant](https://www.home-assistant.io/)** | Voice assistant UX patterns |
+| **[Raycast](https://www.raycast.com/)** | Menu bar app design patterns |
+| **[Ghostty](https://github.com/ghostty-org/ghostty)** | Terminal emulator architecture |
+
+---
+
 *Developed by **Hisham Abulfeilat** · Operator-grade dev tools, forged in the shadows.*
-*Powered by GitHub Copilot Business · v4.3.0*
+*Powered by GitHub Copilot Business · v5.2.0*
