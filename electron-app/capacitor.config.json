@@ -1,0 +1,36 @@
+{
+  "appId": "com.ghostforge.jarvis",
+  "appName": "GhostForge JARVIS",
+  "webDir": "../web-ui/out",
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": ["localhost", "127.0.0.1"]
+  },
+  "plugins": {
+    "CapacitorCamera": {
+      "permissions": ["camera"]
+    },
+    "CapacitorMicrophone": {
+      "permissions": ["microphone"]
+    },
+    "CapacitorScreenReader": {
+      "permissions": ["accessibility"]
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon",
+      "iconColor": "#3b82f6"
+    },
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "preferredContentMode": "mobile"
+  }
+}

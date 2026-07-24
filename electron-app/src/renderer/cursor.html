@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS Cursor Overlay</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: transparent;
+      pointer-events: none;
+    }
+
+    .overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 999999;
+      pointer-events: none;
+    }
+
+    .cursor {
+      position: absolute;
+      transform: translate(-8px, -8px);
+      transition: none;
+      will-change: left, top;
+    }
+
+    .cursor-dot {
+      position: relative;
+      width: 16px;
+      height: 16px;
+    }
+
+    .cursor-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: radial-gradient(
+        circle,
+        rgba(59, 130, 246, 0.8) 0%,
+        rgba(59, 130, 246, 0.3) 50%,
+        transparent 70%
+      );
+      transform: scale(1.5);
+      transition: transform 0.3s ease-out;
+    }
+
+    .cursor-ring.pulse {
+      transform: scale(2.5);
+    }
+
+    .cursor-core {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      left: 4px;
+      top: 4px;
+      border-radius: 50%;
+      background: #3b82f6;
+      box-shadow: 0 0 12px 4px rgba(59, 130, 246, 0.6);
+    }
+
+    .cursor-crosshair-h,
+    .cursor-crosshair-v {
+      position: absolute;
+      background: linear-gradient(
+        to right,
+        transparent,
+        rgba(59, 130, 246, 0.4),
+        transparent
+      );
+    }
+
+    .cursor-crosshair-h {
+      width: 24px;
+      height: 1px;
+      left: -4px;
+      top: 7.5px;
+    }
+
+    .cursor-crosshair-v {
+      width: 1px;
+      height: 24px;
+      left: 7.5px;
+      top: -4px;
+      background: linear-gradient(
+        to bottom,
+        transparent,
+        rgba(59, 130, 246, 0.4),
+        transparent
+      );
+    }
+
+    .cursor-label {
+      position: absolute;
+      left: 20px;
+      top: 20px;
+      white-space: nowrap;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      color: white;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      animation: labelFadeIn 0.2s ease-out;
+      pointer-events: none;
+    }
+
+    .highlight-box {
+      position: absolute;
+      border-radius: 8px;
+      border: 2px solid rgba(59, 130, 246, 0.7);
+      background: rgba(59, 130, 246, 0.08);
+      box-shadow: 0 0 16px rgba(59, 130, 246, 0.3);
+      pointer-events: none;
+      animation: highlightFadeIn 0.3s ease-out;
+    }
+
+    .highlight-label {
+      position: absolute;
+      top: -28px;
+      left: 0;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      color: white;
+      background: rgba(59, 130, 246, 0.9);
+      pointer-events: none;
+    }
+
+    @keyframes labelFadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(4px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes highlightFadeIn {
+      from {
+        opacity: 0;
+        transform: scale(0.95);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="overlay" id="overlay">
+    <div class="cursor hidden" id="cursor">
+      <div class="cursor-dot">
+        <div class="cursor-ring" id="cursorRing"></div>
+        <div class="cursor-core"></div>
+        <div class="cursor-crosshair-h"></div>
+        <div class="cursor-crosshair-v"></div>
+      </div>
+      <div class="cursor-label hidden" id="cursorLabel"></div>
+    </div>
+  </div>
+
+  <script>
+    const cursor = document.getElementById('cursor');
+    const cursorRing = document.getElementById('cursorRing');
+    const cursorLabel = document.getElementById('cursorLabel');
+    const overlay = document.getElementById('overlay');
+
+    let animationFrame = null;
+    let currentX = 0;
+    let currentY = 0;
+
+    function animate(fromX, fromY, toX, toY, label) {
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+
+      const start = performance.now();
+      const duration = 400;
+
+      cursor.classList.remove('hidden');
+      if (label) {
+        cursorLabel.textContent = label;
+        cursorLabel.classList.remove('hidden');
+      } else {
+        cursorLabel.classList.add('hidden');
+      }
+
+      function tick(now) {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / duration, 1);
+        const ease = 1 - Math.pow(1 - progress, 3);
+
+        currentX = fromX + (toX - fromX) * ease;
+        currentY = fromY + (toY - fromY) * ease;
+
+        cursor.style.left = currentX + 'px';
+        cursor.style.top = currentY + 'px';
+
+        if (progress < 1) {
+          animationFrame = requestAnimationFrame(tick);
+        } else {
+          cursorRing.classList.add('pulse');
+          setTimeout(() => cursorRing.classList.remove('pulse'), 600);
+        }
+      }
+
+      animationFrame = requestAnimationFrame(tick);
+    }
+
+    function hideCursor() {
+      cursor.classList.add('hidden');
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+    }
+
+    // Listen for IPC messages from main process
+    if (window.electron) {
+      window.electron.cursor.onPoint((target) => {
+        const fromX = currentX || target.x - 100;
+        const fromY = currentY || target.y - 100;
+        animate(fromX, fromY, target.x, target.y, target.label);
+      });
+    }
+
+    // Also support direct postMessage for testing
+    window.addEventListener('message', (event) => {
+      if (event.data.type === 'cursor:point') {
+        const target = event.data.target;
+        const fromX = currentX || target.x - 100;
+        const fromY = currentY || target.y - 100;
+        animate(fromX, fromY, target.x, target.y, target.label);
+      } else if (event.data.type === 'cursor:hide') {
+        hideCursor();
+      }
+    });
+  </script>
+</body>
+</html>
