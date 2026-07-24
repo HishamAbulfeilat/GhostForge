@@ -979,6 +979,131 @@
         "computer-use",
         "vision"
       ]
+    },
+    {
+      "id": "clicky",
+      "name": "Clicky — AI Cursor Buddy (Cloud)",
+      "description": "AI teacher/buddy that lives next to your cursor. Hold a hotkey, talk to it, it sees your screen, answers out loud, and a blue cursor flies to point at the thing you asked about. Uses Claude (vision + chat), AssemblyAI (STT), ElevenLabs (TTS) via Cloudflare Worker. By Farza (7.2k+ stars).",
+      "url": "https://github.com/farzaa/clicky",
+      "type": "desktop-app",
+      "platform": "macOS 14.2+",
+      "requires": [
+        "Xcode 15+",
+        "Node.js 18+ (for Cloudflare Worker)",
+        "Cloudflare account (free tier)",
+        "Anthropic API key",
+        "AssemblyAI API key",
+        "ElevenLabs API key"
+      ],
+      "features": [
+        "Screen capture + vision AI",
+        "Push-to-talk with blue cursor pointing",
+        "Voice responses (ElevenLabs TTS)",
+        "Real-time transcription (AssemblyAI)",
+        "Multi-monitor support",
+        "Menu bar app (no dock icon)"
+      ],
+      "architecture": "Swift menu-bar app → Cloudflare Worker proxy → Claude/AssemblyAI/ElevenLabs APIs",
+      "by": "Farza",
+      "stars": "7.2k",
+      "categories": [
+        "ai-agent",
+        "voice",
+        "vision",
+        "cursor",
+        "screen-aware",
+        "macos",
+        "computer-use",
+        "education"
+      ],
+      "trusted": true
+    },
+    {
+      "id": "localclicky",
+      "name": "LocalClicky — Fully Local AI Cursor Buddy",
+      "description": "A fully local, no-cloud rebuild of Clicky. No API keys, no account, no analytics. Uses Ollama (llama3.2:3b for text, moondream for vision, qwen2.5vl:3b for pointing), Apple Speech (STT), neural Piper voice (TTS). Everything stays on your Mac. By tanavc1.",
+      "url": "https://github.com/tanavc1/LocalClicky",
+      "type": "desktop-app",
+      "platform": "macOS 14.2+ (Apple Silicon)",
+      "requires": [
+        "Ollama (brew install --cask ollama)",
+        "Xcode Command Line Tools"
+      ],
+      "download": "https://github.com/tanavc1/LocalClicky/releases/latest/download/LocalClicky.dmg",
+      "one_line_install": "curl -fsSL https://raw.githubusercontent.com/tanavc1/LocalClicky/main/scripts/web-install.sh | bash",
+      "features": [
+        "100% local — no cloud, no API keys, no telemetry",
+        "Screen capture → Ollama vision → blue cursor pointing",
+        "Push-to-talk (Control+Option) with Apple Speech STT",
+        "Neural Piper TTS on-device (Apple voice fallback)",
+        "Opt-in web lookup (only when you ask online)",
+        "One-click model downloads in-app",
+        "Autotune-style hardware advisor",
+        "Deterministic actions (open apps, browser, clipboard)",
+        "Multi-monitor blue cursor overlay"
+      ],
+      "models": {
+        "text": "llama3.2:3b (Ollama)",
+        "vision": "moondream (Ollama)",
+        "grounding": "qwen2.5vl:3b (Ollama)",
+        "tts": "neural Piper voice (on-device)"
+      },
+      "architecture": "Swift menu-bar app → Ollama local HTTP → Apple Speech → blue cursor overlay",
+      "by": "tanavc1 (credit: Farza, Shrey Patel)",
+      "categories": [
+        "ai-agent",
+        "voice",
+        "vision",
+        "cursor",
+        "local-ai",
+        "macos",
+        "computer-use",
+        "privacy",
+        "offline"
+      ],
+      "integration_with_ghostforge": "Shares Ollama models with GhostForge JARVIS. Can replace/augment JARVIS voice + screen features. LocalClicky's blue cursor pointing + GhostForge's Mac control = complete local AI assistant.",
+      "trusted": true
+    },
+    {
+      "id": "clicky-local",
+      "name": "Clicky Local — Local Fork of Clicky",
+      "description": "Fork of Clicky with every external API stripped out. Uses Ollama (any vision model), WhisperKit (on-device Whisper via Core ML/ANE), Kokoro-FastAPI (local TTS), AVSpeechSynthesizer (fallback). No Cloudflare Worker, no API keys, no telemetry.",
+      "url": "https://github.com/coldiary/clicky-local",
+      "type": "desktop-app",
+      "platform": "macOS 14.2+ (Apple Silicon)",
+      "requires": [
+        "Ollama (brew install ollama)",
+        "Xcode 15+",
+        "Optional: Kokoro-FastAPI (docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest)"
+      ],
+      "features": [
+        "100% local — no cloud, no API keys, no telemetry",
+        "WhisperKit on-device STT (Core ML / ANE)",
+        "Kokoro-FastAPI local TTS (AVSpeechSynthesizer fallback)",
+        "Ollama vision model for screen understanding",
+        "Blue cursor pointing via [POINT] tags",
+        "Multi-monitor support",
+        "Configurable backends via panel UI"
+      ],
+      "models": {
+        "vision": "gemma4 (default, any Ollama vision model)",
+        "stt": "WhisperKit (openai_whisper-large-v3)",
+        "tts": "Kokoro-FastAPI or AVSpeechSynthesizer"
+      },
+      "architecture": "Swift menu-bar app → Ollama + WhisperKit + Kokoro all local",
+      "by": "coldiary (fork of farzaa/clicky)",
+      "categories": [
+        "ai-agent",
+        "voice",
+        "vision",
+        "cursor",
+        "local-ai",
+        "macos",
+        "computer-use",
+        "privacy",
+        "offline"
+      ],
+      "trusted": true
     }
   ]
 }

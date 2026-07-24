@@ -55,6 +55,10 @@ export default function ModelsPage() {
   const [loading, setLoading] = useState(true)
   const [installing, setInstalling] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [autoSwitch, setAutoSwitch] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem('gf_autoswitch') === 'true'
+  })
 
   const loadData = useCallback(async () => {
     try {
@@ -239,6 +243,26 @@ export default function ModelsPage() {
                 <p className="text-sm text-slate-200">{catalog?.machine.appleSilicon ? 'Apple Silicon' : 'Intel / unknown'}</p>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-yellow-500/20 bg-yellow-950/10 p-5">
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-zinc-700 bg-zinc-900/60 p-3">
+            <div>
+              <p className="text-sm font-medium text-white">⚡ Auto-Switch</p>
+              <p className="text-xs text-zinc-400">Automatically switch to a better model if performance degrades</p>
+            </div>
+            <button
+              onClick={() => {
+                const next = !autoSwitch
+                setAutoSwitch(next)
+                localStorage.setItem('gf_autoswitch', String(next))
+              }}
+              className={`relative h-6 w-12 rounded-full transition-colors ${autoSwitch ? 'bg-blue-600' : 'bg-zinc-700'}`}
+              type="button"
+            >
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${autoSwitch ? 'left-7' : 'left-1'}`} />
+            </button>
           </div>
         </section>
 

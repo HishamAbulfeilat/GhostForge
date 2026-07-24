@@ -15,7 +15,7 @@ interface HistoryEntry {
 const QUICK_ACTIONS = [
   { label: '📱 iMessage', icon: '💬', placeholder: 'Send iMessage to Rawzi saying lunch at 1pm', template: 'Send iMessage to [name] saying [message]' },
   { label: '👥 Teams', icon: '🔵', placeholder: 'Open Teams and message Rawzi', template: 'Open Teams and message [name]: [message]' },
-  { label: '📸 Screenshot', icon: '📸', template: 'Take a screenshot and save to Desktop' },
+  { label: '📸 Screenshot', icon: '📸', template: 'Take a screenshot' },
   { label: '🔊 Volume', icon: '🔊', template: 'Set system volume to 50%' },
   { label: '🔇 Mute', icon: '🔇', template: 'Mute the system audio' },
   { label: '🔒 Lock', icon: '🔒', template: 'Lock the screen' },
@@ -89,7 +89,7 @@ export default function MacControlPage() {
         <span className="text-2xl">🍎</span>
         <div>
           <h1 className="text-sm font-bold text-white">Mac Control</h1>
-          <p className="text-[10px] text-gray-500">Natural language → AppleScript → runs on your Mac</p>
+          <p className="text-[10px] text-gray-500">Verified snippets first → free local AI fallback → syntax check → runs on your Mac</p>
         </div>
       </div>
 
@@ -142,7 +142,7 @@ export default function MacControlPage() {
                     className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 placeholder-gray-600 resize-none focus:outline-none focus:border-violet-600 transition"
                   />
                   <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[10px] text-gray-600">⌘ Enter to run • AI will generate and execute AppleScript</span>
+                    <span className="text-[10px] text-gray-600">⌘ Enter to run • verified snippets first, then your selected AI model</span>
                     <button type="button"
                       onClick={() => void run()}
                       disabled={loading || !command.trim()}

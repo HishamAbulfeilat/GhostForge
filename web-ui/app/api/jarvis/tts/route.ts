@@ -9,11 +9,11 @@ async function fishAudioTTS(text: string, voiceId: string, apiKey: string): Prom
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        model: 's2.1-pro-free',
       },
       body: JSON.stringify({
         text,
         reference_id: voiceId,
-        model: 's2.1-pro-free',   // in body (not header) — fixes 400 Bad Request
         format: 'mp3',
         mp3_bitrate: 128,
         temperature: 0.65,
@@ -95,16 +95,45 @@ export async function POST(req: NextRequest) {
 
   const fishKey  = process.env.FISH_AUDIO_API_KEY
   const elKey    = process.env.ELEVENLABS_API_KEY
-  const jarvisId = process.env.FISH_AUDIO_JARVIS_MODEL || '612b878b113047d9a770c069c8b4fdfe'
+  const jarvisId = process.env.FISH_AUDIO_JARVIS_MODEL || '36b6f66cfecf466caac7fcba1f8b59c8'
 
-  // Explicit engine override
-  if ((engine === 'fish' || engine === 'fish-audio') && fishKey) {
+  // Explicit engine requests must never silently play a different provider.
+  if (engine === 'fish' || engine === 'fish-audio') {
+    if (!fishKey) {
+      return NextResponse.json({
+        fallback: true,
+        reason: 'fish_audio_not_configured',
+        hint: 'Add FISH_AUDIO_API_KEY to .env.local',
+      }, { status: 503 })
+    }
+
     const audio = await fishAudioTTS(ttsText, jarvisId, fishKey)
     if (audio) return new NextResponse(audio, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-TTS-Engine': 'fish-audio' } })
+
+    return NextResponse.json({
+      fallback: true,
+      reason: 'fish_audio_error',
+      hint: 'Fish Audio could not synthesize the selected JARVIS voice',
+    }, { status: 502 })
   }
-  if (engine === 'elevenlabs' && elKey) {
+
+  if (engine === 'elevenlabs') {
+    if (!elKey) {
+      return NextResponse.json({
+        fallback: true,
+        reason: 'elevenlabs_not_configured',
+        hint: 'Add ELEVENLABS_API_KEY to .env.local',
+      }, { status: 503 })
+    }
+
     const audio = await elevenLabsTTS(ttsText, voice, elKey)
     if (audio) return new NextResponse(audio, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-TTS-Engine': 'elevenlabs' } })
+
+    return NextResponse.json({
+      fallback: true,
+      reason: 'elevenlabs_error',
+      hint: 'ElevenLabs could not synthesize the selected voice',
+    }, { status: 502 })
   }
   // 'browser' requested but still try cloud first if keys available
   // Only pure browser-only if no API keys configured at all

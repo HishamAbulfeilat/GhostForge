@@ -39,7 +39,9 @@ Configure and use **free AI model providers** alongside GitHub Copilot. Integrat
 
 ### 🟢 Ollama (Local — No Key Needed)
 - **Free**: Completely free, runs on your machine
-- **Models**: Llama 3.2, Mistral, CodeLlama, Phi-3, DeepSeek Coder, Qwen2.5 Coder
+- **Recommended on a 24GB M4 Pro**: `qwen3.5:9b`
+- **Fast profile**: `qwen3.5:4b`
+- **Maximum-quality profile**: `qwen3.5:27b` (less memory headroom)
 - **API base**: `http://localhost:11434/v1` (OpenAI-compatible)
 - **Install**: https://ollama.com
 
@@ -51,13 +53,25 @@ brew install ollama
 ollama serve
 
 # Pull a model
-ollama pull llama3.2
-ollama pull qwen2.5-coder
-ollama pull deepseek-coder
+ollama pull qwen3.5:9b
+ollama pull qwen3.5:4b
+ollama pull qwen3.5:27b
 
 # List models
 ollama list
 ```
+
+Enable **Offline mode** in the JARVIS settings to block all cloud providers. Runtime order is the selected Ollama model, the best installed Ollama model, then a running llama.cpp server.
+
+### 🟢 llama.cpp Fallback
+
+```bash
+brew install llama.cpp
+mkdir -p ~/GhostForge/models
+llama-server -m ~/GhostForge/models/your-model.gguf --port 8080
+```
+
+Set `LLAMACPP_URL=http://localhost:8080/v1` if the server uses a different host or port.
 
 ### 🟢 HuggingFace Inference API
 - **Free tier**: Limited requests/hour for hosted models

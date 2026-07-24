@@ -3,73 +3,17 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import '@xterm/xterm/css/xterm.css'
+import { TERMINAL_FEATURE_GROUPS } from '@/lib/quick-actions'
 
 const XTermWrapper = dynamic(() => import('@/components/XTermWrapper'), { ssr: false })
 
 type ConnStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
-const FEATURE_GROUPS = [
-  {
-    label: '🌿 Carbon',
-    color: 'emerald',
-    cmds: [
-      { label: 'Status', cmd: 'ghostforge carbon status' },
-      { label: 'Live', cmd: 'ghostforge carbon live' },
-      { label: 'Weekly', cmd: 'ghostforge carbon weekly' },
-      { label: 'Badge', cmd: 'ghostforge carbon badge' },
-    ],
-  },
-  {
-    label: '🏥 Health',
-    color: 'sky',
-    cmds: [
-      { label: 'Score', cmd: 'ghostforge health-score score' },
-      { label: 'Dep Health', cmd: 'ghostforge dep-health check' },
-      { label: 'Bundle', cmd: 'ghostforge bundle track' },
-      { label: 'Coverage', cmd: 'ghostforge coverage check' },
-    ],
-  },
-  {
-    label: '🤖 AI Tools',
-    color: 'violet',
-    cmds: [
-      { label: 'AI Review', cmd: 'ghostforge ai-review staged' },
-      { label: 'Standup', cmd: 'ghostforge standup today' },
-      { label: 'Explain Error', cmd: 'ghostforge explain' },
-      { label: 'Tech Debt', cmd: 'ghostforge tech-debt scan' },
-    ],
-  },
-  {
-    label: '⚙️ Git',
-    color: 'amber',
-    cmds: [
-      { label: 'Commit', cmd: 'ghostforge commit' },
-      { label: 'Release', cmd: 'ghostforge release patch' },
-      { label: 'PR Desc', cmd: 'ghostforge pr-description' },
-      { label: 'Git Hooks', cmd: 'ghostforge git-hooks-setup install' },
-    ],
-  },
-  {
-    label: '🔧 Generate',
-    color: 'rose',
-    cmds: [
-      { label: 'Component', cmd: 'ghostforge component-gen' },
-      { label: 'API Docs', cmd: 'ghostforge api-docs generate' },
-      { label: 'Docker', cmd: 'ghostforge docker-gen generate' },
-      { label: 'DB Schema', cmd: 'ghostforge schema-viz show' },
-    ],
-  },
-  {
-    label: '🛠️ System',
-    color: 'gray',
-    cmds: [
-      { label: 'Marketplace', cmd: 'ghostforge marketplace' },
-      { label: 'Lighthouse', cmd: 'ghostforge lighthouse run' },
-      { label: 'A11y Audit', cmd: 'ghostforge a11y audit' },
-      { label: 'Doctor', cmd: 'bash ~/GhostForge/scripts/doctor.sh' },
-    ],
-  },
-]
+const FEATURE_GROUPS = TERMINAL_FEATURE_GROUPS.map(group => ({
+  ...group,
+  cmds: group.commands.map(entry => ({ label: entry.label, cmd: entry.command })),
+}))
 
 const COLOR_MAP: Record<string, string> = {
   emerald: 'border-emerald-800 bg-emerald-950/40 text-emerald-300 active:bg-emerald-900 hover:bg-emerald-900/60',
@@ -367,4 +311,3 @@ export default function TerminalPage() {
     </div>
   )
 }
-

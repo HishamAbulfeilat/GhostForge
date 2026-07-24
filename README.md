@@ -64,10 +64,36 @@ http://localhost:3001/dashboard     — Developer dashboard
 
 ### Available AI Models
 ```
-Auto chain: Gemini 2.0 Flash → Gemma 4 26B (free) → Nemotron 120B (free) → Ollama qwen3:14b → llama3.2:3b
-Optional:   Grok 3 Mini (add XAI_API_KEY) · DeepSeek V4 Flash/Pro · qwen2.5-coder:7b
-LLMFit:     Auto-recommends best model based on task type
+Auto chain: Cloud providers → Ollama best-fit model → llama.cpp server → OmniRoute
+Offline:    Ollama best-fit model → llama.cpp server; cloud and OmniRoute are blocked
+24GB M4 Pro default: qwen3.5:9b (balanced tools, vision, speed, and memory headroom)
+Maximum quality:      qwen3.5:27b (slower and leaves less memory for computer-use tools)
+LLMFit:     Uses the current `llmfit recommend --json` command and falls back safely when the web server is unavailable
 ```
+
+### Fully Offline JARVIS
+1. Start Ollama with `ollama serve` and pull the recommended model with `ollama pull qwen3.5:9b`.
+2. Open JARVIS settings and enable **Offline mode**. The HUD shows **OFFLINE · LOCAL ONLY**.
+3. JARVIS uses the selected installed Ollama model first, then a running OpenAI-compatible llama.cpp server.
+4. Tool execution, Mac control, files, and computer-use still run locally through GhostForge's existing permission and risk checks.
+
+Optional llama.cpp fallback:
+```bash
+mkdir -p ~/GhostForge/models
+llama-server -m ~/GhostForge/models/your-model.gguf --port 8080
+```
+
+Browse, install, and switch models on `/models`. Custom Ollama names are supported, for example `qwen3.5:4b` or `qwen3.5:27b`.
+
+### One JARVIS Across Devices
+
+- **Mac host:** runs Ollama/llama.cpp, shell commands, AppleScript, screenshots, browser control, and computer-use tools.
+- **Any client:** Mac, Windows, Linux, iPhone, Android, or a browser can use the same JARVIS UI; actions execute on the authenticated GhostForge host.
+- **Remote access:** expose the Mac-hosted Web UI through the existing Cloudflare Tunnel. A cloud-only deployment cannot control your Mac unless it connects back to the Mac host/bridge.
+- **Free-first stack:** Ollama or llama.cpp for AI, browser speech where supported, DuckDuckGo fallback search, macOS Accessibility for browser/computer control, and Cloudflare Tunnel's free tier.
+- **Optional cloud AI:** Gemini, OpenRouter, and voice providers can be enabled, but their free quotas are provider-controlled and are not unlimited.
+
+JARVIS quick commands call verified tools directly instead of asking the model to guess an action. Mac Control uses verified AppleScript snippets first, compiles every script with `osacompile`, and blocks destructive shell patterns before execution.
 
 ### API Keys (add to `web-ui/.env.local`)
 ```bash
@@ -77,6 +103,9 @@ XAI_API_KEY=...                    # Grok (xAI) — optional
 DEEPSEEK_API_KEY=...               # DeepSeek V4 Flash/Pro — optional
 FISH_AUDIO_API_KEY=...             # JARVIS voice — free tier
 ELEVENLABS_API_KEY=...             # ElevenLabs TTS — optional
+OLLAMA_URL=http://localhost:11434  # Optional custom Ollama endpoint
+LLAMACPP_URL=http://localhost:8080/v1 # Optional llama.cpp OpenAI endpoint
+LLAMACPP_MODEL=local-model         # Optional model ID if the server omits one
 ```
 
 ### VS Code Chat Commands (`@ghostforge`)
@@ -136,6 +165,94 @@ If you deploy to Vercel, only features using external HTTPS APIs work (Gemini, O
 | Voice biometrics | Resemblyzer speaker verification | ✅ API ready (enroll via `/api/jarvis/biometrics`) |
 | Unauthorized access | Logs access attempts, returns 401 | ✅ Active |
 | API keys | `.env.local` — never committed to git | ✅ In `.gitignore` |
+
+---
+
+## 🖱️ Clicky — AI Cursor Buddy (Integrated)
+
+GhostForge integrates **[Clicky](https://github.com/farzaa/clicky)** (7.2k+ stars) and its local variants — AI assistants that live next to your cursor, see your screen, talk to you, and point at things with a blue cursor overlay.
+
+### Clicky Variants
+
+| Variant | Cloud? | Vision | STT | TTS | Install |
+|---------|--------|--------|-----|-----|---------|
+| **[Clicky](https://github.com/farzaa/clicky)** (original) | Claude + AssemblyAI + ElevenLabs | Claude | AssemblyAI | ElevenLabs | Manual setup |
+| **[LocalClicky](https://github.com/tanavc1/LocalClicky)** ⭐ | **100% local** | Ollama moondream | Apple Speech | Neural Piper | `curl -fsSL .../web-install.sh \| bash` |
+| **[clicky-local](https://github.com/coldiary/clicky-local)** | **100% local** | Ollama (any) | WhisperKit | Kokoro/AVSpeech | Xcode build |
+
+### Recommended: LocalClicky
+
+```bash
+# One-line install (fully local, no API keys)
+curl -fsSL https://raw.githubusercontent.com/tanavc1/LocalClicky/main/scripts/web-install.sh | bash
+
+# Or via GhostForge
+/clicky install
+```
+
+### How Clicky + GhostForge Work Together
+
+```
+┌─────────────────────────────────────────────────────┐
+│  YOUR MAC                                           │
+│                                                     │
+│  ┌──────────────┐  ┌──────────────────────────────┐ │
+│  │ GhostForge   │  │ LocalClicky                  │ │
+│  │ JARVIS       │  │ (menu bar app)               │ │
+│  │              │  │                              │ │
+│  │ • Voice chat │  │ • Push-to-talk (⌃⌥)         │ │
+│  │ • Mac control│  │ • Screen capture + vision    │ │
+│  │ • Code gen   │  │ • Blue cursor pointing       │ │
+│  │ • Web UI     │  │ • Voice responses            │ │
+│  │ • Terminal    │  │ • App/browser actions        │ │
+│  └──────┬───────┘  └──────────────┬───────────────┘ │
+│         │                         │                 │
+│         └──────────┬──────────────┘                 │
+│                    │                                │
+│         ┌──────────▼──────────┐                     │
+│         │ Ollama (localhost)  │                     │
+│         │ llama3.2:3b (text)  │                     │
+│         │ moondream (vision)  │                     │
+│         │ qwen2.5vl:3b (point)│                     │
+│         └─────────────────────┘                     │
+└─────────────────────────────────────────────────────┘
+```
+
+### Quick Start
+
+```bash
+# 1. Ollama is already running (GhostForge sets this up)
+ollama pull llama3.2:3b moondream qwen2.5vl:3b
+
+# 2. Install LocalClicky
+curl -fsSL https://raw.githubusercontent.com/tanavc1/LocalClicky/main/scripts/web-install.sh | bash
+
+# 3. Grant permissions (Microphone, Accessibility, Screen Recording)
+
+# 4. Hold Control+Option and talk!
+```
+
+### Clicky Actions
+
+| Say... | What happens |
+|--------|-------------|
+| "What does this button do?" | Captures screen → vision model → points blue cursor |
+| "Where do I click to export?" | Points cursor at export button |
+| "Explain this error" | Reads screen, explains, points at error |
+| "Open gmail" | Opens URL in browser |
+| "Launch Spotify" | Opens installed Mac app |
+| "Copy your answer" | Copies response to clipboard |
+
+### Shared Models with GhostForge JARVIS
+
+Both tools use the same Ollama server (`localhost:11434`), so models are shared — no duplication:
+
+| Model | Used By | Purpose |
+|-------|---------|---------|
+| `llama3.2:3b` | Clicky + JARVIS | Text reasoning |
+| `moondream` | Clicky | Screen description |
+| `qwen2.5vl:3b` | Clicky | Blue cursor pointing |
+| `qwen3:14b` | JARVIS | Advanced reasoning (optional) |
 
 ---
 
@@ -283,10 +400,12 @@ WS_BRIDGE_TOKEN=auto-read-from-disk     # bridge.sh writes ~/.ghostforge/bridge/
 - 📊 **LLMFit model scorer** — auto-recommends best model for each task
 - 🛒 **Marketplace 28 items** — expanded from 10 (Vigolium, DeepSeek, qwen3, LLMFit…)
 - 🐛 **TTS 400 fixed** — Fish Audio model field moved to JSON body
-- 🎤 **Mic/wake word fixed** — abort() + delay + ref-based restart
+- 🎤 **Mic/wake word fixed** — stable hydration, cumulative transcript capture, hands-free restart, and exact "Hey GhostForge" / "Hey JARVIS" triggers
 - 💬 **/chat response fixed** — JSON response instead of SSE mismatch
 - 🍎 **Mac control fixed** — thinking token stripping from AppleScript
 - 🔧 **ghostforge PATH fixed** — shell commands now find binary correctly
+
+> **Wake-word runtime:** The web UI uses the browser Web Speech API so it needs no additional paid dependency. Chrome/Edge may use their speech service, so wake-word recognition is not guaranteed offline. Detection is isolated in `web-ui/lib/voice-runtime.js` so a local Porcupine, Vosk, or whisper.cpp adapter can replace it later without changing the Jarvis UI lifecycle.
 
 ---
 

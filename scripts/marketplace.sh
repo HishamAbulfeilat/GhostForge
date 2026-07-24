@@ -40,11 +40,9 @@ list_items() {
   if ! command -v node >/dev/null 2>&1; then
     echo -e "${RED}Node.js required${NC}"; exit 1
   fi
-  node - <<'NODEEOF'
+  CATALOG_PATH="$CATALOG" node - <<'NODEEOF'
 const fs = require('fs');
-const path = require('path');
-const ghostforgeDir = process.argv[1];
-const catalog = JSON.parse(fs.readFileSync(path.join(__dirname, '../marketplace/catalog.json'), 'utf8'));
+const catalog = JSON.parse(fs.readFileSync(process.env.CATALOG_PATH, 'utf8'));
 const byCategory = {};
 catalog.items.forEach(item => {
   if (!byCategory[item.category]) byCategory[item.category] = [];

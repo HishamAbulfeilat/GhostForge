@@ -5,8 +5,9 @@ import { writeFile, unlink } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
-import { generateText } from 'ai'
-import { selectAIModel } from '@/lib/ai'
+import { generateWithFallback } from '@/lib/ai'
+import { isAuthorizedRequest } from '@/lib/auth'
+import { knownAppleScript, validateAppleScript } from '@/lib/apple-automation'
 
 const execAsync = promisify(exec)
 export const dynamic = 'force-dynamic'
@@ -98,12 +99,15 @@ tell application "Finder"
 end tell`
 
 export async function POST(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  if (!token || token !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  let body: { command?: string; script?: string }
+  if (process.platform !== 'darwin') {
+    return NextResponse.json({ error: 'Mac control requires a GhostForge server running on macOS' }, { status: 409 })
+  }
+
+  let body: { command?: string; script?: string; dryRun?: boolean; offlineMode?: boolean }
   try { body = await req.json() } catch { body = {} }
 
   const { command, script: directScript } = body
@@ -115,17 +119,17 @@ export async function POST(req: NextRequest) {
     if (!command?.trim()) {
       return NextResponse.json({ error: 'No command provided' }, { status: 400 })
     }
-    // Generate AppleScript from natural language
+    script = knownAppleScript(command) || ''
+    // Generate AppleScript from natural language when no verified snippet matches.
     try {
-      const { model } = await selectAIModel()
-      const { text } = await generateText({
-        model,
+      if (!script) {
+        const { text } = await generateWithFallback({
         system: SYSTEM_PROMPT,
-        prompt: `Convert this to AppleScript: ${command}`,
+        messages: [{ role: 'user', content: `Convert this to AppleScript: ${command}` }],
         maxTokens: 600,
-        maxRetries: 0,
-      })
-      script = text.trim()
+        }, { offline: body.offlineMode, task: 'tools' })
+        script = text.trim()
+      }
       // Strip markdown fences
       script = script.replace(/^```(?:applescript)?\s*/i, '').replace(/\s*```$/, '').trim()
       // Strip thinking tokens from thinking models (qwen3, deepseek-r1)
@@ -140,13 +144,23 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const validation = validateAppleScript(script)
+  if (!validation.ok) {
+    return NextResponse.json({ error: validation.reason, script }, { status: 400 })
+  }
+
   // Write to temp file (more reliable than -e for multiline)
   const tmpPath = join(tmpdir(), `gf-mac-${randomBytes(4).toString('hex')}.scpt`)
+  const compiledPath = join(tmpdir(), `gf-mac-${randomBytes(4).toString('hex')}.compiled.scpt`)
   let output = ''
   let runError: string | null = null
 
   try {
     await writeFile(tmpPath, script, 'utf8')
+    await execAsync(`osacompile -o "${compiledPath}" "${tmpPath}"`, { timeout: 10000 })
+    if (body.dryRun) {
+      return NextResponse.json({ script, output: 'AppleScript syntax verified', error: null, dryRun: true })
+    }
     const { stdout, stderr } = await execAsync(`osascript "${tmpPath}"`, { timeout: 20000 })
     output = stdout.trim()
     if (stderr.trim()) runError = stderr.trim()
@@ -156,6 +170,7 @@ export async function POST(req: NextRequest) {
     runError = err.stderr?.trim() || err.message || 'Script execution failed'
   } finally {
     await unlink(tmpPath).catch(() => {})
+    await unlink(compiledPath).catch(() => {})
   }
 
   return NextResponse.json({ script, output, error: runError })

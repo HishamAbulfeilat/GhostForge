@@ -29,3 +29,4 @@ build/
 .registered-projects
 web-ui/.next/
 web-ui/node_modules/
+.aider*

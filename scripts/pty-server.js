@@ -23,7 +23,7 @@ function getToken() {
 // HTTP server for health check
 const httpServer = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  if (req.url === '/health') {
+  if (req.url === '/' || req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ status: 'online', name: 'GhostForge PTY Server' }))
   } else {

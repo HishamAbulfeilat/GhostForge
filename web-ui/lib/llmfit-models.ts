@@ -26,6 +26,9 @@ export interface ModelSpec {
 }
 
 export const MODEL_DATABASE: ModelSpec[] = [
+  { id: 'qwen3.5:4b', name: 'Qwen3.5 4B', provider: 'Alibaba', params: 4.7, ramGB: 3.4, contextK: 256, useCase: 'Fast JARVIS tools', qualityScore: 82, tags: ['general', 'code', 'fast', 'tools'] },
+  { id: 'qwen3.5:9b', name: 'Qwen3.5 9B', provider: 'Alibaba', params: 9.7, ramGB: 6.6, contextK: 256, useCase: 'JARVIS tools + vision', qualityScore: 94, tags: ['general', 'code', 'reasoning', 'tools'], recommended: true },
+  { id: 'qwen3.5:27b', name: 'Qwen3.5 27B', provider: 'Alibaba', params: 27.8, ramGB: 17.0, contextK: 256, useCase: 'Maximum local quality', qualityScore: 99, tags: ['general', 'code', 'reasoning', 'tools', 'large'] },
   // ── Qwen 2.5 Coder series (best coding models) ──
   { id: 'qwen2.5-coder:1.5b', name: 'Qwen2.5-Coder 1.5B', provider: 'Alibaba', params: 1.5, ramGB: 1.0, contextK: 32, useCase: 'Code (fast)', qualityScore: 55, tags: ['code', 'fast', 'tiny'] },
   { id: 'qwen2.5-coder:7b',   name: 'Qwen2.5-Coder 7B',   provider: 'Alibaba', params: 7.6, ramGB: 4.7, contextK: 32, useCase: 'Code generation', qualityScore: 78, tags: ['code', 'balanced'], recommended: true },
@@ -107,7 +110,7 @@ export async function detectHardware(): Promise<HardwareInfo> {
     .filter(m => m !== 'NAME')
 
   // Available RAM: Apple Silicon uses unified memory, leave 4GB for OS
-  const availableGB = Math.max(2, ramGB - 4)
+  const availableGB = Math.max(2, Math.min(ramGB - 4, ramGB * 0.7))
 
   return {
     ramGB,
@@ -191,7 +194,7 @@ export function scoreModels(models: ModelSpec[], hw: HardwareInfo): ScoredModel[
 
 export async function tryLLMFitCLI(): Promise<string | null> {
   try {
-    const { stdout } = await execAsync('llmfit --provider ollama --json 2>/dev/null', { timeout: 10000 })
+    const { stdout } = await execAsync('llmfit recommend -n 5 --json --no-dashboard 2>/dev/null', { timeout: 15000 })
     return stdout.trim() || null
   } catch {
     return null

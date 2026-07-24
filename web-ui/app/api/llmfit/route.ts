@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { exec } from 'child_process'
-import { promisify } from 'util'
+import { spawn } from 'child_process'
 import { MODEL_DATABASE, scoreModels, detectHardware, tryLLMFitCLI } from '@/lib/llmfit-models'
+import { chooseBestInstalledModel } from '@/lib/local-runtime'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
-
-const execAsync = promisify(exec)
 
 // ── GET /api/llmfit — return scored model recommendations ────────────────────
 
 export async function GET(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  if (!token || token !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -39,7 +37,10 @@ export async function GET(req: NextRequest) {
 
   // Find the single best recommendation for this hardware
   const bestModel = models.filter(m => m.canRun).sort((a, b) => b.compositeScore - a.compositeScore)[0]
-  const bestInstalled = models.filter(m => m.isInstalled && m.canRun).sort((a, b) => b.compositeScore - a.compositeScore)[0]
+  const selectedInstalled = chooseBestInstalledModel(hw.ollamaModels, hw.ramGB, useCase || 'tools')
+  const bestInstalled = selectedInstalled
+    ? models.find(model => model.id === selectedInstalled.name)
+    : models.filter(m => m.isInstalled && m.canRun).sort((a, b) => b.compositeScore - a.compositeScore)[0]
 
   return NextResponse.json({
     hardware: hw,
@@ -61,8 +62,7 @@ export async function GET(req: NextRequest) {
 // ── POST /api/llmfit/pull — trigger ollama pull ───────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  if (!token || token !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -76,10 +76,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid model name format' }, { status: 400 })
   }
 
-  // Fire and forget — ollama pull can take minutes
-  execAsync(`ollama pull ${targetModel}`, {
-    env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:${process.env.PATH || ''}` },
-  }).catch(() => {})
+  try {
+    const child = spawn('ollama', ['pull', targetModel], {
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:${process.env.PATH || ''}` },
+    })
+    child.unref()
+  } catch (error) {
+    return NextResponse.json({ error: `Could not start Ollama: ${String(error).slice(0, 120)}` }, { status: 503 })
+  }
 
   const known = MODEL_DATABASE.find(m => m.id === targetModel)
   return NextResponse.json({
