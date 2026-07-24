@@ -1,0 +1,260 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v5.3.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ── macOS (Intel + Apple Silicon) ─────────────────────────────────────────
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        working-directory: electron-app
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: electron-app
+        run: npx tsc
+
+      - name: Build Electron (macOS ${{ matrix.arch }})
+        working-directory: electron-app
+        run: npx electron-builder --mac --${{ matrix.arch }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            electron-app/release/*.dmg
+            electron-app/release/*-mac.zip
+            electron-app/release/*.blockmap
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── Windows ───────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        working-directory: electron-app
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: electron-app
+        run: npx tsc
+
+      - name: Build Electron (Windows)
+        working-directory: electron-app
+        run: npx electron-builder --win --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            electron-app/release/*.exe
+            electron-app/release/*.blockmap
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── Linux ─────────────────────────────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        working-directory: electron-app
+        run: npm ci
+
+      - name: Build TypeScript
+        working-directory: electron-app
+        run: npx tsc
+
+      - name: Build Electron (Linux)
+        working-directory: electron-app
+        run: npx electron-builder --linux --x64 AppImage deb
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            electron-app/release/*.AppImage
+            electron-app/release/*.deb
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── Android ───────────────────────────────────────────────────────────────
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies (web-ui)
+        working-directory: web-ui
+        run: npm ci
+
+      - name: Build web-ui
+        working-directory: web-ui
+        run: npm run build
+
+      - name: Export static web-ui
+        working-directory: web-ui
+        run: npx next export || true
+
+      - name: Install Capacitor
+        working-directory: electron-app
+        run: npm ci
+
+      - name: Initialize Capacitor Android
+        working-directory: electron-app
+        run: |
+          npx cap add android || true
+          npx cap sync android
+
+      - name: Build Android APK
+        working-directory: electron-app/android
+        run: ./gradlew assembleDebug
+
+      - name: Build Android Release APK
+        working-directory: electron-app/android
+        run: ./gradlew assembleRelease || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: |
+            electron-app/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: warn
+          retention-days: 1
+
+  # ── Create Release ────────────────────────────────────────────────────────
+  release:
+    needs: [build-macos, build-windows, build-linux, build-android]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate changelog from commits
+        id: changelog
+        run: |
+          TAG="${{ steps.tag.outputs.version }}"
+          echo "## What's Changed" > changelog.md
+          echo "" >> changelog.md
+
+          # Get commits since last tag
+          PREV_TAG=$(git tag --sort=-creatordate | head -2 | tail -1)
+          if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$TAG" ]; then
+            git log ${PREV_TAG}..${TAG} --pretty=format:"- %s (%h)" >> changelog.md
+          else
+            git log --pretty=format:"- %s (%h)" -20 >> changelog.md
+          fi
+
+          echo "" >> changelog.md
+          echo "" >> changelog.md
+          echo "## Downloads" >> changelog.md
+          echo "" >> changelog.md
+          echo "| Platform | File |" >> changelog.md
+          echo "|----------|------|" >> changelog.md
+          echo "| 🍎 macOS Intel | \`GhostForge JARVIS-*.dmg\` |" >> changelog.md
+          echo "| 🍎 macOS Apple Silicon | \`GhostForge JARVIS-*-arm64.dmg\` |" >> changelog.md
+          echo "| 🪟 Windows Installer | \`GhostForge JARVIS Setup *.exe\` |" >> changelog.md
+          echo "| 🪟 Windows Portable | \`GhostForge JARVIS *.exe\` |" >> changelog.md
+          echo "| 🐧 Linux | \`GhostForge JARVIS-*.AppImage\` |" >> changelog.md
+          echo "| 🤖 Android | \`app-debug.apk\` |" >> changelog.md
+          echo "" >> changelog.md
+          echo "### Quick Start" >> changelog.md
+          echo '```bash' >> changelog.md
+          echo "# macOS" >> changelog.md
+          echo "open 'GhostForge JARVIS-5.2.0.dmg'" >> changelog.md
+          echo "# Windows" >> changelog.md
+          echo '# Run "GhostForge JARVIS Setup 5.2.0.exe"' >> changelog.md
+          echo "# Linux" >> changelog.md
+          echo "chmod +x 'GhostForge JARVIS-5.2.0.AppImage' && ./'GhostForge JARVIS-5.2.0.AppImage'" >> changelog.md
+          echo "# Android" >> changelog.md
+          echo "adb install app-debug.apk" >> changelog.md
+          echo '```' >> changelog.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.version }}
+          name: "${{ steps.tag.outputs.version }} — GhostForge JARVIS"
+          body_path: changelog.md
+          draft: false
+          prerelease: false
+          files: artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
