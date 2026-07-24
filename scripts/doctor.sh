@@ -153,10 +153,10 @@ else
   fail "Bridge (4747)" "offline" "Run: bash $GHOSTFORGE_ROOT/scripts/bridge.sh start"
 fi
 
-if check_url "http://localhost:4748" 2; then
-  pass "ttyd terminal (4748)" "online"
+if check_url "http://localhost:4748/health" 2; then
+  pass "PTY terminal (4748)" "online"
 else
-  warn "ttyd terminal (4748)" "offline" "Bridge start also launches ttyd. Run: bash $GHOSTFORGE_ROOT/scripts/bridge.sh start"
+  warn "PTY terminal (4748)" "offline" "Bridge start also launches the PTY server. Run: bash $GHOSTFORGE_ROOT/scripts/bridge.sh start"
 fi
 
 if [[ -f "$BRIDGE_DIR/bridge.log" ]]; then

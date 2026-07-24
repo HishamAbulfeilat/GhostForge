@@ -154,7 +154,7 @@ jobs:
               '',
               '</details>',
               '',
-              `*Powered by [GhostForge AI Toolkit](https://github.com/HishamAbulfeilat/GhostForge)*`,
+              `*Powered by [GhostForge](https://github.com/ghostforge-copilot-business/GhostForge)*`,
             ].join('\n');
 
             // Find existing comment

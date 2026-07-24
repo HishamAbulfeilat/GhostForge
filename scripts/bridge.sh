@@ -175,21 +175,22 @@ NODESERVER
   local server_pid=$!
   printf '%s\n' "$server_pid" > "$PID_FILE"
 
-  # Start TTY web terminal for /terminal page
-  local ttyd_bin
-  ttyd_bin="$(which ttyd 2>/dev/null || echo '/opt/homebrew/bin/ttyd')"
-  if command -v ttyd >/dev/null 2>&1; then
-    nohup ttyd \
-      --port 4748 \
-      --credential "ghostforge:$token" \
-      --writable \
-      node "$HOME/GhostForge/tui/index.js" >> "$LOG_FILE" 2>&1 &
-    local ttyd_pid=$!
-    printf '%s\n' "$ttyd_pid" >> "$PID_FILE"
+  # Start the authenticated PTY WebSocket server used by /terminal.
+  # The previous ttyd process used Basic Auth, while the web client sends the
+  # bridge token as a query parameter, so quick commands never connected.
+  local pty_server="$HOME/GhostForge/scripts/pty-server.js"
+  if [[ -f "$pty_server" ]] && node -e "require('node-pty'); require('ws')" >/dev/null 2>&1; then
+    nohup env \
+      PTY_PORT=4748 \
+      BRIDGE_ROOT="$HOME/GhostForge" \
+      BRIDGE_TOKEN_FILE="$TOKEN_FILE" \
+      node "$pty_server" >> "$LOG_FILE" 2>&1 &
+    local pty_pid=$!
+    printf '%s\n' "$pty_pid" >> "$PID_FILE"
     sleep 1
-    echo -e "${DIM}  TTY terminal: http://localhost:4748 (PID $ttyd_pid)${NC}"
+    echo -e "${DIM}  PTY terminal: http://localhost:4748 (PID $pty_pid)${NC}"
   else
-    echo -e "${YELLOW}⚠ ttyd not found — install: brew install ttyd${NC}"
+    echo -e "${YELLOW}⚠ PTY dependencies missing — run npm install in $HOME/GhostForge${NC}"
   fi
 
   local waited=0

@@ -6,7 +6,8 @@
     "dev": "IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo '0.0.0.0') && echo \"\\n  ➜ Network:  http://$IP:3001\\n\" && next dev --hostname 0.0.0.0 --port 3001",
     "build": "next build",
     "start": "node server.js",
-    "start:next": "next start"
+    "start:next": "next start",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "^0.2.16",

@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import '@xterm/xterm/css/xterm.css'
+import { shouldExecuteViaApi } from '@/lib/terminal-routing'
 
 // ttyd binary WebSocket protocol:
 //   Server → client: raw terminal bytes (no prefix)
@@ -122,30 +122,38 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
     }
   }, [notifyStatus]) // notifyStatus is stable — dep array won't change
 
+  const executeViaApi = useCallback((cmd: string, reason?: string) => {
+    const term = termRef.current
+    if (!term) return
+
+    if (reason) term.write(`\r\n\x1b[33m[${reason}]\x1b[0m\r\n`)
+    term.write('\r\n\x1b[36m$ ' + cmd + '\x1b[0m\r\n')
+    void fetch('/api/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: cmd }),
+    })
+      .then(r => r.json())
+      .then((data: { output?: string; error?: string }) => {
+        const out = data.output || data.error || 'Done'
+        term.write(out.replace(/\n/g, '\r\n') + '\r\n')
+        term.write(data.error ? '\x1b[31m[Failed]\x1b[0m\r\n\n' : '\x1b[32m[Done]\x1b[0m\r\n\n')
+      })
+      .catch(() => {
+        term.write('\x1b[31m[Execution failed — server unreachable]\x1b[0m\r\n')
+      })
+  }, [])
+
   const sendToTerminal = useCallback((cmd: string) => {
     const ws = wsRef.current
-    const term = termRef.current
-    if (ws?.readyState === WebSocket.OPEN) {
+    if (shouldExecuteViaApi(cmd)) {
+      executeViaApi(cmd)
+    } else if (ws?.readyState === WebSocket.OPEN) {
       ws.send('\x00' + cmd + '\n')
-    } else if (term) {
-      term.write('\r\n\x1b[33m[WebSocket offline — executing via API...]\x1b[0m\r\n')
-      void fetch('/api/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: cmd }),
-      })
-        .then(r => r.json())
-        .then((data: { output?: string; error?: string }) => {
-          const out = data.output || data.error || 'Done'
-          term.write('\r\n\x1b[36m$ ' + cmd + '\x1b[0m\r\n')
-          term.write(out.replace(/\n/g, '\r\n') + '\r\n')
-          term.write('\x1b[32m[Done]\x1b[0m\r\n\n')
-        })
-        .catch(() => {
-          term.write('\x1b[31m[Execution failed — server unreachable]\x1b[0m\r\n')
-        })
+    } else {
+      executeViaApi(cmd, 'WebSocket offline — executing via API...')
     }
-  }, [])
+  }, [executeViaApi])
 
   const reconnect = useCallback(() => {
     const term = termRef.current

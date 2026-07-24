@@ -2,7 +2,12 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
+import CollabShare from '@/components/CollabShare'
+import LLMfitAutoSwitch from '@/components/LLMfitAutoSwitch'
+import ClickyOverlay from '@/components/ClickyOverlay'
 import { usePlatform, detectLanguage, getSpeechLang, platformLabel } from '@/lib/platform'
+import { collectRecognitionTranscript, findWakePhrase } from '@/lib/voice-runtime'
+import { JARVIS_QUICK_ACTIONS } from '@/lib/quick-actions'
 
 // Web Speech API type shims
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,6 +24,16 @@ const getSR = (): (new () => Any) | null => {
 type Mode = 'idle' | 'listening' | 'thinking' | 'speaking'
 type Emotion = 'neutral' | 'happy' | 'thinking' | 'alert' | 'processing' | 'done'
 type VoiceEngine = 'browser' | 'elevenlabs' | 'fish-audio'
+
+interface HostCapabilities {
+  platform: string
+  macControl: boolean
+  screenCapture: boolean
+  browserControl: boolean
+  shell: boolean
+  remoteClientControl: boolean
+  freeLocalAI: boolean
+}
 
 interface Message {
   id: string
@@ -40,6 +55,19 @@ interface Memory {
   preferences: { city: string; music: string }
   facts: string[]
   conversationCount: number
+}
+
+interface HistoryPayloadMessage {
+  role: 'user' | 'ai'
+  content: string
+  ts: number
+}
+
+interface HistoryPayloadSession {
+  id: string
+  startedAt: string
+  endedAt: string
+  messages: HistoryPayloadMessage[]
 }
 
 interface ModelInfo {
@@ -83,12 +111,22 @@ const GREETINGS = [
   'Initialized. Standing by.',
 ]
 
+const PERSONA_OPTIONS = [
+  { id: 'default', label: '🤖 Default', desc: 'Standard JARVIS', badge: 'DEFAULT' },
+  { id: 'dev', label: '👨‍💻 Dev', desc: 'Senior engineer', badge: 'DEV' },
+  { id: 'manager', label: '📋 Manager', desc: 'Tech lead', badge: 'MANAGER' },
+  { id: 'creative', label: '🎨 Creative', desc: 'Brainstorm mode', badge: 'CREATIVE' },
+  { id: 'security', label: '🔒 Security', desc: 'Security focus', badge: 'SECURITY' },
+] as const
+
 // ── Orb SVG ───────────────────────────────────────────────────────────────────
 
-function OrbSVG({ mode }: { mode: Mode }) {
+function OrbSVG({ mode, audioLevel = 0 }: { mode: Mode; audioLevel?: number }) {
   const c = MODE_COLORS[mode]
   const isThinking = mode === 'thinking'
   const isListening = mode === 'listening'
+  // Audio-reactive scaling: idle pulses gently, listening pulses with mic level
+  const listenScale = isListening ? 1 + audioLevel * 0.4 : 1
   return (
     <svg width="220" height="220" viewBox="0 0 240 240" className="select-none">
       {isThinking && (
@@ -98,11 +136,11 @@ function OrbSVG({ mode }: { mode: Mode }) {
             from="0 120 120" to="360 120 120" dur="1.2s" repeatCount="indefinite" />
         </circle>
       )}
-      <circle cx="120" cy="120" r="108" fill="none" stroke={c.ring} strokeWidth="0.8" opacity="0.3">
-        {isListening && <animate attributeName="r" values="108;116;108" dur="0.8s" repeatCount="indefinite" />}
+      <circle cx="120" cy="120" r="108" fill="none" stroke={c.ring} strokeWidth="0.8" opacity="0.3"
+        style={isListening ? { transform: `scale(${listenScale})`, transformOrigin: '120px 120px', transition: 'transform 0.08s ease-out' } : undefined}>
       </circle>
-      <circle cx="120" cy="120" r="90" fill="none" stroke={c.ring} strokeWidth="1" opacity="0.45">
-        {isListening && <animate attributeName="r" values="90;96;90" dur="0.7s" repeatCount="indefinite" />}
+      <circle cx="120" cy="120" r="90" fill="none" stroke={c.ring} strokeWidth="1" opacity="0.45"
+        style={isListening ? { transform: `scale(${listenScale * 1.05})`, transformOrigin: '120px 120px', transition: 'transform 0.08s ease-out' } : undefined}>
       </circle>
       <circle cx="120" cy="120" r="78" fill="none" stroke={c.ring} strokeWidth="1.2"
         strokeDasharray="30 180" strokeLinecap="round" opacity="0.5">
@@ -110,10 +148,11 @@ function OrbSVG({ mode }: { mode: Mode }) {
           from="0 120 120" to={isThinking ? '-360 120 120' : '360 120 120'}
           dur={isThinking ? '2s' : '8s'} repeatCount="indefinite" />
       </circle>
-      <circle cx="120" cy="120" r="64" fill={c.glow}>
-        <animate attributeName="opacity"
-          values={mode === 'idle' ? '0.6;0.9;0.6' : mode === 'listening' ? '0.8;1;0.8' : '1;0.8;1'}
-          dur={mode === 'idle' ? '3s' : '0.6s'} repeatCount="indefinite" />
+      <circle cx="120" cy="120" r="64" fill={c.glow}
+        style={isListening ? { opacity: 0.6 + audioLevel * 0.4, transition: 'opacity 0.08s ease-out' } : undefined}>
+        {!isListening && <animate attributeName="opacity"
+          values={mode === 'idle' ? '0.6;0.9;0.6' : '1;0.8;1'}
+          dur={mode === 'idle' ? '3s' : '0.6s'} repeatCount="indefinite" />}
       </circle>
       <circle cx="120" cy="120" r="64" fill="none" stroke={c.ring} strokeWidth="1.5" opacity="0.7" />
       <circle cx="120" cy="120" r="44" fill="#050510" />
@@ -767,10 +806,12 @@ export default function JarvisPage() {
   const [memory, setMemory]                 = useState<Memory>({ userName: '', preferences: { city: 'Riyadh', music: 'spotify' }, facts: [], conversationCount: 0 })
   const [voiceSupported, setVoiceSupported] = useState(false)
   const [wakeWordActive, setWakeWordActive] = useState(false)
-  const [voiceEngine, setVoiceEngine]       = useState<VoiceEngine>(() => {
-    if (typeof window === 'undefined') return 'browser'
-    return (localStorage.getItem('gf_voiceEngine') as VoiceEngine) || 'browser'
-  })
+  const [persona, setPersona]               = useState<string>('default')
+  const [autoSwitch, setAutoSwitch]         = useState(false)
+  const [offlineMode, setOfflineMode]       = useState(false)
+  const [hotwordEnabled, setHotwordEnabled] = useState(false)
+  const [handsFreeEnabled, setHandsFreeEnabled] = useState(false)
+  const [voiceEngine, setVoiceEngine]       = useState<VoiceEngine>('browser')
   const persistVoiceEngine = useCallback((engine: VoiceEngine) => {
     setVoiceEngine(engine)
     if (typeof window !== 'undefined') localStorage.setItem('gf_voiceEngine', engine)
@@ -783,6 +824,10 @@ export default function JarvisPage() {
   const [selectedProvider, setSelectedProvider] = useState<string>('')
   const [selectedModel, setSelectedModel]       = useState<string>('')
   const [integrations, setIntegrations]     = useState({ github: false, discord: false, googleSearch: false })
+  const [hostCapabilities, setHostCapabilities] = useState<HostCapabilities>({
+    platform: 'unknown', macControl: false, screenCapture: false, browserControl: false,
+    shell: true, remoteClientControl: true, freeLocalAI: false,
+  })
   const [lastToolUsed, setLastToolUsed]     = useState<string | null>(null)
   const [liveModel, setLiveModel]           = useState<{ provider: string; model: string } | null>(null)
   const [toasts, setToasts]                 = useState<Toast[]>([])
@@ -793,18 +838,37 @@ export default function JarvisPage() {
   const [detectedLang, setDetectedLang]     = useState('en')
   const [clipboardPanel, setClipboardPanel] = useState<ClipboardPanelState>({ text: '', visible: false })
   const [interruptFlash, setInterruptFlash] = useState(false)
+  // ── Clicky state ──────────────────────────────────────────────────────────────
+  const [clickyPoint, setClickyPoint] = useState<{ x: number; y: number; label?: string | null } | null>(null)
+  const [clickyHighlight, setClickyHighlight] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const [screenCaptureActive, setScreenCaptureActive] = useState(false)
+  const [screenCaptureData, setScreenCaptureData] = useState<string | null>(null)
+  const [pushToTalkActive, setPushToTalkActive] = useState(false)
+  const [visionPending, setVisionPending] = useState(false)
+  const pushToTalkRef = useRef(false)
+  const [liveTranscript, setLiveTranscript] = useState('')
+  const [audioLevel, setAudioLevel] = useState(0)
+  const audioAnalyserRef = useRef<AnalyserNode | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const audioAnimFrameRef = useRef<number | null>(null)
 
   const recognitionRef     = useRef<Any>(null)
   const wakeRecognitionRef = useRef<Any>(null)
   const voicesRef          = useRef<Any[]>([])
   const messagesEndRef     = useRef<HTMLDivElement>(null)
   const inputRef           = useRef<HTMLInputElement>(null)
-  const wakeWordActiveRef  = useRef(false)
+  const hotwordEnabledRef  = useRef(false)
+  const handsFreeEnabledRef = useRef(false)
+  const listeningRequestedRef = useRef(false)
+  const startListeningRef  = useRef<(() => Promise<void>) | null>(null)
+  const startWakeListenerRef = useRef<(() => void) | null>(null)
   const modeRef            = useRef<Mode>('idle')
   const ttsFailCountRef    = useRef(0)
   const wakeRestartingRef  = useRef(false)  // persists across re-renders (fixes stale closure)
   const micPermGranted     = useRef(false)  // tracks whether mic permission has been granted
   const micPausedRef       = useRef(false)  // true while JARVIS is thinking/speaking (prevents echo)
+  const wakeJustDetectedRef = useRef(false)  // suppresses onend restart after wake detection
+  const speakingRef         = useRef(false)  // prevents overlapping speak() calls
   const externalAudioRef   = useRef<HTMLAudioElement | null>(null)
   const externalAudioUrlRef = useRef<string | null>(null)
   const lastActivityRef    = useRef(Date.now())
@@ -814,9 +878,55 @@ export default function JarvisPage() {
   const clipboardDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const clipboardPrimedRef = useRef(false)
   const lastClipboardRef   = useRef('')
+  const sessionIdRef       = useRef(`jarvis-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`)
+  const sessionStartedAtRef = useRef(new Date().toISOString())
+  const messagesRef         = useRef<Message[]>([])
 
-  useEffect(() => { wakeWordActiveRef.current = wakeWordActive }, [wakeWordActive])
+  useEffect(() => { hotwordEnabledRef.current = hotwordEnabled }, [hotwordEnabled])
+  useEffect(() => { handsFreeEnabledRef.current = handsFreeEnabled }, [handsFreeEnabled])
   useEffect(() => { modeRef.current = mode }, [mode])
+  useEffect(() => { messagesRef.current = messages }, [messages])
+
+  useEffect(() => {
+    setPersona(localStorage.getItem('gf_persona') || 'default')
+    setAutoSwitch(localStorage.getItem('gf_autoswitch') === 'true')
+    setOfflineMode(localStorage.getItem('gf_offline') === 'true')
+    setHotwordEnabled(localStorage.getItem('gf_hotword') === 'true')
+    setHandsFreeEnabled(localStorage.getItem('gf_handsfree') === 'true')
+    setVoiceEngine((localStorage.getItem('gf_voiceEngine') as VoiceEngine) || 'browser')
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const prefill = new URLSearchParams(window.location.search).get('prefill')
+    if (!prefill) return
+    setInput(prefill)
+    const timeout = window.setTimeout(() => inputRef.current?.focus(), 60)
+    return () => window.clearTimeout(timeout)
+  }, [])
+
+  useEffect(() => () => {
+    const snapshot = messagesRef.current
+    if (snapshot.length === 0) return
+
+    const payload: HistoryPayloadSession = {
+      id: sessionIdRef.current,
+      startedAt: sessionStartedAtRef.current,
+      endedAt: new Date().toISOString(),
+      messages: snapshot.map(message => ({
+        role: message.role,
+        content: message.text,
+        ts: message.ts,
+      })),
+    }
+
+    void fetch('/api/jarvis/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => undefined)
+  }, [])
 
   // ── Toast helpers ─────────────────────────────────────────────────────────
 
@@ -846,22 +956,72 @@ export default function JarvisPage() {
     window.speechSynthesis?.cancel()
   }, [])
 
+  // ── Audio level analyser for orb visualization ──────────────────────────────
+  const startAudioAnalyser = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const ctx = new AudioContext()
+      const source = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0.8
+      source.connect(analyser)
+      audioContextRef.current = ctx
+      audioAnalyserRef.current = analyser
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount)
+      const tick = () => {
+        analyser.getByteFrequencyData(dataArray)
+        // Average the lower frequencies (voice range: 85-300Hz)
+        let sum = 0
+        const bins = Math.min(16, dataArray.length)
+        for (let i = 0; i < bins; i++) sum += dataArray[i]
+        setAudioLevel(sum / bins / 255) // 0..1
+        audioAnimFrameRef.current = requestAnimationFrame(tick)
+      }
+      audioAnimFrameRef.current = requestAnimationFrame(tick)
+    } catch {
+      // Mic access denied — no visual feedback, but still works
+    }
+  }, [])
+
+  const stopAudioAnalyser = useCallback(() => {
+    if (audioAnimFrameRef.current) {
+      cancelAnimationFrame(audioAnimFrameRef.current)
+      audioAnimFrameRef.current = null
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {})
+      audioContextRef.current = null
+    }
+    audioAnalyserRef.current = null
+    setAudioLevel(0)
+  }, [])
+
   // ── Mic pause/resume — stop listening while JARVIS thinks/speaks (prevents echo) ──
 
   const pauseMic = useCallback(() => {
     if (micPausedRef.current) return
     micPausedRef.current = true
     if (recognitionRef.current) {
-      try { recognitionRef.current.stop() } catch { /* already stopped */ }
+      try { recognitionRef.current.abort() } catch { /* already stopped */ }
+      recognitionRef.current = null
     }
-  }, [])
+    setLiveTranscript('')
+    stopAudioAnalyser()
+  }, [stopAudioAnalyser])
 
   const resumeMic = useCallback(() => {
     micPausedRef.current = false
-    // If we were in listening mode before pausing, restart listening
-    if (modeRef.current === 'idle') {
-      setMode('idle')  // trigger wake listener restart in onend handler
-    }
+    window.setTimeout(() => {
+      // Don't restart mic if mode isn't idle (e.g. still thinking/speaking from a concurrent call)
+      if (modeRef.current !== 'idle') return
+      if (listeningRequestedRef.current && handsFreeEnabledRef.current) {
+        void startListeningRef.current?.()
+      } else if (hotwordEnabledRef.current) {
+        startWakeListenerRef.current?.()
+      }
+    }, 250)
   }, [])
 
   // ── Init ──────────────────────────────────────────────────────────────────
@@ -926,6 +1086,7 @@ export default function JarvisPage() {
           models?: ModelInfo[]
           active?: { provider: string; model: string } | null
           integrations?: { github?: boolean; discord?: boolean; googleSearch?: boolean }
+          host?: HostCapabilities
           tts?: TtsInfo
         }
         if (cancelled) return
@@ -933,6 +1094,7 @@ export default function JarvisPage() {
         setModels(data.models || [])
         setActiveModel(data.active || null)
         setIntegrations({ github: !!data.integrations?.github, discord: !!data.integrations?.discord, googleSearch: !!data.integrations?.googleSearch })
+        if (data.host) setHostCapabilities(data.host)
         if (data.tts) {
           setTtsInfo(data.tts)
           const saved = localStorage.getItem('gf_voiceEngine') as VoiceEngine | null
@@ -1085,10 +1247,17 @@ export default function JarvisPage() {
       if (!res.ok || ct.includes('application/json')) {
         const data = ct.includes('application/json') ? await res.json().catch(() => ({})) : {}
         ttsFailCountRef.current += 1
+        toast('warn', `${engine === 'fish-audio' ? 'Fish Audio' : 'TTS'} failed (${data.reason || `HTTP ${res.status}`}) — using browser voice`)
         if (ttsFailCountRef.current >= 2) {
           persistVoiceEngine('browser')
-          toast('warn', `${engine === 'fish-audio' ? 'Fish Audio' : 'TTS'} unavailable (${data.reason || 'error'}) — switched to browser voice`)
+          toast('warn', 'Repeated TTS failures — browser voice is now the default')
         }
+        return { ok: false, usedEngine: '' }
+      }
+
+      if (engine !== 'browser' && actualEngine !== engine) {
+        ttsFailCountRef.current += 1
+        toast('warn', `${engine === 'fish-audio' ? 'Fish Audio' : 'TTS'} returned ${actualEngine} unexpectedly — using browser voice`)
         return { ok: false, usedEngine: '' }
       }
 
@@ -1149,13 +1318,21 @@ export default function JarvisPage() {
   // ── Unified speak: external engines → browser fallback ───────────────────
 
   const speak = useCallback(async (text: string) => {
-    if (voiceEngine !== 'browser') {
-      const { ok } = await speakExternal(text)
-      if (ok) return
-      // Auto-fallback to browser if external failed
+    if (!text.trim()) return
+    // Prevent overlapping speak() calls — stop previous audio first
+    if (speakingRef.current) stopCurrentAudio()
+    speakingRef.current = true
+    try {
+      if (voiceEngine !== 'browser') {
+        const { ok } = await speakExternal(text)
+        if (ok) return
+        // Auto-fallback to browser if external failed
+      }
+      speakBrowser(text)
+    } finally {
+      speakingRef.current = false
     }
-    speakBrowser(text)
-  }, [voiceEngine, speakExternal, speakBrowser])
+  }, [voiceEngine, speakExternal, speakBrowser, stopCurrentAudio])
 
   useEffect(() => {
     proactiveTimerRef.current = setInterval(() => {
@@ -1196,6 +1373,16 @@ export default function JarvisPage() {
 
   // ── Send directly to Copilot CLI ─────────────────────────────────────────
 
+  const recordModelResponse = useCallback((modelName: string | undefined, latency: number, responseText: string) => {
+    if (typeof window === 'undefined' || !responseText.trim()) return
+
+    const recorder = (window as Window & {
+      __gf_recordModelResponse?: (model: string, responseLatency: number, responseLength: number) => void
+    }).__gf_recordModelResponse
+
+    recorder?.(modelName || selectedModel || liveModel?.model || 'auto', latency, responseText.length)
+  }, [liveModel, selectedModel])
+
   const sendToCopilot = useCallback(async (text: string) => {
     if (!text.trim()) return
     markActivity()
@@ -1209,6 +1396,7 @@ export default function JarvisPage() {
         body: JSON.stringify({
           message: `Use the copilot_ask tool to answer this for the user: ${text}`,
           memory,
+          persona,
         }),
       })
       const data = await res.json() as { speech: string; tool: string | null; toolResult: string | null; emotion: string }
@@ -1222,10 +1410,97 @@ export default function JarvisPage() {
       setCopilotThinking(false)
       setMode('idle')
     }
-  }, [memory, addUserMessage, addAIMessage, speak, markActivity])
+  }, [memory, persona, addUserMessage, addAIMessage, speak, markActivity])
+
+  // ── Screen capture for Clicky ─────────────────────────────────────────────
+  const captureScreen = useCallback(async (): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/jarvis/screen-capture', { method: 'POST' })
+      const data = await res.json() as { image?: string; error?: string }
+      if (data.image) {
+        setScreenCaptureData(data.image)
+        return data.image
+      }
+      return null
+    } catch {
+      return null
+    }
+  }, [])
+
+  // ── Handle Clicky tool responses ───────────────────────────────────────────
+  const handleClickyToolResult = useCallback((tool: string, result: string) => {
+    if (tool === 'point_cursor') {
+      try {
+        const parsed = JSON.parse(result) as { action: string; x: number; y: number; label?: string }
+        if (parsed.action === 'point_cursor') {
+          setClickyPoint({ x: parsed.x, y: parsed.y, label: parsed.label })
+          setTimeout(() => setClickyPoint(null), 5000)
+        }
+      } catch {}
+    }
+    if (tool === 'highlight_area') {
+      try {
+        const parsed = JSON.parse(result) as { action: string; x: number; y: number; w: number; h: number }
+        setClickyHighlight({ x: parsed.x, y: parsed.y, w: parsed.w, h: parsed.h })
+        setTimeout(() => setClickyHighlight(null), 5000)
+      } catch {}
+    }
+  }, [])
+
+  // ── Push-to-talk with screen capture ───────────────────────────────────────
+  const handlePushToTalk = useCallback(async () => {
+    if (pushToTalkRef.current) return
+    pushToTalkRef.current = true
+    setPushToTalkActive(true)
+    setVisionPending(true)
+
+    try {
+      const image = await captureScreen()
+      if (!image) {
+        toast('error', 'Screen capture failed — check Screen Recording permission')
+        return
+      }
+
+      // Send to vision model via the understand_screen tool
+      setMode('thinking')
+      const res = await fetch('/api/jarvis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'What do you see on this screen? Describe the UI elements and where they are.',
+          quickAction: 'understand_screen',
+          memory,
+          persona,
+        }),
+      })
+      const data = await res.json() as { speech: string; tool: string | null; toolResult: string | null; emotion: Emotion }
+      addAIMessage(data.speech, data.emotion || 'neutral', data.tool, data.toolResult)
+      if (data.tool) handleClickyToolResult(data.tool, data.toolResult || '')
+      void speak(data.speech)
+    } catch {
+      toast('error', 'Screen understanding failed')
+    } finally {
+      setVisionPending(false)
+      setPushToTalkActive(false)
+      pushToTalkRef.current = false
+      setMode('idle')
+    }
+  }, [captureScreen, memory, persona, addAIMessage, speak, handleClickyToolResult])
+
+  // ── Keyboard shortcut: Ctrl+Option for push-to-talk ───────────────────────
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.altKey && e.key === 'v') {
+        e.preventDefault()
+        void handlePushToTalk()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handlePushToTalk])
 
   // ── Send to G.F.A.I. ─────────────────────────────────────────
-  const sendToJarvis = useCallback(async (text: string) => {
+  const sendToJarvis = useCallback(async (text: string, quickAction?: string) => {
     if (!text.trim()) return
     markActivity()
     // If Copilot Mode is ON, route directly to Copilot CLI
@@ -1236,6 +1511,7 @@ export default function JarvisPage() {
       text = `Ask GitHub Copilot CLI: ${copilotMatch[1]}`
     }
     addUserMessage(text)
+    modeRef.current = 'thinking'
     setMode('thinking')
     pauseMic()  // stop mic while thinking — mic restarts when JARVIS finishes speaking
     setLastToolUsed(null)
@@ -1259,6 +1535,8 @@ export default function JarvisPage() {
     }
 
     try {
+      const startedAt = Date.now()
+      let latestResponseText = ''
       const historySlice = messages.slice(-8).map(m => ({
         role: m.role === 'ai' ? 'assistant' : 'user', content: m.text,
       }))
@@ -1266,6 +1544,8 @@ export default function JarvisPage() {
       const upsertAIMessage = (patch: Partial<Message> & { text: string }) => {
         setMessages(prev => {
           const index = prev.findIndex(message => message.id === responseId)
+          if (patch.text && patch.text !== '...') latestResponseText = patch.text
+
           const nextMessage: Message = {
             id: responseId,
             role: 'ai',
@@ -1298,10 +1578,13 @@ export default function JarvisPage() {
         },
         body: JSON.stringify({
           message: text,
+          quickAction,
           history: historySlice,
           memory,
           selectedProvider: selectedProvider || undefined,
           selectedModel: selectedModel || undefined,
+          persona,
+          offlineMode,
           confirmRisk: /^(confirm|yes|proceed|do it|تأكيد|نعم)$/i.test(text.trim()) && pendingRiskMsg != null,
           lang: msgLang,
           platform: platform.type,
@@ -1325,6 +1608,7 @@ export default function JarvisPage() {
         const { speech, tool, toolResult, emotion, usedModel, usedProvider, domain, confidence, risk, requiresConfirmation, detectedLang: serverLang } = data
 
         if (tool) setLastToolUsed(tool)
+        if (tool && toolResult) handleClickyToolResult(tool, toolResult)
         if (serverLang && serverLang !== detectedLang) {
           setDetectedLang(serverLang)
           setSpeechLang(getSpeechLang(serverLang))
@@ -1339,6 +1623,7 @@ export default function JarvisPage() {
         }
 
         addAIMessage(speech, emotion || 'neutral', tool, toolResult, usedModel, domain, confidence, risk, requiresConfirmation)
+        recordModelResponse(usedModel, Date.now() - startedAt, speech)
         void speak(speech)
 
         if (requiresConfirmation) {
@@ -1403,6 +1688,10 @@ export default function JarvisPage() {
             if (requiresConfirmation) {
               toast('warn', `⚠️ High-risk action detected. Reply "confirm" to proceed or "cancel" to abort.`, 10000)
               setPendingRiskMsg({ message: text, tool: currentTool || '' })
+              // Still speak the warning so user hears it, then return to idle so they can type
+              if (payload.speech) void speak(payload.speech)
+              setMode('idle')
+              resumeMic()
             } else {
               setPendingRiskMsg(null)
               if (!currentTool && payload.speech) {
@@ -1436,13 +1725,14 @@ export default function JarvisPage() {
                 toast('warn', `Selected "${selectedModel}" unavailable — used "${payload.usedModel}" instead`)
               }
             }
+            recordModelResponse(payload.usedModel, Date.now() - startedAt, latestResponseText)
             fetch('/api/jarvis/memory', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ conversationCount: (memory.conversationCount || 0) + 1 }),
             }).catch(() => {})
-            if (!currentTool && !requiresConfirmation) {
-              setMode('idle')
-            }
+            // Always transition to idle on done — tools and confirmation already handled their own speak/mic
+            setMode('idle')
+            resumeMic()
             break
         }
       }
@@ -1485,56 +1775,29 @@ export default function JarvisPage() {
       const err = 'Systems error. Please try again.'
       addAIMessage(err, 'alert', null, null)
       toast('error', `Request failed: ${String(e).slice(0, 60)}`)
+      // speak() handles mode transition to idle and mic resume via its onended/onerror
       await speak(err)
-      setMode('idle')
-      resumeMic()
       console.error(e)
     }
-  }, [messages, memory, selectedProvider, selectedModel, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast, pauseMic, resumeMic, markActivity])
+  }, [messages, memory, selectedProvider, selectedModel, persona, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast, pauseMic, resumeMic, markActivity, recordModelResponse])
 
   // ── Voice recognition ─────────────────────────────────────────────────────
 
-  // Request mic permission explicitly — called ONCE, result cached in micPermGranted ref
-  const requestMicPermission = useCallback(async (): Promise<boolean> => {
-    if (micPermGranted.current) return true
-
-    // navigator.mediaDevices is undefined on HTTP (non-localhost). Requires HTTPS or localhost.
-    if (!navigator.mediaDevices?.getUserMedia) {
-      const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-      if (!isLocal) {
-        toast('error', '🎤 Microphone requires HTTPS. Access via https:// or use localhost:3001 instead of the IP address.')
-      } else {
-        toast('error', '🎤 Microphone API not available in this browser. Use Chrome or Edge.')
-      }
-      return false
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      stream.getTracks().forEach(t => t.stop())
-      micPermGranted.current = true
-      return true
-    } catch (e) {
-      const name = (e as Error).name || ''
-      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        toast('error', '🎤 Mic denied. Click the 🔒 icon in the address bar and allow microphone.')
-      } else {
-        toast('error', `Mic error: ${(e as Error).message}`)
-      }
-      return false
-    }
-  }, [toast])
-
   const startListening = useCallback(async () => {
     const SR = getSR()
-    if (!SR) { toast('error', 'Speech recognition not supported. Use Chrome or Edge.'); return }
-    window.speechSynthesis?.cancel()
-
-    // Only request permission once — subsequent restarts skip this
-    if (!micPermGranted.current) {
-      const granted = await requestMicPermission()
-      if (!granted) return
+    if (!SR) {
+      const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+      toast('error', isLocal ? '🎤 Speech recognition not supported — use Chrome or Edge.' : '🎤 Mic requires HTTPS — use localhost:3001')
+      return
     }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast('error', '🎤 Microphone API unavailable — use Chrome or Edge on localhost/HTTPS.')
+      return
+    }
+
+    // Stop ALL audio to prevent echo
+    stopCurrentAudio()
 
     // Abort wake listener and any existing session
     if (wakeRecognitionRef.current) {
@@ -1546,16 +1809,17 @@ export default function JarvisPage() {
       recognitionRef.current = null
     }
 
+    listeningRequestedRef.current = true
+    micPausedRef.current = false
+    modeRef.current = 'listening'
     setMode('listening')
+    setLiveTranscript('')
+    startAudioAnalyser()
 
-    // ── Inner restart function — no permission check, no abort dance ──────
-    // Called from onend/onerror to keep listening alive without full setup overhead
     const createAndStart = () => {
-      if (modeRef.current !== 'listening') return  // user stopped — don't restart
-      const SRInner = getSR()
-      if (!SRInner) return
+      if (!listeningRequestedRef.current || micPausedRef.current) return
 
-      const rec = new SRInner()
+      const rec = new SR()
       rec.lang = speechLang
       rec.continuous = true
       rec.interimResults = true
@@ -1563,86 +1827,102 @@ export default function JarvisPage() {
       recognitionRef.current = rec
 
       let silenceTimer: ReturnType<typeof setTimeout> | null = null
+      let latestTranscript = ''
 
       rec.onresult = (e: Any) => {
         if (silenceTimer) clearTimeout(silenceTimer)
+        latestTranscript = collectRecognitionTranscript(e.results)
+        if (!latestTranscript) return
+        setInput(latestTranscript)
+        setLiveTranscript(latestTranscript)
 
-        // Collect only NEW results from e.resultIndex (cumulative API — old ones already sent)
-        let text = ''
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          // Take transcript regardless of isFinal — on Mac Chrome isFinal may never be true
-          if (e.results[i][0]?.transcript) {
-            text += e.results[i][0].transcript
-          }
-        }
-
-        const captured = text.trim()
-        if (!captured) return
-
-        // Cancel any queued send and restart the silence window
+        const currentResult = e.results[e.results.length - 1]
+        const delay = currentResult?.isFinal ? 350 : 1100
         silenceTimer = setTimeout(() => {
           silenceTimer = null
-          if (captured) { setInput(''); void sendToJarvis(captured) }
-        }, 1200)
+          const captured = latestTranscript.trim()
+          if (!captured) return
+          listeningRequestedRef.current = handsFreeEnabledRef.current
+          setInput('')
+          setLiveTranscript('')
+          void sendToJarvis(captured)
+        }, delay)
       }
 
       rec.onerror = (ev: Any) => {
         if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null }
         recognitionRef.current = null
-        if (ev?.error === 'not-allowed') {
-          micPermGranted.current = false
-          toast('error', '🎤 Mic blocked. Allow in browser address bar → then click 🎤 again.')
+        const err = ev?.error || 'unknown'
+        if (err === 'not-allowed' || err === 'service-not-allowed') {
+          toast('error', '🎤 Mic blocked — click the lock icon in the address bar → Allow microphone → then try again.')
+          listeningRequestedRef.current = false
+          stopAudioAnalyser()
           setMode('idle')
-        } else if (ev?.error === 'aborted') {
-          // intentional — do nothing, onend will fire and handle it
-        } else if (ev?.error === 'no-speech') {
-          // silence timeout — immediately restart, stay in listening mode
+          modeRef.current = 'idle'
+        } else if (err === 'aborted') {
+          // intentional
+        } else if (err === 'no-speech') {
           setTimeout(createAndStart, 50)
         } else {
-          // network/service error — brief pause then restart
-          if (modeRef.current === 'listening') setTimeout(createAndStart, 600)
-          else setMode('idle')
+          if (listeningRequestedRef.current && !micPausedRef.current) setTimeout(createAndStart, 600)
+          else { setMode('idle'); modeRef.current = 'idle' }
         }
       }
 
       rec.onend = () => {
         if (silenceTimer) clearTimeout(silenceTimer)
         recognitionRef.current = null
-        if (modeRef.current === 'listening') {
-          // recognition ended while we still want to listen — restart immediately
+        if (listeningRequestedRef.current && !micPausedRef.current) {
           setTimeout(createAndStart, 100)
         } else {
-          // user stopped or JARVIS took over — restart wake word if active
-          if (wakeWordActiveRef.current && !wakeRecognitionRef.current) {
-            setTimeout(() => { if (wakeWordActiveRef.current) startWakeListener() }, 600)
+          if (hotwordEnabledRef.current && !wakeRecognitionRef.current) {
+            setTimeout(() => { if (hotwordEnabledRef.current) startWakeListenerRef.current?.() }, 600)
           }
         }
       }
 
       try {
         rec.start()
+        if (!micPermGranted.current) {
+          micPermGranted.current = true
+          toast('success', '🎤 Microphone connected — speak now')
+        }
       } catch {
-        // start() failed (e.g. mic briefly busy) — retry after short delay
         recognitionRef.current = null
-        setTimeout(() => { if (modeRef.current === 'listening') createAndStart() }, 400)
+        if (listeningRequestedRef.current && !micPausedRef.current) setTimeout(createAndStart, 400)
       }
     }
 
-    // Small initial delay to let browser fully release mic from any prior session
-    setTimeout(createAndStart, 150)
-  }, [sendToJarvis, speechLang, toast, requestMicPermission])
+    createAndStart()
+  }, [sendToJarvis, speechLang, toast, stopCurrentAudio, startAudioAnalyser, stopAudioAnalyser])
+
+  useEffect(() => {
+    startListeningRef.current = startListening
+  }, [startListening])
+
+  const stopListening = useCallback(() => {
+    listeningRequestedRef.current = false
+    micPausedRef.current = false
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort() } catch { /* ignore */ }
+      recognitionRef.current = null
+    }
+    setInput('')
+    setLiveTranscript('')
+    stopAudioAnalyser()
+    modeRef.current = 'idle'
+    setMode('idle')
+  }, [stopAudioAnalyser])
 
   // ── Wake word ─────────────────────────────────────────────────────────────
 
-  const WAKE_PHRASES = ['hey jarvis', 'jarvis', 'hey ghostforge', 'ghost forge', 'hey forge', 'gfai', 'g f a i', 'hey gfai']
-
   const startWakeListener = useCallback(() => {
     const SR = getSR()
-    if (!SR || !wakeWordActiveRef.current) return
+    if (!SR || !hotwordEnabledRef.current || modeRef.current !== 'idle' || micPausedRef.current) return
     if (wakeRecognitionRef.current) return  // already running
 
     const rec = new SR()
-    rec.lang = 'en-US'
+    rec.lang = speechLang
     rec.continuous = true
     rec.interimResults = true
     rec.maxAlternatives = 1
@@ -1650,23 +1930,30 @@ export default function JarvisPage() {
 
     rec.onresult = (e: Any) => {
       if (modeRef.current !== 'idle') return
-      const transcript = Array.from(e.results as Any[])
-        .map((r: Any) => r[0].transcript).join(' ').toLowerCase().trim()
-      const triggered = WAKE_PHRASES.some(phrase => transcript.includes(phrase))
+      const transcript = collectRecognitionTranscript(e.results)
+      const triggered = findWakePhrase(transcript)
       if (triggered) {
+        wakeJustDetectedRef.current = true
         try { rec.abort() } catch { /* ignore */ }
         wakeRecognitionRef.current = null
-        void speak("Yes, I'm listening.")
-        setTimeout(startListening, 800)
+        setWakeWordActive(false)
+        toast('success', `${triggered} detected — listening`)
+        window.setTimeout(() => { void startListening() }, 200)
       }
     }
     rec.onend = () => {
       wakeRecognitionRef.current = null
-      if (wakeWordActiveRef.current && !wakeRestartingRef.current) {
+      setWakeWordActive(false)
+      // Skip restart if we just detected the wake phrase — startListening will take over
+      if (wakeJustDetectedRef.current) {
+        wakeJustDetectedRef.current = false
+        return
+      }
+      if (hotwordEnabledRef.current && modeRef.current === 'idle' && !wakeRestartingRef.current) {
         wakeRestartingRef.current = true
         setTimeout(() => {
           wakeRestartingRef.current = false
-          if (wakeWordActiveRef.current) startWakeListener()
+          if (hotwordEnabledRef.current) startWakeListener()
         }, 500)
       }
     }
@@ -1674,28 +1961,46 @@ export default function JarvisPage() {
       wakeRecognitionRef.current = null
       if (ev?.error === 'not-allowed') {
         setWakeWordActive(false)
-        wakeWordActiveRef.current = false
+        setHotwordEnabled(false)
+        hotwordEnabledRef.current = false
+        localStorage.setItem('gf_hotword', 'false')
         toast('error', 'Microphone permission denied. Enable in browser settings.')
         return
       }
-      if (wakeWordActiveRef.current && !wakeRestartingRef.current) {
+      if (hotwordEnabledRef.current && !wakeRestartingRef.current) {
         wakeRestartingRef.current = true
         setTimeout(() => {
           wakeRestartingRef.current = false
-          if (wakeWordActiveRef.current) startWakeListener()
+          if (hotwordEnabledRef.current) startWakeListener()
         }, 700)
       }
     }
-    try { rec.start() } catch { wakeRecognitionRef.current = null }
-  }, [speak, startListening, toast])
+    try {
+      rec.start()
+      setWakeWordActive(true)
+      toast('success', '🔊 Wake word active — say "Hey GhostForge" or "Hey JARVIS"', 3000)
+    } catch {
+      wakeRecognitionRef.current = null
+      setWakeWordActive(false)
+    }
+  }, [startListening, toast, speechLang])
+
+  useEffect(() => {
+    startWakeListenerRef.current = startWakeListener
+    if (hotwordEnabled && mode === 'idle' && !listeningRequestedRef.current) {
+      startWakeListener()
+    }
+  }, [hotwordEnabled, mode, startWakeListener])
 
   const toggleWakeWord = useCallback(async () => {
     const SR = getSR()
     if (!SR) { toast('error', 'Speech recognition not supported in this browser.'); return }
 
-    if (wakeWordActiveRef.current) {
-      wakeWordActiveRef.current = false
+    if (hotwordEnabledRef.current) {
+      hotwordEnabledRef.current = false
+      setHotwordEnabled(false)
       setWakeWordActive(false)
+      localStorage.setItem('gf_hotword', 'false')
       if (wakeRecognitionRef.current) {
         try { wakeRecognitionRef.current.abort() } catch { /* ignore */ }
         wakeRecognitionRef.current = null
@@ -1703,15 +2008,19 @@ export default function JarvisPage() {
       return
     }
 
-    // Request mic permission before enabling wake word
-    const granted = await requestMicPermission()
-    if (!granted) return
+    // Verify mic API is available before enabling wake word
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+      toast('error', isLocal ? '🎤 Speech recognition not supported — use Chrome or Edge.' : '🎤 Mic requires HTTPS — use localhost:3001')
+      return
+    }
 
-    setWakeWordActive(true)
-    wakeWordActiveRef.current = true
+    setHotwordEnabled(true)
+    hotwordEnabledRef.current = true
+    localStorage.setItem('gf_hotword', 'true')
     wakeRestartingRef.current = false
     startWakeListener()
-  }, [startWakeListener, requestMicPermission, toast])
+  }, [startWakeListener, toast, stopCurrentAudio])
 
   // ── Form submit ───────────────────────────────────────────────────────────
 
@@ -1749,26 +2058,33 @@ export default function JarvisPage() {
 
   // ── Quick commands ────────────────────────────────────────────────────────
 
-  const QUICK_COMMANDS = [
-    { label: '⏰ Time',       cmd: "What's the current time and date?" },
-    { label: '🌤 Weather',   cmd: 'What\'s the weather like right now?' },
-    { label: '🔍 Search',    cmd: 'Search for the latest AI news' },
-    { label: '💻 System',    cmd: 'Give me a system status report' },
-    { label: '📸 Screenshot',cmd: 'Take a screenshot' },
-    { label: '🔒 Lock',      cmd: 'Lock the screen' },
-    { label: '🎵 Play',      cmd: 'Play music on Spotify' },
-    { label: '🔔 Remind',    cmd: 'Remind me to check my tasks in 1 hour' },
-    { label: '📋 Clipboard', cmd: 'What\'s in my clipboard?' },
-    { label: '📝 Note',      cmd: 'Save note: reviewed code today' },
-    { label: '🤖 Copilot',   cmd: 'Ask Copilot: how do I list all running processes on Mac?' },
-    ...(integrations.github ? [{ label: '🐙 GitHub', cmd: 'Show my GitHub repositories' }] : []),
-    ...(integrations.discord ? [{ label: '💬 Discord', cmd: 'Send a Discord message: GhostForge AI is online' }] : []),
-  ]
+  const activePersona = PERSONA_OPTIONS.find(option => option.id === persona) || PERSONA_OPTIONS[0]
+  const currentModelName = liveModel?.model || selectedModel || 'auto'
+
+  const QUICK_COMMANDS = JARVIS_QUICK_ACTIONS.filter(action => {
+    if (action.scope === 'mac') return hostCapabilities.macControl
+    if (action.id === 'browser') return hostCapabilities.browserControl
+    return true
+  })
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <>
+      <LLMfitAutoSwitch
+        currentModel={currentModelName}
+        enabled={autoSwitch}
+        onSwitch={(nextModel, reason) => {
+          const matchedModel = models.find(modelOption => modelOption.id === nextModel || modelOption.label === nextModel)
+          if (matchedModel) {
+            setSelectedProvider(matchedModel.provider)
+            setSelectedModel(matchedModel.id)
+          } else {
+            setSelectedModel(nextModel)
+          }
+          toast('info', `Auto-switched to ${nextModel}: ${reason}`)
+        }}
+      />
       <style>{`
         @keyframes scanline {
           0%   { transform: translateY(-100%); opacity: 0; }
@@ -1778,6 +2094,8 @@ export default function JarvisPage() {
         }
         @keyframes hudFadeIn { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
         @keyframes statusBlink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes gfai-pulse { 0%,100%{box-shadow:0 0 8px rgba(0,255,136,0.2)} 50%{box-shadow:0 0 20px rgba(0,255,136,0.5)} }
+        @keyframes orbPulse { 0%,100%{filter:drop-shadow(0 0 24px rgba(0,255,136,0.25))} 50%{filter:drop-shadow(0 0 40px rgba(0,255,136,0.6))} }
         .gfai-scan   { animation: scanline 6s linear infinite; }
         .gfai-fade   { animation: hudFadeIn 0.35s ease both; }
         .gfai-blink  { animation: statusBlink 2s ease-in-out infinite; }
@@ -1830,11 +2148,20 @@ export default function JarvisPage() {
             <span className="font-mono text-[10px] text-blue-400/40 hidden sm:block" title={`Device: ${platform.type} | Lang: ${detectedLang}`}>
               {platformLabel(platform)} {detectedLang !== 'en' ? `| ${detectedLang.toUpperCase()}` : ''}
             </span>
+            <span className="hidden rounded border px-2 py-1 font-mono text-[10px] sm:block" style={{ borderColor: `${mc.ring}33`, color: mc.ring, background: `${mc.ring}12` }}>
+              {activePersona.badge}
+            </span>
+            <Link href="/history"
+              className="font-mono text-[10px] rounded px-2 py-1 border transition"
+              style={{ borderColor: `${mc.ring}44`, color: '#67e8f9cc', background: 'transparent' }}>
+              📜 HISTORY
+            </Link>
             <button type="button" onClick={() => setShowSettings(s => !s)}
               className="font-mono text-[10px] rounded px-2 py-1 border transition"
               style={{ borderColor: `${mc.ring}44`, color: `${mc.ring}99`, background: showSettings ? `${mc.ring}18` : 'transparent' }}>
               ⚙ SETTINGS
             </button>
+            <CollabShare />
             <button type="button" onClick={() => setShowAudit(s => !s)}
               className="font-mono text-[10px] rounded px-2 py-1 border transition"
               style={{ borderColor: `${mc.ring}44`, color: '#f59e0b99', background: showAudit ? 'rgba(245,158,11,0.08)' : 'transparent' }}
@@ -1886,6 +2213,11 @@ export default function JarvisPage() {
               <div className="flex-1 min-w-[280px]">
                 <div className="flex items-center gap-2 mb-1.5">
                   <p className="text-blue-400/40 tracking-widest">AI MODEL</p>
+                  {offlineMode && (
+                    <span className="rounded border border-emerald-500/40 bg-emerald-950/40 px-1.5 py-0.5 text-[9px] text-emerald-300">
+                      OFFLINE · LOCAL ONLY
+                    </span>
+                  )}
                   {selectedProvider && (
                     <span className="rounded px-1.5 py-0.5 text-[9px]"
                       style={{ background: `${mc.ring}22`, color: mc.ring }}>
@@ -1909,7 +2241,7 @@ export default function JarvisPage() {
                     }}>
                     AUTO (CHAIN)
                   </button>
-                  {models.filter(m => m.available).map(m => {
+                  {models.filter(m => m.available && (!offlineMode || m.provider === 'ollama' || m.provider === 'llamacpp')).map(m => {
                     const isActive = selectedProvider === m.provider && selectedModel === m.id
                     const isLast = liveModel?.provider === m.provider && liveModel?.model === m.id
                     return (
@@ -1933,6 +2265,80 @@ export default function JarvisPage() {
                       </button>
                     )
                   })}
+                </div>
+                <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-500/20 bg-emerald-950/10 px-3 py-2">
+                  <div>
+                    <p className="text-[11px] text-emerald-300">Offline mode</p>
+                    <p className="text-[9px] text-emerald-200/50">Ollama first, llama.cpp fallback; cloud providers are blocked</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !offlineMode
+                      setOfflineMode(next)
+                      localStorage.setItem('gf_offline', String(next))
+                      if (next && selectedProvider && selectedProvider !== 'ollama' && selectedProvider !== 'llamacpp') {
+                        setSelectedProvider('')
+                        setSelectedModel('')
+                      }
+                      toast(next ? 'success' : 'info', next ? 'Offline mode enabled — local models only' : 'Cloud fallback enabled')
+                    }}
+                    className={`relative h-6 w-12 rounded-full transition-colors ${offlineMode ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+                  >
+                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${offlineMode ? 'left-7' : 'left-1'}`} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="min-w-[280px]">
+                <p className="mb-1.5 text-blue-400/40 tracking-widest">PERSONA</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {PERSONA_OPTIONS.map(option => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => {
+                        setPersona(option.id)
+                        localStorage.setItem('gf_persona', option.id)
+                      }}
+                      className={`rounded-lg border p-2 text-left transition-colors ${persona === option.id ? 'border-blue-500 bg-blue-900/40 text-blue-300' : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
+                    >
+                      <div className="text-sm font-medium">{option.label}</div>
+                      <div className="text-xs text-zinc-500">{option.desc}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-zinc-300">🎙️ Hotword Detection</p>
+                    <p className="text-xs text-zinc-500">"Hey GhostForge" / "Hey JARVIS"</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void toggleWakeWord()}
+                    className={`relative h-6 w-12 rounded-full transition-colors ${hotwordEnabled ? 'bg-blue-600' : 'bg-zinc-700'}`}
+                  >
+                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${hotwordEnabled ? 'left-7' : 'left-1'}`} />
+                  </button>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm text-zinc-300">🎧 Hands-free Conversation</p>
+                    <p className="text-xs text-zinc-500">Resume listening after each JARVIS response</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !handsFreeEnabled
+                      setHandsFreeEnabled(next)
+                      handsFreeEnabledRef.current = next
+                      localStorage.setItem('gf_handsfree', String(next))
+                      if (!next) listeningRequestedRef.current = false
+                    }}
+                    className={`relative h-6 w-12 rounded-full transition-colors ${handsFreeEnabled ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+                  >
+                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${handsFreeEnabled ? 'left-7' : 'left-1'}`} />
+                  </button>
                 </div>
               </div>
 
@@ -1983,7 +2389,7 @@ export default function JarvisPage() {
                   {!ttsInfo?.fishAudio && !ttsInfo?.elevenLabs
                     ? '⚠ Get free JARVIS voice: fish.audio/app/api-keys → add FISH_AUDIO_API_KEY to .env.local'
                     : ttsInfo?.fishAudio
-                      ? '🎙 Fish Audio model ID: 612b878b113047d9a770c069c8b4fdfe (Iron Man JARVIS)'
+                      ? '🎙 Fish Audio model ID: 36b6f66cfecf466caac7fcba1f8b59c8 (JARVIS)'
                       : ''}
                 </p>
               </div>
@@ -2029,10 +2435,10 @@ export default function JarvisPage() {
               <p className="text-blue-400/40 tracking-widest mb-2">SYSTEMS</p>
               {[
                 { label: 'AI ENGINE', val: liveModel ? liveModel.model?.split('/').pop()?.split(':')[0]?.slice(0, 14) || 'ONLINE' : 'ONLINE', ok: true },
-                { label: 'MAC CTRL', val: 'READY', ok: true },
+                { label: 'MAC CTRL', val: hostCapabilities.macControl ? (platform.isMac ? 'LOCAL' : 'REMOTE') : 'N/A', ok: hostCapabilities.macControl },
                 { label: 'MEMORY', val: memory.conversationCount > 0 ? `${memory.conversationCount} SES` : 'INIT', ok: true },
                 { label: 'VOICE', val: voiceEngine === 'fish-audio' ? 'JARVIS' : voiceEngine === 'elevenlabs' ? 'ELEVENLABS' : voiceSupported ? 'BROWSER' : 'N/A', ok: voiceSupported || voiceEngine !== 'browser' },
-                { label: 'WAKE WORD', val: wakeWordActive ? 'ACTIVE' : 'OFF', ok: wakeWordActive },
+                { label: 'WAKE WORD', val: hotwordEnabled || wakeWordActive ? 'ACTIVE' : 'OFF', ok: hotwordEnabled || wakeWordActive },
                 { label: 'GITHUB', val: integrations.github ? 'LINKED' : 'N/A', ok: integrations.github },
                 { label: 'DISCORD', val: integrations.discord ? 'LINKED' : 'N/A', ok: integrations.discord },
               ].map(s => (
@@ -2110,19 +2516,22 @@ export default function JarvisPage() {
               <button type="button"
                 onClick={
                   mode === 'speaking' ? stopSpeaking :
-                  mode === 'listening' ? () => { recognitionRef.current?.abort(); recognitionRef.current = null; setMode('idle') } :
+                  mode === 'listening' ? stopListening :
                   mode === 'idle' ? () => { void startListening() } : undefined
                 }
                 disabled={mode === 'thinking'}
                 className="relative cursor-pointer disabled:cursor-wait transition-transform active:scale-95"
-                style={{ filter: `drop-shadow(0 0 24px ${mc.glow})` }}
+                style={{
+                  filter: `drop-shadow(0 0 24px ${mc.glow})`,
+                  animation: mode === 'listening' ? 'orbPulse 1.5s ease-in-out infinite' : 'none',
+                }}
                 title={
-                  mode === 'idle' ? 'Click to speak' :
+                  mode === 'idle' ? 'Click to speak (or say "Hey GhostForge")' :
                   mode === 'listening' ? 'Listening… click to stop' :
                   mode === 'speaking' ? 'Click to stop speaking' : 'Processing…'
                 }
               >
-                <OrbSVG mode={mode} />
+                <OrbSVG mode={mode} audioLevel={audioLevel} />
               </button>
 
               <HardwareMetrics isMobile={platform.isMobile} />
@@ -2131,21 +2540,28 @@ export default function JarvisPage() {
               <div className="flex items-center gap-2">
                 {voiceSupported && (
                   <>
-                    <button type="button" onClick={() => void startListening()}
-                      disabled={mode !== 'idle' && mode !== 'speaking'}
-                      className="font-mono text-[10px] rounded px-3 py-1.5 border transition disabled:opacity-30"
-                      style={{ borderColor: `${mc.ring}66`, color: mc.ring, background: `${mc.ring}11` }}>
-                      🎤 SPEAK
+                    <button type="button"
+                      onClick={mode === 'listening' ? () => stopListening() : () => void startListening()}
+                      disabled={mode === 'thinking'}
+                      className="font-mono text-[10px] rounded px-3 py-1.5 border transition disabled:opacity-30 active:scale-95"
+                      style={{
+                        borderColor: mode === 'listening' ? '#00ff88' : `${mc.ring}66`,
+                        color: mode === 'listening' ? '#00ff88' : mc.ring,
+                        background: mode === 'listening' ? 'rgba(0,255,136,0.12)' : `${mc.ring}11`,
+                        boxShadow: mode === 'listening' ? '0 0 12px rgba(0,255,136,0.3)' : 'none',
+                        animation: mode === 'listening' ? 'gfai-pulse 1.5s ease-in-out infinite' : 'none',
+                      }}>
+                      {mode === 'listening' ? '■ STOP' : '🎤 SPEAK'}
                     </button>
                     <button type="button" onClick={() => void toggleWakeWord()}
                       className="font-mono text-[10px] rounded px-3 py-1.5 border transition"
                       style={{
-                        borderColor: wakeWordActive ? '#00ff88' : `${mc.ring}44`,
-                        color: wakeWordActive ? '#00ff88' : `${mc.ring}88`,
-                        background: wakeWordActive ? 'rgba(0,255,136,0.08)' : 'transparent',
+                        borderColor: hotwordEnabled ? '#00ff88' : `${mc.ring}44`,
+                        color: hotwordEnabled ? '#00ff88' : `${mc.ring}88`,
+                        background: hotwordEnabled ? 'rgba(0,255,136,0.08)' : 'transparent',
                       }}
-                      title='Say "Hey GhostForge" to activate'>
-                      {wakeWordActive ? '🔊 WAKE ON' : '😴 WAKE OFF'}
+                      title='Say "Hey GhostForge" or "Hey JARVIS" to activate'>
+                      {hotwordEnabled ? (wakeWordActive ? '🔊 WAKE ON' : '⏳ WAKE READY') : '😴 WAKE OFF'}
                     </button>
                   </>
                 )}
@@ -2180,6 +2596,18 @@ export default function JarvisPage() {
                 className="gfai-input flex-1 rounded-lg border bg-transparent px-4 py-2.5 font-mono text-sm text-gray-100 placeholder-gray-600 transition disabled:opacity-40"
                 style={{ borderColor: `${mc.ring}44` }}
               />
+              <button type="button"
+                onClick={handlePushToTalk}
+                disabled={visionPending || mode === 'thinking'}
+                title="Screen capture + Vision (Ctrl+Option)"
+                className="shrink-0 rounded-lg border px-3 py-2.5 font-mono text-xs transition disabled:opacity-30 active:scale-95"
+                style={{
+                  borderColor: pushToTalkActive ? '#22c55e' : `${mc.ring}44`,
+                  color: pushToTalkActive ? '#22c55e' : `${mc.ring}88`,
+                  background: pushToTalkActive ? 'rgba(34,197,94,0.15)' : `${mc.ring}08`,
+                }}>
+                {visionPending ? '◎' : '◉'}
+              </button>
               <button type="submit"
                 disabled={!input.trim() || mode === 'thinking'}
                 className="shrink-0 rounded-lg border px-4 py-2.5 font-mono text-xs font-bold transition disabled:opacity-30 active:scale-95"
@@ -2195,8 +2623,8 @@ export default function JarvisPage() {
             <p className="font-mono text-[10px] text-blue-400/40 tracking-widest mb-1">QUICK COMMANDS</p>
             <div className="flex-1 overflow-y-auto gfai-scroll space-y-1">
               {QUICK_COMMANDS.map(q => (
-                <button type="button" key={q.label}
-                  onClick={() => void sendToJarvis(q.cmd)}
+                <button type="button" key={q.id}
+                  onClick={() => void sendToJarvis(q.prompt, q.id)}
                   disabled={mode === 'thinking' || mode === 'listening'}
                   className="w-full text-left rounded px-2 py-1.5 font-mono text-[10px] border transition disabled:opacity-30 hover:border-blue-600/60"
                   style={{ borderColor: `${mc.ring}22`, color: 'rgba(200,210,255,0.7)', background: `${mc.ring}08` }}>
@@ -2225,7 +2653,7 @@ export default function JarvisPage() {
                   ? `${activeModel.provider}/${activeModel.model}`
                   : 'AI ENGINE STANDBY'}
           </span>
-          <span>PRIVATE · LOCAL · SECURE</span>
+          <span>{offlineMode ? 'OFFLINE · LOCAL ONLY · SECURE' : 'PRIVATE · LOCAL · SECURE'}</span>
         </div>
 
         {/* Toast container */}
@@ -2237,6 +2665,11 @@ export default function JarvisPage() {
             onClose={() => setClipboardPanel(prev => ({ ...prev, visible: false }))}
           />
         )}
+        {/* Clicky blue cursor overlay */}
+        <ClickyOverlay
+          point={clickyPoint}
+          highlight={clickyHighlight}
+        />
       </div>
     </>
   )

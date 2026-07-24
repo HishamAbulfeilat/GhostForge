@@ -3,6 +3,8 @@ import './globals.css'
 import { Providers } from './providers'
 import { Navbar } from '@/components/Navbar'
 import { ChunkErrorHandler } from '@/components/ChunkErrorHandler'
+import CommandPalette from '@/components/CommandPalette'
+import PWAInstallBanner from '@/components/PWAInstallBanner'
 
 export const metadata: Metadata = {
   title: 'G.F.A.I. — GhostForge AI',
@@ -15,7 +17,7 @@ export const metadata: Metadata = {
   },
   other: {
     'mobile-web-app-capable': 'yes',
-    'msapplication-TileColor': '#06b6d4',
+    'msapplication-TileColor': '#18181b',
   },
 }
 
@@ -24,10 +26,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 5,
   viewportFit: 'cover',
-  themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#030712' },
-    { media: '(prefers-color-scheme: light)', color: '#06b6d4' },
-  ],
+  themeColor: '#18181b',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -36,14 +35,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/icon-192.png" />
+        <meta name="theme-color" content="#18181b" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
-      <body className="min-h-screen bg-gray-950 text-gray-100 antialiased">
+      <body className="min-h-dvh bg-gray-950 text-gray-100 antialiased">
         <Providers>
           <ChunkErrorHandler />
           <Navbar />
           {children}
+          <CommandPalette />
+          <PWAInstallBanner />
         </Providers>
       </body>
     </html>

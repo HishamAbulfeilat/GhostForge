@@ -18,6 +18,8 @@ import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { filterMenuChoices, groupCommandChoices } from './lib/menu-search.js';
 import { readRecentCommands, rememberCommand } from './lib/recent-commands.js';
+import { askGFAI } from './lib/gfai-client.js';
+import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -414,10 +416,25 @@ async function screenHome() {
     { name: T.danger('✖   Exit'), value: 'exit', searchText: 'exit quit close' },
   ];
 
+  const quickValues = new Set([
+    'commandcenter', 'jarvis', 'guideme', 'commands', 'setup', 'health',
+    'security', 'test', 'marketplace', 'exit',
+  ]);
+  const quickChoices = choices.filter(choice => quickValues.has(choice.value));
+
   const choice = await search({
-    message: T.white.bold('What would you like to do?'),
-    source: async term => filterMenuChoices(choices, term),
-    pageSize: 24,
+    message: T.white.bold('Search tools or ask G.F.A.I.:'),
+    source: async term => {
+      if (!term?.trim()) return quickChoices;
+      const matches = filterMenuChoices(choices, term).slice(0, 14);
+      const askChoice = {
+        name: T.cyan.bold('💬  Ask G.F.A.I.') + T.muted(` — “${term.trim().slice(0, 70)}”`),
+        value: `__ask__:${term.trim()}`,
+        short: 'Ask G.F.A.I.',
+      };
+      return matches.length > 0 ? [...matches, askChoice] : [askChoice];
+    },
+    pageSize: 16,
   });
   return choice;
 }
@@ -1514,11 +1531,17 @@ async function screenLLMFit() {
     const { default: http } = await import('http');
     data = await new Promise((resolve) => {
       const req = http.get('http://localhost:3001/api/llmfit', {
-        headers: { Cookie: 'gf_token=2001' },
+        headers: { Cookie: `gf_token=${process.env.AUTH_SECRET || 'ghostforge-secret'}` },
       }, (res) => {
         let d = '';
         res.on('data', c => d += c);
-        res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } });
+        res.on('end', () => {
+          if ((res.statusCode || 500) >= 400) return resolve(null);
+          try {
+            const parsed = JSON.parse(d);
+            resolve(parsed?.hardware && parsed?.recommendation ? parsed : null);
+          } catch { resolve(null); }
+        });
       });
       req.on('error', () => resolve(null));
       req.setTimeout(10000, () => { req.destroy(); resolve(null); });
@@ -1529,7 +1552,14 @@ async function screenLLMFit() {
   }
 
   if (!data) {
-    console.log(T.danger('\n  ✗ Could not fetch recommendations (is the server running?)\n'));
+    try {
+      const raw = execSync('llmfit recommend -n 12 --json --no-dashboard', { encoding: 'utf8', timeout: 20000 });
+      data = normalizeLLMFitCLI(JSON.parse(raw));
+    } catch { /* handled below */ }
+  }
+
+  if (!data) {
+    console.log(T.danger('\n  ✗ LLMfit is unavailable. Start the Web UI or install the llmfit CLI.\n'));
     await pressEnter(); return;
   }
 
@@ -1542,22 +1572,26 @@ async function screenLLMFit() {
   }
 
   // Show top 10 models
-  const top = (models || []).slice(0, 12);
+  const visibleRows = Math.max(4, Math.min(8, (process.stdout.rows || 30) - 18));
+  const top = (models || []).slice(0, visibleRows);
   console.log(T.muted('  ┌─ Model ─────────────────────────── Params ─ RAM ─ Score ─ Status ┐'));
   for (const m of top) {
-    const status = m.isInstalled ? T.success('installed') : m.canRun ? T.muted('not pulled') : T.danger('too large');
+    const status = m.isInstalled ? T.success('installed') : m.canRun ? T.muted(m.runtime || 'not pulled') : T.danger('too large');
     const score  = m.compositeScore >= 80 ? T.success(String(m.compositeScore).padStart(3)) :
                    m.compositeScore >= 60 ? T.warning(String(m.compositeScore).padStart(3)) :
                    T.danger(String(m.compositeScore).padStart(3));
     const rec    = m.recommendation === 'best' ? T.success('★') : m.recommendation === 'good' ? T.accent('◎') : ' ';
-    console.log(`  │ ${rec} ${T.white(m.name.padEnd(32))} ${String(m.params+'B').padEnd(7)} ${String(m.ramGB+'GB').padEnd(6)} ${score}   ${status}`);
+    const modelName = String(m.name || m.id).slice(0, 32).padEnd(32);
+    const params = `${m.params || '?'}B`.slice(0, 7).padEnd(7);
+    const memory = `${m.ramGB || '?'}GB`.slice(0, 6).padEnd(6);
+    console.log(`  │ ${rec} ${T.white(modelName)} ${params} ${memory} ${score}   ${status}`);
   }
   console.log(T.muted('  └──────────────────────────────────────────────────────────────────┘\n'));
 
   // Offer to pull best model or set as default
   const choices = [];
-  if (recommendation.best && !models.find((m) => m.id === recommendation.best)?.isInstalled) {
-    choices.push({ name: T.success(`⬇ Pull best model: ${recommendation.best}`), value: `pull:${recommendation.best}` });
+  if (recommendation.pullFirst) {
+    choices.push({ name: T.success(`⬇ Pull recommended Ollama model: ${recommendation.pullFirst}`), value: `pull:${recommendation.pullFirst}` });
   }
   if (recommendation.bestInstalled) {
     choices.push({ name: T.accent(`✓ Use ${recommendation.bestInstalled} as default`), value: `use:${recommendation.bestInstalled}` });
@@ -1569,10 +1603,12 @@ async function screenLLMFit() {
   if (picked.startsWith('pull:')) {
     const modelId = picked.replace('pull:', '');
     console.log(T.cyan(`\n  Triggering: ollama pull ${modelId} ...\n`));
-    try {
-      execSync(`ollama pull ${modelId} 2>&1 | tail -5`, { stdio: 'inherit', timeout: 300000 });
+    const result = spawnSync('ollama', ['pull', modelId], { stdio: 'inherit', timeout: 300000 });
+    if (result.status === 0) {
       console.log(T.success(`\n  ✓ Pull complete: ${modelId}\n`));
-    } catch { console.log(T.warning('\n  Pull started in background. Check: ollama list\n')); }
+    } else {
+      console.log(T.warning('\n  Pull did not complete. Check Ollama and try again.\n'));
+    }
   } else if (picked.startsWith('use:')) {
     const modelId = picked.replace('use:', '');
     _tuiSelectedModel.provider = 'ollama';
@@ -1605,6 +1641,7 @@ async function screenMacCleanup() {
       req.on('error', () => resolve({ toolResult: 'Server not running' }));
       req.write(body); req.end();
     });
+    if (result.toolResult === 'Server not running') throw new Error('Server not running');
     spinner.stop();
     console.log(T.success('\n  ✓ Cleanup complete:\n'));
     console.log(T.muted(`  ${(result.toolResult || result.speech || '').split('\n').join('\n  ')}\n`));
@@ -1691,7 +1728,7 @@ async function screenModelSelect() {
 
 // ── G.F.A.I. TUI Chat session ─────────────────────────────────────────────────
 
-async function screenGFAIChat() {
+async function screenGFAIChat(initialMessage = '') {
   sectionHeader('💬  G.F.A.I. Chat', 'Chat with any AI model — type your message, /model to switch, /exit to quit');
 
   const history = [];
@@ -1709,46 +1746,21 @@ async function screenGFAIChat() {
     { padding: 1, margin: { left: 2 }, borderColor: 'cyan', borderStyle: 'round' }
   ));
 
-  const { default: http } = await import('http');
-
-  async function askGFAI(message) {
-    const body = JSON.stringify({
-      message,
-      history: history.slice(-6).map(h => ({ role: h.role, content: h.text })),
-      selectedProvider: _tuiSelectedModel.provider || undefined,
-      selectedModel: _tuiSelectedModel.id || undefined,
-    });
-
-    return new Promise((resolve) => {
-      const req = http.request({
-        hostname: 'localhost',
-        port: 3001,
-        path: '/api/jarvis',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Cookie: 'gf_token=2001' },
-      }, (res) => {
-        let data = '';
-        res.on('data', c => data += c);
-        res.on('end', () => {
-          try { resolve(JSON.parse(data)); }
-          catch { resolve({ speech: data, tool: null, toolResult: null }); }
-        });
-      });
-      req.on('error', (e) => resolve({ speech: `Error: ${e.message}`, tool: null, toolResult: null }));
-      req.setTimeout(30000, () => { req.destroy(); resolve({ speech: 'Request timed out.', tool: null, toolResult: null }); });
-      req.write(body);
-      req.end();
-    });
-  }
-
+  let pendingInput = initialMessage.trim();
   while (true) {
     let userInput;
-    try {
-      userInput = await input({
-        message: T.cyan('You:'),
-        theme: { prefix: '' },
-      });
-    } catch { break; }
+    if (pendingInput) {
+      userInput = pendingInput;
+      pendingInput = '';
+      console.log(T.cyan(`\n  You: ${userInput}\n`));
+    } else {
+      try {
+        userInput = await input({
+          message: T.cyan('You:'),
+          theme: { prefix: '' },
+        });
+      } catch { break; }
+    }
 
     if (!userInput.trim()) continue;
 
@@ -1808,7 +1820,12 @@ async function screenGFAIChat() {
     const spinner = ora(T.muted('  G.F.A.I. thinking...')).start();
     let response;
     try {
-      response = await askGFAI(userInput);
+      response = await askGFAI({
+        message: userInput,
+        history: history.slice(-6).map(item => ({ role: item.role, content: item.text })),
+        selectedProvider: _tuiSelectedModel.provider,
+        selectedModel: _tuiSelectedModel.id,
+      });
       spinner.stop();
     } catch (e) {
       spinner.stop();
@@ -5173,10 +5190,13 @@ async function screenCommandCenter() {
   try {
     hw = await new Promise(r => {
       const req = http.get('http://localhost:3001/api/llmfit', {
-        headers: { Cookie: 'gf_token=2001' },
+        headers: { Cookie: `gf_token=${process.env.AUTH_SECRET || 'ghostforge-secret'}` },
       }, res => {
         let d = ''; res.on('data', c => d += c);
-        res.on('end', () => { try { r(JSON.parse(d).hardware); } catch { r(null); } });
+        res.on('end', () => {
+          if ((res.statusCode || 500) >= 400) return r(null);
+          try { r(JSON.parse(d).hardware || null); } catch { r(null); }
+        });
       });
       req.on('error', () => r(null));
       req.setTimeout(3000, () => { req.destroy(); r(null); });
@@ -5217,7 +5237,7 @@ async function screenCommandCenter() {
   const ts = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
   const hwLine = hw
     ? T.muted(` ${hw.cpuBrand || 'CPU'} · ${hw.ramGB}GB RAM · ~${hw.availableGB}GB free`)
-    : T.muted(' Hardware: checking...');
+    : T.muted(' Hardware: local mode · LLMfit works without Web UI');
 
   function render() {
     clear();
@@ -5243,7 +5263,7 @@ async function screenCommandCenter() {
     const p2 = panel('💻', 'Dev Tools', [
       ['a', ' Commands'],
       ['b', ' Projects'],
-      ['c', ' Scripts'],
+      ['c', ' Snippets'],
       ['d', ' Deploy'],
       ['e', ' Generate'],
       ['f', ' Health'],
@@ -5272,9 +5292,10 @@ async function screenCommandCenter() {
 
     // Status bar
     const model = _tuiSelectedModel.id || 'auto';
+    const serverStatus = hw ? T.success('online') : T.warning('offline · local fallback');
     console.log(
       T.muted('  Model: ') + T.accent(model) +
-      T.muted('  │  Server: ') + T.success('localhost:3001') +
+      T.muted('  │  Server: ') + serverStatus +
       T.muted('  │  ') + T.dim('Type number/letter to navigate · msg to chat · ? guide me · ESC menu')
     );
     console.log(divider());
@@ -5282,7 +5303,7 @@ async function screenCommandCenter() {
 
   const keyMap = {
     '1': 'chat', '2': 'webui', '3': 'model', '4': 'llmfit', '5': 'cleanup', '6': 'voice',
-    'a': 'commands', 'b': 'projects', 'c': 'commands', 'd': 'deploy', 'e': 'generate', 'f': 'health',
+    'a': 'commands', 'b': 'projects', 'c': 'snippets', 'd': 'deploy', 'e': 'generate', 'f': 'health',
     'g': 'security', 'h': 'doctor', 'i': 'tickets', 'j': 'security', 'k': 'audit', 'l': 'env-check',
     'm': 'maccontrol', 'n': 'remote', 'o': 'deviceinstall', 'p': 'maccontrol', 'q': 'freemodels', 'r': 'freeapis',
     's': 'integrations',
@@ -5298,6 +5319,7 @@ async function screenCommandCenter() {
     else if (dest === 'cleanup') await screenMacCleanup();
     else if (dest === 'voice')   await screenVoice();
     else if (dest === 'commands') await screenCommands();
+    else if (dest === 'snippets') await screenSnippets();
     else if (dest === 'projects') await screenProjects();
     else if (dest === 'deploy')  await screenDeploy();
     else if (dest === 'generate') await screenGenerate();
@@ -5329,7 +5351,7 @@ async function screenCommandCenter() {
 
     const cmd = inp.trim().toLowerCase();
     if (!cmd) { render(); continue; }
-    if (cmd === 'esc' || cmd === 'menu' || cmd === 'exit' || cmd === 'q') break;
+    if (cmd === 'esc' || cmd === 'menu' || cmd === 'exit') break;
     if (cmd === '?') { await screenGuideMe(); render(); continue; }
 
     // Single key navigation
@@ -5342,18 +5364,10 @@ async function screenCommandCenter() {
     // Otherwise: send to JARVIS as a chat message
     const spinner = ora(T.muted('  G.F.A.I. thinking...')).start();
     try {
-      const body = JSON.stringify({ message: inp });
-      const resp = await new Promise(r => {
-        const req = http.request({
-          hostname: 'localhost', port: 3001, path: '/api/jarvis', method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Cookie: 'gf_token=2001' },
-        }, res => {
-          let d = ''; res.on('data', c => d += c);
-          res.on('end', () => { try { r(JSON.parse(d)); } catch { r({ speech: d }); } });
-        });
-        req.on('error', e => r({ speech: `Error: ${e.message}` }));
-        req.setTimeout(30000, () => { req.destroy(); r({ speech: 'Timed out.' }); });
-        req.write(body); req.end();
+      const resp = await askGFAI({
+        message: inp,
+        selectedProvider: _tuiSelectedModel.provider,
+        selectedModel: _tuiSelectedModel.id,
       });
       spinner.stop();
       const speech = resp.speech || resp.text || 'No response.';
@@ -6292,6 +6306,10 @@ async function main() {
   try {
     while (true) {
       const choice = await screenHome();
+      if (choice.startsWith('__ask__:')) {
+        await screenGFAIChat(choice.slice('__ask__:'.length));
+        continue;
+      }
       switch (choice) {
         case 'integrations': await screenIntegrationsHub(); break;
         case 'commandcenter': await screenCommandCenter(); break;

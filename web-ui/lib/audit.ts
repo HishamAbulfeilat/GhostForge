@@ -121,6 +121,10 @@ export function assessRisk(tool: string, params: Record<string, unknown>): RiskA
     return { risk: 10, level: 'safe', reason: 'Opens a read-only Google Flights search', requires_confirmation: false }
   }
 
+  if (tool === 'browser_control') {
+    return { risk: 15, level: 'safe', reason: 'Browser automation on the GhostForge host', requires_confirmation: false }
+  }
+
   if (tool === 'vault_save' || tool === 'write_note' || tool === 'set_reminder' || tool === 'set_goal') {
     return { risk: 5, level: 'safe', reason: 'Saves data locally', requires_confirmation: false }
   }

@@ -8,6 +8,21 @@ import { writeFile, unlink, readdir, stat, rm } from 'fs/promises'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { tmpdir, homedir } from 'os'
 import { join } from 'path'
+import { chooseBestInstalledModel } from '@/lib/local-runtime'
+import { getJarvisQuickAction } from '@/lib/quick-actions'
+import { validateAppleScript } from '@/lib/apple-automation'
+
+// Collaborative sessions store
+const collabSessions = new Map<string, Array<{role: string, content: string, ts: number}>>()
+
+function getCollabSession(id: string) {
+  return collabSessions.get(id) || []
+}
+function appendCollabMessage(id: string, msg: {role: string, content: string, ts: number}) {
+  const msgs = collabSessions.get(id) || []
+  msgs.push(msg)
+  collabSessions.set(id, msgs.slice(-100))
+}
 
 const execAsync = promisify(exec)
 export const dynamic = 'force-dynamic'
@@ -25,17 +40,17 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   code:        '- execute_code { language, code } | - terminal_command { command } | - github_repos | - github_prs { repo? } | - github_issues { repo?, action? } | - open_interpreter { prompt, model? } | - jsrepl_run { code, language? }',
   files:       '- get_files { path? } | - read_file { path } | - write_note { note } | - take_screenshot { filename? }',
   reminder:    '- set_reminder { title, notes? } | - write_note { note } | - set_goal { goal, deadline? } | - list_goals',
-  mac_control: '- mac_control { script } | - mouse_click { x, y, button? } | - mouse_move { x, y } | - drag_mouse { fromX,fromY,toX,toY } | - key_combo { keys } | - scroll { direction, amount?, x?, y? } | - focus_window { app } | - get_windows | - get_frontmost_app | - type_text { text } | - find_and_click { label, app? } | - lock_screen | - set_volume { level }',
-  vision:      '- describe_screen | - take_screenshot { filename? } | - get_screen_info',
+  mac_control: '- mac_control { script } | - browser_control { action, url?, text? } | - mouse_click { x, y, button? } | - mouse_move { x, y } | - drag_mouse { fromX,fromY,toX,toY } | - key_combo { keys } | - scroll { direction, amount?, x?, y? } | - focus_window { app } | - get_windows | - get_frontmost_app | - type_text { text } | - find_and_click { label, app? } | - lock_screen | - set_volume { level } | - point_cursor { x, y, label? } | - highlight_area { x, y, w, h }',
+  vision:      '- describe_screen | - understand_screen { question? } | - find_element { description } | - read_text_on_screen | - take_screenshot { filename? } | - get_screen_info | - point_cursor { x, y, label? }',
   github:      '- github_repos | - github_prs { repo? } | - github_issues { repo?, action?, title?, body? }',
   copilot:     '- copilot_ask { question }',
   lock:        '- lock_screen',
   screenshot:  '- take_screenshot { filename? } | - describe_screen',
   math:        '- execute_code { language: "python", code }',
   models:      '- llmfit_recommend { task? } | - list_local_models | - install_model { model, runner? } | - open_url { url }',
-  remote:      '- take_screenshot { filename? } | - describe_screen | - terminal_command { command } | - open_url { url }',
+  remote:      '- take_screenshot { filename? } | - describe_screen | - terminal_command { command } | - open_url { url } | - browser_control { action, url?, text? }',
   travel:      '- flight_finder { from, to, date? } | - web_search { query, mode? } | - open_url { url } | - get_weather { city }',
-  general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value }',
+  general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - browser_control { action, url?, text? } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value }',
   design:      '- apply_design_md { site } | - list_design_md | - design_resources { category? }',
   security:    '- vigolium_scan { target, strategy? } | - vigolium_agent { target, mode? } | - terminal_command { command }',
 }
@@ -63,7 +78,7 @@ const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   files:       ['file','folder','directory','open','read','write','save','delete','copy','list files','path'],
   reminder:    ['remind','reminder','remember','note','todo','task','schedule','alarm','alert me'],
   mac_control: ['click','drag','scroll','keyboard','shortcut','lock','screenshot','volume','window','focus','move cursor'],
-  vision:      ['see','look','camera','webcam','what do you see','describe','visual','screen content'],
+  vision:      ['see','look','camera','webcam','what do you see','describe','visual','screen content','what is on screen','point at','where is','find element','read screen','clicky','blue cursor','point cursor','understand screen','what does this button do','what is this'],
   github:      ['github','repo','repository','pull request','issue','commit','branch','fork'],
   copilot:     ['copilot','gh copilot','suggest command','github copilot','ask copilot'],
   lock:        ['lock screen','lock the screen','lock computer','lock mac'],
@@ -268,7 +283,7 @@ function detectDeviceFromUA(ua: string): { isMobile: boolean; isMac: boolean; is
 function buildSystemPrompt(
   memory: Record<string, unknown>,
   domain?: Domain,
-  options?: { lang?: string; isMobile?: boolean; isMac?: boolean; lastResponse?: string; bypassPlanning?: boolean },
+  options?: { lang?: string; isMobile?: boolean; isMac?: boolean; lastResponse?: string; bypassPlanning?: boolean; persona?: string },
 ): string {
   const userName = (memory.userName as string) || 'sir'
   const lang = options?.lang || 'en'
@@ -276,9 +291,16 @@ function buildSystemPrompt(
   const isMac = options?.isMac ?? true
   const lastResponse = options?.lastResponse
   const bypassPlanning = options?.bypassPlanning ?? false
+  const persona = options?.persona || 'default'
+  const personaPrefix = {
+    dev: 'Respond as a senior software engineer. Be technical, precise, use code examples freely.',
+    manager: 'Respond as a tech lead. Be high-level, focus on impact and timeline, avoid excessive code.',
+    creative: 'Respond as a creative technologist. Brainstorm boldly, explore unusual solutions, be enthusiastic.',
+    security: 'Respond as a security engineer. Always consider vulnerabilities, compliance, and attack vectors.',
+  }[persona] || ''
 
-  // Cache key — stable per domain/lang/device (memory excluded, injected separately)
-  const cacheKey = `${domain}|${lang}|${isMac}|${isMobile}`
+  // Cache key — stable per domain/lang/device/persona (memory excluded, injected separately)
+  const cacheKey = `${domain}|${lang}|${isMac}|${isMobile}|${persona}`
   const cached = _promptCache.get(cacheKey)
 
   let basePrompt: string
@@ -296,15 +318,13 @@ function buildSystemPrompt(
         ? `LANGUAGE: Respond in ${lang.toUpperCase()}.`
         : ''
 
-    const deviceGuidance = isMobile
-      ? `DEVICE: mobile — skip mac_control/AppleScript tools.`
-      : isMac
-        ? `DEVICE: Mac — all tools available.`
-        : `DEVICE: non-Mac — no mac_control/AppleScript.`
+    const deviceGuidance = isMac
+      ? `HOST: Mac — all Mac, browser, shell, screen, and computer-use tools execute on the GhostForge host.${isMobile ? ' CLIENT: mobile remote control.' : ''}`
+      : `HOST: non-Mac — no AppleScript or Mac-only tools.`
 
     const toolList = TOOLS_BY_DOMAIN[domain || 'general'] || TOOLS_BY_DOMAIN.general
 
-    const prompt = `You are G.F.A.I. — GhostForge AI, JARVIS-style personal assistant.
+    const prompt = `${personaPrefix ? `${personaPrefix}\n` : ''}You are G.F.A.I. — GhostForge AI, JARVIS-style personal assistant.
 Intelligent, loyal, slightly witty. NOT a chatbot — you actually execute things.
 ${langInstructions ? langInstructions + '\n' : ''}${deviceGuidance}${domainGuidance}
 USER: __MEMORY__
@@ -353,15 +373,20 @@ function buildMemorySlice(memory: Record<string, unknown>, userName: string, lan
 // ── AppleScript runner ────────────────────────────────────────────────────────
 
 async function runScript(script: string): Promise<string> {
+  const validation = validateAppleScript(script)
+  if (!validation.ok) return `Error: ${validation.reason}`
   const tmpPath = join(tmpdir(), `gfai-${Date.now()}.scpt`)
+  const compiledPath = `${tmpPath}.compiled`
   try {
     await writeFile(tmpPath, script, 'utf8')
+    await execAsync(`osacompile -o "${compiledPath}" "${tmpPath}"`, { timeout: 8000 })
     const { stdout } = await execAsync(`osascript "${tmpPath}"`, { timeout: 15000 })
     return stdout.trim() || 'Done'
   } catch (e: unknown) {
     return `Error: ${(e as { stderr?: string; message?: string }).stderr || (e as Error).message || 'Unknown error'}`
   } finally {
     await unlink(tmpPath).catch(() => {})
+    await unlink(compiledPath).catch(() => {})
   }
 }
 
@@ -504,6 +529,29 @@ async function executeTool(tool: string, params: Record<string, string>): Promis
     case 'open_url': {
       const url = params.url || ''
       return openUrl(url)
+    }
+
+    case 'browser_control': {
+      if (process.platform !== 'darwin') return 'Browser control requires a GhostForge host running on macOS'
+      const action = (params.action || 'open').toLowerCase()
+      const scripts: Record<string, string> = {
+        back: 'tell application "System Events" to keystroke "[" using command down',
+        forward: 'tell application "System Events" to keystroke "]" using command down',
+        reload: 'tell application "System Events" to keystroke "r" using command down',
+        new_tab: 'tell application "System Events" to keystroke "t" using command down',
+        close_tab: 'tell application "System Events" to keystroke "w" using command down',
+        address_bar: 'tell application "System Events" to keystroke "l" using command down',
+      }
+      if (action === 'open') return openUrl(params.url || 'http://localhost:3001/dashboard')
+      if (action === 'search') return openUrl(`https://www.google.com/search?q=${encodeURIComponent(params.text || '')}`)
+      if (action === 'type') {
+        const text = (params.text || '').replace(/"/g, '\\"')
+        return runScript(`tell application "System Events" to keystroke "${text}"`)
+      }
+      if (action === 'click_text') return executeTool('find_and_click', { label: params.text || '', app: params.app || '' })
+      const script = scripts[action]
+      if (!script) return `Unsupported browser action: ${action}`
+      return runScript(script)
     }
 
     case 'flight_finder': {
@@ -1187,34 +1235,21 @@ end tell`
           ? ollamaRes.value.stdout.split('\n').slice(1).map(l => l.split(/\s+/)[0]).filter(Boolean)
           : []
 
-        // Score tiers based on available RAM
-        let bestPick: string
-        let reason: string
-        if (available >= 18 && isAppleSilicon) {
-          bestPick = 'qwen2.5-coder:14b'
-          reason = `${ramGB}GB RAM + Apple Silicon — 14B models run beautifully`
-        } else if (available >= 12) {
-          bestPick = 'qwen2.5-coder:7b'
-          reason = `${ramGB}GB RAM — 7B model is the sweet spot (quality + speed)`
-        } else if (available >= 6) {
-          bestPick = 'qwen2.5:7b'
-          reason = `${ramGB}GB RAM — 7B fits comfortably`
-        } else {
-          bestPick = 'qwen2.5-coder:1.5b'
-          reason = `${ramGB}GB RAM — lightweight model recommended`
-        }
+        const useCase = params.useCase || params.task || 'tools'
+        const installedRecommendation = chooseBestInstalledModel(ollama, ramGB, useCase)
+        const bestPick = installedRecommendation?.name || (ramGB >= 20 ? 'qwen3.5:9b' : ramGB >= 12 ? 'qwen3.5:4b' : 'llama3.2:3b')
+        const reason = installedRecommendation?.profile
+          ? `${installedRecommendation.profile.label} profile keeps memory available for JARVIS tools`
+          : `${ramGB}GB RAM${isAppleSilicon ? ' + Apple Silicon' : ''} — balanced local default`
 
-        const useCase = params.useCase || 'general'
-        if (useCase === 'reasoning') bestPick = available >= 12 ? 'deepseek-r1:14b' : 'deepseek-r1:8b'
-        if (useCase === 'code' && available >= 18) bestPick = 'qwen2.5-coder:14b'
-
-        const isInstalled = ollama.some(m => m.startsWith(bestPick.split(':')[0]))
+        const isInstalled = ollama.includes(bestPick)
         const installCmd = isInstalled ? '' : `\nTo install: ollama pull ${bestPick}`
 
         return `Hardware: ${cpu} · ${ramGB}GB RAM · Available for AI: ~${available}GB
 Best model for your system: ${bestPick} (${reason})
 Currently installed: ${ollama.join(', ') || 'none'}
-Recommended: ${bestPick}${isInstalled ? ' ✓ installed' : ' — not yet installed'}${installCmd}
+Recommended JARVIS default: ${bestPick}${isInstalled ? ' ✓ installed' : ' — not yet installed'}${installCmd}
+Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and computer-use tools)
 → Open /models page to browse and install models`
       } catch (e) {
         return `Could not analyze hardware: ${(e as Error).message?.slice(0, 100)}`
@@ -1574,6 +1609,92 @@ Recommended: ${bestPick}${isInstalled ? ' ✓ installed' : ' — not yet install
       return `Starting Vigolium agentic scan (${mode} mode) on ${target}...\n\nThis runs an AI-driven scan that autonomously plans attacks, selects modules, and triages results. This may take several minutes.\n\nRun in terminal:\n  vigolium agent --mode ${mode} -t "${target}"\n\nFor source code audit:\n  vigolium agent --mode swarm --diff HEAD~5 -t "${target}"\n\nCloud dashboard: https://console.vigolium.com/`
     }
 
+    // ── Clicky: Blue cursor pointing ────────────────────────────────────────────
+    case 'point_cursor': {
+      const x = parseInt(params.x || '0', 10)
+      const y = parseInt(params.y || '0', 10)
+      const label = params.label || null
+      if (!x && !y) return 'No coordinates provided for cursor pointing'
+      return JSON.stringify({ action: 'point_cursor', x, y, label, timestamp: Date.now() })
+    }
+
+    case 'highlight_area': {
+      const x = parseInt(params.x || '0', 10)
+      const y = parseInt(params.y || '0', 10)
+      const w = parseInt(params.w || '100', 10)
+      const h = parseInt(params.h || '100', 10)
+      return JSON.stringify({ action: 'highlight_area', x, y, w, h, timestamp: Date.now() })
+    }
+
+    // ── Clicky: Screen understanding via vision model ───────────────────────────
+    case 'understand_screen': {
+      try {
+        const screenshotPath = `/tmp/gfai-clicky-${Date.now()}.png`
+        await execAsync(`screencapture -x ${screenshotPath}`, { timeout: 5000 })
+
+        const { readFileSync: rf } = await import('fs')
+        const imgBuffer = rf(screenshotPath)
+        const imageBase64 = imgBuffer.toString('base64')
+        await import('fs').then(fs => fs.unlinkSync(screenshotPath)).catch(() => {})
+
+        const { generateVision } = await import('@/lib/ai')
+        const question = params.question || 'Describe what you see on this screen in detail. Identify UI elements, text, buttons, menus, and their positions.'
+        const result = await generateVision({
+          prompt: question,
+          imageBase64,
+          system: 'You are a screen reader assistant. Describe the screen contents precisely. If asked to find something, give approximate coordinates (x, y) as percentages of screen width/height. Format coordinates as [POINT:x,y:label:screen1] when pointing at specific elements.',
+        })
+        return result.text
+      } catch (e: unknown) {
+        return `Screen understanding failed: ${(e as Error).message}. Ensure Screen Recording permission is granted and a vision model is available (ollama pull moondream).`
+      }
+    }
+
+    case 'find_element': {
+      try {
+        const screenshotPath = `/tmp/gfai-find-${Date.now()}.png`
+        await execAsync(`screencapture -x ${screenshotPath}`, { timeout: 5000 })
+
+        const { readFileSync: rf } = await import('fs')
+        const imgBuffer = rf(screenshotPath)
+        const imageBase64 = imgBuffer.toString('base64')
+        await import('fs').then(fs => fs.unlinkSync(screenshotPath)).catch(() => {})
+
+        const { generateVision } = await import('@/lib/ai')
+        const description = params.description || 'button'
+        const result = await generateVision({
+          prompt: `Find the UI element described as "${description}" on this screen. Return its approximate pixel coordinates as [POINT:x,y:${description}:screen1]. Be precise. If you can't find it, say so.`,
+          imageBase64,
+          system: 'You are a UI element locator. Find elements on screen and return coordinates in [POINT:x,y:label:screen] format.',
+        })
+        return result.text
+      } catch (e: unknown) {
+        return `Element finding failed: ${(e as Error).message}`
+      }
+    }
+
+    case 'read_text_on_screen': {
+      try {
+        const screenshotPath = `/tmp/gfai-ocr-${Date.now()}.png`
+        await execAsync(`screencapture -x ${screenshotPath}`, { timeout: 5000 })
+
+        const { readFileSync: rf } = await import('fs')
+        const imgBuffer = rf(screenshotPath)
+        const imageBase64 = imgBuffer.toString('base64')
+        await import('fs').then(fs => fs.unlinkSync(screenshotPath)).catch(() => {})
+
+        const { generateVision } = await import('@/lib/ai')
+        const result = await generateVision({
+          prompt: 'Read all the text visible on this screen. List every piece of text you can see, organized by location (top, middle, bottom, left, right). Include button labels, menu items, window titles, and any other readable text.',
+          imageBase64,
+          system: 'You are an OCR assistant. Extract all visible text from the screen image.',
+        })
+        return result.text
+      } catch (e: unknown) {
+        return `Text reading failed: ${(e as Error).message}`
+      }
+    }
+
     default:
       return 'Unknown tool'
   }
@@ -1611,6 +1732,8 @@ function formatToolSpeech(tool: string, result: string): string {
     case 'open_app':
     case 'open_url':
       return r.startsWith('Error') ? r.slice(0, 120) : `${done} Opened.`
+    case 'browser_control':
+      return r.startsWith('Error') ? r.slice(0, 150) : r
     case 'play_music':
       return r || `${done} Music updated.`
     case 'set_volume':
@@ -1689,6 +1812,9 @@ interface JarvisRequest {
   memory?: Record<string, unknown>
   selectedProvider?: string
   selectedModel?: string
+  persona?: string
+  offlineMode?: boolean
+  quickAction?: string
   confirmRisk?: boolean
   lang?: string        // optional client-detected language override
   platform?: string    // 'ios' | 'android' | 'mac' | 'windows' | 'linux'
@@ -1715,6 +1841,7 @@ interface JarvisResponsePayload {
   risk: ReturnType<typeof assessRisk> | null
   detectedLang: string
   device: { isMobile: boolean; isMac: boolean }
+  offline: boolean
   requiresConfirmation?: boolean
 }
 
@@ -1754,7 +1881,7 @@ export async function POST(req: NextRequest) {
 
   let body: JarvisRequest
   try { body = await req.json() } catch { body = { message: '' } }
-  const { message: rawMessage, history = [], memory = {}, selectedProvider, selectedModel, confirmRisk = false, lang: clientLang, platform: clientPlatform } = body
+  const { message: rawMessage, history = [], memory = {}, selectedProvider, selectedModel, persona, offlineMode = false, quickAction, confirmRisk = false, lang: clientLang, platform: clientPlatform } = body
 
   if (!rawMessage?.trim()) {
     return NextResponse.json({ error: 'No message' }, { status: 400 })
@@ -1771,7 +1898,7 @@ export async function POST(req: NextRequest) {
   // Detect device from User-Agent for device-aware tool filtering
   const ua = req.headers.get('user-agent') || ''
   const device = detectDeviceFromUA(ua)
-  const isMac = clientPlatform === 'mac' || (clientPlatform == null && device.isMac)
+  const isMac = process.platform === 'darwin'
   const isMobile = clientPlatform ? ['ios', 'android'].includes(clientPlatform) : device.isMobile
 
   // Update memory with language preference if Arabic
@@ -1796,7 +1923,12 @@ export async function POST(req: NextRequest) {
   // ── Domain classification (fast, keyword-based) ────────────────────────────
   const domain = classifyDomain(message)
 
-  const modelOpts = selectedProvider ? { activeProvider: selectedProvider, activeModel: selectedModel } : undefined
+  const modelOpts = {
+    activeProvider: selectedProvider || undefined,
+    activeModel: selectedModel || undefined,
+    offline: offlineMode,
+    task: domain === 'code' || domain === 'github' || domain === 'copilot' ? 'code' : 'tools',
+  }
 
   let usedProvider = ''
   let usedModel    = ''
@@ -1812,8 +1944,21 @@ export async function POST(req: NextRequest) {
     emit?: (payload: Record<string, unknown>) => void,
   ): Promise<JarvisResponsePayload> => {
     let aiResp: AIResponse = { speech: pickPersona('processing'), tool: null, toolParams: {}, emotion: 'thinking', confidence: 80 }
+    const directAction = getJarvisQuickAction(quickAction)
 
-    try {
+    if (directAction) {
+      const toolParams = { ...directAction.params } as Record<string, string>
+      if (directAction.id === 'weather' && !toolParams.city) {
+        toolParams.city = String((memory.preferences as { city?: string } | undefined)?.city || 'Amman')
+      }
+      aiResp = {
+        speech: `Running ${directAction.label.replace(/^\S+\s*/, '')}.`,
+        tool: directAction.tool,
+        toolParams,
+        emotion: 'processing',
+        confidence: 100,
+      }
+    } else try {
       const isThinkingModel = (usedModel || selectedModel || '').toLowerCase().includes('qwen3') ||
         (usedModel || selectedModel || '').toLowerCase().includes('deepseek-r1') ||
         (selectedProvider === 'ollama')
@@ -1828,6 +1973,7 @@ export async function POST(req: NextRequest) {
             ? (history[history.length - 1].role === 'assistant' ? history[history.length - 1].content : undefined)
             : undefined,
           bypassPlanning: hasBypassPhrase(message),
+          persona,
         }),
         messages: [
           ...history.slice(-5).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
@@ -1849,6 +1995,7 @@ export async function POST(req: NextRequest) {
 
           // Check for empty or persona-only speech (acknowledge phrases used without tool)
           const isAcknowledgeOnly = PERSONA_POOLS.acknowledge.includes((aiResp.speech || '').trim())
+          const isProcessingOnly = PERSONA_POOLS.processing.includes((aiResp.speech || '').trim())
           const isInternalReasoning =
             aiResp.speech?.includes('We need to respond') ||
             aiResp.speech?.includes('According to tools') ||
@@ -1857,7 +2004,7 @@ export async function POST(req: NextRequest) {
             aiResp.speech?.includes('Let me think') ||
             aiResp.speech?.startsWith('<think')
 
-          if (!aiResp.speech?.trim() || (isAcknowledgeOnly && !aiResp.tool) || isInternalReasoning) {
+          if (!aiResp.speech?.trim() || ((isAcknowledgeOnly || isProcessingOnly) && !aiResp.tool) || isInternalReasoning) {
             // Try text outside the JSON first
             const outsideJson = cleaned.replace(/\{[\s\S]*\}/, '').trim()
             if (outsideJson && outsideJson.length > 10) {
@@ -1918,6 +2065,7 @@ export async function POST(req: NextRequest) {
           risk: riskAssessment,
           detectedLang,
           device: { isMobile, isMac },
+          offline: offlineMode,
         }
         emit?.({
           type: 'response',
@@ -1984,6 +2132,7 @@ export async function POST(req: NextRequest) {
       risk: riskAssessment,
       detectedLang,
       device: { isMobile, isMac },
+      offline: offlineMode,
     }
   }
 
@@ -2007,6 +2156,7 @@ export async function POST(req: NextRequest) {
           usedProvider: result.usedProvider,
           domain: result.domain,
           detectedLang: result.detectedLang,
+          offline: result.offline,
         })
       } catch {
         send({

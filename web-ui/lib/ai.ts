@@ -1,5 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai'
 import { generateText, type CoreMessage, type LanguageModel } from 'ai'
+import { totalmem } from 'os'
+import { buildLocalRuntimeOrder } from './local-runtime'
 
 export const GHOSTFORGE_SYSTEM = `You are GhostForge AI — an operator-grade developer assistant built by Hisham Abulfeilat.
 You help with React, Next.js, TypeScript, Tailwind CSS, Git, CI/CD, Carbon tracking, and all GhostForge toolkit features.
@@ -10,12 +12,15 @@ When user asks to run a command, prefix with [RUN]: ghostforge <command> — the
 export interface ModelOverride {
   activeModel?: string
   activeProvider?: string
+  offline?: boolean
+  task?: string
 }
 
 export interface ModelEntry {
   provider: string
   modelId: string
   model: LanguageModel
+  generate?: (opts: Omit<Parameters<typeof generateText>[0], 'model'>) => Promise<string>
 }
 
 /** Build an OmniRoute LanguageModel — no API key required */
@@ -46,8 +51,97 @@ export function isFallbackError(e: unknown): boolean {
     msg.includes('resource_exhausted') ||
     msg.includes('overloaded') ||
     msg.includes('503') ||
-    msg.includes('502')
+    msg.includes('502') ||
+    msg.includes('fetch failed') ||
+    msg.includes('econnrefused') ||
+    msg.includes('connection refused') ||
+    msg.includes('timed out') ||
+    msg.includes('timeout')
   )
+}
+
+async function detectLocalModels(opts?: ModelOverride) {
+  const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434'
+  const llamaCppUrl = process.env.LLAMACPP_URL || 'http://localhost:8080/v1'
+  const [ollamaResult, llamaCppResult] = await Promise.allSettled([
+    fetch(`${ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(1200) }),
+    fetch(`${llamaCppUrl}/models`, { signal: AbortSignal.timeout(1200) }),
+  ])
+
+  let ollamaModels: string[] = []
+  if (ollamaResult.status === 'fulfilled' && ollamaResult.value.ok) {
+    const data = await ollamaResult.value.json() as { models?: Array<{ name?: string }> }
+    ollamaModels = (data.models || []).map(model => model.name || '').filter(Boolean)
+  }
+
+  let llamaCppModel = ''
+  if (llamaCppResult.status === 'fulfilled' && llamaCppResult.value.ok) {
+    const data = await llamaCppResult.value.json() as { data?: Array<{ id?: string }> }
+    llamaCppModel = data.data?.[0]?.id || process.env.LLAMACPP_MODEL || 'local-model'
+  }
+
+  return {
+    ollamaUrl,
+    llamaCppUrl,
+    order: buildLocalRuntimeOrder({
+      selectedProvider: opts?.activeProvider,
+      selectedModel: opts?.activeModel,
+      ollamaModels,
+      ramGB: Math.round(totalmem() / 1024 ** 3),
+      task: opts?.task || 'tools',
+      llamaCppModel,
+    }) as Array<{ provider: 'ollama' | 'llamacpp'; model: string }>,
+  }
+}
+
+async function appendLocalModels(chain: ModelEntry[], push: (entry: ModelEntry) => void, opts?: ModelOverride) {
+  const local = await detectLocalModels(opts)
+  for (const entry of local.order) {
+    if (entry.provider === 'ollama') {
+      const client = createOpenAI({ baseURL: `${local.ollamaUrl}/v1`, apiKey: 'ollama' })
+      push({
+        provider: 'ollama',
+        modelId: entry.model,
+        model: client(entry.model),
+        generate: async (opts) => {
+          const messages: Array<{ role: string; content: string }> = []
+          if (typeof opts.system === 'string' && opts.system.trim()) {
+            messages.push({ role: 'system', content: opts.system })
+          }
+          if (Array.isArray(opts.messages)) {
+            for (const message of opts.messages) {
+              messages.push({
+                role: message.role,
+                content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
+              })
+            }
+          }
+
+          const response = await fetch(`${local.ollamaUrl}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(120_000),
+            body: JSON.stringify({
+              model: entry.model,
+              messages,
+              stream: false,
+              think: false,
+              options: { num_predict: opts.maxTokens || 800 },
+            }),
+          })
+          if (!response.ok) throw new Error(`Ollama returned ${response.status}`)
+          const data = await response.json() as { message?: { content?: string }; error?: string }
+          const content = data.message?.content?.trim()
+          if (!content) throw new Error(data.error || 'Ollama returned an empty response')
+          return content
+        },
+      })
+    } else {
+      const client = createOpenAI({ baseURL: local.llamaCppUrl, apiKey: 'llama.cpp' })
+      push({ provider: 'llamacpp', modelId: entry.model, model: client(entry.model) })
+    }
+  }
+  return chain
 }
 
 // ── Model chain cache (30s TTL) — avoids Ollama ping + dynamic imports per request ──
@@ -61,9 +155,11 @@ const CHAIN_CACHE_TTL = 30_000
  */
 export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[]> {
   const hasPref = !!(opts?.activeProvider && opts?.activeModel)
+  const localSelected = opts?.activeProvider === 'ollama' || opts?.activeProvider === 'llamacpp' || opts?.activeProvider === 'llama.cpp'
+  const offline = opts?.offline === true
 
   // Return cached chain for default (no override) calls
-  if (!hasPref && _chainCache && Date.now() - _chainCache.ts < CHAIN_CACHE_TTL) {
+  if (!opts && _chainCache && Date.now() - _chainCache.ts < CHAIN_CACHE_TTL) {
     return _chainCache.chain
   }
 
@@ -92,15 +188,14 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
     } else if (ap === 'deepseek') {
       const dsKey = process.env.DEEPSEEK_API_KEY
       if (dsKey) { const { createDeepSeek } = await import('@ai-sdk/deepseek'); push({ provider: 'deepseek', modelId: am, model: createDeepSeek({ apiKey: dsKey })(am) }) }
-    } else if (ap === 'ollama') {
-      // Local model — go directly, skip all cloud providers entirely
-      const ollamaClient = createOpenAI({ baseURL: 'http://localhost:11434/v1', apiKey: 'ollama' })
-      push({ provider: 'ollama', modelId: am, model: ollamaClient(am) })
-      if (!hasPref) _chainCache = { chain, ts: Date.now() }
-      return chain  // return immediately — don't add cloud fallbacks when local is selected
-    } else if (ap === 'omniroute') {
+    } else if (ap === 'omniroute' && !offline) {
       push({ provider: 'omniroute', modelId: am, model: makeOmniRouteModel(am) })
     }
+  }
+
+  if (offline || localSelected) {
+    await appendLocalModels(chain, push, opts)
+    return chain
   }
 
   // 2. Gemini (fastest cloud option)
@@ -146,20 +241,8 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
     push({ provider: 'deepseek', modelId: dsModel, model: deepseek(dsModel) })
   }
 
-  // 6. Ollama (local — probe with short timeout, cached so no per-request overhead)
-  try {
-    const ollamaRes = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1200) })
-    if (ollamaRes.ok) {
-      const ollamaData = await ollamaRes.json() as { models: Array<{ name: string }> }
-      const ollamaModels = ollamaData.models || []
-      const preferred = ['qwen3:14b','qwen2.5-coder:7b','qwen2.5:7b','llama3.2:3b','llama3.1:8b','mistral:7b']
-      const pick = preferred.find(p => ollamaModels.some(m => m.name === p)) || ollamaModels[0]?.name
-      if (pick) {
-        const ollamaClient = createOpenAI({ baseURL: 'http://localhost:11434/v1', apiKey: 'ollama' })
-        push({ provider: 'ollama', modelId: pick, model: ollamaClient(pick) })
-      }
-    }
-  } catch { /* Ollama not running */ }
+  // 6. Local runtimes: prefer Ollama, then an OpenAI-compatible llama.cpp server.
+  await appendLocalModels(chain, push, opts)
 
   // 7. OmniRoute (local free gateway, always last)
   if (omniUrl) {
@@ -167,7 +250,7 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
   }
 
   // Cache default chain only (not user-overridden)
-  if (!hasPref) {
+  if (!opts) {
     _chainCache = { chain, ts: Date.now() }
   }
 
@@ -185,13 +268,17 @@ export async function generateWithFallback(
   const chain = await buildModelChain(overrides)
 
   if (chain.length === 0) {
-    throw new Error('No AI providers configured. Add GOOGLE_GENERATIVE_AI_API_KEY or OPENROUTER_API_KEY to .env.local')
+    throw new Error(overrides?.offline
+      ? 'Offline mode needs a running Ollama or llama.cpp server with at least one installed model'
+      : 'No AI providers configured. Start Ollama/llama.cpp or add a cloud provider key to .env.local')
   }
 
   let lastError: unknown
   for (const entry of chain) {
     try {
-      const { text } = await generateText({ ...opts, model: entry.model, maxRetries: 0 })
+      const text = entry.generate
+        ? await entry.generate(opts)
+        : (await generateText({ ...opts, model: entry.model, maxRetries: 0 })).text
       return { text, usedProvider: entry.provider, usedModel: entry.modelId }
     } catch (e) {
       if (isFallbackError(e)) {
@@ -220,4 +307,122 @@ export async function generateGhostforgeReply(messages: CoreMessage[], modelOver
     modelOverride,
   )
   return text
+}
+
+// ── Vision: generate with image (for screen understanding) ──
+
+interface VisionOpts {
+  prompt: string
+  imageBase64: string
+  system?: string
+  maxTokens?: number
+}
+
+/**
+ * Vision-capable model list — used to auto-select when images are present.
+ * Order: Gemini (native vision) → Ollama vision models → OpenRouter VL → fallback
+ */
+const VISION_MODEL_PREFERENCES = [
+  { provider: 'google', model: 'gemini-2.0-flash' },
+  { provider: 'ollama', model: 'qwen2.5vl:7b' },
+  { provider: 'ollama', model: 'qwen3-vl:8b' },
+  { provider: 'ollama', model: 'moondream' },
+  { provider: 'ollama', model: 'llama3.2-vision:11b' },
+  { provider: 'ollama', model: 'gemma4' },
+  { provider: 'openrouter', model: 'nvidia/nemotron-nano-12b-v2-vl:free' },
+]
+
+/**
+ * Generate a response using a vision-capable model with an image.
+ * Tries Ollama vision models first (local, free), then cloud providers.
+ */
+export async function generateVision(opts: VisionOpts): Promise<{ text: string; usedProvider: string; usedModel: string }> {
+  const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434'
+  const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  const orKey = process.env.OPENROUTER_API_KEY
+
+  // 1. Try Ollama vision models (local, free)
+  try {
+    const tagsRes = await fetch(`${ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(1500) })
+    if (tagsRes.ok) {
+      const { models = [] } = await tagsRes.json() as { models?: Array<{ name: string }> }
+      const installed = models.map(m => m.name)
+
+      for (const pref of VISION_MODEL_PREFERENCES.filter(p => p.provider === 'ollama')) {
+        const match = installed.find(m => m.startsWith(pref.model))
+        if (match) {
+          const messages: Array<{ role: string; content: string; images?: string[] }> = []
+          if (opts.system) messages.push({ role: 'system', content: opts.system })
+          messages.push({ role: 'user', content: opts.prompt, images: [opts.imageBase64] })
+
+          const res = await fetch(`${ollamaUrl}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: AbortSignal.timeout(120_000),
+            body: JSON.stringify({
+              model: match,
+              messages,
+              stream: false,
+              think: false,
+              options: { num_predict: opts.maxTokens || 1000 },
+            }),
+          })
+          if (res.ok) {
+            const data = await res.json() as { message?: { content?: string } }
+            const text = data.message?.content?.trim()
+            if (text) return { text, usedProvider: 'ollama', usedModel: match }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Try Gemini (native vision)
+  if (geminiKey) {
+    try {
+      const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
+      const gemini = createGoogleGenerativeAI({ apiKey: geminiKey })
+      const model = gemini('gemini-2.0-flash')
+      const { text } = await generateText({
+        model,
+        maxRetries: 0,
+        messages: [
+          ...(opts.system ? [{ role: 'user' as const, content: opts.system }] : []),
+          {
+            role: 'user' as const,
+            content: [
+              { type: 'text', text: opts.prompt },
+              { type: 'image', image: `data:image/jpeg;base64,${opts.imageBase64}` },
+            ],
+          },
+        ],
+      })
+      if (text) return { text, usedProvider: 'google', usedModel: 'gemini-2.0-flash' }
+    } catch {}
+  }
+
+  // 3. Try OpenRouter VL models
+  if (orKey) {
+    try {
+      const or = createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })
+      const model = or('nvidia/nemotron-nano-12b-v2-vl:free')
+      const { text } = await generateText({
+        model,
+        maxRetries: 0,
+        messages: [
+          ...(opts.system ? [{ role: 'user' as const, content: opts.system }] : []),
+          {
+            role: 'user' as const,
+            content: [
+              { type: 'text', text: opts.prompt },
+              { type: 'image', image: `data:image/jpeg;base64,${opts.imageBase64}` },
+            ],
+          },
+        ],
+      })
+      if (text) return { text, usedProvider: 'openrouter', usedModel: 'nvidia/nemotron-nano-12b-v2-vl:free' }
+    } catch {}
+  }
+
+  throw new Error('No vision-capable model available. Install a vision model: ollama pull moondream')
 }

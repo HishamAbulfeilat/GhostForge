@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { chooseBestInstalledModel } from '@/lib/local-runtime'
+import { totalmem } from 'os'
 
 const ALL_MODELS = [
   { provider: 'google',      id: 'gemini-2.0-flash',                          label: 'Gemini 2.0 Flash',             free: true,  requiresKey: 'GOOGLE_GENERATIVE_AI_API_KEY' },
@@ -10,6 +12,9 @@ const ALL_MODELS = [
   { provider: 'openrouter',  id: 'nvidia/nemotron-3-super-120b-a12b:free',   label: 'Nemotron 120B (Free) ✓',      free: true,  requiresKey: 'OPENROUTER_API_KEY' },
   { provider: 'openrouter',  id: 'nvidia/nemotron-nano-12b-v2-vl:free',      label: 'Nemotron Nano 12B (Free) ✓',  free: true,  requiresKey: 'OPENROUTER_API_KEY' },
   { provider: 'openrouter',  id: 'deepseek/deepseek-r1:free',                label: 'DeepSeek R1 (Free)',           free: true,  requiresKey: 'OPENROUTER_API_KEY' },
+  { provider: 'ollama',      id: 'qwen3.5:9b',                               label: 'Qwen 3.5 9B (Recommended) 🔒', free: true, requiresKey: null },
+  { provider: 'ollama',      id: 'qwen3.5:27b',                              label: 'Qwen 3.5 27B (Max Quality) 🔒', free: true, requiresKey: null },
+  { provider: 'ollama',      id: 'qwen3.5:4b',                               label: 'Qwen 3.5 4B (Fast) 🔒',        free: true, requiresKey: null },
   { provider: 'ollama',      id: 'llama3.2:3b',                              label: 'Llama 3.2 3B (Local) 🔒',    free: true,  requiresKey: null },
   { provider: 'ollama',      id: 'qwen2.5-coder:7b',                        label: 'Qwen 2.5 Coder 7B (Local) 🔒', free: true, requiresKey: null },
   { provider: 'omniroute',   id: 'auto/coding',                              label: 'OmniRoute Auto (Local)',       free: true,  requiresKey: null },
@@ -33,6 +38,16 @@ export async function GET(req: NextRequest) {
     }
   } catch { /* not running */ }
 
+  let llamaCppModels: string[] = []
+  try {
+    const baseURL = process.env.LLAMACPP_URL || 'http://localhost:8080/v1'
+    const res = await fetch(`${baseURL}/models`, { signal: AbortSignal.timeout(1500) })
+    if (res.ok) {
+      const data = await res.json() as { data?: Array<{ id?: string }> }
+      llamaCppModels = (data.data || []).map(model => model.id || '').filter(Boolean)
+    }
+  } catch { /* not running */ }
+
   const models = ALL_MODELS.map(m => ({
     ...m,
     available: m.provider === 'ollama'
@@ -47,12 +62,19 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  for (const name of llamaCppModels) {
+    models.push({ provider: 'llamacpp', id: name, label: `${name} (llama.cpp) 🔒`, free: true, requiresKey: null, available: true })
+  }
+
   const hasGemini = !!process.env.GOOGLE_GENERATIVE_AI_API_KEY
-  const activeProvider = hasGemini ? 'google' : process.env.OPENROUTER_API_KEY ? 'openrouter' : ollamaRunning ? 'ollama' : 'omniroute'
-  const activeModel    = hasGemini
+  const hasOpenRouter = !!process.env.OPENROUTER_API_KEY
+  const bestLocal = chooseBestInstalledModel(ollamaModels, Math.round(totalmem() / 1024 ** 3), 'tools')?.name
+  const activeProvider = hasGemini ? 'google' : hasOpenRouter ? 'openrouter' : bestLocal ? 'ollama' : llamaCppModels.length ? 'llamacpp' : 'omniroute'
+  const activeModel = hasGemini
     ? (process.env.GEMINI_MODEL || 'gemini-2.0-flash')
-    : ollamaRunning ? ollamaModels[0] || 'llama3.2:3b'
-    : (process.env.OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it:free')
+    : hasOpenRouter
+      ? (process.env.OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it:free')
+      : bestLocal || llamaCppModels[0] || 'auto/coding'
 
   const hasFishAudio  = !!process.env.FISH_AUDIO_API_KEY
   const hasElevenLabs = !!process.env.ELEVENLABS_API_KEY
@@ -62,12 +84,22 @@ export async function GET(req: NextRequest) {
     models,
     active: { provider: activeProvider, model: activeModel },
     ollama: { running: ollamaRunning, models: ollamaModels },
+    llamaCpp: { running: llamaCppModels.length > 0, models: llamaCppModels },
+    host: {
+      platform: process.platform,
+      macControl: process.platform === 'darwin',
+      screenCapture: process.platform === 'darwin',
+      browserControl: process.platform === 'darwin',
+      shell: true,
+      remoteClientControl: true,
+      freeLocalAI: ollamaRunning || llamaCppModels.length > 0,
+    },
     tts: {
       engine: ttsEngine,
       fishAudio:    hasFishAudio,
       elevenLabs:   hasElevenLabs,
       jarvisVoice:  hasFishAudio,
-      jarvisModelId: process.env.FISH_AUDIO_JARVIS_MODEL || '612b878b113047d9a770c069c8b4fdfe',
+      jarvisModelId: process.env.FISH_AUDIO_JARVIS_MODEL || '36b6f66cfecf466caac7fcba1f8b59c8',
     },
     integrations: {
       elevenlabs:   hasElevenLabs,

@@ -38,5 +38,5 @@ steps:
     run: |
       echo "GhostForge AI Toolkit loaded"
       echo "Instructions: .github/copilot-instructions.md"
-      echo "Agents: ghostforge-agents/agents/"
-      echo "Commands: ghostforge-agents/commands/"
+      echo "Agents: agents/"
+      echo "Commands: commands/"
