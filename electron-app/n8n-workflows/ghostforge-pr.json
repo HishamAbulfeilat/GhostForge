@@ -1,0 +1,81 @@
+{
+  "name": "GhostForge PR",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ghostforge-pr",
+        "responseMode": "lastNode"
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"body\"][\"action\"]}}",
+              "operation": "equal",
+              "value2": "review"
+            }
+          ]
+        }
+      },
+      "name": "Switch Action",
+      "type": "n8n-nodes-base.switch",
+      "position": [460, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "repository": "={{$json[\"body\"][\"repo\"]}}",
+        "prNumber": "={{$json[\"body\"][\"prNumber\"]}}",
+        "operation": "get"
+      },
+      "name": "Get PR Details",
+      "type": "n8n-nodes-base.github",
+      "position": [680, 200],
+      "typeVersion": 1,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "repository": "={{$json[\"body\"][\"repo\"]}}",
+        "prNumber": "={{$json[\"body\"][\"prNumber\"]}}",
+        "comment": "={{$json[\"body\"][\"comment\"]}}"
+      },
+      "name": "Comment on PR",
+      "type": "n8n-nodes-base.github",
+      "position": [680, 300],
+      "typeVersion": 1,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "repository": "={{$json[\"body\"][\"repo\"]}}",
+        "prNumber": "={{$json[\"body\"][\"prNumber\"]}}",
+        "operation": "merge"
+      },
+      "name": "Merge PR",
+      "type": "n8n-nodes-base.github",
+      "position": [680, 400],
+      "typeVersion": 1,
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Switch Action", "type": "main", "index": 0 }]]
+    },
+    "Switch Action": {
+      "main": [
+        [{ "node": "Get PR Details", "type": "main", "index": 0 }],
+        [{ "node": "Comment on PR", "type": "main", "index": 0 }],
+        [{ "node": "Merge PR", "type": "main", "index": 0 }]
+      ]
+    }
+  }
+}

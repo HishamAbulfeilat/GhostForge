@@ -1,0 +1,93 @@
+{
+  "name": "GhostForge Deploy",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ghostforge-deploy",
+        "responseMode": "responseNode"
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json[\"body\"][\"action\"]}}",
+              "operation": "equal",
+              "value2": "test"
+            }
+          ]
+        }
+      },
+      "name": "Switch on Action",
+      "type": "n8n-nodes-base.switch",
+      "position": [460, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "command": "cd {{$json[\"body\"][\"project\"]}} && npm test"
+      },
+      "name": "Run Tests",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [680, 200],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "command": "cd {{$json[\"body\"][\"project\"]}} && npm run build"
+      },
+      "name": "Build",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [680, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "command": "cd {{$json[\"body\"][\"project\"]}} && git push origin {{$json[\"body\"][\"branch\"]}}"
+      },
+      "name": "Deploy",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [680, 400],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}"
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [900, 300],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [{ "node": "Switch on Action", "type": "main", "index": 0 }]
+      ]
+    },
+    "Switch on Action": {
+      "main": [
+        [{ "node": "Run Tests", "type": "main", "index": 0 }],
+        [{ "node": "Build", "type": "main", "index": 0 }],
+        [{ "node": "Deploy", "type": "main", "index": 0 }]
+      ]
+    },
+    "Run Tests": {
+      "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
+    },
+    "Build": {
+      "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
+    },
+    "Deploy": {
+      "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
+    }
+  }
+}

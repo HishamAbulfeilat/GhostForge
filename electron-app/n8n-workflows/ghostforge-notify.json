@@ -1,0 +1,62 @@
+{
+  "name": "GhostForge Notify",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ghostforge-notify",
+        "responseMode": "lastNode"
+      },
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "position": [240, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "channel": "={{$json[\"body\"][\"channel\"]}}",
+        "text": "={{$json[\"body\"][\"message\"]}}",
+        "otherOptions": {}
+      },
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "position": [460, 200],
+      "typeVersion": 1,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "to": "={{$json[\"body\"][\"channel\"]}}",
+        "subject": "GhostForge Alert",
+        "message": "={{$json[\"body\"][\"message\"]}}"
+      },
+      "name": "Email Notification",
+      "type": "n8n-nodes-base.emailSend",
+      "position": [460, 300],
+      "typeVersion": 1,
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "url": "={{$json[\"body\"][\"webhookUrl\"]}}",
+        "method": "POST",
+        "body": "={{JSON.stringify($json[\"body\"])}}"
+      },
+      "name": "Custom Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [460, 400],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          { "node": "Slack Notification", "type": "main", "index": 0 },
+          { "node": "Email Notification", "type": "main", "index": 0 },
+          { "node": "Custom Webhook", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  }
+}

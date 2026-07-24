@@ -1,0 +1,75 @@
+{
+  "name": "ghostforge-jarvis",
+  "version": "5.2.0",
+  "description": "GhostForge JARVIS — Ultimate AI Desktop Assistant with Screen Vision, Voice Control, and Blue Cursor",
+  "author": "Hisham Abulfeilat",
+  "license": "MIT",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "tsc && electron .",
+    "build": "tsc && electron-builder",
+    "build:mac": "tsc && electron-builder --mac",
+    "build:win": "tsc && electron-builder --win",
+    "build:linux": "tsc && electron-builder --linux",
+    "build:all": "tsc && electron-builder -mwl",
+    "start": "electron .",
+    "lint": "eslint src/ --ext .ts"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0",
+    "node-screenshots": "^0.0.12",
+    "sharp": "^0.33.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1",
+    "typescript": "^5.3.3"
+  },
+  "build": {
+    "appId": "com.ghostforge.jarvis",
+    "productName": "GhostForge JARVIS",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "resources/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "resources/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "GhostForge JARVIS needs microphone access for voice commands",
+        "NSScreenCaptureUsageDescription": "GhostForge JARVIS captures your screen to understand context",
+        "NSSpeechRecognitionUsageDescription": "GhostForge JARVIS uses speech recognition for voice commands"
+      }
+    },
+    "win": {
+      "icon": "resources/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "linux": {
+      "icon": "resources/icon.png",
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "category": "Development"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

@@ -1,5 +1,61 @@
 # Changelog
 
+## v5.2.0 — 2026-07-25
+
+### 🖱️ Clicky + JARVIS Integration
+- Unified 3 Clicky variants (original, LocalClicky, clicky-local) into one marketplace entry
+- Added blue cursor overlay with animated flying cursor and crosshair
+- Screen capture system with cross-platform support (macOS/Windows/Linux)
+- Vision AI integration: Ollama moondream → Gemini → OpenRouter VL fallback
+- Clicky tools: `point_cursor`, `highlight_area`, `understand_screen`, `find_element`, `read_text_on_screen`
+- Quick actions: Understand Screen, Find Button, Read Screen
+
+### 🎤 Voice Fixes (8 Bugs Fixed)
+- Fixed mode/mic stuck when `requiresConfirmation` in SSE streaming path
+- Fixed mode stuck at thinking when `done` event arrives with `currentTool` truthy
+- Fixed `startListening()` to kill browser TTS + external HTMLAudioElement
+- Fixed wake listener restart race with `wakeJustDetectedRef` flag
+- Fixed `resumeMic` to check `modeRef.current !== 'idle'` before restarting
+- Fixed `speak()` to use `speakingRef` lock and stop current audio first
+- Removed redundant `setMode('idle')` + `resumeMic()` after error handler
+- Added `startAudioAnalyser()` / `stopAudioAnalyser()` with 60fps mic visualization
+
+### 🖥️ Desktop App (Electron)
+- Created Electron app shell wrapping GhostForge web UI
+- Cross-platform screen capture (macOS screencapture, PowerShell, Linux scrot)
+- Blue cursor overlay via transparent always-on-top BrowserWindow
+- System tray with status display and quick actions
+- Global shortcuts: Ctrl+Alt+V (push-to-talk), Ctrl+Alt+C (capture), Ctrl+Alt+J (toggle)
+- System control: open apps, lock screen, volume, process management
+- macOS entitlements for microphone, screen recording, network
+
+### 🧠 Mark-L Inspired Systems
+- Persistent memory system (`JarvisMemory`) — projects, preferences, facts, sessions
+- Proactive check-in system (`JarvisProactive`) — time-aware suggestions, topic monitoring
+- Morning briefing with weather, news, yesterday recap, today plan
+- Session summaries with topic extraction and message history
+- OS-native reminders with recurring support
+- Gemini Live API integration point for always-on voice
+
+### ⚙️ n8n Workflow Integration
+- Docker Compose for n8n + Ollama
+- JARVIS → n8n webhook triggers for deploy, notify, PR workflows
+- Built-in workflow templates: ghostforge-deploy, ghostforge-notify, ghostforge-pr
+- MCP support for AI agent tool integration
+
+### 📱 Cross-Platform Builds
+- Capacitor config for Android (.apk) builds
+- Build script: `./build.sh [mac|win|linux|android|all]`
+- Electron Builder configs for macOS (.dmg/.zip), Windows (.exe), Linux (.AppImage/.deb/.rpm)
+- Android via Capacitor with camera, microphone, screen reader permissions
+
+### 📝 Documentation
+- Comprehensive open source credits section (50+ projects)
+- Updated Clicky section with unified architecture
+- Updated README with cross-platform build instructions
+
+---
+
 ## v2.7.1 — 2026-07-16
 
 9e35d33 docs: update README for v2.7.0
