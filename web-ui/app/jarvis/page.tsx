@@ -871,7 +871,7 @@ export default function JarvisPage() {
   const [geminiListening, setGeminiListening] = useState(false)
   const [geminiTranscript, setGeminiTranscript] = useState<Array<{ text: string; isFinal: boolean; ts: number }>>([])
   const [geminiPlayActive, setGeminiPlayActive] = useState(false)
-  const [geminiVoiceMode, setGeminiVoiceMode] = useState<'gemini-live' | 'browser' | 'offline'>('browser')
+  const [geminiVoiceMode, setGeminiVoiceMode] = useState<'gemini-live' | 'browser' | 'offline' | 'voicebox'>('browser')
   const [showVoiceSettings, setShowVoiceSettings] = useState(false)
   // ── Agent state ─────────────────────────────────────────────────────────────
   const [showAgent, setShowAgent] = useState(false)
@@ -930,7 +930,7 @@ export default function JarvisPage() {
       const raw = localStorage.getItem('gf_voice_settings')
       if (raw) {
         const vs = JSON.parse(raw) as { mode?: string }
-        if (vs.mode) setGeminiVoiceMode(vs.mode as 'gemini-live' | 'browser' | 'offline')
+        if (vs.mode) setGeminiVoiceMode(vs.mode as 'gemini-live' | 'browser' | 'offline' | 'voicebox')
       }
     } catch { /* ignore */ }
   }, [])

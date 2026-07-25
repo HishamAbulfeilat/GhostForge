@@ -11,7 +11,9 @@ interface VoiceSettingsData {
   model: string
   pushToTalk: boolean
   volume: number
-  mode: 'gemini-live' | 'browser' | 'offline'
+  mode: 'gemini-live' | 'browser' | 'offline' | 'voicebox'
+  voiceboxProfile?: string
+  voiceboxEngine?: string
 }
 
 interface VoiceSettingsProps {
@@ -70,10 +72,35 @@ export default function VoiceSettings({ ringColor, onSave, connectionState }: Vo
   const [showKey, setShowKey] = useState(false)
   const [saved, setSaved] = useState(false)
   const [testingKey, setTestingKey] = useState(false)
+  const [voiceboxConnected, setVoiceboxConnected] = useState(false)
+  const [voiceboxProfiles, setVoiceboxProfiles] = useState<Array<{ id: string; name: string }>>([])
+  const [voiceboxEngines, setVoiceboxEngines] = useState<Array<{ id: string; name: string; description?: string }>>([])
 
   useEffect(() => {
     setSettings(loadSettings())
   }, [])
+
+  useEffect(() => {
+    if (settings.mode !== 'voicebox') return
+    const win = window as unknown as { electron?: { voicebox?: {
+      status: () => Promise<{ connected: boolean; version: string | null }>;
+      profiles: () => Promise<Array<{ id: string; name: string }>>;
+      engines: () => Promise<Array<{ id: string; name: string; description?: string }>>;
+    } } }
+    if (!win.electron?.voicebox) return
+    void (async () => {
+      const status = await win.electron!.voicebox!.status()
+      setVoiceboxConnected(status.connected)
+      if (status.connected) {
+        const [p, e] = await Promise.all([
+          win.electron!.voicebox!.profiles(),
+          win.electron!.voicebox!.engines(),
+        ])
+        setVoiceboxProfiles(p)
+        setVoiceboxEngines(e)
+      }
+    })()
+  }, [settings.mode])
 
   const update = useCallback(<K extends keyof VoiceSettingsData>(key: K, value: VoiceSettingsData[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }))
@@ -132,6 +159,7 @@ export default function VoiceSettings({ ringColor, onSave, connectionState }: Vo
         <div className="flex gap-1.5">
           {([
             { id: 'gemini-live' as const, label: 'GEMINI LIVE', desc: 'Real-time streaming' },
+            { id: 'voicebox' as const, label: 'VOICEBOX', desc: 'Local TTS/STT' },
             { id: 'browser' as const, label: 'BROWSER', desc: 'Web Speech API' },
             { id: 'offline' as const, label: 'OFFLINE', desc: 'No voice' },
           ]).map(mode => (
@@ -190,6 +218,89 @@ export default function VoiceSettings({ ringColor, onSave, connectionState }: Vo
           <p style={{ fontSize: 8, color: `${ringColor}44`, marginTop: 4 }}>
             Get your key at aistudio.google.com — free tier available
           </p>
+        </div>
+      )}
+
+      {/* Voicebox settings */}
+      {settings.mode === 'voicebox' && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: voiceboxConnected ? '#00ff88' : '#ff4444' }} />
+            <span className="font-mono" style={{ fontSize: 9, color: voiceboxConnected ? '#00ff88' : '#ff4444' }}>
+              {voiceboxConnected ? 'VOICEBOX CONNECTED' : 'VOICEBOX OFFLINE'}
+            </span>
+          </div>
+          {!voiceboxConnected && (
+            <p style={{ fontSize: 8, color: '#ff666666' }}>
+              Start Voicebox: <code className="font-mono" style={{ color: '#ff8888' }}>voicebox serve --port 17493</code>
+            </p>
+          )}
+          {voiceboxConnected && (
+            <>
+              {/* Voicebox engine */}
+              <div>
+                <label className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>
+                  VOICEBOX ENGINE
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {voiceboxEngines.map(engine => (
+                    <button
+                      key={engine.id}
+                      type="button"
+                      onClick={() => update('voiceboxEngine', engine.id)}
+                      className="rounded border px-2 py-1 transition"
+                      style={{
+                        borderColor: settings.voiceboxEngine === engine.id ? ringColor : `${ringColor}33`,
+                        color: settings.voiceboxEngine === engine.id ? ringColor : `${ringColor}88`,
+                        background: settings.voiceboxEngine === engine.id ? `${ringColor}18` : 'transparent',
+                        fontSize: 10,
+                      }}
+                    >
+                      <div className="font-mono">{engine.name}</div>
+                      {engine.description && <div style={{ fontSize: 8, opacity: 0.5 }}>{engine.description}</div>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Voicebox profile */}
+              <div>
+                <label className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>
+                  VOICE PROFILE
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => update('voiceboxProfile', '')}
+                    className="rounded border px-2 py-1 transition"
+                    style={{
+                      borderColor: !settings.voiceboxProfile ? ringColor : `${ringColor}33`,
+                      color: !settings.voiceboxProfile ? ringColor : `${ringColor}88`,
+                      background: !settings.voiceboxProfile ? `${ringColor}18` : 'transparent',
+                      fontSize: 10,
+                    }}
+                  >
+                    Default
+                  </button>
+                  {voiceboxProfiles.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => update('voiceboxProfile', p.id)}
+                      className="rounded border px-2 py-1 transition"
+                      style={{
+                        borderColor: settings.voiceboxProfile === p.id ? ringColor : `${ringColor}33`,
+                        color: settings.voiceboxProfile === p.id ? ringColor : `${ringColor}88`,
+                        background: settings.voiceboxProfile === p.id ? `${ringColor}18` : 'transparent',
+                        fontSize: 10,
+                      }}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 

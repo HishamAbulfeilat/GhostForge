@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron';
 import type { JarvisMemory } from './memory';
+import type { VoiceboxIntegration } from './voicebox-integration';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,21 @@ export interface GeminiLiveSettings {
   model: string;
   pushToTalk: boolean;
   volume: number;
+}
+
+export type VoiceOutputMode = 'gemini' | 'voicebox' | 'browser' | 'system';
+
+export interface VoiceOutputSettings {
+  mode: VoiceOutputMode;
+  voiceboxProfile?: string;
+  voiceboxEngine?: string;
+  voiceboxLanguage?: string;
+  voiceboxEffects?: {
+    pitchShift?: number;
+    reverb?: number;
+    delay?: number;
+    chorus?: number;
+  };
 }
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -50,6 +66,8 @@ export class GeminiLiveVoice {
   private sessionId: string | null = null;
   private callbacks: GeminiLiveCallbacks = {};
   private pushToTalkMode = false;
+  private voicebox: VoiceboxIntegration | null = null;
+  private voiceOutput: VoiceOutputSettings = { mode: 'gemini' };
 
   constructor(memory: JarvisMemory, config?: Partial<GeminiLiveConfig>) {
     this.memory = memory;

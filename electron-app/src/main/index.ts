@@ -22,6 +22,7 @@ import { registerAutonomousAgentIPC } from './autonomous-agent';
 import { getDaemon, JarvisDaemon } from './jarvis-daemon';
 import { SelfUpdater } from './self-updater';
 import { CodeModifier } from './code-modifier';
+import { VoiceboxIntegration } from './voicebox-integration';
 import {
   listEmails as emailList, readEmail, sendEmail as emailSend, replyToEmail,
   markAsRead, markAsUnread, starEmail, unstarEmail, deleteEmail,
@@ -64,6 +65,7 @@ let n8nIntegration: N8nIntegration;
 let jarvisDaemon: JarvisDaemon;
 let selfUpdater: SelfUpdater;
 let codeModifier: CodeModifier;
+let voiceboxIntegration: VoiceboxIntegration;
 
 const GOT_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 
@@ -143,6 +145,11 @@ function createMainWindow(): void {
   codeModifier = new CodeModifier();
   codeModifier.setMainWindow(mainWindow);
   codeModifier.registerIPC();
+
+  // Initialize Voicebox integration
+  voiceboxIntegration = new VoiceboxIntegration();
+  voiceboxIntegration.setMainWindow(mainWindow);
+  voiceboxIntegration.checkConnection().catch(() => {});
 
   // Register clipboard change events for renderer
   const { onClipboardChange } = require('./clipboard-intel');
@@ -842,6 +849,92 @@ function registerIPC(): void {
   ipcMain.handle('contacts:oauth-callback', async (_event, code: string, provider: 'google' | 'outlook') => {
     return handleContactsOAuthCallback(code, provider);
   });
+
+  // ── Voicebox Integration ───────────────────────────────────────────────────
+  ipcMain.handle('voicebox:status', async () => {
+    return voiceboxIntegration.checkConnection();
+  });
+
+  ipcMain.handle('voicebox:generate', async (
+    _event,
+    text: string,
+    options?: {
+      profileId?: string;
+      profileName?: string;
+      language?: string;
+      engine?: string;
+      effects?: { pitchShift?: number; reverb?: number; delay?: number; chorus?: number };
+    }
+  ) => {
+    return voiceboxIntegration.generateSpeech(text, options || {});
+  });
+
+  ipcMain.handle('voicebox:speak', async (
+    _event,
+    text: string,
+    options?: { profile?: string; personality?: boolean; clientId?: string }
+  ) => {
+    await voiceboxIntegration.speak(text, options || {});
+    return { success: true };
+  });
+
+  ipcMain.handle('voicebox:transcribe', async (
+    _event,
+    audioBase64: string,
+    options?: { model?: string; language?: string }
+  ) => {
+    const buffer = Buffer.from(audioBase64, 'base64');
+    return voiceboxIntegration.transcribe(buffer.buffer as ArrayBuffer, {
+      model: options?.model as 'base' | 'small' | 'medium' | 'large' | 'turbo',
+      language: options?.language,
+    });
+  });
+
+  ipcMain.handle('voicebox:profiles', async () => {
+    return voiceboxIntegration.listProfiles();
+  });
+
+  ipcMain.handle('voicebox:clone', async (
+    _event,
+    name: string,
+    referenceAudioBase64: string,
+    description?: string
+  ) => {
+    const buffer = Buffer.from(referenceAudioBase64, 'base64');
+    return voiceboxIntegration.cloneVoice({ name, referenceAudio: buffer.buffer as ArrayBuffer, description });
+  });
+
+  ipcMain.handle('voicebox:engines', async () => {
+    return voiceboxIntegration.getEngines();
+  });
+
+  ipcMain.handle('voicebox:languages', async () => {
+    return voiceboxIntegration.getLanguages();
+  });
+
+  ipcMain.handle('voicebox:set-config', async (
+    _event,
+    updates: Partial<import('./voicebox-integration').VoiceboxConfig>
+  ) => {
+    voiceboxIntegration.updateConfig(updates);
+    return voiceboxIntegration.getConfig();
+  });
+
+  ipcMain.handle('voicebox:get-config', () => {
+    return voiceboxIntegration.getConfig();
+  });
+
+  ipcMain.handle('voicebox:create-profile', async (
+    _event,
+    options: { name: string; description?: string; language?: string }
+  ) => {
+    return voiceboxIntegration.createProfile(options);
+  });
+
+  ipcMain.handle('voicebox:delete-profile', async (_event, id: string) => {
+    await voiceboxIntegration.deleteProfile(id);
+    return { success: true };
+  });
 }
 
 function registerGlobalShortcuts(): void {
@@ -916,6 +1009,7 @@ app.on('will-quit', () => {
   jarvisDaemon?.destroy();
   selfUpdater?.destroy();
   codeModifier?.destroy();
+  voiceboxIntegration?.destroy();
   bridgeManager.stopBridge().catch(() => {});
   geminiLiveVoice?.destroy();
   n8nIntegration = undefined as any;
