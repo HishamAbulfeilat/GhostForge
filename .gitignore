@@ -42,3 +42,5 @@ electron-app/out/
 
 # Mark-L
 mark-l/
+__pycache__/
+*.pyc
