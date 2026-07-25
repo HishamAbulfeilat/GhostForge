@@ -50,7 +50,13 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   models:      '- llmfit_recommend { task? } | - list_local_models | - install_model { model, runner? } | - open_url { url }',
   remote:      '- take_screenshot { filename? } | - describe_screen | - terminal_command { command } | - open_url { url } | - browser_control { action, url?, text? }',
   travel:      '- flight_finder { from, to, date? } | - web_search { query, mode? } | - open_url { url } | - get_weather { city }',
-  general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - browser_control { action, url?, text? } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value }',
+  general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - browser_control { action, url?, text? } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value } | - youtube_control { action, query?, url?, region? } | - game_manager { action, game_name? } | - clipboard_analyze { action, text? } | - browser_automate { action, url?, selector?, text? } | - file_processor { action, file_path?, question?, output_format? } | - hardware_monitor { report_type? } | - system_control { action, value? } | - setup_wizard { action, step_id?, config? }',
+  youtube:     '- youtube_control { action, query?, url?, region? }',
+  games:       '- game_manager { action, game_name? }',
+  clipboard:   '- clipboard_analyze { action, text? }',
+  browser_ext: '- browser_automate { action, url?, selector?, text? } | - browser_control { action, url?, text? }',
+  files_ext:   '- file_processor { action, file_path?, question?, output_format? } | - get_files { path? } | - read_file { path }',
+  hardware:    '- hardware_monitor { report_type? } | - get_system_info',
   design:      '- apply_design_md { site } | - list_design_md | - design_resources { category? }',
   security:    '- vigolium_scan { target, strategy? } | - vigolium_agent { target, mode? } | - terminal_command { command }',
 }
@@ -65,6 +71,7 @@ type Domain =
   | 'weather' | 'time' | 'system' | 'music' | 'messaging' | 'search'
   | 'code' | 'math' | 'files' | 'reminder' | 'mac_control' | 'vision'
   | 'github' | 'copilot' | 'lock' | 'screenshot' | 'models' | 'remote' | 'travel' | 'general'
+  | 'youtube' | 'games' | 'clipboard' | 'browser_ext' | 'files_ext' | 'hardware'
 
 const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   weather:     ['weather','temperature','forecast','rain','sunny','cold','hot','humidity','wind','storm','degrees'],
@@ -86,6 +93,12 @@ const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   models:      ['model','install model','ollama','llamafile','lm studio','jan.ai','qwen','llama','mistral','phi','gemma','local model','best model','recommend model','llmfit','download model','list models','which model','switch model'],
   remote:      ['remote','control remotely','screen share remote','vnc','websockify','connect from','access mac from','remote desktop','control my mac from'],
   travel:      ['travel','trip','flight','flights','airport','airline','depart','arrival','boarding','ticket','fare','plane','hotel'],
+  youtube:     ['youtube','video','transcript','watch','trending','yt','summarize video','video summary','play video'],
+  games:       ['game','games','steam','epic games','update game','game update','installed games','game library','gaming'],
+  clipboard:   ['clipboard','copy','paste','smart paste','clipboard history','translate clipboard','summarize clipboard','fix clipboard'],
+  browser_ext: ['automate browser','playwright','click element','browser screenshot','browser text','page text'],
+  files_ext:   ['summarize file','read file','file summary','convert file','file converter','ask file'],
+  hardware:    ['cpu usage','ram usage','disk usage','gpu usage','fan speed','hardware report','system report','hardware stats'],
   general:     [],
 }
 
@@ -106,6 +119,12 @@ const DOMAIN_EXTRA_GUIDANCE: Partial<Record<Domain, string>> = {
   lock:        'Just confirm the screen is locking. No extra commentary.',
   screenshot:  'Confirm the filename and save location.',
   travel:      'Help with routes, prices, and next-step booking links. Be concrete.',
+  youtube:     'Search, play, summarize, or get info about YouTube videos.',
+  games:       'List installed games, check for updates, and trigger updates.',
+  clipboard:   'Analyze clipboard content: translate, summarize, explain, or fix code.',
+  browser_ext: 'Automate browser actions: open, click, type, navigate, screenshot.',
+  files_ext:   'Read, summarize, ask questions about, or convert files.',
+  hardware:    'Report CPU, RAM, disk, GPU, fan speed, and full system stats.',
 }
 
 function classifyDomain(text: string): Domain {
@@ -1695,12 +1714,646 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       }
     }
 
+    // ── YouTube Control ───────────────────────────────────────────────────────
+    case 'youtube_control': {
+      const action = (params.action || 'search').toLowerCase()
+      const PYTHON_BRIDGE = 'http://localhost:8765'
+
+      if (action === 'search') {
+        const query = params.query || ''
+        if (!query) return 'No search query provided'
+        try {
+          const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`
+          await execAsync(`open "${searchUrl}"`, { timeout: 5000 })
+          return `Opened YouTube search for "${query}"`
+        } catch {
+          return `Could not open YouTube search for "${query}"`
+        }
+      }
+
+      if (action === 'transcript') {
+        const url = params.url || ''
+        if (!url) return 'No video URL provided'
+        const videoIdMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/)
+        const videoId = videoIdMatch?.[1] || url.slice(0, 11)
+        try {
+          const res = await fetch(`${PYTHON_BRIDGE}/transcript`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ video_id: videoId }),
+            signal: AbortSignal.timeout(15000),
+          })
+          if (res.ok) {
+            const data = await res.json() as { transcript?: Array<{ text: string; start: number; duration: number }> }
+            const segments = data.transcript || []
+            return segments.map(s => s.text).join(' ').slice(0, 2000) || 'No transcript available'
+          }
+        } catch {}
+        return 'Transcript unavailable — bridge may not be running'
+      }
+
+      if (action === 'info') {
+        const url = params.url || ''
+        if (!url) return 'No video URL provided'
+        try {
+          const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`
+          const res = await fetch(oembedUrl, { signal: AbortSignal.timeout(8000) })
+          if (res.ok) {
+            const data = await res.json() as { title: string; author_name: string }
+            return `Title: ${data.title}\nAuthor: ${data.author_name}`
+          }
+        } catch {}
+        return 'Video info unavailable'
+      }
+
+      if (action === 'trending') {
+        const region = params.region || 'US'
+        try {
+          const res = await fetch(`${PYTHON_BRIDGE}/trending`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ region }),
+            signal: AbortSignal.timeout(15000),
+          })
+          if (res.ok) {
+            const data = await res.json() as { videos?: Array<{ title: string; url: string; viewCount: number }> }
+            const videos = data.videos || []
+            if (videos.length === 0) return 'No trending videos found'
+            return videos.slice(0, 5).map((v, i) =>
+              `${i + 1}. ${v.title} (${v.viewCount.toLocaleString()} views)\n   ${v.url}`
+            ).join('\n')
+          }
+        } catch {}
+        return `Trending videos unavailable for region: ${region}`
+      }
+
+      if (action === 'summarize') {
+        const url = params.url || ''
+        if (!url) return 'No video URL provided'
+        const videoIdMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)
+        const videoId = videoIdMatch?.[1] || url.slice(0, 11)
+        try {
+          const transcriptRes = await fetch(`${PYTHON_BRIDGE}/transcript`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ video_id: videoId }),
+            signal: AbortSignal.timeout(15000),
+          })
+          if (transcriptRes.ok) {
+            const tData = await transcriptRes.json() as { transcript?: Array<{ text: string }> }
+            const fullText = (tData.transcript || []).map(s => s.text).join(' ')
+            if (fullText.length > 0) {
+              return `Video transcript (${fullText.length} chars):\n${fullText.slice(0, 2000)}`
+            }
+          }
+        } catch {}
+        return 'Could not generate summary — transcript not available'
+      }
+
+      return `Unknown YouTube action: ${action}`
+    }
+
+    // ── Game Manager ──────────────────────────────────────────────────────────
+    case 'game_manager': {
+      const action = (params.action || 'list').toLowerCase()
+
+      if (action === 'list') {
+        const results = await Promise.allSettled([
+          execAsync(`find ~/Library/Application\\ Support/Steam/steamapps -name "appmanifest_*.acf" 2>/dev/null | head -20`),
+          execAsync(`find ~/Library/Application\\ Support/Epic/EpicGamesLauncher/Data/Manifests -name "*.item" 2>/dev/null | head -10`),
+        ])
+        const steamCount = results[0].status === 'fulfilled'
+          ? results[0].value.stdout.split('\n').filter(Boolean).length
+          : 0
+        const epicCount = results[1].status === 'fulfilled'
+          ? results[1].value.stdout.split('\n').filter(Boolean).length
+          : 0
+        return `Installed games: ~${steamCount} Steam, ~${epicCount} Epic Games\nOpen game launchers to see full library.`
+      }
+
+      if (action === 'scan-steam' || action === 'scan_steam') {
+        try {
+          const { stdout } = await execAsync(`find ~/Library/Application\\ Support/Steam/steamapps -name "appmanifest_*.acf" -exec grep -l "name" {} \\; 2>/dev/null | head -20`)
+          const files = stdout.split('\n').filter(Boolean)
+          if (files.length === 0) return 'No Steam games found. Is Steam installed?'
+          const games: string[] = []
+          for (const file of files.slice(0, 10)) {
+            try {
+              const content = await execAsync(`grep "name" "${file}" | head -1`, { timeout: 3000 })
+              const match = content.stdout.match(/"([^"]+)"/)
+              if (match) games.push(match[1])
+            } catch {}
+          }
+          return `Steam games found (${games.length}):\n${games.join('\n')}`
+        } catch {
+          return 'Could not scan Steam library'
+        }
+      }
+
+      if (action === 'scan-epic' || action === 'scan_epic') {
+        try {
+          const manifestDir = `${process.env.HOME}/Library/Application Support/Epic/EpicGamesLauncher/Data/Manifests`
+          const { stdout } = await execAsync(`ls "${manifestDir}"/*.item 2>/dev/null | head -10`)
+          const files = stdout.split('\n').filter(Boolean)
+          if (files.length === 0) return 'No Epic Games found. Is the Epic Games Launcher installed?'
+          const games: string[] = []
+          for (const file of files.slice(0, 10)) {
+            try {
+              const content = await execAsync(`cat "${file}"`, { timeout: 3000 })
+              const data = JSON.parse(content.stdout)
+              if (data.AppName) games.push(data.AppName)
+            } catch {}
+          }
+          return `Epic Games found (${games.length}):\n${games.join('\n')}`
+        } catch {
+          return 'Could not scan Epic Games library'
+        }
+      }
+
+      if (action === 'check-update' || action === 'check_update') {
+        const gameName = params.game_name || ''
+        if (!gameName) return 'Please specify a game name'
+        return `Update check for "${gameName}": Open the game launcher (Steam/Epic) to check for updates. Automatic update detection requires the game launcher running.`
+      }
+
+      if (action === 'update') {
+        const gameName = params.game_name || ''
+        if (!gameName) return 'Please specify a game name'
+        return `Update for "${gameName}": Open Steam/Epic Games Launcher to download the latest update.`
+      }
+
+      return `Unknown game action: ${action}`
+    }
+
+    // ── Clipboard Analyze ─────────────────────────────────────────────────────
+    case 'clipboard_analyze': {
+      const action = (params.action || 'explain').toLowerCase()
+      const text = params.text || ''
+
+      if (!text && action !== 'history') {
+        // Try reading clipboard
+        try {
+          const { stdout } = await execAsync('pbpaste', { timeout: 3000 })
+          const clipboardText = stdout.trim()
+          if (!clipboardText) return 'Clipboard is empty'
+          return analyzeClipboardText(clipboardText, action)
+        } catch {
+          return 'Could not read clipboard'
+        }
+      }
+
+      if (action === 'history') {
+        return 'Clipboard history is managed by the Electron app. Use the clipboard IPC handler from the renderer.'
+      }
+
+      return analyzeClipboardText(text || '', action)
+    }
+
+    // ── Browser Automate ──────────────────────────────────────────────────────
+    case 'browser_automate': {
+      const action = (params.action || 'open').toLowerCase()
+      const url = params.url || ''
+      const selector = params.selector || ''
+      const text = params.text || ''
+
+      if (action === 'open') {
+        if (!url) return 'No URL provided'
+        return openUrl(url)
+      }
+
+      if (action === 'search') {
+        if (!text) return 'No search query provided'
+        return openUrl(`https://www.google.com/search?q=${encodeURIComponent(text)}`)
+      }
+
+      if (action === 'navigate') {
+        if (!url) return 'No URL provided'
+        return openUrl(url)
+      }
+
+      if (action === 'screenshot') {
+        const outPath = `/tmp/browser-screenshot-${Date.now()}.png`
+        if (process.platform === 'darwin') {
+          await execAsync(`screencapture -x "${outPath}"`, { timeout: 8000 })
+          return `Screenshot saved to ${outPath}`
+        }
+        return 'Browser screenshot not available on this platform'
+      }
+
+      if (action === 'get-text' || action === 'get_text') {
+        return 'Browser text extraction requires Playwright. Install with: npm i playwright'
+      }
+
+      if (action === 'click') {
+        if (!selector) return 'No CSS selector provided for click'
+        return `Click on "${selector}" requires Playwright browser automation. Install: npm i playwright`
+      }
+
+      if (action === 'type') {
+        if (!text) return 'No text to type'
+        const escaped = text.replace(/"/g, '\\"')
+        if (process.platform === 'darwin') {
+          await runScript(`tell application "System Events" to keystroke "${escaped}"`)
+          return `Typed: "${text.slice(0, 60)}"`
+        }
+        return 'Typing requires macOS or Playwright'
+      }
+
+      if (action === 'back') {
+        if (process.platform === 'darwin') {
+          await runScript('tell application "System Events" to keystroke "[" using command down')
+          return 'Navigated back'
+        }
+        return 'Browser back requires macOS'
+      }
+
+      if (action === 'forward') {
+        if (process.platform === 'darwin') {
+          await runScript('tell application "System Events" to keystroke "]" using command down')
+          return 'Navigated forward'
+        }
+        return 'Browser forward requires macOS'
+      }
+
+      if (action === 'scroll') {
+        const dir = text || 'down'
+        const script = `tell application "System Events" to scroll ${dir} 5`
+        try {
+          await runScript(script)
+          return `Scrolled ${dir}`
+        } catch {
+          return `Scroll ${dir} failed`
+        }
+      }
+
+      return `Unknown browser action: ${action}`
+    }
+
+    // ── File Processor ────────────────────────────────────────────────────────
+    case 'file_processor': {
+      const action = (params.action || 'read').toLowerCase()
+      const filePath = params.file_path || params.path || ''
+      const question = params.question || ''
+      const outputFormat = params.output_format || params.format || 'txt'
+
+      if (!filePath) return 'No file path provided'
+
+      if (action === 'read') {
+        try {
+          const ext = filePath.split('.').pop()?.toLowerCase() || ''
+          const isText = ['txt', 'md', 'json', 'csv', 'ts', 'tsx', 'js', 'jsx', 'py', 'html', 'css', 'yaml', 'yml', 'toml', 'xml', 'sh', 'sql', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'swift', 'kt', 'php'].includes(ext)
+          if (isText) {
+            const { stdout } = await execAsync(`head -100 "${filePath}"`, { timeout: 5000 })
+            return stdout.trim().slice(0, 3000) || '(empty file)'
+          }
+          // PDF
+          if (ext === 'pdf') {
+            try {
+              const { stdout } = await execAsync(`pdftotext "${filePath}" - 2>/dev/null | head -100`, { timeout: 8000 })
+              return stdout.trim().slice(0, 3000) || '(empty PDF)'
+            } catch {
+              return `PDF found at ${filePath} but could not extract text. Install poppler: brew install poppler`
+            }
+          }
+          // DOCX
+          if (ext === 'docx') {
+            try {
+              const { stdout } = await execAsync(`pandoc "${filePath}" -t plain 2>/dev/null | head -100`, { timeout: 8000 })
+              return stdout.trim().slice(0, 3000) || '(empty document)'
+            } catch {
+              return `DOCX found at ${filePath} but could not extract text. Install pandoc: brew install pandoc`
+            }
+          }
+          return `File: ${filePath} (type: .${ext}) — reading not implemented for this format`
+        } catch {
+          return `Cannot read file: ${filePath}`
+        }
+      }
+
+      if (action === 'summarize') {
+        try {
+          const { stdout } = await execAsync(`head -200 "${filePath}"`, { timeout: 5000 })
+          const content = stdout.trim()
+          if (!content) return `(empty file: ${filePath})`
+          const lines = content.split('\n')
+          const wordCount = content.split(/\s+/).length
+          const header = lines.find(l => l.startsWith('#'))
+          return `File: ${filePath}\nSize: ${wordCount} words, ${lines.length} lines\n${header ? `Title: ${header}\n` : ''}Preview: ${content.slice(0, 500)}`
+        } catch {
+          return `Cannot read file: ${filePath}`
+        }
+      }
+
+      if (action === 'ask') {
+        if (!question) return 'No question provided'
+        try {
+          const { stdout } = await execAsync(`head -300 "${filePath}"`, { timeout: 5000 })
+          const content = stdout.trim()
+          if (!content) return `(empty file: ${filePath})`
+          return `File: ${filePath}\nQuestion: ${question}\n\nContent preview:\n${content.slice(0, 2000)}\n\nFor full analysis, use JARVIS with a vision or code model.`
+        } catch {
+          return `Cannot read file: ${filePath}`
+        }
+      }
+
+      if (action === 'convert') {
+        if (!outputFormat) return 'No output format specified (txt, md, json, csv, html)'
+        try {
+          const { stdout } = await execAsync(`cat "${filePath}"`, { timeout: 5000 })
+          const content = stdout.trim()
+          const baseName = filePath.replace(/\.[^/.]+$/, '')
+          const outputPath = `${baseName}.${outputFormat}`
+          const { writeFileSync: wfs } = await import('fs')
+          if (outputFormat === 'json') {
+            wfs(outputPath, JSON.stringify({ source: filePath, content }, null, 2))
+          } else if (outputFormat === 'html') {
+            wfs(outputPath, `<!DOCTYPE html><html><head><title>${baseName}</title></head><body><pre>${content.replace(/</g, '&lt;')}</pre></body></html>`)
+          } else {
+            wfs(outputPath, content)
+          }
+          return `Converted to ${outputPath}`
+        } catch {
+          return `Cannot convert file: ${filePath}`
+        }
+      }
+
+      return `Unknown file action: ${action}`
+    }
+
+    // ── Hardware Monitor ──────────────────────────────────────────────────────
+    case 'hardware_monitor': {
+      const reportType = (params.report_type || 'full').toLowerCase()
+
+      if (reportType === 'cpu' || reportType === 'full') {
+        const [cpuRes, memRes] = await Promise.allSettled([
+          execAsync("top -l 1 -s 0 | grep 'CPU usage' | head -1"),
+          execAsync('sysctl hw.memsize 2>/dev/null'),
+        ])
+        const cpuLine = cpuRes.status === 'fulfilled' ? cpuRes.value.stdout.trim() : 'N/A'
+        const ramGB = memRes.status === 'fulfilled'
+          ? Math.round(parseInt(memRes.value.stdout.match(/(\d+)/)?.[1] || '0') / 1024 ** 3)
+          : 'N/A'
+        if (reportType === 'cpu') return `CPU: ${cpuLine}\nRAM: ${ramGB}GB total`
+      }
+
+      if (reportType === 'ram') {
+        try {
+          const { stdout } = await execAsync('vm_stat | head -10')
+          return `RAM stats:\n${stdout.trim()}`
+        } catch {
+          return 'RAM stats unavailable'
+        }
+      }
+
+      if (reportType === 'disk') {
+        try {
+          const { stdout } = await execAsync('df -h / | tail -1')
+          return `Disk: ${stdout.trim()}`
+        } catch {
+          return 'Disk stats unavailable'
+        }
+      }
+
+      if (reportType === 'gpu') {
+        try {
+          const { stdout } = await execAsync('system_profiler SPDisplaysDataType 2>/dev/null | head -20')
+          return `GPU:\n${stdout.trim()}`
+        } catch {
+          return 'GPU stats unavailable'
+        }
+      }
+
+      if (reportType === 'fan') {
+        try {
+          const { stdout } = await execAsync('system_profiler SPPowerDataType 2>/dev/null | grep -A2 "Fan" | head -10')
+          return `Fans:\n${stdout.trim() || 'No fan data available'}`
+        } catch {
+          return 'Fan stats unavailable'
+        }
+      }
+
+      // Full report
+      const [cpuR, memR, diskR, gpuR] = await Promise.allSettled([
+        execAsync("top -l 1 -s 0 | grep 'CPU usage'"),
+        execAsync('sysctl hw.memsize 2>/dev/null'),
+        execAsync('df -h / | tail -1'),
+        execAsync('system_profiler SPDisplaysDataType 2>/dev/null | grep "Chipset Model"'),
+      ])
+      const parts: string[] = []
+      if (cpuR.status === 'fulfilled') parts.push(`CPU: ${cpuR.value.stdout.trim()}`)
+      if (memR.status === 'fulfilled') {
+        const gb = Math.round(parseInt(memR.value.stdout.match(/(\d+)/)?.[1] || '0') / 1024 ** 3)
+        parts.push(`RAM: ${gb}GB total`)
+      }
+      if (diskR.status === 'fulfilled') parts.push(`Disk: ${diskR.value.stdout.trim()}`)
+      if (gpuR.status === 'fulfilled') parts.push(`GPU: ${gpuR.value.stdout.trim()}`)
+      return parts.join('\n') || 'Hardware stats unavailable'
+    }
+
+    // ── System Control (extended) ─────────────────────────────────────────────
+    case 'system_control': {
+      const action = (params.action || '').toLowerCase()
+      const value = params.value || ''
+
+      if (action === 'set-brightness' || action === 'set_brightness') {
+        const level = parseInt(value) || 50
+        const fraction = Math.max(0, Math.min(100, level)) / 100
+        try {
+          await execAsync(`brightness ${fraction}`, { timeout: 5000 })
+          return `Brightness set to ${level}%`
+        } catch {
+          return 'Brightness control requires the "brightness" CLI tool (brew install brightness)'
+        }
+      }
+
+      if (action === 'get-brightness' || action === 'get_brightness') {
+        try {
+          const { stdout } = await execAsync('brightness -l 2>/dev/null | grep display0 | awk \'{print $2}\'', { timeout: 5000 })
+          const pct = Math.round(parseFloat(stdout.trim()) * 100) || 50
+          return `Brightness: ${pct}%`
+        } catch {
+          return 'Brightness detection requires the "brightness" CLI tool'
+        }
+      }
+
+      if (action === 'toggle-wifi' || action === 'toggle_wifi') {
+        try {
+          const { stdout } = await execAsync('networksetup -getairportpower en0', { timeout: 5000 })
+          const isOn = stdout.toLowerCase().includes('on')
+          await execAsync(`networksetup -setairportpower en0 ${isOn ? 'off' : 'on'}`, { timeout: 5000 })
+          return `WiFi turned ${isOn ? 'off' : 'on'}`
+        } catch {
+          return 'WiFi toggle failed'
+        }
+      }
+
+      if (action === 'wifi-status' || action === 'wifi_status') {
+        try {
+          const { stdout } = await execAsync('networksetup -getairportpower en0', { timeout: 5000 })
+          return `WiFi: ${stdout.trim()}`
+        } catch {
+          return 'WiFi status unavailable'
+        }
+      }
+
+      if (action === 'toggle-bluetooth' || action === 'toggle_bluetooth') {
+        try {
+          const { stdout } = await execAsync('blueutil --power', { timeout: 5000 })
+          const current = parseInt(stdout.trim(), 10)
+          await execAsync(`blueutil --power ${current ? 0 : 1}`, { timeout: 5000 })
+          return `Bluetooth turned ${current ? 'off' : 'on'}`
+        } catch {
+          return 'Bluetooth toggle requires blueutil: brew install blueutil'
+        }
+      }
+
+      if (action === 'sleep') {
+        try {
+          await execAsync('pmset sleepnow', { timeout: 5000 })
+          return 'Computer going to sleep'
+        } catch {
+          return 'Sleep command failed'
+        }
+      }
+
+      if (action === 'restart') {
+        try {
+          await execAsync('sudo shutdown -r now', { timeout: 5000 })
+          return 'Computer restarting'
+        } catch {
+          return 'Restart requires sudo privileges'
+        }
+      }
+
+      if (action === 'shutdown') {
+        try {
+          await execAsync('sudo shutdown -h now', { timeout: 5000 })
+          return 'Computer shutting down'
+        } catch {
+          return 'Shutdown requires sudo privileges'
+        }
+      }
+
+      if (action === 'battery') {
+        try {
+          const { stdout } = await execAsync('pmset -g batt', { timeout: 5000 })
+          return `Battery:\n${stdout.trim()}`
+        } catch {
+          return 'Battery info unavailable'
+        }
+      }
+
+      if (action === 'screenshot') {
+        const filename = `screenshot-${Date.now()}.png`
+        const outPath = join(process.env.HOME || '', 'Desktop', filename)
+        try {
+          await execAsync(`screencapture -x "${outPath}"`, { timeout: 8000 })
+          return `Screenshot saved to ~/Desktop/${filename}`
+        } catch {
+          return 'Screenshot failed'
+        }
+      }
+
+      return `Unknown system action: ${action}`
+    }
+
+    // ── Setup Wizard ──────────────────────────────────────────────────────────
+    case 'setup_wizard': {
+      const action = (params.action || 'status').toLowerCase()
+
+      if (action === 'status') {
+        const stateFile = join(process.env.HOME || '', '.ghostforge', 'setup-state.json')
+        try {
+          const { readFileSync: rf } = await import('fs')
+          const state = JSON.parse(rf(stateFile, 'utf8'))
+          const completed = Array.isArray(state.completedSteps) ? state.completedSteps.length : 0
+          return `Setup: ${completed}/6 steps completed${completed === 0 ? ' (first run)' : ''}`
+        } catch {
+          return 'Setup: 0/6 steps completed (first run)'
+        }
+      }
+
+      if (action === 'steps') {
+        const steps = [
+          { id: 'api-key', title: 'API Key', required: true },
+          { id: 'voice-model', title: 'Voice Model', required: false },
+          { id: 'language', title: 'Language', required: true },
+          { id: 'assistant-name', title: 'Assistant Name', required: false },
+          { id: 'auto-start', title: 'Auto-Start', required: false },
+          { id: 'first-run', title: 'Welcome', required: true },
+        ]
+        const stateFile = join(process.env.HOME || '', '.ghostforge', 'setup-state.json')
+        let completed: string[] = []
+        try {
+          const { readFileSync: rf } = await import('fs')
+          const state = JSON.parse(rf(stateFile, 'utf8'))
+          completed = Array.isArray(state.completedSteps) ? state.completedSteps : []
+        } catch {}
+        return steps.map(s =>
+          `${completed.includes(s.id) ? '✓' : '○'} ${s.title}${s.required ? ' (required)' : ''}`
+        ).join('\n')
+      }
+
+      if (action === 'complete-step' || action === 'complete_step') {
+        const stepId = params.step_id || ''
+        if (!stepId) return 'No step ID provided'
+        const stateFile = join(process.env.HOME || '', '.ghostforge', 'setup-state.json')
+        const dir = join(process.env.HOME || '', '.ghostforge')
+        try {
+          const { readFileSync: rf, writeFileSync: wfs, mkdirSync: ms } = await import('fs')
+          const { existsSync: es } = await import('fs')
+          if (!es(dir)) ms(dir, { recursive: true })
+          let state: { completedSteps: string[]; configs: Record<string, unknown> } = { completedSteps: [], configs: {} }
+          if (es(stateFile)) state = JSON.parse(rf(stateFile, 'utf8'))
+          if (!state.completedSteps.includes(stepId)) state.completedSteps.push(stepId)
+          if (params.config) state.configs[stepId] = JSON.parse(params.config as string || '{}')
+          wfs(stateFile, JSON.stringify(state, null, 2))
+          return `Step "${stepId}" marked as complete (${state.completedSteps.length}/6)`
+        } catch {
+          return `Could not save step: ${stepId}`
+        }
+      }
+
+      if (action === 'is-first-run' || action === 'is_first_run') {
+        const stateFile = join(process.env.HOME || '', '.ghostforge', 'setup-state.json')
+        try {
+          const { readFileSync: rf, existsSync: es } = await import('fs')
+          if (!es(stateFile)) return 'Yes — first run'
+          const state = JSON.parse(rf(stateFile, 'utf8'))
+          const completed = Array.isArray(state.completedSteps) ? state.completedSteps.length : 0
+          return completed === 0 ? 'Yes — first run' : 'No — setup partially or fully complete'
+        } catch {
+          return 'Yes — first run'
+        }
+      }
+
+      return `Unknown setup action: ${action}`
+    }
+
     default:
       return 'Unknown tool'
   }
 }
 
 // ── Tool result → spoken speech (no second AI call) ───────────────────────────
+
+function analyzeClipboardText(text: string, action: string): string {
+  const truncated = text.length > 2000 ? text.slice(0, 2000) + '…' : text
+  switch (action) {
+    case 'translate':
+      return `[Translate] Text (${text.length} chars): ${truncated.slice(0, 300)}`
+    case 'summarize':
+      return `[Summary] Text is ${text.length} characters. Preview: ${truncated.slice(0, 300)}`
+    case 'explain':
+      return `[Explain] Text (${text.length} chars): ${truncated.slice(0, 300)}`
+    case 'fix':
+      return `[Fix] Original (${text.length} chars): ${truncated.slice(0, 300)}`
+    case 'improve':
+      return `[Improve] Original (${text.length} chars): ${truncated.slice(0, 300)}`
+    default:
+      return `Clipboard (${text.length} chars): ${truncated.slice(0, 300)}`
+  }
+}
 
 function formatToolSpeech(tool: string, result: string): string {
   const done = pickPersona('completion')
@@ -1799,6 +2452,15 @@ function formatToolSpeech(tool: string, result: string): string {
       return r.split('\n').filter(l => l.trim()).slice(0, 2).join(' — ').slice(0, 200) || `${done} Done.`
     case 'flight_finder':
       return r.split('\n')[1]?.slice(0, 200) || 'Google Flights is ready.'
+    case 'youtube_control':
+    case 'game_manager':
+    case 'clipboard_analyze':
+    case 'browser_automate':
+    case 'file_processor':
+    case 'hardware_monitor':
+    case 'system_control':
+    case 'setup_wizard':
+      return r.split('\n').filter(l => l.trim()).slice(0, 2).join(' — ').slice(0, 200) || `${done}`
     default:
       return r.split('\n')[0]?.slice(0, 200) || `${done}`
   }
