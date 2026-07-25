@@ -94,14 +94,9 @@ export default function ClickyOverlay({ target, point, highlight, duration = 500
             border: '2px solid rgba(59,130,246,0.7)',
             background: 'rgba(59,130,246,0.08)',
             boxShadow: '0 0 16px rgba(59,130,246,0.3)',
+            animation: 'clickyFadeIn 0.2s ease-out',
           }}
         />
-        <style>{`
-          @keyframes clickyFadeIn {
-            from { opacity: 0; transform: translateY(4px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-        `}</style>
       </div>
     )
   }
@@ -109,10 +104,7 @@ export default function ClickyOverlay({ target, point, highlight, duration = 500
   if (!visible || !effectiveTarget) return null
 
   return (
-    <div
-      className="pointer-events-none fixed inset-0 z-[9999]"
-      style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh' }}
-    >
+    <div className="pointer-events-none fixed inset-0 z-[9999]">
       {/* Blue cursor */}
       <div
         className="absolute"
@@ -190,13 +182,6 @@ export default function ClickyOverlay({ target, point, highlight, duration = 500
           </div>
         )}
       </div>
-
-      <style>{`
-        @keyframes clickyFadeIn {
-          from { opacity: 0; transform: translateY(4px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
     </div>
   )
 }

@@ -32,4 +32,5 @@ web-ui/node_modules/
 .aider*
 electron-app/release/
 electron-app/node_modules/
+electron-app/android/
 mark-l/
