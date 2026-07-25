@@ -9,6 +9,7 @@ import ClickyOverlay from '@/components/ClickyOverlay'
 import { usePlatform, detectLanguage, getSpeechLang, platformLabel } from '@/lib/platform'
 
 const MarkLPanel = dynamic(() => import('@/components/MarkLPanel'), { ssr: false })
+const VoiceSettings = dynamic(() => import('@/components/VoiceSettings'), { ssr: false })
 import { collectRecognitionTranscript, findWakePhrase } from '@/lib/voice-runtime'
 import { JARVIS_QUICK_ACTIONS } from '@/lib/quick-actions'
 
@@ -852,6 +853,15 @@ export default function JarvisPage() {
   const [liveTranscript, setLiveTranscript] = useState('')
   const [audioLevel, setAudioLevel] = useState(0)
   const [showMarkL, setShowMarkL] = useState(false)
+  const [bridgeStatus, setBridgeStatus] = useState<string>('stopped')
+  // ── Gemini Live voice state ───────────────────────────────────────────────────
+  const [geminiConnectionState, setGeminiConnectionState] = useState<string>('disconnected')
+  const [geminiListening, setGeminiListening] = useState(false)
+  const [geminiTranscript, setGeminiTranscript] = useState<Array<{ text: string; isFinal: boolean; ts: number }>>([])
+  const [geminiPlayActive, setGeminiPlayActive] = useState(false)
+  const [geminiVoiceMode, setGeminiVoiceMode] = useState<'gemini-live' | 'browser' | 'offline'>('browser')
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false)
+  const geminiTranscriptRef = useRef<Array<{ text: string; isFinal: boolean; ts: number }>>([])
   const audioAnalyserRef = useRef<AnalyserNode | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const audioAnimFrameRef = useRef<number | null>(null)
@@ -898,6 +908,14 @@ export default function JarvisPage() {
     setHotwordEnabled(localStorage.getItem('gf_hotword') === 'true')
     setHandsFreeEnabled(localStorage.getItem('gf_handsfree') === 'true')
     setVoiceEngine((localStorage.getItem('gf_voiceEngine') as VoiceEngine) || 'browser')
+    // Load Gemini Live voice settings
+    try {
+      const raw = localStorage.getItem('gf_voice_settings')
+      if (raw) {
+        const vs = JSON.parse(raw) as { mode?: string }
+        if (vs.mode) setGeminiVoiceMode(vs.mode as 'gemini-live' | 'browser' | 'offline')
+      }
+    } catch { /* ignore */ }
   }, [])
 
   useEffect(() => {
@@ -1147,6 +1165,14 @@ export default function JarvisPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = (window as any).electron?.bridgeManager
+    if (!api) return
+    api.getStatus().then((res: { status: string }) => setBridgeStatus(res.status)).catch(() => {})
+    api.onStatusChange((status: string) => setBridgeStatus(status))
+  }, [])
 
   useEffect(() => {
     const handleActivity = (event: Event) => {
@@ -1784,6 +1810,54 @@ export default function JarvisPage() {
       console.error(e)
     }
   }, [messages, memory, selectedProvider, selectedModel, persona, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast, pauseMic, resumeMic, markActivity, recordModelResponse])
+
+  // ── Gemini Live event listeners (Electron only) ────────────────────────────
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const electron = (window as any).electron as {
+      geminiLive?: {
+        onConnectionChange: (cb: (state: string) => void) => void
+        onTranscript: (cb: (data: { text: string; isFinal: boolean }) => void) => void
+        onAudioData: (cb: (data: unknown) => void) => void
+        onError: (cb: (error: string) => void) => void
+        onListeningStarted: (cb: () => void) => void
+        onListeningStopped: (cb: () => void) => void
+        onPlaybackStarted: (cb: () => void) => void
+        onPlaybackEnded: (cb: () => void) => void
+        getStatus: () => Promise<{ connectionState: string; active: boolean }>
+      }
+    } | null
+    if (!electron?.geminiLive) return
+
+    const gl = electron.geminiLive
+
+    gl.onConnectionChange((state: string) => setGeminiConnectionState(state))
+    gl.onTranscript((data: { text: string; isFinal: boolean }) => {
+      const entry = { text: data.text, isFinal: data.isFinal, ts: Date.now() }
+      geminiTranscriptRef.current = [...geminiTranscriptRef.current.slice(-30), entry]
+      setGeminiTranscript([...geminiTranscriptRef.current])
+      if (data.isFinal && data.text.trim()) {
+        setInput(data.text)
+        const raw = localStorage.getItem('gf_voice_settings')
+        const vs = raw ? JSON.parse(raw) as { pushToTalk?: boolean } : {}
+        if (!vs.pushToTalk) {
+          setTimeout(() => {
+            void sendToJarvis(data.text)
+            setGeminiTranscript([])
+            geminiTranscriptRef.current = []
+          }, 300)
+        }
+      }
+    })
+    gl.onAudioData(() => setGeminiPlayActive(true))
+    gl.onListeningStarted(() => setGeminiListening(true))
+    gl.onListeningStopped(() => setGeminiListening(false))
+    gl.onPlaybackStarted(() => setGeminiPlayActive(true))
+    gl.onPlaybackEnded(() => setGeminiPlayActive(false))
+    gl.onError((error: string) => toast('error', `Gemini Live: ${error}`))
+
+    gl.getStatus().then(s => setGeminiConnectionState(s.connectionState)).catch(() => {})
+  }, [toast, sendToJarvis])
 
   // ── Voice recognition ─────────────────────────────────────────────────────
 
@@ -2435,10 +2509,11 @@ export default function JarvisPage() {
                 { label: 'AI ENGINE', val: liveModel ? liveModel.model?.split('/').pop()?.split(':')[0]?.slice(0, 14) || 'ONLINE' : 'ONLINE', ok: true },
                 { label: 'MAC CTRL', val: hostCapabilities.macControl ? (platform.isMac ? 'LOCAL' : 'REMOTE') : 'N/A', ok: hostCapabilities.macControl },
                 { label: 'MEMORY', val: memory.conversationCount > 0 ? `${memory.conversationCount} SES` : 'INIT', ok: true },
-                { label: 'VOICE', val: voiceEngine === 'fish-audio' ? 'JARVIS' : voiceEngine === 'elevenlabs' ? 'ELEVENLABS' : voiceSupported ? 'BROWSER' : 'N/A', ok: voiceSupported || voiceEngine !== 'browser' },
+                { label: 'VOICE', val: geminiVoiceMode === 'gemini-live' ? (geminiConnectionState === 'connected' ? 'GEMINI LIVE' : 'GEMINI OFF') : voiceEngine === 'fish-audio' ? 'JARVIS' : voiceEngine === 'elevenlabs' ? 'ELEVENLABS' : voiceSupported ? 'BROWSER' : 'N/A', ok: geminiConnectionState === 'connected' || voiceSupported || voiceEngine !== 'browser' },
                 { label: 'WAKE WORD', val: hotwordEnabled || wakeWordActive ? 'ACTIVE' : 'OFF', ok: hotwordEnabled || wakeWordActive },
                 { label: 'GITHUB', val: integrations.github ? 'LINKED' : 'N/A', ok: integrations.github },
                 { label: 'DISCORD', val: integrations.discord ? 'LINKED' : 'N/A', ok: integrations.discord },
+                { label: 'BRIDGE', val: bridgeStatus === 'running' ? 'ONLINE' : bridgeStatus === 'starting' ? 'STARTING' : bridgeStatus === 'error' ? 'ERROR' : 'OFF', ok: bridgeStatus === 'running' },
               ].map(s => (
                 <div key={s.label} className="flex justify-between py-0.5">
                   <span className="text-blue-400/40">{s.label}</span>
@@ -2535,41 +2610,171 @@ export default function JarvisPage() {
               <HardwareMetrics isMobile={platform.isMobile} />
 
               {/* Voice controls */}
-              <div className="flex items-center gap-2">
-                {voiceSupported && (
-                  <>
+              <div className="flex flex-col items-center gap-1.5">
+                {/* Connection status + voice mode indicator */}
+                <div className="flex items-center gap-2 font-mono" style={{ fontSize: 9 }}>
+                  <span className="flex items-center gap-1">
+                    <span className="h-1 w-1 rounded-full" style={{
+                      background: geminiConnectionState === 'connected' ? '#00ff88'
+                        : geminiConnectionState === 'connecting' ? '#ffaa00'
+                        : geminiConnectionState === 'error' ? '#ff4444' : '#555',
+                    }} />
+                    <span style={{
+                      color: geminiConnectionState === 'connected' ? '#00ff88'
+                        : geminiConnectionState === 'connecting' ? '#ffaa00'
+                        : geminiConnectionState === 'error' ? '#ff4444' : '#555',
+                    }}>
+                      {geminiConnectionState === 'connected' ? 'GEMINI LIVE'
+                        : geminiConnectionState === 'connecting' ? 'CONNECTING'
+                        : geminiConnectionState === 'error' ? 'ERROR'
+                        : 'OFFLINE'}
+                    </span>
+                  </span>
+                  <span style={{ color: `${mc.ring}44` }}>|</span>
+                  <span style={{ color: `${mc.ring}88` }}>
+                    {geminiVoiceMode === 'gemini-live' ? '🔴 LIVE'
+                      : geminiVoiceMode === 'browser' ? '🎤 BROWSER'
+                      : '🔇 OFFLINE'}
+                  </span>
+                  {geminiPlayActive && (
+                    <span style={{ color: '#aa44ff' }}>🔊 PLAYING</span>
+                  )}
+                </div>
+
+                {/* Live transcript display */}
+                {geminiTranscript.length > 0 && geminiVoiceMode === 'gemini-live' && (
+                  <div className="max-h-16 overflow-y-auto rounded border px-2 py-1 font-mono"
+                    style={{ fontSize: 9, borderColor: `${mc.ring}33`, background: 'rgba(0,0,0,0.3)', width: '100%', maxWidth: 400 }}>
+                    {geminiTranscript.slice(-5).map((t, i) => (
+                      <div key={i} style={{ color: t.isFinal ? mc.ring : `${mc.ring}88` }}>
+                        <span style={{ color: `${mc.ring}44`, marginRight: 4 }}>
+                          {new Date(t.ts).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        </span>
+                        {t.text}
+                        {!t.isFinal && <span className="animate-pulse"> …</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Controls */}
+                <div className="flex items-center gap-2">
+                  {/* Gemini Live connect/disconnect */}
+                  {geminiVoiceMode === 'gemini-live' && (
                     <button type="button"
-                      onClick={mode === 'listening' ? () => stopListening() : () => void startListening()}
-                      disabled={mode === 'thinking'}
+                      onClick={async () => {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const gl = (window as any).electron?.geminiLive
+                        if (!gl) { toast('error', 'Gemini Live requires Electron'); return }
+                        if (geminiConnectionState === 'connected') {
+                          await gl.disconnect()
+                        } else {
+                          await gl.connect()
+                        }
+                      }}
+                      className="font-mono text-[10px] rounded px-3 py-1.5 border transition active:scale-95"
+                      style={{
+                        borderColor: geminiConnectionState === 'connected' ? '#00ff88' : `${mc.ring}66`,
+                        color: geminiConnectionState === 'connected' ? '#00ff88' : mc.ring,
+                        background: geminiConnectionState === 'connected' ? 'rgba(0,255,136,0.12)' : `${mc.ring}11`,
+                      }}>
+                      {geminiConnectionState === 'connected' ? '⚡ DISCONNECT' : '⚡ CONNECT'}
+                    </button>
+                  )}
+
+                  {/* Gemini Live push-to-talk / continuous mic */}
+                  {geminiVoiceMode === 'gemini-live' && geminiConnectionState === 'connected' && (
+                    <button type="button"
+                      onClick={async () => {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const gl = (window as any).electron?.geminiLive
+                        if (!gl) return
+                        if (geminiListening) {
+                          await gl.stopListening()
+                        } else {
+                          await gl.startListening()
+                        }
+                      }}
                       className="font-mono text-[10px] rounded px-3 py-1.5 border transition disabled:opacity-30 active:scale-95"
                       style={{
-                        borderColor: mode === 'listening' ? '#00ff88' : `${mc.ring}66`,
-                        color: mode === 'listening' ? '#00ff88' : mc.ring,
-                        background: mode === 'listening' ? 'rgba(0,255,136,0.12)' : `${mc.ring}11`,
-                        boxShadow: mode === 'listening' ? '0 0 12px rgba(0,255,136,0.3)' : 'none',
-                        animation: mode === 'listening' ? 'gfai-pulse 1.5s ease-in-out infinite' : 'none',
+                        borderColor: geminiListening ? '#00ff88' : `${mc.ring}66`,
+                        color: geminiListening ? '#00ff88' : mc.ring,
+                        background: geminiListening ? 'rgba(0,255,136,0.12)' : `${mc.ring}11`,
+                        boxShadow: geminiListening ? '0 0 12px rgba(0,255,136,0.3)' : 'none',
+                        animation: geminiListening ? 'gfai-pulse 1.5s ease-in-out infinite' : 'none',
                       }}>
-                      {mode === 'listening' ? '■ STOP' : '🎤 SPEAK'}
+                      {geminiListening ? '■ STOP MIC' : '🎤 LIVE MIC'}
                     </button>
-                    <button type="button" onClick={() => void toggleWakeWord()}
-                      className="font-mono text-[10px] rounded px-3 py-1.5 border transition"
-                      style={{
-                        borderColor: hotwordEnabled ? '#00ff88' : `${mc.ring}44`,
-                        color: hotwordEnabled ? '#00ff88' : `${mc.ring}88`,
-                        background: hotwordEnabled ? 'rgba(0,255,136,0.08)' : 'transparent',
-                      }}
-                      title='Say "Hey GhostForge" or "Hey JARVIS" to activate'>
-                      {hotwordEnabled ? (wakeWordActive ? '🔊 WAKE ON' : '⏳ WAKE READY') : '😴 WAKE OFF'}
+                  )}
+
+                  {/* Browser voice controls (fallback) */}
+                  {geminiVoiceMode !== 'gemini-live' && voiceSupported && (
+                    <>
+                      <button type="button"
+                        onClick={mode === 'listening' ? () => stopListening() : () => void startListening()}
+                        disabled={mode === 'thinking'}
+                        className="font-mono text-[10px] rounded px-3 py-1.5 border transition disabled:opacity-30 active:scale-95"
+                        style={{
+                          borderColor: mode === 'listening' ? '#00ff88' : `${mc.ring}66`,
+                          color: mode === 'listening' ? '#00ff88' : mc.ring,
+                          background: mode === 'listening' ? 'rgba(0,255,136,0.12)' : `${mc.ring}11`,
+                          boxShadow: mode === 'listening' ? '0 0 12px rgba(0,255,136,0.3)' : 'none',
+                          animation: mode === 'listening' ? 'gfai-pulse 1.5s ease-in-out infinite' : 'none',
+                        }}>
+                        {mode === 'listening' ? '■ STOP' : '🎤 SPEAK'}
+                      </button>
+                      <button type="button" onClick={() => void toggleWakeWord()}
+                        className="font-mono text-[10px] rounded px-3 py-1.5 border transition"
+                        style={{
+                          borderColor: hotwordEnabled ? '#00ff88' : `${mc.ring}44`,
+                          color: hotwordEnabled ? '#00ff88' : `${mc.ring}88`,
+                          background: hotwordEnabled ? 'rgba(0,255,136,0.08)' : 'transparent',
+                        }}
+                        title='Say "Hey GhostForge" or "Hey JARVIS" to activate'>
+                        {hotwordEnabled ? (wakeWordActive ? '🔊 WAKE ON' : '⏳ WAKE READY') : '😴 WAKE OFF'}
+                      </button>
+                    </>
+                  )}
+
+                  {/* Stop speaking */}
+                  {mode === 'speaking' && (
+                    <button type="button" onClick={stopSpeaking}
+                      className="font-mono text-[10px] rounded px-2 py-1.5 border border-red-700/50 text-red-400 hover:bg-red-950/30 transition">
+                      ■ STOP
                     </button>
-                  </>
-                )}
-                {mode === 'speaking' && (
-                  <button type="button" onClick={stopSpeaking}
-                    className="font-mono text-[10px] rounded px-2 py-1.5 border border-red-700/50 text-red-400 hover:bg-red-950/30 transition">
-                    ■ STOP
+                  )}
+
+                  {/* Voice settings toggle */}
+                  <button type="button"
+                    onClick={() => setShowVoiceSettings(s => !s)}
+                    className="font-mono text-[10px] rounded px-2 py-1.5 border transition"
+                    style={{
+                      borderColor: showVoiceSettings ? '#aa44ff' : `${mc.ring}44`,
+                      color: showVoiceSettings ? '#aa44ff' : `${mc.ring}88`,
+                      background: showVoiceSettings ? 'rgba(170,68,255,0.1)' : 'transparent',
+                    }}
+                    title="Voice settings — API key, voice, mode">
+                    ⚙ VOICE
                   </button>
-                )}
+                </div>
               </div>
+
+              {/* Voice settings panel (collapsible) */}
+              {showVoiceSettings && (
+                <div className="gfai-fade rounded-lg border p-3 w-full max-w-sm"
+                  style={{ borderColor: `${mc.ring}33`, background: 'rgba(0,5,20,0.96)' }}>
+                  <VoiceSettings
+                    ringColor={mc.ring}
+                    connectionState={geminiConnectionState}
+                    onSave={(s) => {
+                      setGeminiVoiceMode(s.mode)
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      const gl = (window as any).electron?.geminiLive
+                      if (gl) gl.saveSettings(s)
+                    }}
+                  />
+                </div>
+              )}
               {interruptFlash && (
                 <div className="gfai-fade font-mono text-[11px] tracking-widest text-yellow-300">
                   ⚡ Interrupted

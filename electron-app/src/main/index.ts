@@ -15,6 +15,8 @@ import { extractText, readAndSummarize, askQuestionAboutFile, convertFormat } fr
 import { getCpuStats, getRamStats, getDiskStats, getGpuStats, getFanSpeed, getFullSystemReport } from './hardware-monitor';
 import { JarvisConnection } from './jarvis-connection';
 import { ConnectionToggle } from './connection-toggle';
+import { GeminiLiveVoice } from './gemini-live';
+import bridgeManager from './bridge-manager';
 import type { ScreenCaptureOptions, CursorTarget, JarvisConfig } from '../shared/types';
 import { DEFAULT_CONFIG } from '../shared/constants';
 
@@ -27,6 +29,7 @@ let systemControl: SystemControl;
 let config: JarvisConfig = { ...DEFAULT_CONFIG };
 let jarvisConnection: JarvisConnection;
 let connectionToggle: ConnectionToggle;
+let geminiLiveVoice: GeminiLiveVoice;
 
 const GOT_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 
@@ -87,6 +90,10 @@ function createMainWindow(): void {
   systemControl = new SystemControl();
   jarvisConnection = new JarvisConnection(config);
   connectionToggle = new ConnectionToggle(jarvisConnection, config);
+  geminiLiveVoice = new GeminiLiveVoice(/* memory */ {} as any, {
+    apiKey: process.env.GEMINI_API_KEY || '',
+  });
+  geminiLiveVoice.setMainWindow(mainWindow);
   trayManager = new TrayManager(mainWindow);
 
   // Register clipboard change events for renderer
@@ -416,6 +423,87 @@ function registerIPC(): void {
   connectionToggle.on('fallback', (info) => {
     mainWindow?.webContents.send('connection:fallback', info);
   });
+
+  // ── Mark-L Bridge Manager ─────────────────────────────────────────────────
+  ipcMain.handle('jarvis:bridge-start', async () => {
+    await bridgeManager.startBridge();
+    return { success: true, status: bridgeManager.getBridgeStatus() };
+  });
+
+  ipcMain.handle('jarvis:bridge-stop', async () => {
+    await bridgeManager.stopBridge();
+    return { success: true, status: bridgeManager.getBridgeStatus() };
+  });
+
+  ipcMain.handle('jarvis:bridge-restart', async () => {
+    await bridgeManager.restartBridge();
+    return { success: true, status: bridgeManager.getBridgeStatus() };
+  });
+
+  ipcMain.handle('jarvis:bridge-status', () => {
+    return {
+      status: bridgeManager.getBridgeStatus(),
+      url: bridgeManager.getBridgeUrl(),
+    };
+  });
+
+  ipcMain.handle('jarvis:bridge-logs', () => {
+    return { logs: bridgeManager.getBridgeLogs() };
+  });
+
+  ipcMain.handle('jarvis:bridge-auto-start', (_event, enabled?: boolean) => {
+    if (enabled !== undefined) {
+      bridgeManager.setAutoStart(enabled);
+    }
+    return { autoStart: bridgeManager.isAutoStartEnabled() };
+  });
+
+  bridgeManager.on('status', (status) => {
+    mainWindow?.webContents.send('jarvis:bridge-status', status);
+  });
+
+  // ── Gemini Live Voice ────────────────────────────────────────────────────────
+  ipcMain.handle('jarvis:voice-connect', async () => {
+    return geminiLiveVoice.connect();
+  });
+
+  ipcMain.handle('jarvis:voice-disconnect', async () => {
+    await geminiLiveVoice.disconnect();
+    return { success: true };
+  });
+
+  ipcMain.handle('jarvis:voice-start', async () => {
+    return geminiLiveVoice.startListening();
+  });
+
+  ipcMain.handle('jarvis:voice-stop', async () => {
+    await geminiLiveVoice.stopListening();
+    return { success: true };
+  });
+
+  ipcMain.handle('jarvis:voice-status', () => {
+    return geminiLiveVoice.getSessionInfo();
+  });
+
+  ipcMain.handle('jarvis:voice-send-text', async (_event, text: string) => {
+    await geminiLiveVoice.sendText(text);
+    return { success: true };
+  });
+
+  ipcMain.handle('jarvis:voice-settings-save', (_event, settings: Record<string, unknown>) => {
+    geminiLiveVoice.updateSettings(settings as Partial<import('./gemini-live').GeminiLiveSettings>);
+    return { success: true };
+  });
+
+  ipcMain.handle('jarvis:voice-settings-load', () => {
+    return geminiLiveVoice.getConfig();
+  });
+
+  // Audio chunk relay: renderer captures mic → sends base64 → main forwards to Gemini WS
+  ipcMain.handle('jarvis:voice-audio-chunk', (_event, base64Audio: string) => {
+    geminiLiveVoice.sendAudioChunkFromRenderer(base64Audio);
+    return { success: true };
+  });
 }
 
 function registerGlobalShortcuts(): void {
@@ -448,6 +536,11 @@ function registerGlobalShortcuts(): void {
 // App lifecycle
 app.whenReady().then(async () => {
   createMainWindow();
+
+  if (bridgeManager.isAutoStartEnabled()) {
+    bridgeManager.startBridge().catch(() => {});
+  }
+
   if (jarvisConnection) {
     await jarvisConnection.connect();
   }
@@ -468,6 +561,8 @@ app.on('activate', () => {
 });
 
 app.on('will-quit', () => {
+  bridgeManager.stopBridge().catch(() => {});
+  geminiLiveVoice?.destroy();
   globalShortcut.unregisterAll();
   cursorOverlay.destroyAll();
   voiceSystem.unregisterAll();
