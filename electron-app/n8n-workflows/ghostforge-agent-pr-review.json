@@ -1,0 +1,432 @@
+{
+  "name": "GhostForge Agent PR Review",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-pr-webhook",
+        "options": {}
+      },
+      "id": "github-pr-webhook",
+      "name": "GitHub PR Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [220, 340],
+      "webhookId": "ghostforge-pr-webhook",
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "action-check",
+              "leftValue": "={{ $json.body.action }}",
+              "rightValue": "opened",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "label-check",
+              "leftValue": "={{ $json.body.pull_request.labels?.some(l => l.name === 'agent:pr') }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-agent-pr",
+      "name": "IF - Agent PR",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 340],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nreturn [{\n  json: {\n    pr_number: body.pull_request.number,\n    pr_title: body.pull_request.title,\n    pr_body: body.pull_request.body,\n    pr_branch: body.pull_request.head.ref,\n    pr_diff_url: body.pull_request.diff_url,\n    pr_url: body.pull_request.url,\n    repo: body.repository.full_name,\n    repo_url: body.repository.url,\n    author: body.pull_request.user.login\n  }\n}];"
+      },
+      "id": "extract-pr-data",
+      "name": "Extract PR Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 340],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.repo }}/pulls/{{ $json.pr_number }}/files",
+        "method": "GET",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "fetch-pr-diff",
+      "name": "Fetch PR Diff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [880, 340],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "const files = $input.all().map(item => item.json);\nconst prData = $('Extract PR Data').first().json;\n\nconst diffSummary = files.map(f => {\n  return `### ${f.filename}\\n- Status: ${f.status}\\n- Changes: +${f.additions} / -${f.deletions}\\n- Patch:\\n\\`\\`\\`diff\\n${f.patch || 'Binary file'}\\n\\`\\`\\``;\n}).join('\\n\\n');\n\nreturn [{\n  json: {\n    pr_number: prData.pr_number,\n    pr_title: prData.pr_title,\n    pr_body: prData.pr_body,\n    repo: prData.repo,\n    files_changed: files.length,\n    total_additions: files.reduce((sum, f) => sum + (f.additions || 0), 0),\n    total_deletions: files.reduce((sum, f) => sum + (f.deletions || 0), 0),\n    diff_content: diffSummary,\n    file_names: files.map(f => f.filename)\n  }\n}];"
+      },
+      "id": "prepare-review-payload",
+      "name": "Prepare Review Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 340],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/jarvis/review",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"task\": \"code_review\",\n  \"pr\": {\n    \"number\": {{ $json.pr_number }},\n    \"title\": \"{{ $json.pr_title }}\",\n    \"description\": {{ JSON.stringify($json.pr_body || '') }},\n    \"files_changed\": {{ $json.files_changed }},\n    \"additions\": {{ $json.total_additions }},\n    \"deletions\": {{ $json.total_deletions }},\n    \"file_names\": {{ JSON.stringify($json.file_names) }},\n    \"diff\": {{ JSON.stringify($json.diff_content) }}\n  },\n  \"repo\": \"{{ $json.repo }}\",\n  \"review_criteria\": {\n    \"security\": true,\n    \"performance\": true,\n    \"code_quality\": true,\n    \"test_coverage\": true,\n    \"rtl_support\": true\n  }\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "call-jarvis-review",
+      "name": "Call JARVIS Code Review",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1320, 340],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "const review = $input.first().json;\nconst prData = $('Extract PR Data').first().json;\n\nconst verdict = review.verdict || 'comment';\nconst summary = review.summary || 'Review completed.';\nconst issues = review.issues || [];\nconst suggestions = review.suggestions || [];\n\nlet body = `## 🤖 GhostForge Agent — Code Review\\n\\n`; \nbody += `**PR #${prData.pr_number}**: ${prData.pr_title}\\n\\n`;\nbody += `### Verdict: ${verdict.toUpperCase()}\\n\\n`;\nbody += `### Summary\\n${summary}\\n\\n`;\n\nif (issues.length > 0) {\n  body += `### Issues Found\\n`;\n  issues.forEach((issue, i) => {\n    body += `${i + 1}. **${issue.severity?.toUpperCase() || 'INFO'}**: ${issue.message}\\n`;\n    if (issue.file) body += `   - File: \\`${issue.file}\\``;\n    if (issue.line) body += ` (line ${issue.line})`;\n    body += `\\n`;\n  });\n  body += `\\n`;\n}\n\nif (suggestions.length > 0) {\n  body += `### Suggestions\\n`;\n  suggestions.forEach((s, i) => {\n    body += `${i + 1}. ${s.description}\\n`;\n    if (s.code) body += `   \\`\\`\\`\\n   ${s.code}\\n   \\`\\`\\`\\n`;\n  });\n  body += `\\n`;\n}\n\nbody += `---\\n*Reviewed by GhostForge Agent at ${new Date().toISOString()}*`;\n\nreturn [{\n  json: {\n    pr_number: prData.pr_number,\n    repo: prData.repo,\n    verdict: verdict,\n    review_body: body\n  }\n}];"
+      },
+      "id": "format-review-comment",
+      "name": "Format Review Comment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 340],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.repo }}/issues/{{ $json.pr_number }}/comments",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": {{ JSON.stringify($json.review_body) }}\n}",
+        "options": {}
+      },
+      "id": "post-pr-review-comment",
+      "name": "Post PR Review Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1760, 340],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "approved-check",
+              "leftValue": "={{ $('Format Review Comment').item.json.verdict }}",
+              "rightValue": "approved",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-approved",
+      "name": "IF - Approved",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1980, 340],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Format Review Comment').item.json.repo }}/pulls/{{ $('Format Review Comment').item.json.pr_number }}/merge",
+        "method": "PUT",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"commit_title\": \"[Agent] Merge PR #{{ $('Format Review Comment').item.json.pr_number }}\",\n  \"merge_method\": \"squash\"\n}",
+        "options": {}
+      },
+      "id": "auto-merge-pr",
+      "name": "Auto-Merge PR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2200, 240],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Format Review Comment').item.json.repo }}/issues/{{ $('Format Review Comment').item.json.pr_number }}/comments",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"## ✅ PR Auto-Merged\\n\\nThe pull request has been automatically merged by GhostForge Agent after passing review.\\n\\n---\\n*Merged at {{ $now.toISOString() }}*\"\n}",
+        "options": {}
+      },
+      "id": "post-merge-comment",
+      "name": "Post Merge Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2420, 240],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Format Review Comment').item.json.repo }}/issues/{{ $('Format Review Comment').item.json.pr_number }}/comments",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"## 🔄 Changes Requested\\n\\nThe review has requested changes to this PR. The agent will address the feedback and push updates.\\n\\n### Next Steps\\n1. Review the feedback above\\n2. Agent will attempt to fix the issues\\n3. A follow-up review will be triggered automatically\\n\\n---\\n*GhostForge Agent at {{ $now.toISOString() }}*\"\n}",
+        "options": {}
+      },
+      "id": "post-changes-requested",
+      "name": "Post Changes Requested",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2200, 440],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/jarvis/fix",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"task\": \"fix_review_issues\",\n  \"pr_number\": {{ $('Extract PR Data').item.json.pr_number }},\n  \"repo\": \"{{ $('Extract PR Data').item.json.repo }}\",\n  \"issues\": {{ JSON.stringify($('Call JARVIS Code Review').first().json.issues || []) }},\n  \"suggestions\": {{ JSON.stringify($('Call JARVIS Code Review').first().json.suggestions || []) }}\n}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "call-jarvis-fix",
+      "name": "Call JARVIS Fix Issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2420, 440],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "GitHub PR Webhook": {
+      "main": [
+        [
+          {
+            "node": "IF - Agent PR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Agent PR": {
+      "main": [
+        [
+          {
+            "node": "Extract PR Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Extract PR Data": {
+      "main": [
+        [
+          {
+            "node": "Fetch PR Diff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch PR Diff": {
+      "main": [
+        [
+          {
+            "node": "Prepare Review Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Review Payload": {
+      "main": [
+        [
+          {
+            "node": "Call JARVIS Code Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call JARVIS Code Review": {
+      "main": [
+        [
+          {
+            "node": "Format Review Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Review Comment": {
+      "main": [
+        [
+          {
+            "node": "Post PR Review Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post PR Review Comment": {
+      "main": [
+        [
+          {
+            "node": "IF - Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Approved": {
+      "main": [
+        [
+          {
+            "node": "Auto-Merge PR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post Changes Requested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-Merge PR": {
+      "main": [
+        [
+          {
+            "node": "Post Merge Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Changes Requested": {
+      "main": [
+        [
+          {
+            "node": "Call JARVIS Fix Issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": "ghostforge-agent-pr-review"
+  },
+  "tags": [
+    {
+      "name": "ghostforge"
+    },
+    {
+      "name": "agent"
+    },
+    {
+      "name": "review"
+    }
+  ]
+}

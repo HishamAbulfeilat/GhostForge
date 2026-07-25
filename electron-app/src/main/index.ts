@@ -18,7 +18,34 @@ import { ConnectionToggle } from './connection-toggle';
 import { GeminiLiveVoice } from './gemini-live';
 import { N8nIntegration } from './n8n-integration';
 import bridgeManager from './bridge-manager';
-import type { ScreenCaptureOptions, CursorTarget, JarvisConfig } from '../shared/types';
+import { registerAutonomousAgentIPC } from './autonomous-agent';
+import { getDaemon, JarvisDaemon } from './jarvis-daemon';
+import { SelfUpdater } from './self-updater';
+import { CodeModifier } from './code-modifier';
+import {
+  listEmails as emailList, readEmail, sendEmail as emailSend, replyToEmail,
+  markAsRead, markAsUnread, starEmail, unstarEmail, deleteEmail,
+  getUnreadCount, getRecentEmails, searchEmails, getAccounts as getEmailAccounts,
+  removeAccount as removeEmailAccount, addImapAccount,
+  startGmailOAuth, handleOAuthCallback,
+} from './email-integration';
+import {
+  setApiKey as setAIStudioKey, getApiKeyStatus as getAIStudioKeyStatus,
+  listTunedModels, getTunedModel, generateContent, updateTunedModel,
+  listModels, getModelInfo, compareModels, testPrompt as aiStudioTest,
+  exportModelConfig, importModelConfig,
+} from './google-ai-studio';
+import {
+  listTodayEvents, listUpcomingEvents, createEvent, updateEvent, deleteEvent,
+  checkAvailability, getFreeSlots, getCalendarAccounts, removeCalendarAccount,
+  startGoogleCalendarOAuth, handleCalendarOAuthCallback, addCaldavAccount,
+} from './calendar-integration';
+import {
+  searchContacts, getContact, createContact, deleteContact,
+  getContactsByPhone, getRecentContacts, getContactAccounts, removeContactAccount,
+  startGoogleContactsOAuth, handleContactsOAuthCallback,
+} from './contacts-integration';
+import type { ScreenCaptureOptions, CursorTarget, JarvisConfig, EmailSearchParams, EmailSendParams, CreateEventParams } from '../shared/types';
 import { DEFAULT_CONFIG } from '../shared/constants';
 import { readFileSync } from 'fs';
 import { join as pathJoin } from 'path';
@@ -34,6 +61,9 @@ let jarvisConnection: JarvisConnection;
 let connectionToggle: ConnectionToggle;
 let geminiLiveVoice: GeminiLiveVoice;
 let n8nIntegration: N8nIntegration;
+let jarvisDaemon: JarvisDaemon;
+let selfUpdater: SelfUpdater;
+let codeModifier: CodeModifier;
 
 const GOT_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 
@@ -101,6 +131,19 @@ function createMainWindow(): void {
   n8nIntegration = new N8nIntegration();
   trayManager = new TrayManager(mainWindow);
 
+  // Initialize daemon, updater, and code modifier
+  jarvisDaemon = getDaemon();
+  jarvisDaemon.setMainWindow(mainWindow);
+  jarvisDaemon.registerIPC();
+
+  selfUpdater = new SelfUpdater();
+  selfUpdater.setMainWindow(mainWindow);
+  selfUpdater.registerIPC();
+
+  codeModifier = new CodeModifier();
+  codeModifier.setMainWindow(mainWindow);
+  codeModifier.registerIPC();
+
   // Register clipboard change events for renderer
   const { onClipboardChange } = require('./clipboard-intel');
   onClipboardChange((text: string) => {
@@ -112,6 +155,9 @@ function createMainWindow(): void {
 
   // Create tray
   trayManager.createTray();
+
+  // Register autonomous agent IPC
+  registerAutonomousAgentIPC(ipcMain);
 
   // Register global shortcuts
   registerGlobalShortcuts();
@@ -585,6 +631,217 @@ function registerIPC(): void {
     }
     return { imported, count: imported.length };
   });
+
+  // ── Email Integration ───────────────────────────────────────────────────
+  ipcMain.handle('email:list', async (_event, params: EmailSearchParams & { accountId?: string }) => {
+    return emailList(params);
+  });
+
+  ipcMain.handle('email:read', async (_event, messageId: string, accountId?: string) => {
+    return readEmail(messageId, accountId);
+  });
+
+  ipcMain.handle('email:send', async (_event, params: EmailSendParams & { accountId?: string }) => {
+    return emailSend(params);
+  });
+
+  ipcMain.handle('email:reply', async (_event, messageId: string, body: string, bodyHtml?: string, accountId?: string) => {
+    return replyToEmail(messageId, body, bodyHtml, accountId);
+  });
+
+  ipcMain.handle('email:mark-read', async (_event, messageId: string, accountId?: string) => {
+    return markAsRead(messageId, accountId);
+  });
+
+  ipcMain.handle('email:mark-unread', async (_event, messageId: string, accountId?: string) => {
+    return markAsUnread(messageId, accountId);
+  });
+
+  ipcMain.handle('email:star', async (_event, messageId: string, accountId?: string) => {
+    return starEmail(messageId, accountId);
+  });
+
+  ipcMain.handle('email:unstar', async (_event, messageId: string, accountId?: string) => {
+    return unstarEmail(messageId, accountId);
+  });
+
+  ipcMain.handle('email:delete', async (_event, messageId: string, accountId?: string) => {
+    return deleteEmail(messageId, accountId);
+  });
+
+  ipcMain.handle('email:unread-count', async (_event, accountId?: string) => {
+    return getUnreadCount(accountId);
+  });
+
+  ipcMain.handle('email:recent', async (_event, count?: number, accountId?: string) => {
+    return getRecentEmails(count, accountId);
+  });
+
+  ipcMain.handle('email:search', async (_event, query: string, accountId?: string) => {
+    return searchEmails(query, accountId);
+  });
+
+  ipcMain.handle('email:accounts', () => {
+    return getEmailAccounts();
+  });
+
+  ipcMain.handle('email:remove-account', (_event, accountId: string) => {
+    return removeEmailAccount(accountId);
+  });
+
+  ipcMain.handle('email:add-imap', (_event, config: Parameters<typeof addImapAccount>[0]) => {
+    return addImapAccount(config);
+  });
+
+  ipcMain.handle('email:oauth-start', (_event, provider: 'gmail' | 'outlook') => {
+    if (provider === 'gmail') return startGmailOAuth();
+    throw new Error(`OAuth not implemented for ${provider}`);
+  });
+
+  ipcMain.handle('email:oauth-callback', async (_event, code: string, provider: 'gmail' | 'outlook') => {
+    return handleOAuthCallback(code, provider);
+  });
+
+  // ── Google AI Studio ────────────────────────────────────────────────────
+  ipcMain.handle('ai-studio:set-key', (_event, apiKey: string) => {
+    return setAIStudioKey(apiKey);
+  });
+
+  ipcMain.handle('ai-studio:key-status', () => {
+    return getAIStudioKeyStatus();
+  });
+
+  ipcMain.handle('ai-studio:list-models', async () => {
+    return listTunedModels();
+  });
+
+  ipcMain.handle('ai-studio:get-model', async (_event, modelId: string) => {
+    return getTunedModel(modelId);
+  });
+
+  ipcMain.handle('ai-studio:generate', async (_event, model: string, prompt: string, options?: Record<string, unknown>) => {
+    return generateContent(model, prompt, options as Parameters<typeof generateContent>[2]);
+  });
+
+  ipcMain.handle('ai-studio:update-model', async (_event, modelId: string, updates: { displayName?: string; description?: string }) => {
+    return updateTunedModel(modelId, updates);
+  });
+
+  ipcMain.handle('ai-studio:base-models', async () => {
+    return listModels();
+  });
+
+  ipcMain.handle('ai-studio:model-info', async (_event, modelName: string) => {
+    return getModelInfo(modelName);
+  });
+
+  ipcMain.handle('ai-studio:compare', async (_event, prompt: string, modelA: string, modelB: string, options?: Record<string, unknown>) => {
+    return compareModels(prompt, modelA, modelB, options as Parameters<typeof compareModels>[3]);
+  });
+
+  ipcMain.handle('ai-studio:test', async (_event, model: string, prompt: string, options?: Record<string, unknown>) => {
+    return aiStudioTest(model, prompt, options as Parameters<typeof aiStudioTest>[2]);
+  });
+
+  ipcMain.handle('ai-studio:export-config', async (_event, modelId: string) => {
+    return exportModelConfig(modelId);
+  });
+
+  ipcMain.handle('ai-studio:import-config', async (_event, config: Record<string, unknown>) => {
+    return importModelConfig(config as Parameters<typeof importModelConfig>[0]);
+  });
+
+  // ── Calendar Integration ────────────────────────────────────────────────
+  ipcMain.handle('calendar:today', async (_event, accountId?: string) => {
+    return listTodayEvents(accountId);
+  });
+
+  ipcMain.handle('calendar:upcoming', async (_event, days?: number, accountId?: string) => {
+    return listUpcomingEvents(days, accountId);
+  });
+
+  ipcMain.handle('calendar:create', async (_event, params: CreateEventParams & { accountId?: string }) => {
+    return createEvent(params);
+  });
+
+  ipcMain.handle('calendar:update', async (_event, eventId: string, updates: Partial<CreateEventParams> & { accountId?: string }) => {
+    return updateEvent(eventId, updates);
+  });
+
+  ipcMain.handle('calendar:delete', async (_event, eventId: string, accountId?: string) => {
+    return deleteEvent(eventId, accountId);
+  });
+
+  ipcMain.handle('calendar:free-busy', async (_event, timeMin: string, timeMax: string, accountId?: string) => {
+    return checkAvailability(timeMin, timeMax, accountId);
+  });
+
+  ipcMain.handle('calendar:free-slots', async (_event, date: string, accountId?: string) => {
+    return getFreeSlots(date, accountId);
+  });
+
+  ipcMain.handle('calendar:accounts', () => {
+    return getCalendarAccounts();
+  });
+
+  ipcMain.handle('calendar:remove-account', (_event, accountId: string) => {
+    return removeCalendarAccount(accountId);
+  });
+
+  ipcMain.handle('calendar:oauth-start', (_event, provider: 'google' | 'outlook') => {
+    if (provider === 'google') return startGoogleCalendarOAuth();
+    throw new Error(`OAuth not implemented for ${provider}`);
+  });
+
+  ipcMain.handle('calendar:oauth-callback', async (_event, code: string, provider: 'google' | 'outlook') => {
+    return handleCalendarOAuthCallback(code, provider);
+  });
+
+  ipcMain.handle('calendar:add-caldav', (_event, config: Parameters<typeof addCaldavAccount>[0]) => {
+    return addCaldavAccount(config);
+  });
+
+  // ── Contacts Integration ────────────────────────────────────────────────
+  ipcMain.handle('contacts:search', async (_event, query: string, accountId?: string) => {
+    return searchContacts(query, accountId);
+  });
+
+  ipcMain.handle('contacts:get', async (_event, contactId: string, accountId?: string) => {
+    return getContact(contactId, accountId);
+  });
+
+  ipcMain.handle('contacts:create', async (_event, contact: Record<string, unknown> & { accountId?: string }) => {
+    return createContact(contact as Parameters<typeof createContact>[0]);
+  });
+
+  ipcMain.handle('contacts:delete', async (_event, contactId: string, accountId?: string) => {
+    return deleteContact(contactId, accountId);
+  });
+
+  ipcMain.handle('contacts:by-phone', async (_event, phone: string, accountId?: string) => {
+    return getContactsByPhone(phone, accountId);
+  });
+
+  ipcMain.handle('contacts:recent', async (_event, count?: number) => {
+    return getRecentContacts(count);
+  });
+
+  ipcMain.handle('contacts:accounts', () => {
+    return getContactAccounts();
+  });
+
+  ipcMain.handle('contacts:remove-account', (_event, accountId: string) => {
+    return removeContactAccount(accountId);
+  });
+
+  ipcMain.handle('contacts:oauth-start', (_event, provider: 'google' | 'outlook') => {
+    if (provider === 'google') return startGoogleContactsOAuth();
+    throw new Error(`OAuth not implemented for ${provider}`);
+  });
+
+  ipcMain.handle('contacts:oauth-callback', async (_event, code: string, provider: 'google' | 'outlook') => {
+    return handleContactsOAuthCallback(code, provider);
+  });
 }
 
 function registerGlobalShortcuts(): void {
@@ -625,9 +882,23 @@ app.whenReady().then(async () => {
   if (jarvisConnection) {
     await jarvisConnection.connect();
   }
+
+  // Start the JARVIS daemon (keeps running in background)
+  if (jarvisDaemon) {
+    await jarvisDaemon.start(mainWindow);
+  }
+
+  // Start auto-update checker (every 6 hours)
+  if (selfUpdater) {
+    selfUpdater.startAutoCheck(6 * 60 * 60 * 1000);
+  }
 });
 
 app.on('window-all-closed', () => {
+  if (jarvisDaemon?.isRunning()) {
+    jarvisDaemon.hideWindow();
+    return;
+  }
   if (process.platform !== 'darwin') {
     app.quit();
   }
@@ -642,6 +913,9 @@ app.on('activate', () => {
 });
 
 app.on('will-quit', () => {
+  jarvisDaemon?.destroy();
+  selfUpdater?.destroy();
+  codeModifier?.destroy();
   bridgeManager.stopBridge().catch(() => {});
   geminiLiveVoice?.destroy();
   n8nIntegration = undefined as any;

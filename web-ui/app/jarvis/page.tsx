@@ -10,6 +10,7 @@ import { usePlatform, detectLanguage, getSpeechLang, platformLabel } from '@/lib
 
 const MarkLPanel = dynamic(() => import('@/components/MarkLPanel'), { ssr: false })
 const VoiceSettings = dynamic(() => import('@/components/VoiceSettings'), { ssr: false })
+const AgentDashboard = dynamic(() => import('@/components/AgentDashboard'), { ssr: false })
 import { collectRecognitionTranscript, findWakePhrase } from '@/lib/voice-runtime'
 import { JARVIS_QUICK_ACTIONS } from '@/lib/quick-actions'
 
@@ -872,6 +873,11 @@ export default function JarvisPage() {
   const [geminiPlayActive, setGeminiPlayActive] = useState(false)
   const [geminiVoiceMode, setGeminiVoiceMode] = useState<'gemini-live' | 'browser' | 'offline'>('browser')
   const [showVoiceSettings, setShowVoiceSettings] = useState(false)
+  // ── Agent state ─────────────────────────────────────────────────────────────
+  const [showAgent, setShowAgent] = useState(false)
+  const [agentStatus, setAgentStatus] = useState<string>('IDLE')
+  const [agentIssueCount, setAgentIssueCount] = useState(0)
+  const [agentCurrentTask, setAgentCurrentTask] = useState<string>('')
   const geminiTranscriptRef = useRef<Array<{ text: string; isFinal: boolean; ts: number }>>([])
   const audioAnalyserRef = useRef<AnalyserNode | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -1214,6 +1220,32 @@ export default function JarvisPage() {
     const timer = setInterval(check, 15000)
     return () => { active = false; clearInterval(timer) }
   }, [n8nUrl])
+
+  // ── Agent IPC listeners ──────────────────────────────────────────────────────
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = (window as any).electron?.autonomousAgent
+    if (!api) return
+
+    api.getStatus().then((s: { status?: string; issueCount?: number; currentTask?: string }) => {
+      if (s.status) setAgentStatus(s.status)
+      if (s.issueCount != null) setAgentIssueCount(s.issueCount)
+      if (s.currentTask) setAgentCurrentTask(s.currentTask)
+    }).catch(() => {})
+
+    api.onStateChange((s: { status?: string; issueCount?: number }) => {
+      if (s.status) setAgentStatus(s.status)
+      if (s.issueCount != null) setAgentIssueCount(s.issueCount)
+    })
+
+    api.onProgress((p: { currentTask?: string; issueNumber?: number }) => {
+      if (p.currentTask) setAgentCurrentTask(p.currentTask)
+    })
+
+    api.onIssueUpdate((u: { count?: number }) => {
+      if (u.count != null) setAgentIssueCount(u.count)
+    })
+  }, [])
 
   useEffect(() => {
     const handleActivity = (event: Event) => {
@@ -2761,6 +2793,55 @@ export default function JarvisPage() {
             </div>
           )}
 
+          {/* ── Agent Dashboard Panel (overlay) ── */}
+          {showAgent && (
+            <div className="absolute inset-y-0 left-0 z-30 w-[min(640px,85vw)] overflow-y-auto border-r gfai-fade"
+              style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.98)' }}>
+              <div className="flex items-center justify-between px-4 py-2 border-b sticky top-0 z-10"
+                style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.98)' }}>
+                <span className="font-mono text-[10px] tracking-widest" style={{ color: mc.ring }}>🤖 AUTONOMOUS AGENT</span>
+                <button type="button" onClick={() => setShowAgent(false)}
+                  className="text-blue-400/50 hover:text-blue-300 transition text-[10px]">✕ CLOSE</button>
+              </div>
+              <div className="p-3" style={{ height: 'calc(100% - 40px)' }}>
+                <AgentDashboard
+                  onStart={() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const api = (window as any).electron?.autonomousAgent
+                    if (api) {
+                      api.start({}).then(() => {
+                        toast('success', '🤖 Agent started')
+                        setAgentStatus('MONITORING')
+                      }).catch(() => toast('error', 'Failed to start agent'))
+                    } else {
+                      toast('error', 'Agent requires Electron app')
+                    }
+                  }}
+                  onStop={() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const api = (window as any).electron?.autonomousAgent
+                    if (api) {
+                      api.stop().then(() => {
+                        toast('info', '🤖 Agent stopped')
+                        setAgentStatus('IDLE')
+                      }).catch(() => toast('error', 'Failed to stop agent'))
+                    }
+                  }}
+                  onPause={() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const api = (window as any).electron?.autonomousAgent
+                    if (api) {
+                      api.pause().then(() => {
+                        toast('info', '🤖 Agent paused')
+                        setAgentStatus('PAUSED')
+                      }).catch(() => toast('error', 'Failed to pause agent'))
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           {/* ── Left panel ── */}
           <div className="hidden md:flex w-44 shrink-0 flex-col gap-3 border-r p-3 font-mono text-[10px]"
             style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.6)' }}>
@@ -2776,6 +2857,7 @@ export default function JarvisPage() {
                 { label: 'DISCORD', val: integrations.discord ? 'LINKED' : 'N/A', ok: integrations.discord },
                 { label: 'BRIDGE', val: bridgeStatus === 'running' ? 'ONLINE' : bridgeStatus === 'starting' ? 'STARTING' : bridgeStatus === 'error' ? 'ERROR' : 'OFF', ok: bridgeStatus === 'running' },
                 { label: 'N8N', val: n8nConnected ? `${n8nWorkflows.length} WF` : 'OFF', ok: n8nConnected },
+                { label: 'AGENT', val: agentStatus === 'IDLE' ? 'IDLE' : agentStatus === 'ERROR' ? 'ERROR' : agentStatus, ok: agentStatus !== 'ERROR' },
               ].map(s => (
                 <div key={s.label} className="flex justify-between py-0.5">
                   <span className="text-blue-400/40">{s.label}</span>
@@ -3101,6 +3183,40 @@ export default function JarvisPage() {
               <p className="font-mono text-[9px] text-blue-400/30 leading-relaxed">
                 Say <span style={{ color: mc.ring }}>"Hey GhostForge"</span> to activate wake word.
               </p>
+            </div>
+
+            {/* Agent quick actions */}
+            <div className="border-t pt-2 mt-1" style={{ borderColor: `${mc.ring}22` }}>
+              <p className="font-mono text-[10px] text-blue-400/40 tracking-widest mb-1.5">🤖 AGENT</p>
+              <button type="button"
+                onClick={() => setShowAgent(s => !s)}
+                className="w-full text-left rounded px-2 py-1.5 font-mono text-[10px] border transition hover:border-blue-600/60 mb-1"
+                style={{
+                  borderColor: showAgent ? '#3b82f666' : `${mc.ring}22`,
+                  color: showAgent ? '#3b82f6' : 'rgba(200,210,255,0.7)',
+                  background: showAgent ? 'rgba(59,130,246,0.08)' : `${mc.ring}08`,
+                }}>
+                📊 {showAgent ? 'CLOSE DASHBOARD' : 'OPEN DASHBOARD'}
+              </button>
+              <div className="flex items-center gap-1.5 py-0.5">
+                <span className="h-[3px] w-[3px] rounded-full" style={{
+                  background: agentStatus === 'IDLE' ? '#71717a'
+                    : agentStatus === 'ERROR' ? '#ef4444'
+                    : agentStatus === 'CODING' ? '#f97316'
+                    : '#22c55e',
+                }} />
+                <span className="text-blue-300/40">AGENT: {agentStatus}</span>
+              </div>
+              {agentCurrentTask && (
+                <div className="text-[8px] mt-0.5 truncate" style={{ color: '#52525b' }}>
+                  → {agentCurrentTask}
+                </div>
+              )}
+              {agentIssueCount > 0 && (
+                <div className="text-[8px] mt-0.5" style={{ color: '#52525b' }}>
+                  {agentIssueCount} issues tracked
+                </div>
+              )}
             </div>
           </div>
         </div>

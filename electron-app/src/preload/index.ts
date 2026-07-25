@@ -332,6 +332,172 @@ export interface ElectronAPI {
     importWorkflows: () => Promise<{ imported: string[]; count: number }>;
     onStatusChange: (callback: (status: { connected: boolean; url: string; workflowCount: number; activeWorkflows: number }) => void) => void;
   };
+  autonomousAgent: {
+    start: (config?: Record<string, unknown>) => Promise<{ success: boolean; status: string }>;
+    stop: () => Promise<{ success: boolean; status: string }>;
+    pause: () => Promise<{ success: boolean; status: string }>;
+    resume: () => Promise<{ success: boolean; status: string }>;
+    getStatus: () => Promise<{
+      status: string; uptime: number; issueCount: number; currentTask: string;
+      stats: { totalProcessed: number; successRate: number; avgTimePerIssue: number;
+        linesGenerated: number; testsWritten: number; prsCreated: number; prsMerged: number };
+    }>;
+    getConfig: () => Promise<{
+      repoUrl: string; githubToken: string; ollamaUrl: string; model: string;
+      pollInterval: number; autoMerge: boolean; testRequired: boolean;
+      labelsToMonitor: string[]; branchPrefix: string; maxConcurrentIssues: number; dryRun: boolean;
+    }>;
+    setConfig: (config: Record<string, unknown>) => Promise<{ success: boolean }>;
+    getIssues: () => Promise<Array<{
+      number: number; title: string; labels: Array<{ name: string; color: string }>;
+      status: string; assignedAgent: string | null; timeElapsed: number;
+      subtasksCompleted: number; subtasksTotal: number; priority: number;
+    }>>;
+    processIssue: (number: number) => Promise<{ success: boolean; status: string }>;
+    onStateChange: (callback: (state: { status: string; uptime: number; issueCount: number }) => void) => void;
+    onProgress: (callback: (progress: { currentTask: string; issueNumber: number; percent: number }) => void) => void;
+    onIssueUpdate: (callback: (update: { number: number; status: string; count: number }) => void) => void;
+    onTestResults: (callback: (results: { issueNumber: number; passed: number; failed: number; details: string[] }) => void) => void;
+    onPRCreated: (callback: (pr: { issueNumber: number; prUrl: string; prNumber: number }) => void) => void;
+  };
+  jarvisDaemon: {
+    start: () => Promise<{
+      state: string; uptime: number; startedAt: number | null; lastHealthCheck: number;
+      voiceActive: boolean; commandsProcessed: number; restartCount: number; pid: number | null; platform: string;
+    }>;
+    stop: () => Promise<{
+      state: string; uptime: number; startedAt: number | null; lastHealthCheck: number;
+      voiceActive: boolean; commandsProcessed: number; restartCount: number; pid: number | null; platform: string;
+    }>;
+    status: () => Promise<{
+      state: string; uptime: number; startedAt: number | null; lastHealthCheck: number;
+      voiceActive: boolean; commandsProcessed: number; restartCount: number; pid: number | null; platform: string;
+    }>;
+    getSettings: () => Promise<Record<string, unknown>>;
+    setSettings: (settings: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    startVoice: () => Promise<{ success: boolean }>;
+    stopVoice: () => Promise<{ success: boolean }>;
+    processCommand: (transcript: string) => Promise<string>;
+    showWindow: () => Promise<{ success: boolean }>;
+    hideWindow: () => Promise<{ success: boolean }>;
+    getLogs: (lines?: number) => Promise<string[]>;
+    clearLogs: () => Promise<{ success: boolean }>;
+    onStateChange: (callback: (state: { from: string; to: string; timestamp: number }) => void) => void;
+    onStarted: (callback: (status: Record<string, unknown>) => void) => void;
+    onStopped: (callback: (status: Record<string, unknown>) => void) => void;
+    onVoiceStarted: (callback: () => void) => void;
+    onVoiceStopped: (callback: () => void) => void;
+    onCommandReceived: (callback: (data: { transcript: string; timestamp: number }) => void) => void;
+    onCommandProcessed: (callback: (data: { transcript: string; response: string; source: string; timestamp: number }) => void) => void;
+    onHealthCheck: (callback: (data: Record<string, unknown>) => void) => void;
+    onError: (callback: (error: string) => void) => void;
+  };
+  selfUpdater: {
+    check: () => Promise<{
+      currentVersion: string; remoteVersion: string; hasUpdate: boolean;
+      currentCommit: string; remoteCommit: string; changelog: string;
+      filesChanged: string[]; behind: number; timestamp: number;
+    }>;
+    update: (userConfirm?: boolean) => Promise<boolean>;
+    startAutoCheck: (intervalMs?: number) => Promise<{ success: boolean }>;
+    stopAutoCheck: () => Promise<{ success: boolean }>;
+    selfModify: (filePath: string, content: string, options?: Record<string, unknown>) => Promise<boolean>;
+    analyzeProject: () => Promise<{
+      structure: string[]; totalFiles: number; totalSize: string;
+      languages: Record<string, number>;
+    }>;
+    readFile: (filePath: string) => Promise<{ content?: string; path?: string; error?: string }>;
+    version: () => Promise<{ version: string; commit: string }>;
+    onPhase: (callback: (data: { phase: string; message: string; percent: number }) => void) => void;
+    onLog: (callback: (data: { message: string; timestamp: string }) => void) => void;
+  };
+  codeModifier: {
+    readFile: (filePath: string) => Promise<{ content: string; path: string; size: number; modified: number }>;
+    editFile: (filePath: string, oldContent: string, newContent: string, options?: Record<string, unknown>) => Promise<{
+      filePath: string; action: string; timestamp: number; success: boolean; error?: string;
+    }>;
+    createFile: (filePath: string, content: string, options?: Record<string, unknown>) => Promise<{
+      filePath: string; action: string; timestamp: number; success: boolean; error?: string;
+    }>;
+    deleteFile: (filePath: string, options?: Record<string, unknown>) => Promise<{
+      filePath: string; action: string; timestamp: number; success: boolean; error?: string;
+    }>;
+    search: (pattern: string, directory?: string) => Promise<Array<{ path: string; matches: number }>>;
+    structure: () => Promise<{
+      root: string; files: Array<{ path: string; size: number; modified: number }>;
+      directories: string[]; languages: Record<string, number>;
+      totalFiles: number; totalSizeBytes: number;
+    }>;
+    rollback: () => Promise<boolean>;
+    history: () => Promise<Array<{
+      filePath: string; action: string; timestamp: number; success: boolean; error?: string;
+    }>>;
+    runInstall: () => Promise<{ success: boolean; output: string }>;
+    runBuild: () => Promise<{ success: boolean; output: string }>;
+    restartApp: () => Promise<{ success: boolean }>;
+    onFileEdited: (callback: (data: { filePath: string; success: boolean; timestamp: number }) => void) => void;
+    onFileCreated: (callback: (data: { filePath: string; success: boolean; timestamp: number }) => void) => void;
+    onFileDeleted: (callback: (data: { filePath: string; success: boolean; timestamp: number }) => void) => void;
+  };
+  email: {
+    list: (params: Record<string, unknown>) => Promise<{ messages: Array<Record<string, unknown>>; nextPageToken?: string }>;
+    read: (messageId: string, accountId?: string) => Promise<Record<string, unknown>>;
+    send: (params: Record<string, unknown>) => Promise<{ id: string; threadId?: string }>;
+    reply: (messageId: string, body: string, bodyHtml?: string, accountId?: string) => Promise<{ id: string; threadId?: string }>;
+    markRead: (messageId: string, accountId?: string) => Promise<void>;
+    markUnread: (messageId: string, accountId?: string) => Promise<void>;
+    star: (messageId: string, accountId?: string) => Promise<void>;
+    unstar: (messageId: string, accountId?: string) => Promise<void>;
+    delete: (messageId: string, accountId?: string) => Promise<void>;
+    unreadCount: (accountId?: string) => Promise<number>;
+    recent: (count?: number, accountId?: string) => Promise<{ messages: Array<Record<string, unknown>> }>;
+    search: (query: string, accountId?: string) => Promise<{ messages: Array<Record<string, unknown>> }>;
+    accounts: () => Promise<Array<Record<string, unknown>>>;
+    removeAccount: (accountId: string) => Promise<boolean>;
+    addImap: (config: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    oauthStart: (provider: 'gmail' | 'outlook') => Promise<{ authUrl: string }>;
+    oauthCallback: (code: string, provider: 'gmail' | 'outlook') => Promise<Record<string, unknown>>;
+  };
+  aiStudio: {
+    setKey: (apiKey: string) => Promise<{ success: boolean }>;
+    keyStatus: () => Promise<{ configured: boolean; keyPreview: string }>;
+    listModels: () => Promise<Array<Record<string, unknown>>>;
+    getModel: (modelId: string) => Promise<Record<string, unknown>>;
+    generate: (model: string, prompt: string, options?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    updateModel: (modelId: string, updates: { displayName?: string; description?: string }) => Promise<Record<string, unknown>>;
+    baseModels: () => Promise<Array<Record<string, unknown>>>;
+    modelInfo: (modelName: string) => Promise<Record<string, unknown>>;
+    compare: (prompt: string, modelA: string, modelB: string, options?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    test: (model: string, prompt: string, options?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    exportConfig: (modelId: string) => Promise<Record<string, unknown>>;
+    importConfig: (config: Record<string, unknown>) => Promise<{ success: boolean; message: string }>;
+  };
+  calendar: {
+    today: (accountId?: string) => Promise<Array<Record<string, unknown>>>;
+    upcoming: (days?: number, accountId?: string) => Promise<Array<Record<string, unknown>>>;
+    create: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    update: (eventId: string, updates: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    delete: (eventId: string, accountId?: string) => Promise<void>;
+    freeBusy: (timeMin: string, timeMax: string, accountId?: string) => Promise<Array<Record<string, unknown>>>;
+    freeSlots: (date: string, accountId?: string) => Promise<Array<Record<string, unknown>>>;
+    accounts: () => Promise<Array<Record<string, unknown>>>;
+    removeAccount: (accountId: string) => Promise<boolean>;
+    oauthStart: (provider: 'google' | 'outlook') => Promise<{ authUrl: string }>;
+    oauthCallback: (code: string, provider: 'google' | 'outlook') => Promise<Record<string, unknown>>;
+    addCaldav: (config: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  };
+  contacts: {
+    search: (query: string, accountId?: string) => Promise<Array<Record<string, unknown>>>;
+    get: (contactId: string, accountId?: string) => Promise<Record<string, unknown>>;
+    create: (contact: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    delete: (contactId: string, accountId?: string) => Promise<void>;
+    byPhone: (phone: string, accountId?: string) => Promise<Array<Record<string, unknown>>>;
+    recent: (count?: number) => Promise<Array<Record<string, unknown>>>;
+    accounts: () => Promise<Array<Record<string, unknown>>>;
+    removeAccount: (accountId: string) => Promise<boolean>;
+    oauthStart: (provider: 'google' | 'outlook') => Promise<{ authUrl: string }>;
+    oauthCallback: (code: string, provider: 'google' | 'outlook') => Promise<Record<string, unknown>>;
+  };
 }
 
 const electronAPI: ElectronAPI = {
@@ -583,6 +749,186 @@ const electronAPI: ElectronAPI = {
     onStatusChange: (callback: (status: { connected: boolean; url: string; workflowCount: number; activeWorkflows: number }) => void) => {
       ipcRenderer.on('jarvis:n8n-status-changed', (_event, status) => callback(status));
     },
+  },
+  autonomousAgent: {
+    start: (config?: Record<string, unknown>) => ipcRenderer.invoke('agent:start', config),
+    stop: () => ipcRenderer.invoke('agent:stop'),
+    pause: () => ipcRenderer.invoke('agent:pause'),
+    resume: () => ipcRenderer.invoke('agent:resume'),
+    getStatus: () => ipcRenderer.invoke('agent:get-status') as Promise<{
+      status: string; uptime: number; issueCount: number; currentTask: string;
+      stats: { totalProcessed: number; successRate: number; avgTimePerIssue: number;
+        linesGenerated: number; testsWritten: number; prsCreated: number; prsMerged: number };
+    }>,
+    getConfig: () => ipcRenderer.invoke('agent:get-config') as Promise<{
+      repoUrl: string; githubToken: string; ollamaUrl: string; model: string;
+      pollInterval: number; autoMerge: boolean; testRequired: boolean;
+      labelsToMonitor: string[]; branchPrefix: string; maxConcurrentIssues: number; dryRun: boolean;
+    }>,
+    setConfig: (config: Record<string, unknown>) => ipcRenderer.invoke('agent:set-config', config),
+    getIssues: () => ipcRenderer.invoke('agent:get-issues') as Promise<Array<{
+      number: number; title: string; labels: Array<{ name: string; color: string }>;
+      status: string; assignedAgent: string | null; timeElapsed: number;
+      subtasksCompleted: number; subtasksTotal: number; priority: number;
+    }>>,
+    processIssue: (number: number) => ipcRenderer.invoke('agent:process-issue', number),
+    onStateChange: (callback: (state: { status: string; uptime: number; issueCount: number }) => void) => {
+      ipcRenderer.on('agent:state-change', (_event, state) => callback(state));
+    },
+    onProgress: (callback: (progress: { currentTask: string; issueNumber: number; percent: number }) => void) => {
+      ipcRenderer.on('agent:progress', (_event, progress) => callback(progress));
+    },
+    onIssueUpdate: (callback: (update: { number: number; status: string; count: number }) => void) => {
+      ipcRenderer.on('agent:issue-update', (_event, update) => callback(update));
+    },
+    onTestResults: (callback: (results: { issueNumber: number; passed: number; failed: number; details: string[] }) => void) => {
+      ipcRenderer.on('agent:test-results', (_event, results) => callback(results));
+    },
+    onPRCreated: (callback: (pr: { issueNumber: number; prUrl: string; prNumber: number }) => void) => {
+      ipcRenderer.on('agent:pr-created', (_event, pr) => callback(pr));
+    },
+  },
+  jarvisDaemon: {
+    start: () => ipcRenderer.invoke('daemon:start'),
+    stop: () => ipcRenderer.invoke('daemon:stop'),
+    status: () => ipcRenderer.invoke('daemon:status'),
+    getSettings: () => ipcRenderer.invoke('daemon:get-settings'),
+    setSettings: (settings: Record<string, unknown>) => ipcRenderer.invoke('daemon:set-settings', settings),
+    startVoice: () => ipcRenderer.invoke('daemon:start-voice'),
+    stopVoice: () => ipcRenderer.invoke('daemon:stop-voice'),
+    processCommand: (transcript: string) => ipcRenderer.invoke('daemon:process-command', transcript),
+    showWindow: () => ipcRenderer.invoke('daemon:show-window'),
+    hideWindow: () => ipcRenderer.invoke('daemon:hide-window'),
+    getLogs: (lines?: number) => ipcRenderer.invoke('daemon:get-logs', lines),
+    clearLogs: () => ipcRenderer.invoke('daemon:clear-logs'),
+    onStateChange: (callback: (state: { from: string; to: string; timestamp: number }) => void) => {
+      ipcRenderer.on('daemon:state-change', (_event, state) => callback(state));
+    },
+    onStarted: (callback: (status: Record<string, unknown>) => void) => {
+      ipcRenderer.on('daemon:started', (_event, status) => callback(status));
+    },
+    onStopped: (callback: (status: Record<string, unknown>) => void) => {
+      ipcRenderer.on('daemon:stopped', (_event, status) => callback(status));
+    },
+    onVoiceStarted: (callback: () => void) => {
+      ipcRenderer.on('daemon:voice-started', () => callback());
+    },
+    onVoiceStopped: (callback: () => void) => {
+      ipcRenderer.on('daemon:voice-stopped', () => callback());
+    },
+    onCommandReceived: (callback: (data: { transcript: string; timestamp: number }) => void) => {
+      ipcRenderer.on('daemon:command-received', (_event, data) => callback(data));
+    },
+    onCommandProcessed: (callback: (data: { transcript: string; response: string; source: string; timestamp: number }) => void) => {
+      ipcRenderer.on('daemon:command-processed', (_event, data) => callback(data));
+    },
+    onHealthCheck: (callback: (data: Record<string, unknown>) => void) => {
+      ipcRenderer.on('daemon:health-check', (_event, data) => callback(data));
+    },
+    onError: (callback: (error: string) => void) => {
+      ipcRenderer.on('daemon:error', (_event, error) => callback(error));
+    },
+  },
+  selfUpdater: {
+    check: () => ipcRenderer.invoke('updater:check'),
+    update: (userConfirm?: boolean) => ipcRenderer.invoke('updater:update', userConfirm),
+    startAutoCheck: (intervalMs?: number) => ipcRenderer.invoke('updater:start-auto-check', intervalMs),
+    stopAutoCheck: () => ipcRenderer.invoke('updater:stop-auto-check'),
+    selfModify: (filePath: string, content: string, options?: Record<string, unknown>) =>
+      ipcRenderer.invoke('updater:self-modify', filePath, content, options),
+    analyzeProject: () => ipcRenderer.invoke('updater:analyze-project'),
+    readFile: (filePath: string) => ipcRenderer.invoke('updater:read-file', filePath),
+    version: () => ipcRenderer.invoke('updater:version'),
+    onPhase: (callback: (data: { phase: string; message: string; percent: number }) => void) => {
+      ipcRenderer.on('updater:phase', (_event, data) => callback(data));
+    },
+    onLog: (callback: (data: { message: string; timestamp: string }) => void) => {
+      ipcRenderer.on('updater:log', (_event, data) => callback(data));
+    },
+  },
+  codeModifier: {
+    readFile: (filePath: string) => ipcRenderer.invoke('code:read-file', filePath),
+    editFile: (filePath: string, oldContent: string, newContent: string, options?: Record<string, unknown>) =>
+      ipcRenderer.invoke('code:edit-file', filePath, oldContent, newContent, options),
+    createFile: (filePath: string, content: string, options?: Record<string, unknown>) =>
+      ipcRenderer.invoke('code:create-file', filePath, content, options),
+    deleteFile: (filePath: string, options?: Record<string, unknown>) =>
+      ipcRenderer.invoke('code:delete-file', filePath, options),
+    search: (pattern: string, directory?: string) => ipcRenderer.invoke('code:search', pattern, directory),
+    structure: () => ipcRenderer.invoke('code:structure'),
+    rollback: () => ipcRenderer.invoke('code:rollback'),
+    history: () => ipcRenderer.invoke('code:history'),
+    runInstall: () => ipcRenderer.invoke('code:run-install'),
+    runBuild: () => ipcRenderer.invoke('code:run-build'),
+    restartApp: () => ipcRenderer.invoke('code:restart-app'),
+    onFileEdited: (callback: (data: { filePath: string; success: boolean; timestamp: number }) => void) => {
+      ipcRenderer.on('code:file-edited', (_event, data) => callback(data));
+    },
+    onFileCreated: (callback: (data: { filePath: string; success: boolean; timestamp: number }) => void) => {
+      ipcRenderer.on('code:file-created', (_event, data) => callback(data));
+    },
+    onFileDeleted: (callback: (data: { filePath: string; success: boolean; timestamp: number }) => void) => {
+      ipcRenderer.on('code:file-deleted', (_event, data) => callback(data));
+    },
+  },
+  email: {
+    list: (params) => ipcRenderer.invoke('email:list', params),
+    read: (messageId, accountId) => ipcRenderer.invoke('email:read', messageId, accountId),
+    send: (params) => ipcRenderer.invoke('email:send', params),
+    reply: (messageId, body, bodyHtml, accountId) => ipcRenderer.invoke('email:reply', messageId, body, bodyHtml, accountId),
+    markRead: (messageId, accountId) => ipcRenderer.invoke('email:mark-read', messageId, accountId),
+    markUnread: (messageId, accountId) => ipcRenderer.invoke('email:mark-unread', messageId, accountId),
+    star: (messageId, accountId) => ipcRenderer.invoke('email:star', messageId, accountId),
+    unstar: (messageId, accountId) => ipcRenderer.invoke('email:unstar', messageId, accountId),
+    delete: (messageId, accountId) => ipcRenderer.invoke('email:delete', messageId, accountId),
+    unreadCount: (accountId) => ipcRenderer.invoke('email:unread-count', accountId),
+    recent: (count, accountId) => ipcRenderer.invoke('email:recent', count, accountId),
+    search: (query, accountId) => ipcRenderer.invoke('email:search', query, accountId),
+    accounts: () => ipcRenderer.invoke('email:accounts'),
+    removeAccount: (accountId) => ipcRenderer.invoke('email:remove-account', accountId),
+    addImap: (config) => ipcRenderer.invoke('email:add-imap', config),
+    oauthStart: (provider) => ipcRenderer.invoke('email:oauth-start', provider),
+    oauthCallback: (code, provider) => ipcRenderer.invoke('email:oauth-callback', code, provider),
+  },
+  aiStudio: {
+    setKey: (apiKey) => ipcRenderer.invoke('ai-studio:set-key', apiKey),
+    keyStatus: () => ipcRenderer.invoke('ai-studio:key-status'),
+    listModels: () => ipcRenderer.invoke('ai-studio:list-models'),
+    getModel: (modelId) => ipcRenderer.invoke('ai-studio:get-model', modelId),
+    generate: (model, prompt, options) => ipcRenderer.invoke('ai-studio:generate', model, prompt, options),
+    updateModel: (modelId, updates) => ipcRenderer.invoke('ai-studio:update-model', modelId, updates),
+    baseModels: () => ipcRenderer.invoke('ai-studio:base-models'),
+    modelInfo: (modelName) => ipcRenderer.invoke('ai-studio:model-info', modelName),
+    compare: (prompt, modelA, modelB, options) => ipcRenderer.invoke('ai-studio:compare', prompt, modelA, modelB, options),
+    test: (model, prompt, options) => ipcRenderer.invoke('ai-studio:test', model, prompt, options),
+    exportConfig: (modelId) => ipcRenderer.invoke('ai-studio:export-config', modelId),
+    importConfig: (config) => ipcRenderer.invoke('ai-studio:import-config', config),
+  },
+  calendar: {
+    today: (accountId) => ipcRenderer.invoke('calendar:today', accountId),
+    upcoming: (days, accountId) => ipcRenderer.invoke('calendar:upcoming', days, accountId),
+    create: (params) => ipcRenderer.invoke('calendar:create', params),
+    update: (eventId, updates) => ipcRenderer.invoke('calendar:update', eventId, updates),
+    delete: (eventId, accountId) => ipcRenderer.invoke('calendar:delete', eventId, accountId),
+    freeBusy: (timeMin, timeMax, accountId) => ipcRenderer.invoke('calendar:free-busy', timeMin, timeMax, accountId),
+    freeSlots: (date, accountId) => ipcRenderer.invoke('calendar:free-slots', date, accountId),
+    accounts: () => ipcRenderer.invoke('calendar:accounts'),
+    removeAccount: (accountId) => ipcRenderer.invoke('calendar:remove-account', accountId),
+    oauthStart: (provider) => ipcRenderer.invoke('calendar:oauth-start', provider),
+    oauthCallback: (code, provider) => ipcRenderer.invoke('calendar:oauth-callback', code, provider),
+    addCaldav: (config) => ipcRenderer.invoke('calendar:add-caldav', config),
+  },
+  contacts: {
+    search: (query, accountId) => ipcRenderer.invoke('contacts:search', query, accountId),
+    get: (contactId, accountId) => ipcRenderer.invoke('contacts:get', contactId, accountId),
+    create: (contact) => ipcRenderer.invoke('contacts:create', contact),
+    delete: (contactId, accountId) => ipcRenderer.invoke('contacts:delete', contactId, accountId),
+    byPhone: (phone, accountId) => ipcRenderer.invoke('contacts:by-phone', phone, accountId),
+    recent: (count) => ipcRenderer.invoke('contacts:recent', count),
+    accounts: () => ipcRenderer.invoke('contacts:accounts'),
+    removeAccount: (accountId) => ipcRenderer.invoke('contacts:remove-account', accountId),
+    oauthStart: (provider) => ipcRenderer.invoke('contacts:oauth-start', provider),
+    oauthCallback: (code, provider) => ipcRenderer.invoke('contacts:oauth-callback', code, provider),
   },
 };
 

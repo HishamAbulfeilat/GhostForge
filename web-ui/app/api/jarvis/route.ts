@@ -60,6 +60,10 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   n8n:         '- n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? }',
   design:      '- apply_design_md { site } | - list_design_md | - design_resources { category? }',
   security:    '- vigolium_scan { target, strategy? } | - vigolium_agent { target, mode? } | - terminal_command { command }',
+  email:       '- email_list { query?, from?, subject?, isUnread?, maxResults? } | - email_send { to, subject, body } | - email_read { messageId } | - email_reply { messageId, body } | - email_search { query } | - email_unread_count | - email_mark_read { messageId } | - email_star { messageId } | - email_delete { messageId }',
+  calendar:    '- calendar_events { action?, days?, summary?, startDateTime?, endDateTime?, location?, attendees? } | - calendar_free_slots { date? }',
+  contacts:    '- contacts_search { query } | - contacts_by_phone { phone }',
+  ai_studio:   '- ai_studio_list | - ai_studio_update { modelId?, displayName?, description? } | ai_studio_test { model, prompt } | - ai_studio_compare { prompt, modelA, modelB } | - ai_studio_models',
 }
 
 // System prompt cache — keyed by domain+lang+device to avoid rebuild on every request
@@ -73,7 +77,7 @@ type Domain =
   | 'code' | 'math' | 'files' | 'reminder' | 'mac_control' | 'vision'
   | 'github' | 'copilot' | 'lock' | 'screenshot' | 'models' | 'remote' | 'travel' | 'general'
   | 'youtube' | 'games' | 'clipboard' | 'browser_ext' | 'files_ext' | 'hardware'
-  | 'n8n'
+  | 'n8n' | 'email' | 'calendar' | 'contacts' | 'ai_studio'
 
 const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   weather:     ['weather','temperature','forecast','rain','sunny','cold','hot','humidity','wind','storm','degrees'],
@@ -102,6 +106,10 @@ const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   files_ext:   ['summarize file','read file','file summary','convert file','file converter','ask file'],
   hardware:    ['cpu usage','ram usage','disk usage','gpu usage','fan speed','hardware report','system report','hardware stats'],
   n8n:         ['n8n','workflow','webhook','automate','automation','deploy workflow','notify workflow','trigger workflow','import workflow','activate workflow','deactivate workflow'],
+  email:       ['email','inbox','inbox','mail','message from','send email','reply to','unread email','check email','my emails','show me my emails','who emailed','email count'],
+  calendar:    ['calendar','schedule','meeting','event','appointment','today schedule','my schedule','upcoming events','free slots','am i busy','check availability'],
+  contacts:    ['contact','find contact','phone number','email address','who is','contact info','address book'],
+  ai_studio:   ['ai studio','ai studio app','gemini app','tuned model','fine tune','finetune','compare models','test prompt','update my ai studio'],
   general:     [],
 }
 
@@ -129,6 +137,10 @@ const DOMAIN_EXTRA_GUIDANCE: Partial<Record<Domain, string>> = {
   files_ext:   'Read, summarize, ask questions about, or convert files.',
   hardware:    'Report CPU, RAM, disk, GPU, fan speed, and full system stats.',
   n8n:         'Manage n8n workflows: list, create, trigger, deploy, notify, import templates, activate/deactivate.',
+  email:       'Manage emails: list, read, send, reply, search, mark read/unread, star, get unread count.',
+  calendar:    'Manage calendar: list today/upcoming events, create/update/delete events, check free/busy slots.',
+  contacts:    'Search contacts by name, email, or phone. Find contact details and phone numbers.',
+  ai_studio:   'Manage Google AI Studio: list apps, update configs, test prompts, compare models.',
 }
 
 function classifyDomain(text: string): Domain {
@@ -1459,6 +1471,432 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       return `Unknown n8n action: ${action}. Available: list, deploy, notify, pr, create, trigger`
     }
 
+    // ── Email Integration ─────────────────────────────────────────────────
+    case 'email_list': {
+      const query = params.query || params.from || params.subject || ''
+      const isUnread = params.isUnread === 'true'
+      const maxResults = parseInt(params.maxResults || '10')
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const queryParams = new URLSearchParams()
+        if (query) queryParams.set('query', query)
+        if (isUnread) queryParams.set('isUnread', 'true')
+        queryParams.set('maxResults', String(maxResults))
+        const res = await fetch(`${EMAIL_API}/api/email/list?${queryParams}`, {
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '')
+          if (errText.includes('not configured') || res.status === 503) {
+            return 'Email not configured. Set up email in JARVIS Settings → Integrations, or configure GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET environment variables.'
+          }
+          return `Email list failed (${res.status}): ${errText.slice(0, 200)}`
+        }
+        const data = await res.json() as { messages?: Array<{ subject: string; from: string; date: string; snippet: string; isUnread: boolean; id: string }> }
+        const messages = data.messages || []
+        if (messages.length === 0) return 'No emails found matching your criteria.'
+        const formatted = messages.map((m, i) =>
+          `${i + 1}. ${m.isUnread ? '🔵 ' : ''}${m.subject}\n   From: ${m.from} | ${m.date}\n   ${m.snippet.slice(0, 100)}`,
+        ).join('\n\n')
+        return `Emails (${messages.length}):\n\n${formatted}`
+      } catch (e) {
+        return `Email service unavailable: ${(e as Error).message?.slice(0, 100)}. Ensure GhostForge backend is running.`
+      }
+    }
+
+    case 'email_send': {
+      const to = (params.to || '').split(',').map(s => s.trim()).filter(Boolean)
+      const subject = params.subject || ''
+      const body = params.body || ''
+      if (!to.length || !subject || !body) return 'To, subject, and body are required to send an email.'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/email/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to, subject, body }),
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '')
+          return `Email send failed: ${errText.slice(0, 200)}`
+        }
+        return `Email sent to ${to.join(', ')}: "${subject.slice(0, 60)}"`
+      } catch (e) {
+        return `Email service unavailable: ${(e as Error).message?.slice(0, 100)}`
+      }
+    }
+
+    case 'email_read': {
+      const messageId = params.messageId || ''
+      if (!messageId) return 'Message ID is required to read an email.'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/email/read/${messageId}`, {
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) return `Email read failed (${res.status})`
+        const msg = await res.json() as { subject: string; from: string; fromEmail: string; date: string; body: string; to: string[] }
+        return `Subject: ${msg.subject}\nFrom: ${msg.from} <${msg.fromEmail}>\nTo: ${msg.to?.join(', ')}\nDate: ${msg.date}\n\n${msg.body.slice(0, 1000)}`
+      } catch (e) {
+        return `Email service unavailable: ${(e as Error).message?.slice(0, 100)}`
+      }
+    }
+
+    case 'email_reply': {
+      const messageId = params.messageId || ''
+      const body = params.body || ''
+      if (!messageId || !body) return 'Message ID and body are required to reply to an email.'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/email/reply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageId, body }),
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) return `Reply failed (${res.status})`
+        return 'Reply sent.'
+      } catch (e) {
+        return `Email service unavailable: ${(e as Error).message?.slice(0, 100)}`
+      }
+    }
+
+    case 'email_search': {
+      const query = params.query || ''
+      if (!query) return 'Search query is required.'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/email/search?q=${encodeURIComponent(query)}`, {
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) return `Email search failed (${res.status})`
+        const data = await res.json() as { messages?: Array<{ subject: string; from: string; date: string; snippet: string }> }
+        const messages = data.messages || []
+        if (messages.length === 0) return `No emails found for "${query}".`
+        return `Search results for "${query}" (${messages.length}):\n${messages.map((m, i) => `${i + 1}. ${m.subject}\n   From: ${m.from} | ${m.date}\n   ${m.snippet.slice(0, 100)}`).join('\n\n')}`
+      } catch (e) {
+        return `Email service unavailable: ${(e as Error).message?.slice(0, 100)}`
+      }
+    }
+
+    case 'email_unread_count': {
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/email/unread-count`, {
+          signal: AbortSignal.timeout(10000),
+        })
+        if (!res.ok) return 'Could not get unread count'
+        const data = await res.json() as { count: number }
+        return `You have ${data.count} unread email${data.count !== 1 ? 's' : ''}.`
+      } catch {
+        return 'Email service unavailable'
+      }
+    }
+
+    case 'email_mark_read': {
+      const messageId = params.messageId || ''
+      if (!messageId) return 'Message ID required'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        await fetch(`${EMAIL_API}/api/email/mark-read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageId }),
+          signal: AbortSignal.timeout(10000),
+        })
+        return 'Email marked as read.'
+      } catch {
+        return 'Could not mark email as read'
+      }
+    }
+
+    case 'email_star': {
+      const messageId = params.messageId || ''
+      if (!messageId) return 'Message ID required'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        await fetch(`${EMAIL_API}/api/email/star`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageId }),
+          signal: AbortSignal.timeout(10000),
+        })
+        return 'Email starred.'
+      } catch {
+        return 'Could not star email'
+      }
+    }
+
+    case 'email_delete': {
+      const messageId = params.messageId || ''
+      if (!messageId) return 'Message ID required'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        await fetch(`${EMAIL_API}/api/email/delete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageId }),
+          signal: AbortSignal.timeout(10000),
+        })
+        return 'Email moved to trash.'
+      } catch {
+        return 'Could not delete email'
+      }
+    }
+
+    // ── Calendar Integration ──────────────────────────────────────────────
+    case 'calendar_events': {
+      const action = (params.action || 'today').toLowerCase()
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+
+      if (action === 'today') {
+        try {
+          const res = await fetch(`${EMAIL_API}/api/calendar/today`, {
+            signal: AbortSignal.timeout(15000),
+          })
+          if (!res.ok) return 'Calendar not configured. Set up calendar in JARVIS Settings → Integrations.'
+          const events = await res.json() as Array<{ summary: string; start: { dateTime?: string }; end: { dateTime?: string }; location?: string }>
+          if (!events.length) return 'No events scheduled for today.'
+          const now = new Date()
+          const formatted = events.map((e, i) => {
+            const start = e.start?.dateTime ? new Date(e.start.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'All day'
+            const end = e.end?.dateTime ? new Date(e.end.dateTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : ''
+            return `${i + 1}. ${e.summary} (${start}${end ? ' - ' + end : ''})${e.location ? ' @ ' + e.location : ''}`
+          }).join('\n')
+          return `Today's schedule (${events.length} event${events.length !== 1 ? 's' : ''}):\n${formatted}`
+        } catch {
+          return 'Calendar service unavailable. Ensure GhostForge backend is running.'
+        }
+      }
+
+      if (action === 'upcoming') {
+        const days = parseInt(params.days || '7')
+        try {
+          const res = await fetch(`${EMAIL_API}/api/calendar/upcoming?days=${days}`, {
+            signal: AbortSignal.timeout(15000),
+          })
+          if (!res.ok) return 'Calendar not configured'
+          const events = await res.json() as Array<{ summary: string; start: { dateTime?: string }; description?: string }>
+          if (!events.length) return `No events in the next ${days} days.`
+          const formatted = events.slice(0, 10).map((e, i) => {
+            const date = e.start?.dateTime ? new Date(e.start.dateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : 'TBD'
+            return `${i + 1}. [${date}] ${e.summary}`
+          }).join('\n')
+          return `Upcoming events (${events.length} in ${days} days):\n${formatted}`
+        } catch {
+          return 'Calendar service unavailable'
+        }
+      }
+
+      if (action === 'create') {
+        const summary = params.summary || ''
+        const startDateTime = params.startDateTime || ''
+        const endDateTime = params.endDateTime || ''
+        if (!summary || !startDateTime || !endDateTime) return 'summary, startDateTime, and endDateTime are required to create an event.'
+        try {
+          const res = await fetch(`${EMAIL_API}/api/calendar/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              summary,
+              startDateTime,
+              endDateTime,
+              location: params.location || undefined,
+              attendees: params.attendees ? params.attendees.split(',').map(s => s.trim()) : undefined,
+            }),
+            signal: AbortSignal.timeout(15000),
+          })
+          if (!res.ok) return 'Failed to create event'
+          const event = await res.json() as { id: string; htmlLink?: string }
+          return `Event created: "${summary}" (${startDateTime} - ${endDateTime})${event.htmlLink ? '\n' + event.htmlLink : ''}`
+        } catch {
+          return 'Calendar service unavailable'
+        }
+      }
+
+      if (action === 'delete') {
+        const eventId = params.eventId || params.id || ''
+        if (!eventId) return 'Event ID required to delete'
+        try {
+          await fetch(`${EMAIL_API}/api/calendar/delete/${eventId}`, {
+            method: 'DELETE',
+            signal: AbortSignal.timeout(10000),
+          })
+          return 'Event deleted.'
+        } catch {
+          return 'Could not delete event'
+        }
+      }
+
+      return `Unknown calendar action: ${action}. Available: today, upcoming, create, delete`
+    }
+
+    case 'calendar_free_slots': {
+      const date = params.date || new Date().toISOString().split('T')[0]
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/calendar/free-slots?date=${date}`, {
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) return 'Could not check availability'
+        const slots = await res.json() as Array<{ start: string; end: string }>
+        if (!slots.length) return `No free slots on ${date}.`
+        const formatted = slots.map(s => {
+          const start = new Date(s.start).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+          const end = new Date(s.end).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+          return `${start} - ${end}`
+        }).join('\n')
+        return `Free slots on ${date}:\n${formatted}`
+      } catch {
+        return 'Calendar service unavailable'
+      }
+    }
+
+    // ── Contacts Integration ──────────────────────────────────────────────
+    case 'contacts_search': {
+      const query = params.query || ''
+      if (!query) return 'Search query required. Try: "find John" or "search contacts for Sarah"'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/contacts/search?q=${encodeURIComponent(query)}`, {
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) return 'Contacts not configured. Set up contacts in JARVIS Settings → Integrations.'
+        const contacts = await res.json() as Array<{ displayName: string; emails: Array<{ value: string }>; phones: Array<{ value: string }>; organizations?: Array<{ name: string; title?: string }> }>
+        if (!contacts.length) return `No contacts found for "${query}".`
+        const formatted = contacts.slice(0, 5).map((c, i) => {
+          const email = c.emails?.[0]?.value || 'no email'
+          const phone = c.phones?.[0]?.value || 'no phone'
+          const org = c.organizations?.[0]?.name ? ` @ ${c.organizations[0].name}` : ''
+          return `${i + 1}. ${c.displayName}${org}\n   Email: ${email} | Phone: ${phone}`
+        }).join('\n\n')
+        return `Contacts found (${contacts.length}):\n\n${formatted}`
+      } catch {
+        return 'Contacts service unavailable'
+      }
+    }
+
+    case 'contacts_by_phone': {
+      const phone = params.phone || ''
+      if (!phone) return 'Phone number required'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/contacts/phone?q=${encodeURIComponent(phone)}`, {
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) return 'Contacts search failed'
+        const contacts = await res.json() as Array<{ displayName: string; emails: Array<{ value: string }> }>
+        if (!contacts.length) return `No contacts found with phone "${phone}".`
+        return contacts.map(c => `${c.displayName}: ${c.emails?.[0]?.value || 'no email'}`).join('\n')
+      } catch {
+        return 'Contacts service unavailable'
+      }
+    }
+
+    // ── Google AI Studio ──────────────────────────────────────────────────
+    case 'ai_studio_list': {
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/ai-studio/models`, {
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '')
+          if (errText.includes('not configured') || res.status === 503) {
+            return 'AI Studio not configured. Set GOOGLE_AI_STUDIO_KEY in .env.local or configure in Settings.'
+          }
+          return `AI Studio failed (${res.status}): ${errText.slice(0, 200)}`
+        }
+        const models = await res.json() as Array<{ name: string; displayName: string; state: string; baseModel: string }>
+        if (!models.length) return 'No AI Studio apps found. Create one at aistudio.google.com.'
+        return `AI Studio Apps (${models.length}):\n${models.map((m, i) => `${i + 1}. ${m.displayName || m.name}\n   Base: ${m.baseModel} | State: ${m.state}`).join('\n\n')}`
+      } catch {
+        return 'AI Studio service unavailable'
+      }
+    }
+
+    case 'ai_studio_update': {
+      const modelId = params.modelId || ''
+      const displayName = params.displayName || ''
+      const description = params.description || ''
+      if (!modelId) return 'modelId is required. Use ai_studio_list to find model IDs.'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const body: Record<string, unknown> = {}
+        if (displayName) body.displayName = displayName
+        if (description) body.description = description
+        const res = await fetch(`${EMAIL_API}/api/ai-studio/update`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ modelId, ...body }),
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) return 'Failed to update AI Studio app'
+        return `AI Studio app updated: ${modelId}`
+      } catch {
+        return 'AI Studio service unavailable'
+      }
+    }
+
+    case 'ai_studio_test': {
+      const model = params.model || ''
+      const prompt = params.prompt || ''
+      if (!model || !prompt) return 'model and prompt are required.'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/ai-studio/test`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model, prompt }),
+          signal: AbortSignal.timeout(60000),
+        })
+        if (!res.ok) return 'AI Studio test failed'
+        const data = await res.json() as { response: string; latencyMs: number; tokenCount?: number }
+        return `Response (${data.latencyMs}ms, ${data.tokenCount || '?'} tokens):\n${data.response.slice(0, 1000)}`
+      } catch {
+        return 'AI Studio service unavailable'
+      }
+    }
+
+    case 'ai_studio_compare': {
+      const prompt = params.prompt || ''
+      const modelA = params.modelA || ''
+      const modelB = params.modelB || ''
+      if (!prompt || !modelA || !modelB) return 'prompt, modelA, and modelB are required.'
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/ai-studio/compare`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, modelA, modelB }),
+          signal: AbortSignal.timeout(120000),
+        })
+        if (!res.ok) return 'Comparison failed'
+        const data = await res.json() as {
+          modelA: { model: string; response: string; latencyMs: number };
+          modelB: { model: string; response: string; latencyMs: number };
+        }
+        return `Model A: ${data.modelA.model} (${data.modelA.latencyMs}ms)\n${data.modelA.response.slice(0, 500)}\n\nModel B: ${data.modelB.model} (${data.modelB.latencyMs}ms)\n${data.modelB.response.slice(0, 500)}`
+      } catch {
+        return 'AI Studio service unavailable'
+      }
+    }
+
+    case 'ai_studio_models': {
+      const EMAIL_API = process.env.GHOSTFORGE_API_URL || 'http://localhost:18923'
+      try {
+        const res = await fetch(`${EMAIL_API}/api/ai-studio/base-models`, {
+          signal: AbortSignal.timeout(15000),
+        })
+        if (!res.ok) return 'Could not list base models'
+        const models = await res.json() as Array<{ name: string; displayName: string; inputTokenLimit: number; outputTokenLimit: number }>
+        return `Available Gemini models (${models.length}):\n${models.slice(0, 10).map(m => `• ${m.displayName || m.name} (${(m.inputTokenLimit / 1000).toFixed(0)}K in / ${(m.outputTokenLimit / 1000).toFixed(0)}K out)`).join('\n')}`
+      } catch {
+        return 'AI Studio service unavailable'
+      }
+    }
+
     case 'vault_save': {
       const category = (params.category as string) || 'facts'
       const key = params.key as string
@@ -2589,6 +3027,33 @@ function formatToolSpeech(tool: string, result: string): string {
     case 'system_control':
     case 'setup_wizard':
       return r.split('\n').filter(l => l.trim()).slice(0, 2).join(' — ').slice(0, 200) || `${done}`
+    case 'email_list':
+    case 'email_search':
+      return r.split('\n').slice(0, 3).join(' | ').slice(0, 200) || `${done} Emails listed.`
+    case 'email_send':
+    case 'email_reply':
+    case 'email_mark_read':
+    case 'email_star':
+    case 'email_delete':
+      return r.startsWith('Error') ? r.slice(0, 150) : `${done}`
+    case 'email_read':
+      return r.split('\n').slice(0, 3).join(' | ').slice(0, 200) || `${done} Email read.`
+    case 'email_unread_count':
+      return r || `${done}`
+    case 'calendar_events':
+      return r.split('\n').slice(0, 3).join(' | ').slice(0, 200) || `${done} Calendar checked.`
+    case 'calendar_free_slots':
+      return r.split('\n').slice(0, 3).join(' | ').slice(0, 200) || `${done} Free slots found.`
+    case 'contacts_search':
+    case 'contacts_by_phone':
+      return r.split('\n').slice(0, 3).join(' | ').slice(0, 200) || `${done} Contacts found.`
+    case 'ai_studio_list':
+    case 'ai_studio_models':
+      return r.split('\n').slice(0, 3).join(' | ').slice(0, 200) || `${done} Models listed.`
+    case 'ai_studio_update':
+    case 'ai_studio_test':
+    case 'ai_studio_compare':
+      return r.split('\n').slice(0, 3).join(' | ').slice(0, 200) || `${done}`
     default:
       return r.split('\n')[0]?.slice(0, 200) || `${done}`
   }
