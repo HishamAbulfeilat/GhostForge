@@ -150,6 +150,7 @@ jobs:
         working-directory: web-ui
         run: |
           echo 'const nextConfig = { output: "export", images: { unoptimized: true } }; export default nextConfig;' > next.config.mjs
+          rm -rf app/api
           npm run build
 
       - name: Install Capacitor
