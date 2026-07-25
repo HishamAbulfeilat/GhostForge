@@ -22,10 +22,10 @@ GhostForge JARVIS is a desktop + web app that turns GitHub Copilot into a full A
 
 | Platform | Install |
 |----------|---------|
-| macOS (Apple Silicon) | [Download DMG](https://github.com/HishamAbulfeilat/GhostForge/releases/latest/download/GhostForge%20JARVIS-5.3.0-arm64.dmg) |
-| Windows | [Download Installer](https://github.com/HishamAbulfeilat/GhostForge/releases/latest/download/GhostForge%20JARVIS%20Setup%205.3.0.exe) |
-| Linux | [Download AppImage](https://github.com/HishamAbulfeilat/GhostForge/releases/latest/download/GhostForge%20JARVIS-5.3.0-arm64.AppImage) |
-| Source | [tar.gz](https://github.com/HishamAbulfeilat/GhostForge/releases/latest/download/GhostForge-5.3.0-source.tar.gz) · [zip](https://github.com/HishamAbulfeilat/GhostForge/releases/latest/download/GhostForge-5.3.0-source.zip) |
+| macOS (Apple Silicon) | [Download DMG](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
+| Windows | [Download Installer](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
+| Linux | [Download AppImage](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
+| Source | [tar.gz](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) · [zip](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
 
 ## Features
 
