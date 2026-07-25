@@ -155,14 +155,14 @@ jobs:
         run: npx next export || true
 
       - name: Install Capacitor
-        working-directory: web-ui
+        working-directory: electron-app
         run: npm install @capacitor/cli @capacitor/core @capacitor/android --legacy-peer-deps
 
       - name: Initialize Capacitor Android
         working-directory: electron-app
         run: |
-          npx --prefix ../web-ui cap add android --web-dir ../web-ui/out || true
-          npx --prefix ../web-ui cap sync android
+          npx cap add android || true
+          npx cap sync android
 
       - name: Build Android APK
         working-directory: electron-app/android
