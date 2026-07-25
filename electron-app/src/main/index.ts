@@ -16,9 +16,12 @@ import { getCpuStats, getRamStats, getDiskStats, getGpuStats, getFanSpeed, getFu
 import { JarvisConnection } from './jarvis-connection';
 import { ConnectionToggle } from './connection-toggle';
 import { GeminiLiveVoice } from './gemini-live';
+import { N8nIntegration } from './n8n-integration';
 import bridgeManager from './bridge-manager';
 import type { ScreenCaptureOptions, CursorTarget, JarvisConfig } from '../shared/types';
 import { DEFAULT_CONFIG } from '../shared/constants';
+import { readFileSync } from 'fs';
+import { join as pathJoin } from 'path';
 
 let mainWindow: BrowserWindow | null = null;
 let trayManager: TrayManager | null = null;
@@ -30,6 +33,7 @@ let config: JarvisConfig = { ...DEFAULT_CONFIG };
 let jarvisConnection: JarvisConnection;
 let connectionToggle: ConnectionToggle;
 let geminiLiveVoice: GeminiLiveVoice;
+let n8nIntegration: N8nIntegration;
 
 const GOT_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 
@@ -94,6 +98,7 @@ function createMainWindow(): void {
     apiKey: process.env.GEMINI_API_KEY || '',
   });
   geminiLiveVoice.setMainWindow(mainWindow);
+  n8nIntegration = new N8nIntegration();
   trayManager = new TrayManager(mainWindow);
 
   // Register clipboard change events for renderer
@@ -504,6 +509,82 @@ function registerIPC(): void {
     geminiLiveVoice.sendAudioChunkFromRenderer(base64Audio);
     return { success: true };
   });
+
+  // ── n8n Workflows ─────────────────────────────────────────────────────────
+  ipcMain.handle('jarvis:n8n-status', async () => {
+    const connected = await n8nIntegration.isConnected();
+    const status = n8nIntegration.getStatus();
+    return { ...status, connected };
+  });
+
+  ipcMain.handle('jarvis:n8n-connect', async (_event, url?: string, apiKey?: string) => {
+    if (url) n8nIntegration.updateConfig({ baseUrl: url });
+    if (apiKey) n8nIntegration.updateConfig({ apiKey });
+    const connected = await n8nIntegration.isConnected();
+    if (connected) {
+      await n8nIntegration.listWorkflows();
+    }
+    const status = n8nIntegration.getStatus();
+    return { ...status, connected };
+  });
+
+  ipcMain.handle('jarvis:n8n-workflows', async () => {
+    return n8nIntegration.listWorkflows();
+  });
+
+  ipcMain.handle('jarvis:n8n-workflow-get', async (_event, id: string) => {
+    return n8nIntegration.getWorkflow(id);
+  });
+
+  ipcMain.handle('jarvis:n8n-workflow-create', async (_event, workflow: { name: string; nodes: unknown[]; connections: Record<string, unknown> }) => {
+    return n8nIntegration.createWorkflow(workflow);
+  });
+
+  ipcMain.handle('jarvis:n8n-workflow-activate', async (_event, id: string) => {
+    return n8nIntegration.activateWorkflow(id);
+  });
+
+  ipcMain.handle('jarvis:n8n-workflow-deactivate', async (_event, id: string) => {
+    return n8nIntegration.deactivateWorkflow(id);
+  });
+
+  ipcMain.handle('jarvis:n8n-trigger', async (_event, workflowId: string, data: Record<string, unknown>) => {
+    return n8nIntegration.triggerWebhook(workflowId, data);
+  });
+
+  ipcMain.handle('jarvis:n8n-trigger-by-name', async (_event, name: string, data: Record<string, unknown>) => {
+    return n8nIntegration.triggerByName(name, data);
+  });
+
+  ipcMain.handle('jarvis:n8n-deploy', async (_event, action: 'test' | 'build' | 'deploy', project: string, branch?: string) => {
+    return n8nIntegration.deployWorkflow(action, project, branch);
+  });
+
+  ipcMain.handle('jarvis:n8n-notify', async (_event, channel: string, message: string, priority?: 'low' | 'medium' | 'high') => {
+    return n8nIntegration.notifyWorkflow(channel, message, priority);
+  });
+
+  ipcMain.handle('jarvis:n8n-pr', async (_event, action: 'review' | 'merge' | 'comment', prNumber: number, repo: string, comment?: string) => {
+    return n8nIntegration.prWorkflow(action, prNumber, repo, comment);
+  });
+
+  ipcMain.handle('jarvis:n8n-workflows-import', async () => {
+    const workflowsDir = join(__dirname, '../../n8n-workflows');
+    const files = ['ghostforge-deploy.json', 'ghostforge-notify.json', 'ghostforge-pr.json'];
+    const imported: string[] = [];
+    for (const file of files) {
+      try {
+        const filePath = pathJoin(workflowsDir, file);
+        const content = readFileSync(filePath, 'utf8');
+        const workflow = JSON.parse(content) as { name: string; nodes: unknown[]; connections: Record<string, unknown> };
+        const result = await n8nIntegration.createWorkflow(workflow);
+        if (result) imported.push(result.name);
+      } catch (err) {
+        console.error(`Failed to import workflow ${file}:`, err);
+      }
+    }
+    return { imported, count: imported.length };
+  });
 }
 
 function registerGlobalShortcuts(): void {
@@ -563,6 +644,7 @@ app.on('activate', () => {
 app.on('will-quit', () => {
   bridgeManager.stopBridge().catch(() => {});
   geminiLiveVoice?.destroy();
+  n8nIntegration = undefined as any;
   globalShortcut.unregisterAll();
   cursorOverlay.destroyAll();
   voiceSystem.unregisterAll();
