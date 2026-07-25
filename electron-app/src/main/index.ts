@@ -5,6 +5,14 @@ import { CursorOverlay } from './cursor-overlay';
 import { VoiceSystem } from './voice';
 import { SystemControl } from './system-control';
 import { TrayManager } from './tray';
+import { enableAutoStart, disableAutoStart, isAutoStartEnabled } from './auto-start';
+import { searchAndPlay, getTranscript, getVideoInfo, getTrending, summarizeVideo } from './youtube';
+import { listAllGames, scanSteamGames, scanEpicGames, checkForUpdates, updateGame } from './game-updater';
+import { startClipboardWatcher, stopClipboardWatcher, analyzeClipboard, getClipboardHistory, smartPaste } from './clipboard-intel';
+import { getSetupStatus, getSetupSteps, completeStep, isFirstRun } from './setup-wizard';
+import { openUrl as browserOpen, searchWeb, navigateTab, clickElement, typeText, goBack, goForward, scrollPage, takeScreenshot as browserScreenshot, getPageText } from './browser-automation';
+import { extractText, readAndSummarize, askQuestionAboutFile, convertFormat } from './file-processor';
+import { getCpuStats, getRamStats, getDiskStats, getGpuStats, getFanSpeed, getFullSystemReport } from './hardware-monitor';
 import type { ScreenCaptureOptions, CursorTarget, JarvisConfig } from '../shared/types';
 import { DEFAULT_CONFIG } from '../shared/constants';
 
@@ -74,6 +82,12 @@ function createMainWindow(): void {
   voiceSystem = new VoiceSystem(mainWindow);
   systemControl = new SystemControl();
   trayManager = new TrayManager(mainWindow);
+
+  // Register clipboard change events for renderer
+  const { onClipboardChange } = require('./clipboard-intel');
+  onClipboardChange((text: string) => {
+    mainWindow?.webContents.send('clipboard:change', text);
+  });
 
   // Register IPC handlers
   registerIPC();
@@ -205,6 +219,100 @@ function registerIPC(): void {
     trayManager?.updateContextMenu(status, model);
     return { success: true };
   });
+
+  // ── Auto-Start ────────────────────────────────────────────────────────────
+  ipcMain.handle('auto-start:enable', () => enableAutoStart());
+  ipcMain.handle('auto-start:disable', () => disableAutoStart());
+  ipcMain.handle('auto-start:status', () => isAutoStartEnabled());
+
+  // ── YouTube ───────────────────────────────────────────────────────────────
+  ipcMain.handle('youtube:search', (_event, query: string) => searchAndPlay(query));
+  ipcMain.handle('youtube:transcript', (_event, url: string) => getTranscript(url));
+  ipcMain.handle('youtube:info', (_event, url: string) => getVideoInfo(url));
+  ipcMain.handle('youtube:trending', (_event, region: string) => getTrending(region));
+  ipcMain.handle('youtube:summarize', (_event, url: string) => summarizeVideo(url));
+
+  // ── Game Updater ──────────────────────────────────────────────────────────
+  ipcMain.handle('games:list', () => listAllGames());
+  ipcMain.handle('games:scan-steam', () => scanSteamGames());
+  ipcMain.handle('games:scan-epic', () => scanEpicGames());
+  ipcMain.handle('games:check-update', (_event, name: string) => checkForUpdates(name));
+  ipcMain.handle('games:update', (_event, name: string) => updateGame(name));
+
+  // ── Clipboard Intelligence ────────────────────────────────────────────────
+  ipcMain.handle('clipboard:start-watcher', (_event, interval: number) => {
+    startClipboardWatcher(interval);
+    return { success: true };
+  });
+  ipcMain.handle('clipboard:stop-watcher', () => {
+    stopClipboardWatcher();
+    return { success: true };
+  });
+  ipcMain.handle('clipboard:analyze', (_event, text: string, action?: string) =>
+    analyzeClipboard(text, (action as any) || 'explain')
+  );
+  ipcMain.handle('clipboard:history', () => getClipboardHistory());
+  ipcMain.handle('clipboard:smart-paste', (_event, action: string) =>
+    smartPaste(action as any)
+  );
+
+  // ── Setup Wizard ──────────────────────────────────────────────────────────
+  ipcMain.handle('setup:status', () => getSetupStatus());
+  ipcMain.handle('setup:steps', () => getSetupSteps());
+  ipcMain.handle('setup:complete-step', (_event, stepId: string, config: Record<string, unknown>) =>
+    completeStep(stepId, config)
+  );
+  ipcMain.handle('setup:is-first-run', () => isFirstRun());
+
+  // ── System Control (new methods) ──────────────────────────────────────────
+  ipcMain.handle('system:set-brightness', (_event, level: number) =>
+    systemControl.setBrightness(level)
+  );
+  ipcMain.handle('system:get-brightness', () => systemControl.getBrightness());
+  ipcMain.handle('system:toggle-wifi', () => systemControl.toggleWifi());
+  ipcMain.handle('system:wifi-status', () => systemControl.getWifiStatus());
+  ipcMain.handle('system:toggle-bluetooth', () => systemControl.toggleBluetooth());
+  ipcMain.handle('system:sleep', () => systemControl.sleepComputer());
+  ipcMain.handle('system:restart', () => systemControl.restartComputer());
+  ipcMain.handle('system:shutdown', () => systemControl.shutdownComputer());
+  ipcMain.handle('system:battery', () => systemControl.getBatteryStatus());
+  ipcMain.handle('system:screenshot', () => systemControl.takeScreenshot());
+
+  // ── Browser Automation ────────────────────────────────────────────────────
+  ipcMain.handle('browser:open', (_event, url: string) => browserOpen(url));
+  ipcMain.handle('browser:search', (_event, query: string) => searchWeb(query));
+  ipcMain.handle('browser:navigate', (_event, url: string) => navigateTab(url));
+  ipcMain.handle('browser:click', (_event, selector: string) => clickElement(selector));
+  ipcMain.handle('browser:type', (_event, text: string) => typeText(text));
+  ipcMain.handle('browser:back', () => goBack());
+  ipcMain.handle('browser:forward', () => goForward());
+  ipcMain.handle('browser:scroll', (_event, dir: string) =>
+    scrollPage(dir as 'up' | 'down' | 'left' | 'right')
+  );
+  ipcMain.handle('browser:screenshot', (_event, filePath?: string) =>
+    browserScreenshot(filePath)
+  );
+  ipcMain.handle('browser:get-text', () => getPageText());
+
+  // ── File Processor ────────────────────────────────────────────────────────
+  ipcMain.handle('file:read', (_event, filePath: string) => extractText(filePath));
+  ipcMain.handle('file:summarize', (_event, filePath: string) =>
+    readAndSummarize(filePath)
+  );
+  ipcMain.handle('file:ask', (_event, filePath: string, question: string) =>
+    askQuestionAboutFile(filePath, question)
+  );
+  ipcMain.handle('file:convert', (_event, inputPath: string, format: string) =>
+    convertFormat(inputPath, format as 'txt' | 'md' | 'json' | 'csv' | 'html')
+  );
+
+  // ── Hardware Monitor ──────────────────────────────────────────────────────
+  ipcMain.handle('hardware:cpu', () => getCpuStats());
+  ipcMain.handle('hardware:ram', () => getRamStats());
+  ipcMain.handle('hardware:disk', () => getDiskStats());
+  ipcMain.handle('hardware:gpu', () => getGpuStats());
+  ipcMain.handle('hardware:fan', () => getFanSpeed());
+  ipcMain.handle('hardware:full-report', () => getFullSystemReport());
 }
 
 function registerGlobalShortcuts(): void {

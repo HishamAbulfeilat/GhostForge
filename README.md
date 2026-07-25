@@ -252,7 +252,106 @@ curl -fsSL https://raw.githubusercontent.com/tanavc1/LocalClicky/main/scripts/we
 ### Nice to Have
 8. **Mobile PWA** — add `manifest.json` + service worker so JARVIS works offline on iPhone
 9. **Conversation memory** — persist JARVIS chat history in `~/.ghostforge/memory.json`
-10. **Discord bot** — route JARVIS commands from Discord DMs to the API
+ 10. **Discord bot** — route JARVIS commands from Discord DMs to the API
+
+---
+
+## 🧠 Mark-L Integration — Full Python AI Assistant
+
+GhostForge fully integrates **[Mark-L](https://github.com/FatihMakes/Mark-L)** (554+ stars) — the ultimate cross-platform JARVIS-style AI assistant by FatihMakes. All 29 Mark-L features are available in GhostForge JARVIS.
+
+### Architecture
+```
+GhostForge Electron App
+  ├── TypeScript (Native)
+  │   ├── Auto-Start on Boot
+  │   ├── YouTube Control
+  │   ├── Game Updater (Steam/Epic)
+  │   ├── Clipboard Intelligence
+  │   ├── Setup Wizard
+  │   ├── Browser Automation (Playwright)
+  │   ├── File Processor (PDF/DOCX/XLSX)
+  │   ├── Hardware Monitor (CPU/GPU/RAM)
+  │   └── System Control (Brightness/WiFi/Power)
+  │
+  └── Python Bridge (FastAPI :8765)
+      ├── mark-l/actions/*  ← All 20 Mark-L action modules
+      ├── Web Search (Gemini + DuckDuckGo)
+      ├── Screen Capture + Vision
+      ├── Weather Report
+      ├── Send Message (WhatsApp/Telegram)
+      ├── Flight Finder
+      ├── Smart Reminders
+      ├── Desktop Control
+      ├── Code Helper + Dev Agent
+      ├── Background Monitor
+      └── Proactive Engine
+```
+
+### Setup
+```bash
+# Install Python dependencies for Mark-L bridge
+cd mark-l-bridge && ./start.sh
+
+# The bridge starts on http://localhost:8765
+# GhostForge JARVIS auto-connects to it
+```
+
+### All 29 Mark-L Features Available
+
+| # | Feature | Implementation |
+|---|---------|---------------|
+| 1 | Real-time Voice | Gemini Live API (Electron) |
+| 2 | System Control | Brightness, WiFi, Bluetooth, Volume, Power (Electron) |
+| 3 | Autonomous Tasks | Multi-step LLM orchestration (JARVIS API) |
+| 4 | Visual Awareness | Screen capture + Clicky cursor overlay (Electron) |
+| 5 | Persistent Memory | Long-term facts, preferences, sessions (Electron) |
+| 6 | Morning Briefing | Weather, news, recap, plan (Electron) |
+| 7 | Proactive 2.0 | Time-aware, context-aware check-ins (Electron) |
+| 8 | Session Memory | Conversation summaries + carry-over (Electron) |
+| 9 | Background Monitoring | Topic watching, break suggestions (Electron) |
+| 10 | Hardware Monitoring | CPU, RAM, GPU, disk, fan, battery (Electron + Python) |
+| 11 | Weather Report | wttr.in + morning briefing (Electron) |
+| 12 | Multi-Mode Web Search | News, research, price, compare (Python bridge) |
+| 13 | Smart Reminders | OS-native scheduled notifications (Electron) |
+| 14 | Flight Finder | Google Flights URL generation (Python bridge) |
+| 15 | Game Updater | Steam/Epic library scan + update trigger (Electron) |
+| 16 | File Processor | PDF/DOCX/XLSX/CSV + AI summarization (Electron) |
+| 17 | Code Helper | Copilot integration + inline review (JARVIS API) |
+| 18 | Browser Control | Playwright automation + fallback (Electron) |
+| 19 | Send Message | iMessage, Teams, Slack, WhatsApp, Discord (Electron) |
+| 20 | YouTube Control | Search, play, transcript, trending (Electron + Python) |
+| 21 | Desktop Control | Mouse, keyboard, windows, cursor overlay (Electron) |
+| 22 | Silent Language Memory | Language detection + vocabulary vault (Electron) |
+| 23 | Remote Dashboard | noVNC + websockify + dashboard API (Web UI) |
+| 24 | Auto-Start on Boot | macOS/Windows/Linux login item (Electron) |
+| 25 | Clipboard Intelligence | Watcher + AI analysis + history (Electron) |
+| 26 | Assistant Customization | Name, voice, language, persona (Web UI) |
+| 27 | Dashboard / HUD | Web-based real-time dashboard (Next.js) |
+| 28 | Setup Wizard | Guided first-run configuration (Electron) |
+| 29 | Background Proactive | Timed check-ins + rotation-aware scheduling (Electron) |
+
+### Python Bridge Endpoints
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/mark-l/web-search` | POST | Search with modes: search, news, research, price, compare |
+| `/api/mark-l/screen-capture` | POST | Capture screen or webcam |
+| `/api/mark-l/youtube` | POST | Play, summarize, get info, trending |
+| `/api/mark-l/game-updater` | POST | List games, check updates |
+| `/api/mark-l/system-status` | POST | CPU, RAM, GPU, temperature |
+| `/api/mark-l/computer-settings` | POST | Volume, brightness, WiFi, power |
+| `/api/mark-l/browser-control` | POST | Navigate, click, type, screenshot |
+| `/api/mark-l/file-process` | POST | Read, summarize, answer questions |
+| `/api/mark-l/send-message` | POST | WhatsApp, Telegram, iMessage |
+| `/api/mark-l/weather` | POST | Live weather data |
+| `/api/mark-l/flight-finder` | POST | Flight search URLs |
+| `/api/mark-l/reminder` | POST | OS-native scheduled notifications |
+| `/api/mark-l/open-app` | POST | Launch any application |
+| `/api/mark-l/desktop` | POST | Taskbar and window control |
+| `/api/mark-l/code-helper` | POST | Code review and generation |
+| `/api/mark-l/dev-agent` | POST | Developer task agent |
+| `/api/mark-l/clipboard` | POST | Clipboard read/write/history |
+| `/api/mark-l/health` | GET | Bridge health check |
 
 ---
 
