@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
 
 jobs:
   # ── macOS (Intel + Apple Silicon) ─────────────────────────────────────────
@@ -33,7 +33,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: electron-app
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Build TypeScript
         working-directory: electron-app
@@ -68,7 +68,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: electron-app
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Build TypeScript
         working-directory: electron-app
@@ -102,7 +102,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: electron-app
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Build TypeScript
         working-directory: electron-app
@@ -144,7 +144,7 @@ jobs:
 
       - name: Install dependencies (web-ui)
         working-directory: web-ui
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Build web-ui
         working-directory: web-ui
