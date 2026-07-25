@@ -75,6 +75,7 @@ export default function VoiceSettings({ ringColor, onSave, connectionState }: Vo
   const [voiceboxConnected, setVoiceboxConnected] = useState(false)
   const [voiceboxProfiles, setVoiceboxProfiles] = useState<Array<{ id: string; name: string }>>([])
   const [voiceboxEngines, setVoiceboxEngines] = useState<Array<{ id: string; name: string; description?: string }>>([])
+  const [testingVoice, setTestingVoice] = useState(false)
 
   useEffect(() => {
     setSettings(loadSettings())
@@ -130,6 +131,48 @@ export default function VoiceSettings({ ringColor, onSave, connectionState }: Vo
     } catch { /* network error */ }
     setTestingKey(false)
   }, [settings, onSave, update])
+
+  const testVoiceboxVoice = useCallback(async () => {
+    setTestingVoice(true)
+    try {
+      const testText = 'Hello, I am JARVIS. How can I help you today?'
+      const win = window as unknown as { electron?: { voicebox?: {
+        generateSpeech: (text: string, opts: Record<string, unknown>) => Promise<{ audio: ArrayBuffer; duration: number }>;
+      } } }
+      if (win.electron?.voicebox) {
+        const result = await win.electron.voicebox.generateSpeech(testText, {
+          engine: settings.voiceboxEngine || 'kokoro',
+          language: settings.language.slice(0, 2),
+          profileId: settings.voiceboxProfile || undefined,
+        })
+        const blob = new Blob([result.audio], { type: 'audio/wav' })
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        audio.onended = () => URL.revokeObjectURL(url)
+        await audio.play()
+      } else {
+        const res = await fetch('http://127.0.0.1:17493/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: testText,
+            engine: settings.voiceboxEngine || 'kokoro',
+            language: settings.language.slice(0, 2),
+            profile_id: settings.voiceboxProfile || undefined,
+          }),
+          signal: AbortSignal.timeout(60000),
+        })
+        if (res.ok) {
+          const blob = await res.blob()
+          const url = URL.createObjectURL(blob)
+          const audio = new Audio(url)
+          audio.onended = () => URL.revokeObjectURL(url)
+          await audio.play()
+        }
+      }
+    } catch { /* playback failed */ }
+    setTestingVoice(false)
+  }, [settings.voiceboxEngine, settings.voiceboxProfile, settings.language])
 
   const connectionLabel = connectionState === 'connected'
     ? { text: 'CONNECTED', color: '#00ff88' }
@@ -299,6 +342,21 @@ export default function VoiceSettings({ ringColor, onSave, connectionState }: Vo
                   ))}
                 </div>
               </div>
+              {/* Test Voice */}
+              <button
+                type="button"
+                onClick={() => void testVoiceboxVoice()}
+                disabled={testingVoice}
+                className="w-full rounded border py-2 font-mono transition disabled:opacity-40"
+                style={{
+                  borderColor: '#00ff8866',
+                  color: '#00ff88',
+                  background: testingVoice ? 'rgba(0,255,136,0.15)' : 'rgba(0,255,136,0.05)',
+                  fontSize: 10,
+                }}
+              >
+                {testingVoice ? '🔊 TESTING...' : '🔊 TEST VOICE'}
+              </button>
             </>
           )}
         </div>

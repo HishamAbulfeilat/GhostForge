@@ -740,7 +740,10 @@ function ClipboardPanel({ text, onAction, onClose }: { text: string; onAction: (
 }
 
 function HardwareMetrics({ isMobile }: { isMobile: boolean }) {
-  const [metrics, setMetrics] = useState({ cpu: 0, ram: 0, ramLabel: '—' })
+  const [metrics, setMetrics] = useState({
+    cpu: 0, ram: 0, ramLabel: '—', batteryPct: null as number | null, batteryCharging: false,
+    diskPct: 0, diskLabel: '—',
+  })
 
   useEffect(() => {
     if (isMobile) return
@@ -748,18 +751,41 @@ function HardwareMetrics({ isMobile }: { isMobile: boolean }) {
 
     const loadMetrics = async () => {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const api = (window as any).electron?.hardware
+        if (api) {
+          const report = await api.fullReport() as {
+            cpu: { usagePercent: number }
+            ram: { percent: number; usedGB: number; totalGB: number }
+            battery: { percent: number | null; charging: boolean }
+            disks: Array<{ percent: number; usedGB: number; totalGB: number; mount: string }>
+          }
+          if (!mounted) return
+          const primaryDisk = report.disks?.find(d => d.mount === '/' || d.mount === '/System/Volumes/Data') || report.disks?.[0]
+          setMetrics({
+            cpu: Math.max(0, Math.min(100, Math.round(report.cpu.usagePercent || 0))),
+            ram: Math.max(0, Math.min(100, Math.round(report.ram.percent || 0))),
+            ramLabel: `${report.ram.usedGB}/${report.ram.totalGB} GB`,
+            batteryPct: report.battery.percent,
+            batteryCharging: report.battery.charging,
+            diskPct: primaryDisk?.percent ?? 0,
+            diskLabel: primaryDisk ? `${primaryDisk.usedGB}/${primaryDisk.totalGB} GB` : '—',
+          })
+          return
+        }
+
         const res = await fetch('/api/dashboard', { cache: 'no-store' })
         if (!res.ok) return
-        const data = await res.json() as { system?: { cpu?: number; ram?: { pct?: number; usedGB?: number; totalGB?: number } } }
+        const data = await res.json() as { system?: { cpu?: number; ram?: { pct?: number; usedGB?: number; totalGB?: number }; disk?: { pct?: number; usedGB?: number; totalGB?: number }; battery?: { pct?: number | null; charging?: boolean } } }
         if (!mounted) return
-        const cpu = Math.max(0, Math.min(100, Math.round(data.system?.cpu || 0)))
-        const ram = Math.max(0, Math.min(100, Math.round(data.system?.ram?.pct || 0)))
-        const usedGB = data.system?.ram?.usedGB
-        const totalGB = data.system?.ram?.totalGB
         setMetrics({
-          cpu,
-          ram,
-          ramLabel: usedGB && totalGB ? `${usedGB}/${totalGB} GB` : '—',
+          cpu: Math.max(0, Math.min(100, Math.round(data.system?.cpu || 0))),
+          ram: Math.max(0, Math.min(100, Math.round(data.system?.ram?.pct || 0))),
+          ramLabel: data.system?.ram?.usedGB && data.system?.ram?.totalGB ? `${data.system.ram.usedGB}/${data.system.ram.totalGB} GB` : '—',
+          batteryPct: data.system?.battery?.pct ?? null,
+          batteryCharging: data.system?.battery?.charging ?? false,
+          diskPct: data.system?.disk?.pct ?? 0,
+          diskLabel: data.system?.disk?.usedGB && data.system?.disk?.totalGB ? `${data.system.disk.usedGB}/${data.system.disk.totalGB} GB` : '—',
         })
       } catch {
         if (mounted) setMetrics(prev => ({ ...prev }))
@@ -767,7 +793,7 @@ function HardwareMetrics({ isMobile }: { isMobile: boolean }) {
     }
 
     void loadMetrics()
-    const timer = setInterval(() => { void loadMetrics() }, 10_000)
+    const timer = setInterval(() => { void loadMetrics() }, 5000)
     return () => {
       mounted = false
       clearInterval(timer)
@@ -778,15 +804,27 @@ function HardwareMetrics({ isMobile }: { isMobile: boolean }) {
 
   const cpuColor = metricColor(metrics.cpu)
   const ramColor = metricColor(metrics.ram)
+  const diskColor = metricColor(metrics.diskPct)
+
+  const rows = [
+    { label: 'CPU', pct: metrics.cpu, color: cpuColor, sub: `${metrics.cpu}%` },
+    { label: 'RAM', pct: metrics.ram, color: ramColor, sub: `${metrics.ram}% · ${metrics.ramLabel}` },
+    { label: 'DISK', pct: metrics.diskPct, color: diskColor, sub: `${metrics.diskPct}% · ${metrics.diskLabel}` },
+  ]
+  if (metrics.batteryPct !== null) {
+    rows.push({
+      label: 'BAT',
+      pct: metrics.batteryPct,
+      color: metrics.batteryPct <= 20 ? '#ff4444' : metrics.batteryPct <= 50 ? '#ffb347' : '#00ff88',
+      sub: `${metrics.batteryPct}%${metrics.batteryCharging ? ' ⚡' : ''}`,
+    })
+  }
 
   return (
     <div className="w-full max-w-[220px] rounded-xl border px-3 py-2 font-mono text-[10px]"
       style={{ borderColor: 'rgba(26,111,255,0.18)', background: 'rgba(0,7,20,0.78)' }}>
       <div className="mb-2 text-center text-[9px] tracking-[0.28em] text-blue-300/55">LIVE METRICS</div>
-      {[
-        { label: 'CPU', pct: metrics.cpu, color: cpuColor, sub: `${metrics.cpu}%` },
-        { label: 'RAM', pct: metrics.ram, color: ramColor, sub: `${metrics.ram}% · ${metrics.ramLabel}` },
-      ].map(metric => (
+      {rows.map(metric => (
         <div key={metric.label} className="mb-2 last:mb-0">
           <div className="mb-1 flex items-center justify-between">
             <span className="text-blue-300/45">{metric.label}</span>
@@ -873,11 +911,16 @@ export default function JarvisPage() {
   const [geminiPlayActive, setGeminiPlayActive] = useState(false)
   const [geminiVoiceMode, setGeminiVoiceMode] = useState<'gemini-live' | 'browser' | 'offline' | 'voicebox'>('browser')
   const [showVoiceSettings, setShowVoiceSettings] = useState(false)
+  const voiceboxConfigRef = useRef<{ engine: string; profile: string; language: string }>({ engine: 'kokoro', profile: '', language: 'en' })
   // ── Agent state ─────────────────────────────────────────────────────────────
   const [showAgent, setShowAgent] = useState(false)
   const [agentStatus, setAgentStatus] = useState<string>('IDLE')
   const [agentIssueCount, setAgentIssueCount] = useState(0)
   const [agentCurrentTask, setAgentCurrentTask] = useState<string>('')
+  // ── Permission state ───────────────────────────────────────────────────────
+  const [permissions, setPermissions] = useState<{ mic: boolean; camera: boolean; screen: boolean }>({ mic: false, camera: false, screen: false })
+  const [showPermissionBanner, setShowPermissionBanner] = useState(false)
+  const [permissionError, setPermissionError] = useState<string | null>(null)
   const geminiTranscriptRef = useRef<Array<{ text: string; isFinal: boolean; ts: number }>>([])
   const audioAnalyserRef = useRef<AnalyserNode | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -885,6 +928,7 @@ export default function JarvisPage() {
 
   const recognitionRef     = useRef<Any>(null)
   const wakeRecognitionRef = useRef<Any>(null)
+  const micStreamRef       = useRef<MediaStream | null>(null)  // held while speech recognition is active (Windows fix)
   const voicesRef          = useRef<Any[]>([])
   const messagesEndRef     = useRef<HTMLDivElement>(null)
   const inputRef           = useRef<HTMLInputElement>(null)
@@ -892,7 +936,7 @@ export default function JarvisPage() {
   const handsFreeEnabledRef = useRef(false)
   const listeningRequestedRef = useRef(false)
   const startListeningRef  = useRef<(() => Promise<void>) | null>(null)
-  const startWakeListenerRef = useRef<(() => void) | null>(null)
+  const startWakeListenerRef = useRef<(() => Promise<void>) | null>(null)
   const modeRef            = useRef<Mode>('idle')
   const ttsFailCountRef    = useRef(0)
   const wakeRestartingRef  = useRef(false)  // persists across re-renders (fixes stale closure)
@@ -929,8 +973,11 @@ export default function JarvisPage() {
     try {
       const raw = localStorage.getItem('gf_voice_settings')
       if (raw) {
-        const vs = JSON.parse(raw) as { mode?: string }
+        const vs = JSON.parse(raw) as { mode?: string; voiceboxEngine?: string; voiceboxProfile?: string; language?: string }
         if (vs.mode) setGeminiVoiceMode(vs.mode as 'gemini-live' | 'browser' | 'offline' | 'voicebox')
+        if (vs.voiceboxEngine) voiceboxConfigRef.current.engine = vs.voiceboxEngine
+        if (vs.voiceboxProfile) voiceboxConfigRef.current.profile = vs.voiceboxProfile
+        if (vs.language) voiceboxConfigRef.current.language = vs.language
       }
     } catch { /* ignore */ }
   }, [])
@@ -995,6 +1042,69 @@ export default function JarvisPage() {
     window.speechSynthesis?.cancel()
   }, [])
 
+  // ── Permission management ─────────────────────────────────────────────────
+
+  const checkPermissions = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.permissions) {
+      setShowPermissionBanner(true)
+      return
+    }
+    try {
+      const micStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName })
+      const camStatus = await navigator.permissions.query({ name: 'camera' as PermissionName })
+      const mic = micStatus.state === 'granted'
+      const camera = camStatus.state === 'granted'
+      setPermissions(prev => ({ ...prev, mic, camera }))
+      if (!mic) setShowPermissionBanner(true)
+      if (micStatus.onchange) micStatus.onchange = () => setPermissions(prev => ({ ...prev, mic: micStatus.state === 'granted' }))
+      if (camStatus.onchange) camStatus.onchange = () => setPermissions(prev => ({ ...prev, camera: camStatus.state === 'granted' }))
+    } catch {
+      setShowPermissionBanner(true)
+    }
+  }, [])
+
+  const requestMicPermission = useCallback(async (): Promise<boolean> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach(t => t.stop())
+      setPermissions(prev => ({ ...prev, mic: true }))
+      micPermGranted.current = true
+      return true
+    } catch {
+      setPermissions(prev => ({ ...prev, mic: false }))
+      setPermissionError('Microphone access denied. Please allow mic in browser settings and reload.')
+      return false
+    }
+  }, [])
+
+  const requestCameraPermission = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      stream.getTracks().forEach(t => t.stop())
+      setPermissions(prev => ({ ...prev, camera: true }))
+      toast('success', 'Camera access granted')
+    } catch {
+      setPermissions(prev => ({ ...prev, camera: false }))
+      toast('warn', 'Camera access denied — screen vision features will be limited')
+    }
+  }, [toast])
+
+  const requestAllPermissions = useCallback(async () => {
+    setPermissionError(null)
+    const micOk = await requestMicPermission()
+    if (micOk) toast('success', 'Microphone connected')
+    await requestCameraPermission()
+    // Screen share can only be requested on user gesture
+    setShowPermissionBanner(false)
+  }, [requestMicPermission, requestCameraPermission, toast])
+
+  const releaseMicStream = useCallback(() => {
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(t => t.stop())
+      micStreamRef.current = null
+    }
+  }, [])
+
   // ── Audio level analyser for orb visualization ──────────────────────────────
   const startAudioAnalyser = useCallback(async () => {
     try {
@@ -1046,9 +1156,10 @@ export default function JarvisPage() {
       try { recognitionRef.current.abort() } catch { /* already stopped */ }
       recognitionRef.current = null
     }
+    releaseMicStream()
     setLiveTranscript('')
     stopAudioAnalyser()
-  }, [stopAudioAnalyser])
+  }, [stopAudioAnalyser, releaseMicStream])
 
   const resumeMic = useCallback(() => {
     micPausedRef.current = false
@@ -1058,7 +1169,7 @@ export default function JarvisPage() {
       if (listeningRequestedRef.current && handsFreeEnabledRef.current) {
         void startListeningRef.current?.()
       } else if (hotwordEnabledRef.current) {
-        startWakeListenerRef.current?.()
+        void startWakeListenerRef.current?.()
       }
     }, 250)
   }, [])
@@ -1166,6 +1277,7 @@ export default function JarvisPage() {
 
     void loadModels()
     void loadMemory()
+    void checkPermissions()
 
     return () => {
       cancelled = true
@@ -1175,6 +1287,10 @@ export default function JarvisPage() {
       window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices)
       recognitionRef.current?.stop()
       wakeRecognitionRef.current?.stop()
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach(t => t.stop())
+        micStreamRef.current = null
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -1418,24 +1534,101 @@ export default function JarvisPage() {
     window.speechSynthesis?.speak(utt)
   }, [pauseMic, resumeMic, stopCurrentAudio])
 
-  // ── Unified speak: external engines → browser fallback ───────────────────
+  // ── Voicebox TTS (local neural TTS) ─────────────────────────────────────────
+
+  const speakVoicebox = useCallback(async (text: string): Promise<boolean> => {
+    try {
+      stopCurrentAudio()
+      const config = voiceboxConfigRef.current
+      const win = window as unknown as { electron?: { voicebox?: {
+        generateSpeech: (text: string, opts: Record<string, unknown>) => Promise<{ audio: ArrayBuffer; duration: number }>;
+      } } }
+      if (win.electron?.voicebox) {
+        const result = await win.electron.voicebox.generateSpeech(text, {
+          engine: config.engine || 'kokoro',
+          language: config.language || 'en',
+          profileId: config.profile || undefined,
+        })
+        const blob = new Blob([result.audio], { type: 'audio/wav' })
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        externalAudioRef.current = audio
+        externalAudioUrlRef.current = url
+        pauseMic()
+        setMode('speaking')
+        const cleanup = () => {
+          if (externalAudioRef.current === audio) externalAudioRef.current = null
+          if (externalAudioUrlRef.current === url) {
+            URL.revokeObjectURL(url)
+            externalAudioUrlRef.current = null
+          }
+          setMode('idle')
+          resumeMic()
+        }
+        audio.onended = cleanup
+        audio.onerror = cleanup
+        await audio.play()
+        return true
+      }
+      const res = await fetch('http://127.0.0.1:17493/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          engine: config.engine || 'kokoro',
+          language: config.language || 'en',
+          profile_id: config.profile || undefined,
+        }),
+        signal: AbortSignal.timeout(60000),
+      })
+      if (!res.ok) return false
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      externalAudioRef.current = audio
+      externalAudioUrlRef.current = url
+      pauseMic()
+      setMode('speaking')
+      const cleanup = () => {
+        if (externalAudioRef.current === audio) externalAudioRef.current = null
+        if (externalAudioUrlRef.current === url) {
+          URL.revokeObjectURL(url)
+          externalAudioUrlRef.current = null
+        }
+        setMode('idle')
+        resumeMic()
+      }
+      audio.onended = cleanup
+      audio.onerror = cleanup
+      await audio.play()
+      return true
+    } catch {
+      return false
+    }
+  }, [stopCurrentAudio, pauseMic, resumeMic])
+
+  // ── Unified speak: voicebox → external engines → browser fallback ───────────
 
   const speak = useCallback(async (text: string) => {
     if (!text.trim()) return
-    // Prevent overlapping speak() calls — stop previous audio first
     if (speakingRef.current) stopCurrentAudio()
     speakingRef.current = true
     try {
+      // Voicebox mode — use local neural TTS
+      if (geminiVoiceMode === 'voicebox') {
+        const ok = await speakVoicebox(text)
+        if (ok) return
+        toast('warn', 'Voicebox TTS failed — falling back to browser voice')
+      }
       if (voiceEngine !== 'browser') {
         const { ok } = await speakExternal(text)
         if (ok) return
-        // Auto-fallback to browser if external failed
       }
       speakBrowser(text)
     } finally {
       speakingRef.current = false
     }
-  }, [voiceEngine, speakExternal, speakBrowser, stopCurrentAudio])
+  }, [geminiVoiceMode, speakVoicebox, voiceEngine, speakExternal, speakBrowser, stopCurrentAudio, toast])
 
   useEffect(() => {
     proactiveTimerRef.current = setInterval(() => {
@@ -1518,6 +1711,17 @@ export default function JarvisPage() {
   // ── Screen capture for Clicky ─────────────────────────────────────────────
   const captureScreen = useCallback(async (): Promise<string | null> => {
     try {
+      // Prefer Electron IPC for direct screen capture
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const api = (window as any).electron?.screen
+      if (api) {
+        const result = await api.capture({ format: 'jpeg', quality: 70 }) as { success: boolean; image: string }
+        if (result?.success && result.image) {
+          setScreenCaptureData(result.image)
+          return result.image
+        }
+        return null
+      }
       const res = await fetch('/api/jarvis/screen-capture', { method: 'POST' })
       const data = await res.json() as { image?: string; error?: string }
       if (data.image) {
@@ -1949,6 +2153,7 @@ export default function JarvisPage() {
 
     // Stop ALL audio to prevent echo
     stopCurrentAudio()
+    releaseMicStream()
 
     // Abort wake listener and any existing session
     if (wakeRecognitionRef.current) {
@@ -1958,6 +2163,25 @@ export default function JarvisPage() {
     if (recognitionRef.current) {
       try { recognitionRef.current.abort() } catch { /* ignore */ }
       recognitionRef.current = null
+    }
+
+    // Windows fix: request mic permission BEFORE starting SpeechRecognition
+    let micStream: MediaStream | null = null
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      micStreamRef.current = micStream
+      micPermGranted.current = true
+      setPermissions(prev => ({ ...prev, mic: true }))
+    } catch (err) {
+      const msg = (err as Error).message || ''
+      if (msg.includes('NotAllowed') || msg.includes('Permission')) {
+        toast('error', '🎤 Mic access denied — allow microphone in browser settings and reload.')
+        setPermissionError('Microphone access denied. Allow mic permission and reload the page.')
+        setShowPermissionBanner(true)
+      } else {
+        toast('error', `🎤 Mic error: ${msg.slice(0, 60)}`)
+      }
+      return
     }
 
     listeningRequestedRef.current = true
@@ -2007,6 +2231,7 @@ export default function JarvisPage() {
         if (err === 'not-allowed' || err === 'service-not-allowed') {
           toast('error', '🎤 Mic blocked — click the lock icon in the address bar → Allow microphone → then try again.')
           listeningRequestedRef.current = false
+          releaseMicStream()
           stopAudioAnalyser()
           setMode('idle')
           modeRef.current = 'idle'
@@ -2016,7 +2241,11 @@ export default function JarvisPage() {
           setTimeout(createAndStart, 50)
         } else {
           if (listeningRequestedRef.current && !micPausedRef.current) setTimeout(createAndStart, 600)
-          else { setMode('idle'); modeRef.current = 'idle' }
+          else {
+            releaseMicStream()
+            setMode('idle')
+            modeRef.current = 'idle'
+          }
         }
       }
 
@@ -2026,8 +2255,9 @@ export default function JarvisPage() {
         if (listeningRequestedRef.current && !micPausedRef.current) {
           setTimeout(createAndStart, 100)
         } else {
+          releaseMicStream()
           if (hotwordEnabledRef.current && !wakeRecognitionRef.current) {
-            setTimeout(() => { if (hotwordEnabledRef.current) startWakeListenerRef.current?.() }, 600)
+            setTimeout(() => { if (hotwordEnabledRef.current) void startWakeListenerRef.current?.() }, 600)
           }
         }
       }
@@ -2036,6 +2266,8 @@ export default function JarvisPage() {
         rec.start()
         if (!micPermGranted.current) {
           micPermGranted.current = true
+        }
+        if (!micPermGranted.current) {
           toast('success', '🎤 Microphone connected — speak now')
         }
       } catch {
@@ -2045,7 +2277,7 @@ export default function JarvisPage() {
     }
 
     createAndStart()
-  }, [sendToJarvis, speechLang, toast, stopCurrentAudio, startAudioAnalyser, stopAudioAnalyser])
+  }, [sendToJarvis, speechLang, toast, stopCurrentAudio, startAudioAnalyser, stopAudioAnalyser, releaseMicStream])
 
   useEffect(() => {
     startListeningRef.current = startListening
@@ -2058,19 +2290,34 @@ export default function JarvisPage() {
       try { recognitionRef.current.abort() } catch { /* ignore */ }
       recognitionRef.current = null
     }
+    releaseMicStream()
     setInput('')
     setLiveTranscript('')
     stopAudioAnalyser()
     modeRef.current = 'idle'
     setMode('idle')
-  }, [stopAudioAnalyser])
+  }, [stopAudioAnalyser, releaseMicStream])
 
   // ── Wake word ─────────────────────────────────────────────────────────────
 
-  const startWakeListener = useCallback(() => {
+  const startWakeListener = useCallback(async () => {
     const SR = getSR()
     if (!SR || !hotwordEnabledRef.current || modeRef.current !== 'idle' || micPausedRef.current) return
     if (wakeRecognitionRef.current) return  // already running
+
+    // Windows fix: ensure mic permission is granted before starting wake word listener
+    if (!micPermGranted.current) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        stream.getTracks().forEach(t => t.stop())  // release immediately, just checking permission
+        micPermGranted.current = true
+        setPermissions(prev => ({ ...prev, mic: true }))
+      } catch {
+        setPermissionError('Microphone access needed for wake word detection. Allow mic and reload.')
+        setShowPermissionBanner(true)
+        return
+      }
+    }
 
     const rec = new SR()
     rec.lang = speechLang
@@ -2115,7 +2362,8 @@ export default function JarvisPage() {
         setHotwordEnabled(false)
         hotwordEnabledRef.current = false
         localStorage.setItem('gf_hotword', 'false')
-        toast('error', 'Microphone permission denied. Enable in browser settings.')
+        setPermissionError('Microphone permission denied for wake word. Enable in browser settings.')
+        setShowPermissionBanner(true)
         return
       }
       if (hotwordEnabledRef.current && !wakeRestartingRef.current) {
@@ -2129,7 +2377,6 @@ export default function JarvisPage() {
     try {
       rec.start()
       setWakeWordActive(true)
-      toast('success', '🔊 Wake word active — say "Hey GhostForge" or "Hey JARVIS"', 3000)
     } catch {
       wakeRecognitionRef.current = null
       setWakeWordActive(false)
@@ -2170,7 +2417,7 @@ export default function JarvisPage() {
     hotwordEnabledRef.current = true
     localStorage.setItem('gf_hotword', 'true')
     wakeRestartingRef.current = false
-    startWakeListener()
+    void startWakeListener()
   }, [startWakeListener, toast, stopCurrentAudio])
 
   // ── Form submit ───────────────────────────────────────────────────────────
@@ -2329,6 +2576,46 @@ export default function JarvisPage() {
             </div>
             <button type="button" onClick={() => { setCopilotMode(false); toast('info', 'Copilot CLI mode OFF') }}
               className="text-green-400/50 hover:text-green-300 transition">✕ EXIT</button>
+          </div>
+        )}
+
+        {/* ── Permissions banner ── */}
+        {showPermissionBanner && (
+          <div className="gfai-fade relative z-20 border-b px-4 py-2 font-mono text-[10px]"
+            style={{ borderColor: '#ff6b3522', background: 'rgba(255,107,53,0.05)' }}>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className="gfai-blink h-1.5 w-1.5 rounded-full" style={{ background: '#ff6b35' }} />
+                <span style={{ color: '#ff6b35' }}>PERMISSIONS REQUIRED</span>
+                <span className="text-blue-400/40">— mic &amp; camera needed for voice and vision</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => void requestAllPermissions()}
+                  className="rounded px-3 py-1 border transition text-[10px]"
+                  style={{ borderColor: '#ff6b3566', color: '#ff6b35', background: 'rgba(255,107,53,0.1)' }}>
+                  GRANT PERMISSIONS
+                </button>
+                <button type="button" onClick={() => setShowPermissionBanner(false)}
+                  className="text-blue-400/40 hover:text-blue-300 transition">✕</button>
+              </div>
+            </div>
+            {permissionError && (
+              <p className="mt-1 text-[9px] text-red-400/70">{permissionError}</p>
+            )}
+            <div className="mt-1 flex items-center gap-4 text-[9px]">
+              <span className="flex items-center gap-1">
+                <span className="h-1 w-1 rounded-full" style={{ background: permissions.mic ? '#00ff88' : '#ff444466' }} />
+                <span style={{ color: permissions.mic ? '#00ff88' : 'rgba(255,100,100,0.5)' }}>
+                  Microphone {permissions.mic ? '✓' : '✗'}
+                </span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-1 w-1 rounded-full" style={{ background: permissions.camera ? '#00ff88' : '#ff444466' }} />
+                <span style={{ color: permissions.camera ? '#00ff88' : 'rgba(255,100,100,0.5)' }}>
+                  Camera {permissions.camera ? '✓' : '✗'}
+                </span>
+              </span>
+            </div>
           </div>
         )}
 
@@ -3112,6 +3399,11 @@ export default function JarvisPage() {
                     connectionState={geminiConnectionState}
                     onSave={(s) => {
                       setGeminiVoiceMode(s.mode)
+                      voiceboxConfigRef.current = {
+                        engine: s.voiceboxEngine || 'kokoro',
+                        profile: s.voiceboxProfile || '',
+                        language: s.language || 'en-US',
+                      }
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
                       const gl = (window as any).electron?.geminiLive
                       if (gl) gl.saveSettings(s)
