@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import HFModelCard, { type HFModel } from '@/components/HFModelCard'
 
 interface MarketplaceItem {
   id: string
@@ -15,6 +16,17 @@ interface MarketplaceItem {
   install_command?: string
   installed?: boolean
 }
+
+interface AwesomeApp {
+  id: string
+  name: string
+  path: string
+  category: string
+  description: string
+  url: string
+}
+
+type Tab = 'commands' | 'huggingface' | 'awesome'
 
 const TYPE_COLORS: Record<string, string> = {
   skill:        'bg-violet-900/60 text-violet-300 border-violet-700',
@@ -33,7 +45,81 @@ const CATEGORY_ICONS: Record<string, string> = {
   Accessibility: '♿', 'AI Models': '🧠', Database: '🗄️', Architecture: '🏛️',
 }
 
+const HF_SORT_OPTIONS = [
+  { value: 'downloads', label: 'Most Downloads' },
+  { value: 'likes', label: 'Most Likes' },
+  { value: 'lastModified', label: 'Recently Updated' },
+] as const
+
+const HF_TYPE_FILTERS = [
+  { value: 'all', label: 'All Types' },
+  { value: 'LLM', label: '💬 LLM' },
+  { value: 'Vision', label: '👁️ Vision' },
+  { value: 'Audio', label: '🔊 Audio' },
+  { value: 'Diffusion', label: '🎨 Diffusion' },
+  { value: 'Other', label: '📦 Other' },
+] as const
+
+const AWESOME_CATEGORY_ICONS: Record<string, string> = {
+  agents: '🤖', rag: '📚', voice: '🔊', 'multi-agent': '👥',
+  'generative-ui': '🎨', 'computer-use': '🖥️', code: '💻', creative: '✨', other: '📦',
+}
+
 export default function MarketplacePage() {
+  const router = useRouter()
+  const [activeTab, setActiveTab] = useState<Tab>('commands')
+
+  return (
+    <div className="min-h-[100dvh] bg-[#030712]" style={{ backgroundImage: 'radial-gradient(ellipse 80% 40% at 50% -5%, #0a1a2e50, transparent)' }}>
+      {/* ── Header ── */}
+      <header className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#030712]/90 backdrop-blur">
+        <div className="flex items-center gap-2 px-4 py-2.5">
+          <Link href="/dashboard" className="text-gray-500 hover:text-white transition text-lg leading-none">‹</Link>
+          <span className="text-sm font-bold text-white">👻 GhostForge</span>
+          <span className="text-[10px] font-mono text-gray-600 hidden sm:block">MARKETPLACE</span>
+          <div className="ml-auto flex items-center gap-2">
+            <Link href="/settings" className="rounded border border-amber-800/50 bg-amber-950/30 px-2 py-1 text-xs text-amber-300 hover:bg-amber-900/40 transition">
+              ⚙️ Models
+            </Link>
+            <Link href="/features" className="rounded border border-violet-800/50 bg-violet-950/30 px-2 py-1 text-xs text-violet-300 hover:bg-violet-900/40 transition">
+              🔧 Features
+            </Link>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-0.5 px-4 pt-1">
+          {([
+            { key: 'commands' as Tab, label: 'Commands', icon: '⚡' },
+            { key: 'huggingface' as Tab, label: 'HuggingFace', icon: '🤗' },
+            { key: 'awesome' as Tab, label: 'Awesome LLM Apps', icon: '🏆' },
+          ]).map(tab => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`rounded-t px-3 py-1.5 text-xs font-medium transition border border-b-0 ${
+                activeTab === tab.key
+                  ? 'border-white/[0.12] bg-white/[0.06] text-white'
+                  : 'border-transparent text-gray-600 hover:text-gray-400'
+              }`}
+            >
+              {tab.icon} {tab.label}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {activeTab === 'commands' && <CommandsTab />}
+      {activeTab === 'huggingface' && <HuggingFaceTab />}
+      {activeTab === 'awesome' && <AwesomeLLMTab />}
+    </div>
+  )
+}
+
+/* ─────────────────────── Commands Tab ─────────────────────── */
+
+function CommandsTab() {
   const router = useRouter()
   const [items, setItems] = useState<MarketplaceItem[]>([])
   const [installed, setInstalled] = useState<Set<string>>(new Set())
@@ -85,64 +171,43 @@ export default function MarketplacePage() {
   })
 
   return (
-    <div className="min-h-[100dvh] bg-[#030712]" style={{ backgroundImage: 'radial-gradient(ellipse 80% 40% at 50% -5%, #0a1a2e50, transparent)' }}>
-      {/* ── Header ── */}
-      <header className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#030712]/90 backdrop-blur">
-        <div className="flex items-center gap-2 px-4 py-2.5">
-          <Link href="/dashboard" className="text-gray-500 hover:text-white transition text-lg leading-none">‹</Link>
-          <span className="text-sm font-bold text-white">👻 GhostForge</span>
-          <span className="text-[10px] font-mono text-gray-600 hidden sm:block">MARKETPLACE</span>
-          <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-gray-400">
-            {filtered.length} items
-          </span>
-          <div className="ml-auto flex items-center gap-2">
-            <Link href="/settings" className="rounded border border-amber-800/50 bg-amber-950/30 px-2 py-1 text-xs text-amber-300 hover:bg-amber-900/40 transition">
-              ⚙️ Models
-            </Link>
-            <Link href="/features" className="rounded border border-violet-800/50 bg-violet-950/30 px-2 py-1 text-xs text-violet-300 hover:bg-violet-900/40 transition">
-              🔧 Features
-            </Link>
-          </div>
+    <>
+      {/* Search + filters */}
+      <div className="space-y-2 px-4 py-3">
+        <input
+          type="search"
+          placeholder="Search plugins, agents, templates…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-white/20"
+        />
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
+          {['all', 'installed'].map(f => (
+            <button key={f} type="button" onClick={() => setFilter(f)}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${filter === f ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+              {f === 'all' ? 'All' : `✅ Installed (${installed.size})`}
+            </button>
+          ))}
+          <div className="w-px bg-white/[0.06] mx-1 shrink-0" />
+          {categories.map(cat => (
+            <button key={cat} type="button" onClick={() => setFilter(filter === cat ? 'all' : cat)}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${filter === cat ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+              {CATEGORY_ICONS[cat] ?? '📦'} {cat}
+            </button>
+          ))}
         </div>
-
-        {/* Search + filters */}
-        <div className="space-y-2 px-4 pb-3">
-          <input
-            type="search"
-            placeholder="Search plugins, agents, templates…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-white/20"
-          />
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
-            {/* Status filters */}
-            {['all', 'installed'].map(f => (
-              <button key={f} type="button" onClick={() => setFilter(f)}
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${filter === f ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
-                {f === 'all' ? 'All' : `✅ Installed (${installed.size})`}
-              </button>
-            ))}
-            <div className="w-px bg-white/[0.06] mx-1 shrink-0" />
-            {/* Category filters */}
-            {categories.map(cat => (
-              <button key={cat} type="button" onClick={() => setFilter(filter === cat ? 'all' : cat)}
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${filter === cat ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
-                {CATEGORY_ICONS[cat] ?? '📦'} {cat}
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
-            {['all', ...types].map(t => (
-              <button key={t} type="button" onClick={() => setTypeFilter(t)}
-                className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition border ${typeFilter === t ? 'border-white/20 bg-white/10 text-white' : 'border-transparent text-gray-600 hover:text-gray-400'}`}>
-                {t === 'all' ? 'All types' : `${TYPE_ICONS[t] ?? '📦'} ${t}`}
-              </button>
-            ))}
-          </div>
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
+          {['all', ...types].map(t => (
+            <button key={t} type="button" onClick={() => setTypeFilter(t)}
+              className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition border ${typeFilter === t ? 'border-white/20 bg-white/10 text-white' : 'border-transparent text-gray-600 hover:text-gray-400'}`}>
+              {t === 'all' ? 'All types' : `${TYPE_ICONS[t] ?? '📦'} ${t}`}
+            </button>
+          ))}
         </div>
-      </header>
+        <span className="text-[10px] text-gray-600">{filtered.length} items</span>
+      </div>
 
-      <main className="p-4 max-w-6xl mx-auto">
+      <main className="px-4 pb-8 max-w-6xl mx-auto">
         {loading ? (
           <div className="flex h-40 items-center justify-center">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-transparent border-t-sky-400" />
@@ -191,6 +256,230 @@ export default function MarketplacePage() {
           </div>
         )}
       </main>
-    </div>
+    </>
+  )
+}
+
+/* ─────────────────── HuggingFace Tab ─────────────────── */
+
+function HuggingFaceTab() {
+  const [models, setModels] = useState<HFModel[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [sort, setSort] = useState<string>('downloads')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [selectedModel, setSelectedModel] = useState<string | null>(null)
+  const [searchDebounced, setSearchDebounced] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearchDebounced(search), 400)
+    return () => clearTimeout(t)
+  }, [search])
+
+  const loadModels = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({ endpoint: 'models', sort })
+      if (searchDebounced) params.set('q', searchDebounced)
+      if (typeFilter !== 'all') params.set('filter', typeFilter)
+      const res = await fetch(`/api/huggingface?${params}`)
+      if (!res.ok) throw new Error('fetch failed')
+      const data = await res.json() as { items: HFModel[] }
+      setModels(data.items ?? [])
+    } catch {
+      setModels([])
+    }
+    setLoading(false)
+  }, [sort, searchDebounced, typeFilter])
+
+  useEffect(() => { void loadModels() }, [loadModels])
+
+  const displayModels = useMemo(() => {
+    let list = models
+    if (typeFilter !== 'all') {
+      list = list.filter(m => m.type === typeFilter)
+    }
+    return list
+  }, [models, typeFilter])
+
+  return (
+    <>
+      {/* Search + controls */}
+      <div className="space-y-2 px-4 py-3">
+        <div className="flex gap-2">
+          <input
+            type="search"
+            placeholder="Search HuggingFace models…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="flex-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-white/20"
+          />
+          <select
+            value={sort}
+            onChange={e => setSort(e.target.value)}
+            className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1.5 text-xs text-gray-400 outline-none focus:border-white/20 appearance-none cursor-pointer"
+          >
+            {HF_SORT_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
+          {HF_TYPE_FILTERS.map(f => (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => setTypeFilter(f.value)}
+              className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition border ${
+                typeFilter === f.value
+                  ? 'border-white/20 bg-white/10 text-white'
+                  : 'border-transparent text-gray-600 hover:text-gray-400'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-[10px] text-gray-600">{displayModels.length} models</span>
+      </div>
+
+      <main className="px-4 pb-8 max-w-6xl mx-auto">
+        {loading ? (
+          <div className="flex h-40 items-center justify-center">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-transparent border-t-violet-400" />
+          </div>
+        ) : displayModels.length === 0 ? (
+          <p className="py-12 text-center text-sm text-gray-600">No models found. Try a different search.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {displayModels.map(model => (
+              <HFModelCard
+                key={model.id}
+                model={model}
+                selected={selectedModel === model.id}
+                onSelect={m => setSelectedModel(prev => prev === m.id ? null : m.id)}
+              />
+            ))}
+          </div>
+        )}
+      </main>
+    </>
+  )
+}
+
+/* ─────────────────── Awesome LLM Apps Tab ─────────────────── */
+
+function AwesomeLLMTab() {
+  const [apps, setApps] = useState<AwesomeApp[]>([])
+  const [categories, setCategories] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+
+  const loadApps = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({ mode: 'catalog' })
+      if (categoryFilter !== 'all') params.set('category', categoryFilter)
+      if (search) params.set('q', search)
+      const res = await fetch(`/api/awesome-llm-apps?${params}`)
+      if (!res.ok) throw new Error('fetch failed')
+      const data = await res.json() as { items: AwesomeApp[]; categories: string[] }
+      setApps(data.items ?? [])
+      setCategories(data.categories ?? [])
+    } catch {
+      setApps([])
+      setCategories([])
+    }
+    setLoading(false)
+  }, [categoryFilter, search])
+
+  useEffect(() => { void loadApps() }, [loadApps])
+
+  return (
+    <>
+      {/* Search + categories */}
+      <div className="space-y-2 px-4 py-3">
+        <input
+          type="search"
+          placeholder="Search awesome LLM apps…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-white/20"
+        />
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
+          <button
+            type="button"
+            onClick={() => setCategoryFilter('all')}
+            className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
+              categoryFilter === 'all' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            All
+          </button>
+          {categories.map(cat => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setCategoryFilter(categoryFilter === cat ? 'all' : cat)}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${
+                categoryFilter === cat ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {AWESOME_CATEGORY_ICONS[cat] ?? '📦'} {cat}
+            </button>
+          ))}
+        </div>
+        <span className="text-[10px] text-gray-600">{apps.length} apps</span>
+      </div>
+
+      <main className="px-4 pb-8 max-w-6xl mx-auto">
+        {loading ? (
+          <div className="flex h-40 items-center justify-center">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-transparent border-t-amber-400" />
+          </div>
+        ) : apps.length === 0 ? (
+          <p className="py-12 text-center text-sm text-gray-600">No apps found.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {apps.map(app => (
+              <div
+                key={app.id}
+                className="flex flex-col gap-2 rounded-lg border border-white/[0.06] bg-[#080d18] p-3.5 transition hover:border-white/[0.12]"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-gray-100 leading-tight">{app.name}</p>
+                  <span className="shrink-0 rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-400 border border-amber-700/40">
+                    {AWESOME_CATEGORY_ICONS[app.category] ?? '📦'} {app.category}
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500 leading-snug line-clamp-3">{app.description}</p>
+                <div className="mt-auto flex gap-1.5">
+                  {app.url && app.url !== 'https://api.github.com/repos/Shubhamsaboo/awesome-llm-apps' ? (
+                    <a
+                      href={app.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 rounded border border-sky-800/50 bg-sky-950/30 px-3 py-1.5 text-center text-xs font-medium text-sky-300 transition hover:bg-sky-900/40"
+                    >
+                      View Project ↗
+                    </a>
+                  ) : (
+                    <a
+                      href="https://github.com/Shubhamsaboo/awesome-llm-apps"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 rounded border border-sky-800/50 bg-sky-950/30 px-3 py-1.5 text-center text-xs font-medium text-sky-300 transition hover:bg-sky-900/40"
+                    >
+                      Browse Repo ↗
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+    </>
   )
 }

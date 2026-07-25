@@ -1,10 +1,12 @@
 """
 Mark-L FastAPI Bridge Server
 Wraps all Mark-L Python action modules as HTTP endpoints.
+Includes AI memory, agents, browser, models, and unified orchestration.
 """
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import traceback
 from contextlib import contextmanager
@@ -211,13 +213,83 @@ except ImportError:
     _HAS_CLIPBOARD = False
 
 # ---------------------------------------------------------------------------
+# AI module imports (graceful)
+# ---------------------------------------------------------------------------
+
+try:
+    from ai_memory import (
+        add_memory as _ai_add_memory,
+        search_memory as _ai_search_memory,
+        list_memories as _ai_list_memories,
+        delete_memory as _ai_delete_memory,
+        get_memory_stats as _ai_get_memory_stats,
+        update_memory as _ai_update_memory,
+        export_memories as _ai_export_memories,
+        import_memories as _ai_import_memories,
+    )
+    _HAS_AI_MEMORY = True
+except Exception as e:
+    _stub("ai_memory", e)
+    _HAS_AI_MEMORY = False
+
+try:
+    from ai_agents import (
+        create_crew as _ai_create_crew,
+        run_crew as _ai_run_crew,
+        get_crew_status as _ai_get_crew_status,
+        list_crews as _ai_list_crews,
+        get_templates as _ai_get_templates,
+        cancel_crew as _ai_cancel_crew,
+    )
+    _HAS_AI_AGENTS = True
+except Exception as e:
+    _stub("ai_agents", e)
+    _HAS_AI_AGENTS = False
+
+try:
+    from ai_browser import (
+        browse as _ai_browse,
+        extract as _ai_extract,
+        screenshot as _ai_screenshot,
+        search as _ai_browser_search,
+        fill_form as _ai_fill_form,
+        click as _ai_click,
+    )
+    _HAS_AI_BROWSER = True
+except Exception as e:
+    _stub("ai_browser", e)
+    _HAS_AI_BROWSER = False
+
+try:
+    from ai_models import (
+        search_models as _ai_search_models,
+        get_model_info as _ai_get_model_info,
+        download_model as _ai_download_model,
+        list_local_models as _ai_list_local_models,
+        get_model_recommendations as _ai_get_model_recommendations,
+        install_model as _ai_install_model,
+        compare_models as _ai_compare_models,
+    )
+    _HAS_AI_MODELS = True
+except Exception as e:
+    _stub("ai_models", e)
+    _HAS_AI_MODELS = False
+
+try:
+    from ai_unified import UnifiedAgent as _UnifiedAgent
+    _HAS_AI_UNIFIED = True
+except Exception as e:
+    _stub("ai_unified", e)
+    _HAS_AI_UNIFIED = False
+
+# ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
     title="Mark-L Bridge",
-    version="1.0.0",
-    description="HTTP bridge wrapping all Mark-L Python action modules.",
+    version="2.0.0",
+    description="HTTP bridge wrapping Mark-L Python action modules + AI memory, agents, browser, and models.",
 )
 
 app.add_middleware(
@@ -229,7 +301,7 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# Pydantic request models
+# Pydantic request models — original
 # ---------------------------------------------------------------------------
 
 class WebSearchRequest(BaseModel):
@@ -350,6 +422,100 @@ class ClipboardRequest(BaseModel):
     text: str = ""
 
 # ---------------------------------------------------------------------------
+# Pydantic request models — AI memory
+# ---------------------------------------------------------------------------
+
+class MemoryAddRequest(BaseModel):
+    content: str
+    user_id: str = "default"
+    metadata: Optional[dict[str, Any]] = None
+    category: Optional[str] = None
+
+class MemorySearchRequest(BaseModel):
+    query: str
+    user_id: str = "default"
+    top_k: int = 5
+
+class MemoryUpdateRequest(BaseModel):
+    content: str
+
+class MemoryExportRequest(BaseModel):
+    user_id: str = "default"
+
+class MemoryImportRequest(BaseModel):
+    memories_json: str
+    user_id: str = "default"
+
+# ---------------------------------------------------------------------------
+# Pydantic request models — AI agents
+# ---------------------------------------------------------------------------
+
+class CrewCreateRequest(BaseModel):
+    agents_config: list[dict[str, Any]] = Field(default_factory=list)
+    tasks_config: list[dict[str, Any]] = Field(default_factory=list)
+    crew_id: Optional[str] = None
+    template_name: Optional[str] = None
+    process: str = "sequential"
+
+class CrewRunRequest(BaseModel):
+    inputs: Optional[dict[str, Any]] = None
+
+# ---------------------------------------------------------------------------
+# Pydantic request models — AI browser
+# ---------------------------------------------------------------------------
+
+class BrowserBrowseRequest(BaseModel):
+    url: str
+    task: str
+
+class BrowserExtractRequest(BaseModel):
+    url: str
+    selectors: dict[str, str]
+
+class BrowserScreenshotRequest(BaseModel):
+    url: str
+
+class BrowserSearchRequest(BaseModel):
+    query: str
+
+class BrowserFillFormRequest(BaseModel):
+    url: str
+    form_data: dict[str, str]
+
+class BrowserClickRequest(BaseModel):
+    url: str
+    selector: str
+
+# ---------------------------------------------------------------------------
+# Pydantic request models — AI models
+# ---------------------------------------------------------------------------
+
+class ModelDownloadRequest(BaseModel):
+    model_id: str
+    local_dir: Optional[str] = None
+
+class ModelInstallRequest(BaseModel):
+    model_id: str
+
+# ---------------------------------------------------------------------------
+# Pydantic request models — unified
+# ---------------------------------------------------------------------------
+
+class UnifiedChatRequest(BaseModel):
+    message: str
+    user_id: str = "default"
+    context: Optional[dict[str, Any]] = None
+
+class UnifiedChainStep(BaseModel):
+    action: str
+    message: str
+    context: Optional[dict[str, Any]] = None
+
+class UnifiedChainRequest(BaseModel):
+    steps: list[UnifiedChainStep]
+    user_id: str = "default"
+
+# ---------------------------------------------------------------------------
 # Response helpers
 # ---------------------------------------------------------------------------
 
@@ -376,8 +542,14 @@ def _safe_call(fn, *args, **kwargs):
         raise _err(f"{fn.__name__} failed: {exc}")
 
 
+def _require_module(name: str, available: bool):
+    """Raise 503 if the module is not available."""
+    if not available:
+        raise _err(f"{name} is not installed or available", status=503)
+
+
 # ---------------------------------------------------------------------------
-# Endpoints
+# Original Endpoints
 # ---------------------------------------------------------------------------
 
 @app.get("/api/mark-l/health")
@@ -386,8 +558,16 @@ def health():
     return {
         "ok": True,
         "service": "mark-l-bridge",
+        "version": "2.0.0",
         "unavailable_modules": unavailable,
-        "total_modules_checked": len(unavailable) + 20,
+        "total_modules_checked": len(unavailable) + 24,
+        "ai_modules": {
+            "memory": _HAS_AI_MEMORY,
+            "agents": _HAS_AI_AGENTS,
+            "browser": _HAS_AI_BROWSER,
+            "models": _HAS_AI_MODELS,
+            "unified": _HAS_AI_UNIFIED,
+        },
     }
 
 
@@ -656,6 +836,216 @@ def clipboard_endpoint(req: ClipboardRequest):
         raise
     except Exception as exc:
         raise _err(f"Clipboard error: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# AI Memory Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/mark-l/memory/add")
+def memory_add_endpoint(req: MemoryAddRequest):
+    _require_module("ai_memory", _HAS_AI_MEMORY)
+    return _safe_call(_ai_add_memory, req.content, req.user_id, req.metadata, req.category)
+
+
+@app.post("/api/mark-l/memory/search")
+def memory_search_endpoint(req: MemorySearchRequest):
+    _require_module("ai_memory", _HAS_AI_MEMORY)
+    return _safe_call(_ai_search_memory, req.query, req.user_id, req.top_k)
+
+
+@app.get("/api/mark-l/memory/list/{user_id}")
+def memory_list_endpoint(user_id: str):
+    _require_module("ai_memory", _HAS_AI_MEMORY)
+    return _safe_call(_ai_list_memories, user_id)
+
+
+@app.delete("/api/mark-l/memory/{memory_id}")
+def memory_delete_endpoint(memory_id: str):
+    _require_module("ai_memory", _HAS_AI_MEMORY)
+    return _safe_call(_ai_delete_memory, memory_id)
+
+
+@app.put("/api/mark-l/memory/{memory_id}")
+def memory_update_endpoint(memory_id: str, req: MemoryUpdateRequest):
+    _require_module("ai_memory", _HAS_AI_MEMORY)
+    return _safe_call(_ai_update_memory, memory_id, req.content)
+
+
+@app.get("/api/mark-l/memory/stats/{user_id}")
+def memory_stats_endpoint(user_id: str):
+    _require_module("ai_memory", _HAS_AI_MEMORY)
+    return _safe_call(_ai_get_memory_stats, user_id)
+
+
+@app.post("/api/mark-l/memory/export")
+def memory_export_endpoint(req: MemoryExportRequest):
+    _require_module("ai_memory", _HAS_AI_MEMORY)
+    return _safe_call(_ai_export_memories, req.user_id)
+
+
+@app.post("/api/mark-l/memory/import")
+def memory_import_endpoint(req: MemoryImportRequest):
+    _require_module("ai_memory", _HAS_AI_MEMORY)
+    return _safe_call(_ai_import_memories, req.memories_json, req.user_id)
+
+
+# ---------------------------------------------------------------------------
+# AI Agent Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/mark-l/agents/crew/create")
+def crew_create_endpoint(req: CrewCreateRequest):
+    _require_module("ai_agents", _HAS_AI_AGENTS)
+    return _safe_call(_ai_create_crew, req.agents_config, req.tasks_config, req.crew_id, req.template_name, req.process)
+
+
+@app.post("/api/mark-l/agents/crew/{crew_id}/run")
+def crew_run_endpoint(crew_id: str, req: CrewRunRequest):
+    _require_module("ai_agents", _HAS_AI_AGENTS)
+    return _safe_call(_ai_run_crew, crew_id, req.inputs)
+
+
+@app.get("/api/mark-l/agents/crew/{crew_id}/status")
+def crew_status_endpoint(crew_id: str):
+    _require_module("ai_agents", _HAS_AI_AGENTS)
+    return _safe_call(_ai_get_crew_status, crew_id)
+
+
+@app.get("/api/mark-l/agents/crews/list")
+def crew_list_endpoint():
+    _require_module("ai_agents", _HAS_AI_AGENTS)
+    return _safe_call(_ai_list_crews)
+
+
+@app.get("/api/mark-l/agents/templates")
+def crew_templates_endpoint():
+    _require_module("ai_agents", _HAS_AI_AGENTS)
+    return _safe_call(_ai_get_templates)
+
+
+@app.post("/api/mark-l/agents/crew/{crew_id}/cancel")
+def crew_cancel_endpoint(crew_id: str):
+    _require_module("ai_agents", _HAS_AI_AGENTS)
+    return _safe_call(_ai_cancel_crew, crew_id)
+
+
+# ---------------------------------------------------------------------------
+# AI Browser Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/mark-l/browser/browse")
+def browser_browse_endpoint(req: BrowserBrowseRequest):
+    _require_module("ai_browser", _HAS_AI_BROWSER)
+    return _safe_call(_ai_browse, req.url, req.task)
+
+
+@app.post("/api/mark-l/browser/extract")
+def browser_extract_endpoint(req: BrowserExtractRequest):
+    _require_module("ai_browser", _HAS_AI_BROWSER)
+    return _safe_call(_ai_extract, req.url, req.selectors)
+
+
+@app.post("/api/mark-l/browser/screenshot")
+def browser_screenshot_endpoint(req: BrowserScreenshotRequest):
+    _require_module("ai_browser", _HAS_AI_BROWSER)
+    return _safe_call(_ai_screenshot, req.url)
+
+
+@app.post("/api/mark-l/browser/search")
+def browser_search_endpoint(req: BrowserSearchRequest):
+    _require_module("ai_browser", _HAS_AI_BROWSER)
+    return _safe_call(_ai_browser_search, req.query)
+
+
+@app.post("/api/mark-l/browser/fill-form")
+def browser_fill_form_endpoint(req: BrowserFillFormRequest):
+    _require_module("ai_browser", _HAS_AI_BROWSER)
+    return _safe_call(_ai_fill_form, req.url, req.form_data)
+
+
+@app.post("/api/mark-l/browser/click")
+def browser_click_endpoint(req: BrowserClickRequest):
+    _require_module("ai_browser", _HAS_AI_BROWSER)
+    return _safe_call(_ai_click, req.url, req.selector)
+
+
+# ---------------------------------------------------------------------------
+# AI Model Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/mark-l/models/search")
+def model_search_endpoint(q: str = "", limit: int = 10, sort: str = "downloads"):
+    _require_module("ai_models", _HAS_AI_MODELS)
+    return _safe_call(_ai_search_models, q, limit, sort)
+
+
+@app.get("/api/mark-l/models/{model_id:path}")
+def model_info_endpoint(model_id: str):
+    _require_module("ai_models", _HAS_AI_MODELS)
+    return _safe_call(_ai_get_model_info, model_id)
+
+
+@app.post("/api/mark-l/models/download")
+def model_download_endpoint(req: ModelDownloadRequest):
+    _require_module("ai_models", _HAS_AI_MODELS)
+    return _safe_call(_ai_download_model, req.model_id, req.local_dir)
+
+
+@app.get("/api/mark-l/models/local")
+def model_local_endpoint():
+    _require_module("ai_models", _HAS_AI_MODELS)
+    return _safe_call(_ai_list_local_models)
+
+
+@app.get("/api/mark-l/models/recommendations")
+def model_recommendations_endpoint(task: str = "text-generation"):
+    _require_module("ai_models", _HAS_AI_MODELS)
+    return _safe_call(_ai_get_model_recommendations, task)
+
+
+@app.post("/api/mark-l/models/install")
+def model_install_endpoint(req: ModelInstallRequest):
+    _require_module("ai_models", _HAS_AI_MODELS)
+    return _safe_call(_ai_install_model, req.model_id)
+
+
+@app.get("/api/mark-l/models/compare")
+def model_compare_endpoint(ids: str = ""):
+    _require_module("ai_models", _HAS_AI_MODELS)
+    model_ids = [mid.strip() for mid in ids.split(",") if mid.strip()]
+    return _safe_call(_ai_compare_models, model_ids)
+
+
+# ---------------------------------------------------------------------------
+# Unified Chat Endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/api/mark-l/chat/unified")
+def unified_chat_endpoint(req: UnifiedChatRequest):
+    _require_module("ai_unified", _HAS_AI_UNIFIED)
+    try:
+        agent = _UnifiedAgent(user_id=req.user_id)
+        result = agent.process(req.message, req.context)
+        return _ok(result)
+    except Exception as exc:
+        tb = traceback.format_exc()
+        print(f"[bridge] ❌ unified_chat: {exc}\n{tb}", file=sys.stderr)
+        raise _err(f"unified_chat failed: {exc}")
+
+
+@app.post("/api/mark-l/chat/chain")
+def unified_chain_endpoint(req: UnifiedChainRequest):
+    _require_module("ai_unified", _HAS_AI_UNIFIED)
+    try:
+        agent = _UnifiedAgent(user_id=req.user_id)
+        steps = [s.model_dump() for s in req.steps]
+        result = agent.chain(steps)
+        return _ok(result)
+    except Exception as exc:
+        tb = traceback.format_exc()
+        print(f"[bridge] ❌ unified_chain: {exc}\n{tb}", file=sys.stderr)
+        raise _err(f"unified_chain failed: {exc}")
 
 
 # ---------------------------------------------------------------------------

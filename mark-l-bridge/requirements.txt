@@ -1,3 +1,10 @@
 fastapi
 uvicorn[standard]
 python-multipart
+
+# AI integrations
+mem0ai
+crewai
+browser-use
+huggingface_hub
+httpx
