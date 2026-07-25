@@ -61,7 +61,7 @@ export const PLATFORM_COMMANDS: Record<string, {
   darwin: {
     screenshot: 'screencapture -x -t jpeg',
     openApp: 'open -a',
-    lockScreen: '/System/Library/CoreServices/Menu\\ Extras/User.menu/Contents/Resources/CGSession -suspend',
+    lockScreen: 'pmset displaysleepnow',
     volumeUp: 'osascript -e "set volume output volume (output volume of (get volume settings) + 10)"',
     volumeDown: 'osascript -e "set volume output volume (output volume of (get volume settings) - 10)"',
     mute: 'osascript -e "set volume output muted not (output muted of (get volume settings))"',

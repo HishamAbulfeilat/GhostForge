@@ -100,6 +100,18 @@ function createMainWindow(): void {
     show: false,
   });
 
+  // ── Electron-level permission handler (mic, camera, screen) ──────────────
+  const { session } = require('electron');
+  session.defaultSession.setPermissionRequestHandler((_webContents: any, permission: string, callback: (granted: boolean) => void) => {
+    const allowedPermissions = ['microphone', 'camera', 'screen-capture', 'media', 'mediaKeySystem', 'display-capture'];
+    callback(allowedPermissions.includes(permission));
+  });
+
+  session.defaultSession.setPermissionCheckHandler((_webContents: any, permission: string) => {
+    const allowedPermissions = ['microphone', 'camera', 'screen-capture', 'media', 'mediaKeySystem', 'display-capture'];
+    return allowedPermissions.includes(permission);
+  });
+
   // Load the GhostForge web UI
   const webUIUrl = process.env.JARVIS_WEB_UI_URL || 'http://localhost:3000';
   mainWindow.loadURL(webUIUrl);
@@ -259,6 +271,14 @@ function registerIPC(): void {
     return systemControl.setVolume(level);
   });
 
+  ipcMain.handle('system:volumeUp', async () => {
+    return systemControl.volumeUp();
+  });
+
+  ipcMain.handle('system:volumeDown', async () => {
+    return systemControl.volumeDown();
+  });
+
   ipcMain.handle('system:processes', async () => {
     return systemControl.listRunningProcesses();
   });
@@ -384,6 +404,21 @@ function registerIPC(): void {
   ipcMain.handle('hardware:gpu', () => getGpuStats());
   ipcMain.handle('hardware:fan', () => getFanSpeed());
   ipcMain.handle('hardware:full-report', () => getFullSystemReport());
+
+  // ── Combined System Info (for JARVIS / dashboard quick-poll) ────────────
+  ipcMain.handle('jarvis:get-system-info', async () => {
+    const report = await getFullSystemReport();
+    const primaryDisk = report.disks?.[0];
+    return {
+      cpuUsage: report.cpu.usagePercent,
+      ramUsage: { usedGB: report.ram.usedGB, totalGB: report.ram.totalGB, percent: report.ram.percent },
+      batteryLevel: report.battery.percent,
+      batteryCharging: report.battery.charging,
+      diskUsage: primaryDisk ? { usedGB: primaryDisk.usedGB, totalGB: primaryDisk.totalGB, percent: primaryDisk.percent } : null,
+      uptime: report.uptime,
+      platform: report.platform,
+    };
+  });
 
   // ── JARVIS Connection ─────────────────────────────────────────────────────
   ipcMain.handle('jarvis:connect', async (_event, serverUrl?: string) => {

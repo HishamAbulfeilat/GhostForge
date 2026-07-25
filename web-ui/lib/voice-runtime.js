@@ -1,4 +1,4 @@
-const DEFAULT_WAKE_PHRASES = ['hey ghostforge', 'hey jarvis']
+const DEFAULT_WAKE_PHRASES = ['hey ghostforge', 'hey jarvis', 'ok jarvis', 'okay jarvis', 'jarvis']
 
 function normalizeSpeech(value) {
   return String(value || '')
@@ -10,7 +10,8 @@ function normalizeSpeech(value) {
 
 function findWakePhrase(transcript, phrases = DEFAULT_WAKE_PHRASES) {
   const normalizedTranscript = normalizeSpeech(transcript)
-  return phrases.find(phrase => normalizedTranscript.includes(normalizeSpeech(phrase))) || null
+  const sorted = [...phrases].sort((a, b) => normalizeSpeech(b).length - normalizeSpeech(a).length)
+  return sorted.find(phrase => normalizedTranscript.includes(normalizeSpeech(phrase))) || null
 }
 
 function collectRecognitionTranscript(results) {

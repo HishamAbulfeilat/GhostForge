@@ -29,19 +29,15 @@ export class SystemControl {
   }
 
   async openApp(appName: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const commands = PLATFORM_COMMANDS[this.platform];
-      if (!commands) {
-        reject(new Error(`Unsupported platform: ${this.platform}`));
-        return;
-      }
+    const sanitized = appName.replace(/[^a-zA-Z0-9\s.\-]/g, '');
+    const commands = PLATFORM_COMMANDS[this.platform];
+    if (!commands) {
+      throw new Error(`Unsupported platform: ${this.platform}`);
+    }
 
-      const cmd = `${commands.openApp} "${appName}"`;
-      exec(cmd, (error, stdout, stderr) => {
-        if (error) reject(new Error(`Failed to open ${appName}: ${error.message}`));
-        else resolve(`Opened ${appName}`);
-      });
-    });
+    return this.run(`${commands.openApp} "${sanitized}"`, 10000)
+      .then(() => `Opened ${sanitized}`)
+      .catch((error) => { throw new Error(`Failed to open ${sanitized}: ${error.message}`); });
   }
 
   async openUrl(url: string): Promise<string> {
@@ -118,21 +114,35 @@ export class SystemControl {
 
   async setVolume(level: number): Promise<void> {
     const clamped = Math.max(0, Math.min(100, level));
-    return new Promise((resolve, reject) => {
-      if (this.platform === 'darwin') {
-        exec(`osascript -e "set volume output volume ${clamped}"`, (error) => {
-          if (error) reject(error);
-          else resolve();
-        });
-      } else if (this.platform === 'linux') {
-        exec(`amixer set Master ${clamped}%`, (error) => {
-          if (error) reject(error);
-          else resolve();
-        });
-      } else {
-        resolve(); // Windows requires nircmd or similar
-      }
-    });
+    if (this.platform === 'darwin') {
+      await this.run(`osascript -e "set volume output volume ${clamped}"`);
+    } else if (this.platform === 'linux') {
+      await this.run(`amixer set Master ${clamped}%`);
+    }
+  }
+
+  async volumeUp(): Promise<string> {
+    const commands = PLATFORM_COMMANDS[this.platform];
+    if (commands?.volumeUp) {
+      await this.run(commands.volumeUp);
+    } else {
+      const current = await this.getVolume();
+      await this.setVolume(Math.min(100, current + 10));
+    }
+    const newVol = await this.getVolume();
+    return `Volume: ${newVol}%`;
+  }
+
+  async volumeDown(): Promise<string> {
+    const commands = PLATFORM_COMMANDS[this.platform];
+    if (commands?.volumeDown) {
+      await this.run(commands.volumeDown);
+    } else {
+      const current = await this.getVolume();
+      await this.setVolume(Math.max(0, current - 10));
+    }
+    const newVol = await this.getVolume();
+    return `Volume: ${newVol}%`;
   }
 
   async listRunningProcesses(): Promise<string[]> {

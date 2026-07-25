@@ -311,14 +311,51 @@ function HealthBadge({ status }: { status: 'online' | 'warn' | 'offline' }) {
 }
 
 function SystemPanel({ system }: { system: DashboardData['system'] }) {
+  const [liveSystem, setLiveSystem] = useState(system)
+
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = (window as any).electron?.hardware
+    if (!api) return
+
+    let mounted = true
+    const poll = async () => {
+      try {
+        const report = await api.fullReport() as {
+          cpu: { usagePercent: number }
+          ram: { percent: number; usedGB: number; totalGB: number }
+          battery: { percent: number | null; charging: boolean; present?: boolean }
+          disks: Array<{ percent: number; usedGB: number; totalGB: number; mount: string }>
+          uptime: number
+        }
+        if (!mounted) return
+        const primaryDisk = report.disks?.find(d => d.mount === '/' || d.mount === '/System/Volumes/Data') || report.disks?.[0]
+        setLiveSystem({
+          cpu: Math.round(report.cpu.usagePercent || 0),
+          ram: { pct: Math.round(report.ram.percent || 0), usedGB: report.ram.usedGB, totalGB: report.ram.totalGB },
+          disk: primaryDisk
+            ? { pct: primaryDisk.percent, usedGB: primaryDisk.usedGB, totalGB: primaryDisk.totalGB }
+            : system.disk,
+          battery: report.battery
+            ? { pct: report.battery.percent, charging: report.battery.charging, present: report.battery.present ?? report.battery.percent !== null }
+            : system.battery,
+        })
+      } catch { /* keep previous data */ }
+    }
+
+    void poll()
+    const id = setInterval(poll, 5000)
+    return () => { mounted = false; clearInterval(id) }
+  }, [system])
+
   const stats = [
-    { label: 'CPU', value: `${system.cpu}%`, detail: 'live local snapshot' },
-    { label: 'RAM', value: `${system.ram.pct}%`, detail: `${system.ram.usedGB}/${system.ram.totalGB} GB` },
-    { label: 'Disk', value: `${system.disk.pct}%`, detail: `${system.disk.usedGB}/${system.disk.totalGB} GB` },
+    { label: 'CPU', value: `${liveSystem.cpu}%`, detail: 'live local snapshot' },
+    { label: 'RAM', value: `${liveSystem.ram.pct}%`, detail: `${liveSystem.ram.usedGB}/${liveSystem.ram.totalGB} GB` },
+    { label: 'Disk', value: `${liveSystem.disk.pct}%`, detail: `${liveSystem.disk.usedGB}/${liveSystem.disk.totalGB} GB` },
     {
       label: 'Battery',
-      value: system.battery.present && system.battery.pct !== null ? `${system.battery.pct}%` : 'N/A',
-      detail: system.battery.present ? (system.battery.charging ? 'charging' : 'battery power') : 'not detected',
+      value: liveSystem.battery.present && liveSystem.battery.pct !== null ? `${liveSystem.battery.pct}%` : 'N/A',
+      detail: liveSystem.battery.present ? (liveSystem.battery.charging ? 'charging' : 'battery power') : 'not detected',
     },
   ]
 
