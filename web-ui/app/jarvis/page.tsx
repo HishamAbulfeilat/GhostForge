@@ -9,7 +9,6 @@ import ClickyOverlay from '@/components/ClickyOverlay'
 import { usePlatform, detectLanguage, getSpeechLang, platformLabel } from '@/lib/platform'
 
 const MarkLPanel = dynamic(() => import('@/components/MarkLPanel'), { ssr: false })
-const VoiceSettings = dynamic(() => import('@/components/VoiceSettings'), { ssr: false })
 const AgentDashboard = dynamic(() => import('@/components/AgentDashboard'), { ssr: false })
 import { collectRecognitionTranscript, findWakePhrase } from '@/lib/voice-runtime'
 import { JARVIS_QUICK_ACTIONS } from '@/lib/quick-actions'
@@ -910,8 +909,7 @@ export default function JarvisPage() {
   const [geminiTranscript, setGeminiTranscript] = useState<Array<{ text: string; isFinal: boolean; ts: number }>>([])
   const [geminiPlayActive, setGeminiPlayActive] = useState(false)
   const [geminiVoiceMode, setGeminiVoiceMode] = useState<'gemini-live' | 'browser' | 'offline' | 'voicebox'>('browser')
-  const [showVoiceSettings, setShowVoiceSettings] = useState(false)
-  const voiceboxConfigRef = useRef<{ engine: string; profile: string; language: string }>({ engine: 'kokoro', profile: '', language: 'en' })
+  const voiceboxConfigRef = useRef<{ engine: string; profile: string }>({ engine: 'kokoro', profile: '' })
   // ── Agent state ─────────────────────────────────────────────────────────────
   const [showAgent, setShowAgent] = useState(false)
   const [agentStatus, setAgentStatus] = useState<string>('IDLE')
@@ -969,17 +967,16 @@ export default function JarvisPage() {
     setHotwordEnabled(localStorage.getItem('gf_hotword') === 'true')
     setHandsFreeEnabled(localStorage.getItem('gf_handsfree') === 'true')
     setVoiceEngine((localStorage.getItem('gf_voiceEngine') as VoiceEngine) || 'browser')
-    // Load Gemini Live voice settings
-    try {
-      const raw = localStorage.getItem('gf_voice_settings')
-      if (raw) {
-        const vs = JSON.parse(raw) as { mode?: string; voiceboxEngine?: string; voiceboxProfile?: string; language?: string }
-        if (vs.mode) setGeminiVoiceMode(vs.mode as 'gemini-live' | 'browser' | 'offline' | 'voicebox')
-        if (vs.voiceboxEngine) voiceboxConfigRef.current.engine = vs.voiceboxEngine
-        if (vs.voiceboxProfile) voiceboxConfigRef.current.profile = vs.voiceboxProfile
-        if (vs.language) voiceboxConfigRef.current.language = vs.language
-      }
-    } catch { /* ignore */ }
+     // Load Gemini Live voice settings
+     try {
+       const raw = localStorage.getItem('gf_voice_settings')
+       if (raw) {
+         const vs = JSON.parse(raw) as { mode?: string; voiceboxEngine?: string; voiceboxProfile?: string }
+         if (vs.mode) setGeminiVoiceMode(vs.mode as 'gemini-live' | 'browser' | 'offline' | 'voicebox')
+         if (vs.voiceboxEngine) voiceboxConfigRef.current.engine = vs.voiceboxEngine
+         if (vs.voiceboxProfile) voiceboxConfigRef.current.profile = vs.voiceboxProfile
+       }
+     } catch { /* ignore */ }
   }, [])
 
   useEffect(() => {
@@ -1546,7 +1543,6 @@ export default function JarvisPage() {
       if (win.electron?.voicebox) {
         const result = await win.electron.voicebox.generateSpeech(text, {
           engine: config.engine || 'kokoro',
-          language: config.language || 'en',
           profileId: config.profile || undefined,
         })
         const blob = new Blob([result.audio], { type: 'audio/wav' })
@@ -1576,7 +1572,6 @@ export default function JarvisPage() {
         body: JSON.stringify({
           text,
           engine: config.engine || 'kokoro',
-          language: config.language || 'en',
           profile_id: config.profile || undefined,
         }),
         signal: AbortSignal.timeout(60000),
@@ -3374,44 +3369,10 @@ export default function JarvisPage() {
                       ■ STOP
                     </button>
                   )}
-
-                  {/* Voice settings toggle */}
-                  <button type="button"
-                    onClick={() => setShowVoiceSettings(s => !s)}
-                    className="font-mono text-[10px] rounded px-2 py-1.5 border transition"
-                    style={{
-                      borderColor: showVoiceSettings ? '#aa44ff' : `${mc.ring}44`,
-                      color: showVoiceSettings ? '#aa44ff' : `${mc.ring}88`,
-                      background: showVoiceSettings ? 'rgba(170,68,255,0.1)' : 'transparent',
-                    }}
-                    title="Voice settings — API key, voice, mode">
-                    ⚙ VOICE
-                  </button>
                 </div>
               </div>
 
-              {/* Voice settings panel (collapsible) */}
-              {showVoiceSettings && (
-                <div className="gfai-fade rounded-lg border p-3 w-full max-w-sm"
-                  style={{ borderColor: `${mc.ring}33`, background: 'rgba(0,5,20,0.96)' }}>
-                  <VoiceSettings
-                    ringColor={mc.ring}
-                    connectionState={geminiConnectionState}
-                    onSave={(s) => {
-                      setGeminiVoiceMode(s.mode)
-                      voiceboxConfigRef.current = {
-                        engine: s.voiceboxEngine || 'kokoro',
-                        profile: s.voiceboxProfile || '',
-                        language: s.language || 'en-US',
-                      }
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      const gl = (window as any).electron?.geminiLive
-                      if (gl) gl.saveSettings(s)
-                    }}
-                  />
-                </div>
-              )}
-              {interruptFlash && (
+                {interruptFlash && (
                 <div className="gfai-fade font-mono text-[11px] tracking-widest text-yellow-300">
                   ⚡ Interrupted
                 </div>

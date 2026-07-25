@@ -46,7 +46,6 @@ const CATEGORY_BADGE: Record<string, string> = {
 interface VoiceSettingsData {
   apiKey: string
   voiceName: string
-  language: string
   model: string
   pushToTalk: boolean
   volume: number
@@ -72,13 +71,13 @@ const VOICE_SETTINGS_KEY = 'gf_voice_settings'
 
 function loadVoiceSettings(): VoiceSettingsData {
   if (typeof window === 'undefined') {
-    return { apiKey: '', voiceName: 'Aoede', language: 'en-US', model: 'models/gemini-2.0-flash-live-001', pushToTalk: false, volume: 0.8, mode: 'browser' }
+    return { apiKey: '', voiceName: 'Aoede', model: 'models/gemini-2.0-flash-live-001', pushToTalk: false, volume: 0.8, mode: 'browser' }
   }
   try {
     const raw = localStorage.getItem(VOICE_SETTINGS_KEY)
-    if (raw) return { apiKey: '', voiceName: 'Aoede', language: 'en-US', model: 'models/gemini-2.0-flash-live-001', pushToTalk: false, volume: 0.8, mode: 'browser', ...JSON.parse(raw) as Partial<VoiceSettingsData> }
+    if (raw) return { apiKey: '', voiceName: 'Aoede', model: 'models/gemini-2.0-flash-live-001', pushToTalk: false, volume: 0.8, mode: 'browser', ...JSON.parse(raw) as Partial<VoiceSettingsData> }
   } catch { /* corrupted */ }
-  return { apiKey: '', voiceName: 'Aoede', language: 'en-US', model: 'models/gemini-2.0-flash-live-001', pushToTalk: false, volume: 0.8, mode: 'browser' }
+  return { apiKey: '', voiceName: 'Aoede', model: 'models/gemini-2.0-flash-live-001', pushToTalk: false, volume: 0.8, mode: 'browser' }
 }
 
 export default function SettingsPage() {
@@ -296,22 +295,6 @@ export default function SettingsPage() {
 
           {/* Shared settings */}
           <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex-1 min-w-[180px]">
-              <label className="mb-1 block text-[11px] text-gray-500">Language</label>
-              <select
-                value={voiceSettings.language}
-                onChange={e => updateVoiceSetting('language', e.target.value)}
-                className="w-full rounded border border-white/10 bg-black/40 px-3 py-1.5 text-sm text-gray-200 outline-none focus:border-blue-500/50">
-                {[
-                  { code: 'en-US', label: 'English' },
-                  { code: 'ar-SA', label: 'Arabic' },
-                  { code: 'en-GB', label: 'English (UK)' },
-                  { code: 'fr-FR', label: 'French' },
-                  { code: 'de-DE', label: 'German' },
-                  { code: 'ja-JP', label: 'Japanese' },
-                ].map(lang => <option key={lang.code} value={lang.code}>{lang.label}</option>)}
-              </select>
-            </div>
             <div className="flex-1 min-w-[180px]">
               <label className="mb-1 block text-[11px] text-gray-500">Volume</label>
               <div className="flex items-center gap-2">

@@ -7,7 +7,6 @@ import { useState, useEffect, useCallback } from 'react'
 interface VoiceSettingsData {
   apiKey: string
   voiceName: string
-  language: string
   model: string
   pushToTalk: boolean
   volume: number
@@ -27,21 +26,13 @@ const MODELS = [
   { id: 'models/gemini-2.0-flash-live-001', label: 'Gemini 2.0 Flash Live' },
   { id: 'models/gemini-2.0-flash-live-002', label: 'Gemini 2.0 Flash Live v2' },
 ] as const
-const LANGUAGES = [
-  { code: 'en-US', label: 'English' },
-  { code: 'ar-SA', label: 'Arabic' },
-  { code: 'en-GB', label: 'English (UK)' },
-  { code: 'fr-FR', label: 'French' },
-  { code: 'de-DE', label: 'German' },
-  { code: 'ja-JP', label: 'Japanese' },
-] as const
 
 const STORAGE_KEY = 'gf_voice_settings'
 
 function loadSettings(): VoiceSettingsData {
   if (typeof window === 'undefined') {
     return {
-      apiKey: '', voiceName: 'Aoede', language: 'en-US',
+      apiKey: '', voiceName: 'Aoede',
       model: 'models/gemini-2.0-flash-live-001',
       pushToTalk: false, volume: 0.8, mode: 'browser',
     }
@@ -57,7 +48,6 @@ function getDefaultSettings(): VoiceSettingsData {
   return {
     apiKey: '',
     voiceName: 'Aoede',
-    language: 'en-US',
     model: 'models/gemini-2.0-flash-live-001',
     pushToTalk: false,
     volume: 0.8,
@@ -142,7 +132,6 @@ export default function VoiceSettings({ ringColor, onSave, connectionState }: Vo
       if (win.electron?.voicebox) {
         const result = await win.electron.voicebox.generateSpeech(testText, {
           engine: settings.voiceboxEngine || 'kokoro',
-          language: settings.language.slice(0, 2),
           profileId: settings.voiceboxProfile || undefined,
         })
         const blob = new Blob([result.audio], { type: 'audio/wav' })
@@ -157,7 +146,6 @@ export default function VoiceSettings({ ringColor, onSave, connectionState }: Vo
           body: JSON.stringify({
             text: testText,
             engine: settings.voiceboxEngine || 'kokoro',
-            language: settings.language.slice(0, 2),
             profile_id: settings.voiceboxProfile || undefined,
           }),
           signal: AbortSignal.timeout(60000),
@@ -172,7 +160,7 @@ export default function VoiceSettings({ ringColor, onSave, connectionState }: Vo
       }
     } catch { /* playback failed */ }
     setTestingVoice(false)
-  }, [settings.voiceboxEngine, settings.voiceboxProfile, settings.language])
+  }, [settings.voiceboxEngine, settings.voiceboxProfile])
 
   const connectionLabel = connectionState === 'connected'
     ? { text: 'CONNECTED', color: '#00ff88' }
@@ -415,31 +403,6 @@ export default function VoiceSettings({ ringColor, onSave, connectionState }: Vo
           </div>
         </div>
       )}
-
-      {/* Language */}
-      <div>
-        <label className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>
-          LANGUAGE
-        </label>
-        <div className="flex gap-1.5 flex-wrap">
-          {LANGUAGES.map(lang => (
-            <button
-              key={lang.code}
-              type="button"
-              onClick={() => update('language', lang.code)}
-              className="rounded border px-2 py-1 transition"
-              style={{
-                borderColor: settings.language === lang.code ? ringColor : `${ringColor}33`,
-                color: settings.language === lang.code ? ringColor : `${ringColor}88`,
-                background: settings.language === lang.code ? `${ringColor}18` : 'transparent',
-                fontSize: 10,
-              }}
-            >
-              {lang.label}
-            </button>
-          ))}
-        </div>
-      </div>
 
       {/* Push-to-talk toggle */}
       <div className="flex items-center justify-between">
