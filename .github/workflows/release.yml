@@ -18,6 +18,37 @@ env:
   NODE_VERSION: '22'
 
 jobs:
+  # ── Source Code Archive ──────────────────────────────────────────────────────
+  build-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create source archives
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+
+          # Create source tarball
+          git archive --format=tar.gz --prefix="GhostForge-${VERSION}/" -o "GhostForge-${VERSION}-source.tar.gz" HEAD
+
+          # Create source zip
+          git archive --format=zip --prefix="GhostForge-${VERSION}/" -o "GhostForge-${VERSION}-source.zip" HEAD
+
+          ls -lh GhostForge-*-source.*
+
+      - name: Upload source archives
+        uses: actions/upload-artifact@v4
+        with:
+          name: source
+          path: |
+            GhostForge-*-source.tar.gz
+            GhostForge-*-source.zip
+          if-no-files-found: error
+          retention-days: 1
+
   # ── macOS (Intel + Apple Silicon) ─────────────────────────────────────────
   build-macos:
     runs-on: macos-latest
@@ -177,7 +208,7 @@ jobs:
 
   # ── Create Release ────────────────────────────────────────────────────────
   release:
-    needs: [build-macos, build-windows, build-linux]
+    needs: [build-source, build-macos, build-windows, build-linux, build-android]
     runs-on: ubuntu-latest
     if: |
       always() &&
@@ -185,6 +216,8 @@ jobs:
       (needs.build-macos.result == 'success' || needs.build-windows.result == 'success' || needs.build-linux.result == 'success')
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -192,8 +225,13 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: List artifacts
-        run: find artifacts -type f | sort
+      - name: List all artifacts
+        run: |
+          echo "=== All release files ==="
+          find artifacts -type f | sort
+          echo ""
+          echo "=== Total size ==="
+          du -sh artifacts/
 
       - name: Determine tag
         id: tag
@@ -204,11 +242,29 @@ jobs:
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Generate changelog from commits
+      - name: Count contributors
+        id: contributors
+        run: |
+          COUNT=$(git shortlog -sn --no-merges | wc -l | tr -d ' ')
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
         id: changelog
         run: |
           TAG="${{ steps.tag.outputs.version }}"
-          echo "## What's Changed" > changelog.md
+          VERSION="${TAG#v}"
+
+          cat > changelog.md << 'HEADER'
+          ## GhostForge JARVIS v5.2.0
+
+          The complete AI-powered development assistant — desktop app, voice assistant, screen vision, memory system, and workflow automation.
+
+          HEADER
+
+          # Fix leading whitespace from heredoc
+          sed -i 's/^          //' changelog.md
+
+          echo "## What's New" >> changelog.md
           echo "" >> changelog.md
 
           # Get commits since last tag
@@ -221,28 +277,68 @@ jobs:
 
           echo "" >> changelog.md
           echo "" >> changelog.md
+
+          echo "## Features" >> changelog.md
+          echo "" >> changelog.md
+          echo "- **Electron Desktop App** — Cross-platform (macOS, Windows, Linux, Android)" >> changelog.md
+          echo "- **Clicky Screen Vision** — Blue cursor overlay for screen capture context" >> changelog.md
+          echo "- **Push-to-Talk Voice** — Ctrl+Alt+V for voice commands" >> changelog.md
+          echo "- **Persistent Memory** — Remembers projects, preferences, and facts" >> changelog.md
+          echo "- **Proactive Assistant** — Time-aware check-ins and break suggestions" >> changelog.md
+          echo "- **Morning Briefing** — Weather, news, and daily plan" >> changelog.md
+          echo "- **System Control** — Open apps, lock screen, volume, process management" >> changelog.md
+          echo "- **n8n Workflow Integration** — Deploy, notify, and PR automation" >> changelog.md
+          echo "- **250+ Files, 14 Agents, 70+ Commands** — Full GitHub Copilot supercharger" >> changelog.md
+          echo "" >> changelog.md
+
           echo "## Downloads" >> changelog.md
           echo "" >> changelog.md
-          echo "| Platform | File |" >> changelog.md
-          echo "|----------|------|" >> changelog.md
-          echo "| 🍎 macOS Intel | \`GhostForge JARVIS-*.dmg\` |" >> changelog.md
-          echo "| 🍎 macOS Apple Silicon | \`GhostForge JARVIS-*-arm64.dmg\` |" >> changelog.md
-          echo "| 🪟 Windows Installer | \`GhostForge JARVIS Setup *.exe\` |" >> changelog.md
-          echo "| 🪟 Windows Portable | \`GhostForge JARVIS *.exe\` |" >> changelog.md
-          echo "| 🐧 Linux | \`GhostForge JARVIS-*.AppImage\` |" >> changelog.md
-          echo "| 🤖 Android | \`app-debug.apk\` |" >> changelog.md
+          echo "| Platform | Architecture | File |" >> changelog.md
+          echo "|----------|-------------|------|" >> changelog.md
+          echo "| macOS | Intel (x64) | \`GhostForge JARVIS-${VERSION}.dmg\` |" >> changelog.md
+          echo "| macOS | Apple Silicon (arm64) | \`GhostForge JARVIS-${VERSION}-arm64.dmg\` |" >> changelog.md
+          echo "| Windows | x64 | \`GhostForge JARVIS Setup ${VERSION}.exe\` (installer) |" >> changelog.md
+          echo "| Windows | x64 | \`GhostForge.JARVIS.${VERSION}.exe\` (portable) |" >> changelog.md
+          echo "| Linux | x64 | \`GhostForge JARVIS-${VERSION}.AppImage\` |" >> changelog.md
+          echo "| Linux | x64 | \`ghostforge-jarvis_${VERSION}_amd64.deb\` |" >> changelog.md
+          echo "| Android | Universal | \`app-debug.apk\` |" >> changelog.md
+          echo "| Android | Universal | \`app-release-unsigned.apk\` |" >> changelog.md
+          echo "| Source | All | \`GhostForge-${VERSION}-source.tar.gz\` |" >> changelog.md
+          echo "| Source | All | \`GhostForge-${VERSION}-source.zip\` |" >> changelog.md
           echo "" >> changelog.md
-          echo "### Quick Start" >> changelog.md
+
+          echo "## Quick Start" >> changelog.md
+          echo "" >> changelog.md
           echo '```bash' >> changelog.md
           echo "# macOS" >> changelog.md
-          echo "open 'GhostForge JARVIS-5.2.0.dmg'" >> changelog.md
-          echo "# Windows" >> changelog.md
-          echo '# Run "GhostForge JARVIS Setup 5.2.0.exe"' >> changelog.md
+          echo "open 'GhostForge JARVIS-${VERSION}.dmg'" >> changelog.md
+          echo "" >> changelog.md
+          echo "# Windows — run the installer or portable exe" >> changelog.md
+          echo '# "GhostForge JARVIS Setup '${VERSION}'.exe"' >> changelog.md
+          echo "" >> changelog.md
           echo "# Linux" >> changelog.md
-          echo "chmod +x 'GhostForge JARVIS-5.2.0.AppImage' && ./'GhostForge JARVIS-5.2.0.AppImage'" >> changelog.md
+          echo "chmod +x 'GhostForge JARVIS-${VERSION}.AppImage' && ./'GhostForge JARVIS-${VERSION}.AppImage'" >> changelog.md
+          echo "" >> changelog.md
+          echo "# Linux (Debian/Ubuntu)" >> changelog.md
+          echo "sudo dpkg -i 'ghostforge-jarvis_${VERSION}_amd64.deb'" >> changelog.md
+          echo "" >> changelog.md
           echo "# Android" >> changelog.md
           echo "adb install app-debug.apk" >> changelog.md
           echo '```' >> changelog.md
+          echo "" >> changelog.md
+
+          echo "## Keyboard Shortcuts" >> changelog.md
+          echo "" >> changelog.md
+          echo "| Shortcut | Action |" >> changelog.md
+          echo "|----------|--------|" >> changelog.md
+          echo "| Ctrl+Alt+V | Push-to-talk voice |" >> changelog.md
+          echo "| Ctrl+Alt+C | Capture screen |" >> changelog.md
+          echo "| Ctrl+Alt+J | Toggle JARVIS window |" >> changelog.md
+          echo "" >> changelog.md
+
+          echo "---" >> changelog.md
+          echo "" >> changelog.md
+          echo "**${{ steps.contributors.outputs.count }} contributors** made this release possible." >> changelog.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -253,5 +349,17 @@ jobs:
           draft: false
           prerelease: false
           files: artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify release
+        run: |
+          echo "=== Release Verification ==="
+          gh release view ${{ steps.tag.outputs.version }} --repo ${{ github.repository }} --json tagName,isDraft,isPrerelease,publishedAt,assets | \
+            jq '{tag: .tagName, draft: .isDraft, prerelease: .isPrerelease, published: .publishedAt, assets: (.assets | length)}'
+          echo ""
+          echo "=== All Assets ==="
+          gh release view ${{ steps.tag.outputs.version }} --repo ${{ github.repository }} --json assets | \
+            jq -r '.assets[] | "\(.name) (\(.size / 1048576 * 100 | round / 100) MB)"'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
