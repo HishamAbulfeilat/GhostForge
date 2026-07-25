@@ -148,11 +148,9 @@ jobs:
 
       - name: Build web-ui
         working-directory: web-ui
-        run: npm run build
-
-      - name: Export static web-ui
-        working-directory: web-ui
-        run: npx next export || true
+        run: |
+          echo 'const nextConfig = { output: "export", images: { unoptimized: true } }; export default nextConfig;' > next.config.mjs
+          npm run build
 
       - name: Install Capacitor
         working-directory: electron-app
