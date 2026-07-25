@@ -285,6 +285,37 @@ export interface ElectronAPI {
     onServerOffline: (callback: (state: Record<string, unknown>) => void) => void;
     onFallback: (callback: (info: Record<string, unknown>) => void) => void;
   };
+  bridgeManager: {
+    start: () => Promise<{ success: boolean; status: string }>;
+    stop: () => Promise<{ success: boolean; status: string }>;
+    restart: () => Promise<{ success: boolean; status: string }>;
+    getStatus: () => Promise<{ status: string; url: string }>;
+    getLogs: () => Promise<{ logs: string[] }>;
+    setAutoStart: (enabled?: boolean) => Promise<{ autoStart: boolean }>;
+    onStatusChange: (callback: (status: string) => void) => void;
+  };
+  geminiLive: {
+    connect: () => Promise<boolean>;
+    disconnect: () => Promise<void>;
+    startListening: () => Promise<boolean>;
+    stopListening: () => Promise<void>;
+    getStatus: () => Promise<{
+      active: boolean; duration: number; sessionId: string | null; connectionState: string;
+    }>;
+    sendText: (text: string) => Promise<void>;
+    sendAudioChunk: (base64Audio: string) => Promise<{ success: boolean }>;
+    saveSettings: (settings: Record<string, unknown>) => Promise<void>;
+    loadSettings: () => Promise<Record<string, unknown> | null>;
+    onTranscript: (callback: (data: { text: string; isFinal: boolean }) => void) => void;
+    onAudioData: (callback: (data: Buffer) => void) => void;
+    onError: (callback: (error: string) => void) => void;
+    onConnectionChange: (callback: (state: string) => void) => void;
+    onListeningStarted: (callback: () => void) => void;
+    onListeningStopped: (callback: () => void) => void;
+    onPlaybackStarted: (callback: () => void) => void;
+    onPlaybackEnded: (callback: () => void) => void;
+    onReconnecting: (callback: (info: { attempt: number; maxAttempts: number }) => void) => void;
+  };
 }
 
 const electronAPI: ElectronAPI = {
@@ -462,6 +493,55 @@ const electronAPI: ElectronAPI = {
     },
     onFallback: (callback: (info: Record<string, unknown>) => void) => {
       ipcRenderer.on('connection:fallback', (_event, info) => callback(info));
+    },
+  },
+  bridgeManager: {
+    start: () => ipcRenderer.invoke('jarvis:bridge-start'),
+    stop: () => ipcRenderer.invoke('jarvis:bridge-stop'),
+    restart: () => ipcRenderer.invoke('jarvis:bridge-restart'),
+    getStatus: () => ipcRenderer.invoke('jarvis:bridge-status'),
+    getLogs: () => ipcRenderer.invoke('jarvis:bridge-logs'),
+    setAutoStart: (enabled?: boolean) => ipcRenderer.invoke('jarvis:bridge-auto-start', enabled),
+    onStatusChange: (callback: (status: string) => void) => {
+      ipcRenderer.on('jarvis:bridge-status', (_event, status) => callback(status));
+    },
+  },
+  geminiLive: {
+    connect: () => ipcRenderer.invoke('jarvis:voice-connect'),
+    disconnect: () => ipcRenderer.invoke('jarvis:voice-disconnect'),
+    startListening: () => ipcRenderer.invoke('jarvis:voice-start'),
+    stopListening: () => ipcRenderer.invoke('jarvis:voice-stop'),
+    getStatus: () => ipcRenderer.invoke('jarvis:voice-status'),
+    sendText: (text: string) => ipcRenderer.invoke('jarvis:voice-send-text', text),
+    sendAudioChunk: (base64Audio: string) => ipcRenderer.invoke('jarvis:voice-audio-chunk', base64Audio),
+    saveSettings: (settings: Record<string, unknown>) => ipcRenderer.invoke('jarvis:voice-settings-save', settings),
+    loadSettings: () => ipcRenderer.invoke('jarvis:voice-settings-load'),
+    onTranscript: (callback: (data: { text: string; isFinal: boolean }) => void) => {
+      ipcRenderer.on('gemini:transcript', (_event, data) => callback(data));
+    },
+    onAudioData: (callback: (data: Buffer) => void) => {
+      ipcRenderer.on('gemini:audio-data', (_event, data) => callback(data));
+    },
+    onError: (callback: (error: string) => void) => {
+      ipcRenderer.on('gemini:error', (_event, error) => callback(error));
+    },
+    onConnectionChange: (callback: (state: string) => void) => {
+      ipcRenderer.on('gemini:connection-change', (_event, state) => callback(state));
+    },
+    onListeningStarted: (callback: () => void) => {
+      ipcRenderer.on('gemini:listening-started', () => callback());
+    },
+    onListeningStopped: (callback: () => void) => {
+      ipcRenderer.on('gemini:listening-stopped', () => callback());
+    },
+    onPlaybackStarted: (callback: () => void) => {
+      ipcRenderer.on('gemini:playback-started', () => callback());
+    },
+    onPlaybackEnded: (callback: () => void) => {
+      ipcRenderer.on('gemini:playback-ended', () => callback());
+    },
+    onReconnecting: (callback: (info: { attempt: number; maxAttempts: number }) => void) => {
+      ipcRenderer.on('gemini:reconnecting', (_event, info) => callback(info));
     },
   },
 };

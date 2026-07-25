@@ -1,130 +1,203 @@
 import type { BrowserWindow } from 'electron';
 import type { JarvisMemory } from './memory';
 
-interface GeminiLiveConfig {
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export interface GeminiLiveConfig {
   apiKey: string;
   model: string;
   voiceName: string;
   language: string;
+  systemPrompt: string;
 }
 
-interface GeminiSession {
-  id: string;
-  startedAt: number;
+export interface GeminiLiveSettings {
+  apiKey: string;
+  voiceName: string;
+  language: string;
+  model: string;
+  pushToTalk: boolean;
+  volume: number;
 }
+
+type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+interface GeminiLiveCallbacks {
+  onTranscript?: (text: string, isFinal: boolean) => void;
+  onAudioData?: (audioData: Buffer) => void;
+  onError?: (error: string) => void;
+  onConnectionChange?: (state: ConnectionState) => void;
+}
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
+const RECONNECT_BASE_DELAY = 1000;
+const RECONNECT_MAX_DELAY = 30000;
+const MAX_RECONNECT_ATTEMPTS = 10;
+
+// ── GeminiLiveVoice ──────────────────────────────────────────────────────────
 
 export class GeminiLiveVoice {
   private config: GeminiLiveConfig;
   private memory: JarvisMemory;
   private mainWindow: BrowserWindow | null = null;
-  private session: GeminiSession | null = null;
+  private ws: InstanceType<typeof globalThis.WebSocket> | null = null;
+  private connectionState: ConnectionState = 'disconnected';
   private isListening = false;
-  private onTranscript: ((text: string, isFinal: boolean) => void) | null = null;
-  private onToolCall: ((tool: string, args: Record<string, unknown>) => void) | null = null;
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private sessionId: string | null = null;
+  private callbacks: GeminiLiveCallbacks = {};
+  private pushToTalkMode = false;
 
   constructor(memory: JarvisMemory, config?: Partial<GeminiLiveConfig>) {
     this.memory = memory;
     this.config = {
       apiKey: config?.apiKey || process.env.GEMINI_API_KEY || '',
-      model: config?.model || 'gemini-2.0-flash-live-001',
-      voiceName: config?.voiceName || 'Puck',
+      model: config?.model || 'models/gemini-2.0-flash-live-001',
+      voiceName: config?.voiceName || 'Aoede',
       language: config?.language || 'en-US',
+      systemPrompt: config?.systemPrompt || this.buildDefaultSystemPrompt(),
     };
   }
 
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
+
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window;
+  }
+
+  setCallbacks(callbacks: GeminiLiveCallbacks): void {
+    this.callbacks = callbacks;
   }
 
   isConfigured(): boolean {
     return !!this.config.apiKey;
   }
 
-  async startSession(): Promise<boolean> {
+  getConnectionState(): ConnectionState {
+    return this.connectionState;
+  }
+
+  getIsListening(): boolean {
+    return this.isListening;
+  }
+
+  getSessionInfo(): { active: boolean; duration: number; sessionId: string | null; connectionState: ConnectionState } {
+    return {
+      active: this.isListening,
+      duration: 0,
+      sessionId: this.sessionId,
+      connectionState: this.connectionState,
+    };
+  }
+
+  // ── Connect / Disconnect ───────────────────────────────────────────────────
+
+  async connect(): Promise<boolean> {
     if (!this.config.apiKey) {
-      console.warn('Gemini Live API key not configured');
+      this.emitError('API key not configured');
       return false;
     }
+
+    if (this.ws && this.connectionState === 'connected') {
+      return true;
+    }
+
+    this.setConnectionState('connecting');
 
     try {
-      this.session = {
-        id: `live-${Date.now()}`,
-        startedAt: Date.now(),
-      };
-
-      this.isListening = true;
-      this.mainWindow?.webContents.send('gemini:session-started', this.session.id);
-
-      // Start streaming audio to Gemini Live API
-      await this.streamAudio();
-
+      await this.createWebSocket();
       return true;
-    } catch (error: any) {
-      console.error('Failed to start Gemini Live session:', error);
-      this.mainWindow?.webContents.send('gemini:error', error.message);
+    } catch (err) {
+      this.setConnectionState('error');
+      this.emitError(`Connection failed: ${(err as Error).message}`);
       return false;
     }
   }
 
-  async endSession(): Promise<void> {
-    if (!this.session) return;
+  async disconnect(): Promise<void> {
+    this.clearReconnectTimer();
+    this.reconnectAttempts = 0;
 
+    if (this.isListening) {
+      this.stopListening();
+    }
+
+    if (this.ws) {
+      try {
+        this.ws.close(1000);
+      } catch { /* already closing */ }
+      this.ws = null;
+    }
+
+    this.sessionId = null;
+    this.setConnectionState('disconnected');
+  }
+
+  // ── Listening (audio capture happens in renderer, relayed via IPC) ─────────
+
+  startListening(): void {
+    if (this.connectionState !== 'connected') return;
+    this.isListening = true;
+    this.mainWindow?.webContents.send('gemini:listening-started');
+  }
+
+  stopListening(): void {
     this.isListening = false;
-
-    const sessionId = this.session.id;
-    this.session = null;
-
-    this.mainWindow?.webContents.send('gemini:session-ended', sessionId);
+    this.mainWindow?.webContents.send('gemini:listening-stopped');
   }
 
-  private async streamAudio(): Promise<void> {
-    if (!this.session || !this.config.apiKey) return;
+  // ── Receive audio chunk from renderer ──────────────────────────────────────
 
-    // Gemini Live API uses WebSocket for bidirectional audio streaming
-    // The actual implementation would use the official Gemini SDK
-    // For now, we provide the integration point
+  sendAudioChunkFromRenderer(base64Audio: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.isListening) return;
 
-    console.log('Gemini Live session active:', this.session.id);
-  }
+    const message = {
+      realtimeInput: {
+        mediaChunks: [
+          {
+            mimeType: 'audio/pcm;rate=16000',
+            data: base64Audio,
+          },
+        ],
+      },
+    };
 
-  async sendAudioChunk(audioData: ArrayBuffer): Promise<void> {
-    if (!this.session || !this.isListening) return;
-
-    // Convert to base64 for API transmission
-    const base64 = Buffer.from(audioData).toString('base64');
-
-    // Send to Gemini Live API via WebSocket
-    // In production: ws.send(JSON.stringify({ audio: { data: base64 } }))
-  }
-
-  handleModelResponse(response: {
-    text?: string;
-    audio?: ArrayBuffer;
-    toolCall?: { name: string; args: Record<string, unknown> };
-  }): void {
-    if (response.text) {
-      this.onTranscript?.(response.text, true);
-      this.mainWindow?.webContents.send('gemini:text', response.text);
-    }
-
-    if (response.audio) {
-      this.mainWindow?.webContents.send('gemini:audio', response.audio);
-    }
-
-    if (response.toolCall) {
-      this.onToolCall?.(response.toolCall.name, response.toolCall.args);
-      this.mainWindow?.webContents.send('gemini:tool-call', response.toolCall);
+    try {
+      this.ws.send(JSON.stringify(message));
+    } catch (err) {
+      console.error('Failed to send audio chunk:', err);
     }
   }
 
-  // ── Event handlers ─────────────────────────────────────────────────────────
+  // ── Text fallback ──────────────────────────────────────────────────────────
 
-  onTranscriptEvent(callback: (text: string, isFinal: boolean) => void): void {
-    this.onTranscript = callback;
+  async sendText(text: string): Promise<void> {
+    if (this.connectionState !== 'connected' || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      const connected = await this.connect();
+      if (!connected) return;
+    }
+
+    const message = {
+      clientContent: {
+        turns: [{ role: 'user', parts: [{ text }] }],
+        turnComplete: true,
+      },
+    };
+
+    this.ws!.send(JSON.stringify(message));
   }
 
-  onToolCallEvent(callback: (tool: string, args: Record<string, unknown>) => void): void {
-    this.onToolCall = callback;
+  // ── Push-to-talk helpers ───────────────────────────────────────────────────
+
+  setPushToTalk(enabled: boolean): void {
+    this.pushToTalkMode = enabled;
+  }
+
+  isPushToTalk(): boolean {
+    return this.pushToTalkMode;
   }
 
   // ── Configuration ──────────────────────────────────────────────────────────
@@ -137,11 +210,221 @@ export class GeminiLiveVoice {
     return { ...this.config };
   }
 
-  getSessionInfo(): { active: boolean; duration: number; sessionId: string | null } {
-    return {
-      active: this.isListening,
-      duration: this.session ? Date.now() - this.session.startedAt : 0,
-      sessionId: this.session?.id || null,
+  updateSettings(settings: Partial<GeminiLiveSettings>): void {
+    if (settings.apiKey !== undefined) this.config.apiKey = settings.apiKey;
+    if (settings.voiceName !== undefined) this.config.voiceName = settings.voiceName;
+    if (settings.language !== undefined) this.config.language = settings.language;
+    if (settings.model !== undefined) this.config.model = settings.model;
+    if (settings.pushToTalk !== undefined) this.pushToTalkMode = settings.pushToTalk;
+  }
+
+  // ── WebSocket internals ────────────────────────────────────────────────────
+
+  private async createWebSocket(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const url = `${WS_URL}?key=${this.config.apiKey}`;
+
+      try {
+        this.ws = new WebSocket(url);
+      } catch (err) {
+        reject(err);
+        return;
+      }
+
+      const connectTimeout = setTimeout(() => {
+        this.ws?.close();
+        reject(new Error('Connection timeout'));
+      }, 15000);
+
+      this.ws.addEventListener('open', () => {
+        clearTimeout(connectTimeout);
+        this.sendSetupMessage();
+      });
+
+      this.ws.addEventListener('message', (event: MessageEvent) => {
+        try {
+          const raw = typeof event.data === 'string' ? event.data : String(event.data);
+          const msg = JSON.parse(raw) as Record<string, unknown>;
+          this.handleServerMessage(msg);
+          if (this.connectionState === 'connecting') {
+            clearTimeout(connectTimeout);
+            this.reconnectAttempts = 0;
+            this.setConnectionState('connected');
+            resolve();
+          }
+        } catch (err) {
+          console.error('Failed to parse Gemini Live message:', err);
+        }
+      });
+
+      this.ws.addEventListener('close', (event) => {
+        clearTimeout(connectTimeout);
+        const ev = event as unknown as { code: number; reason: string };
+        console.log(`Gemini Live WS closed: ${ev.code} ${ev.reason}`);
+
+        if (this.connectionState === 'connecting') {
+          reject(new Error(`Connection closed: ${ev.code} ${ev.reason}`));
+          return;
+        }
+
+        this.setConnectionState('disconnected');
+
+        if (ev.code !== 1000 && ev.code !== 1001) {
+          this.scheduleReconnect();
+        }
+      });
+
+      this.ws.addEventListener('error', (event: Event) => {
+        clearTimeout(connectTimeout);
+        console.error('Gemini Live WS error:', event);
+
+        if (this.connectionState === 'connecting') {
+          reject(new Error('WebSocket error'));
+        }
+
+        this.setConnectionState('error');
+        this.emitError('WebSocket error');
+      });
+    });
+  }
+
+  private sendSetupMessage(): void {
+    const setup = {
+      setup: {
+        model: this.config.model,
+        generationConfig: {
+          responseModalities: ['AUDIO', 'TEXT'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: this.config.voiceName,
+              },
+            },
+          },
+        },
+        systemInstruction: {
+          parts: [{ text: this.config.systemPrompt }],
+        },
+      },
     };
+
+    this.ws?.send(JSON.stringify(setup));
+    this.sessionId = `gemini-live-${Date.now()}`;
+  }
+
+  private handleServerMessage(msg: Record<string, unknown>): void {
+    // Setup complete
+    if ('setupComplete' in msg) {
+      return;
+    }
+
+    // Server content (model response)
+    const serverContent = msg.serverContent as Record<string, unknown> | undefined;
+    if (serverContent) {
+      const modelTurn = serverContent.modelTurn as Record<string, unknown> | undefined;
+      const turnComplete = serverContent.turnComplete as boolean | undefined;
+
+      if (modelTurn) {
+        const parts = modelTurn.parts as Array<Record<string, unknown>> | undefined;
+        if (parts) {
+          for (const part of parts) {
+            // Text response
+            if (part.text) {
+              this.callbacks.onTranscript?.(part.text as string, Boolean(turnComplete));
+              this.mainWindow?.webContents.send('gemini:transcript', {
+                text: part.text,
+                isFinal: turnComplete,
+              });
+            }
+
+            // Audio response — relay base64 to renderer for playback
+            if (part.inlineData) {
+              const inlineData = part.inlineData as { mimeType: string; data: string };
+              if (inlineData.data) {
+                const audioBuffer = Buffer.from(inlineData.data, 'base64');
+                this.callbacks.onAudioData?.(audioBuffer);
+                this.mainWindow?.webContents.send('gemini:audio-data', {
+                  data: inlineData.data,
+                  mimeType: inlineData.mimeType,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Tool call
+    const toolCall = msg.toolCall as Record<string, unknown> | undefined;
+    if (toolCall) {
+      this.mainWindow?.webContents.send('gemini:tool-call', toolCall);
+    }
+
+    // Tool call cancellation
+    const toolCallCancellation = msg.toolCallCancellation as Record<string, unknown> | undefined;
+    if (toolCallCancellation) {
+      this.mainWindow?.webContents.send('gemini:tool-call-cancel', toolCallCancellation);
+    }
+  }
+
+  // ── Reconnection ───────────────────────────────────────────────────────────
+
+  private scheduleReconnect(): void {
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.setConnectionState('error');
+      this.emitError('Max reconnection attempts reached');
+      return;
+    }
+
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY * Math.pow(2, this.reconnectAttempts),
+      RECONNECT_MAX_DELAY
+    );
+
+    this.reconnectAttempts++;
+
+    this.reconnectTimer = setTimeout(async () => {
+      if (this.connectionState === 'disconnected') {
+        this.mainWindow?.webContents.send('gemini:reconnecting', {
+          attempt: this.reconnectAttempts,
+          maxAttempts: MAX_RECONNECT_ATTEMPTS,
+        });
+        await this.connect();
+      }
+    }, delay);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  private setConnectionState(state: ConnectionState): void {
+    if (this.connectionState === state) return;
+    this.connectionState = state;
+    this.callbacks.onConnectionChange?.(state);
+    this.mainWindow?.webContents.send('gemini:connection-change', state);
+  }
+
+  private emitError(message: string): void {
+    this.callbacks.onError?.(message);
+    this.mainWindow?.webContents.send('gemini:error', message);
+  }
+
+  private buildDefaultSystemPrompt(): string {
+    return `You are JARVIS (Just A Rather Very Intelligent System), an advanced AI assistant created by GhostForge.
+You are helpful, articulate, and slightly formal in tone — like the AI from Iron Man.
+You have access to the user's development environment and can help with coding, system tasks, and general questions.
+Keep responses concise and natural for voice interaction.
+When speaking, use a calm, confident, and slightly British-influenced tone.
+If asked to perform a task, confirm and execute it efficiently.`;
+  }
+
+  destroy(): void {
+    void this.disconnect();
   }
 }

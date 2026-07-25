@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerability
+    url: https://github.com/HishamAbulfeilat/GhostForge/security/advisories/new
+    about: Report security vulnerabilities privately. Do not open a public issue.
+  - name: Discussions & Questions
+    url: https://github.com/HishamAbulfeilat/GhostForge/discussions
+    about: Ask questions, share ideas, or discuss GhostForge with the community.
+  - name: Code of Conduct
+    url: https://github.com/HishamAbulfeilat/GhostForge/blob/main/CODE_OF_CONDUCT.md
+    about: Read our Contributor Covenant Code of Conduct.

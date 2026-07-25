@@ -1,0 +1,119 @@
+name: Bug Report
+description: Report a bug in GhostForge
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill out the information below to help us investigate and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what happened...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: List the steps to reproduce the behavior.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Scroll down to '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of GhostForge is affected?
+      options:
+        - Web UI (Next.js)
+        - Electron App
+        - Mark-L Bridge (Python)
+        - VS Code Extension
+        - CLI / Scripts
+        - JARVIS AI Assistant
+        - Voice / Wake Word
+        - Terminal / xterm
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      placeholder: e.g., macOS 14.5 Sonoma, Windows 11, Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: App Version
+      description: "Run `ghostforge --version` or check package.json"
+      placeholder: e.g., 5.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser / Electron Version
+      description: If applicable (Web UI or Electron)
+      placeholder: e.g., Chrome 126, Electron 28.3.3
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots / Log Output
+      description: Add screenshots or paste relevant log output to help explain the issue.
+      placeholder: Paste logs here or drag screenshots...
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How does this bug impact your workflow?
+      options:
+        - Low — minor inconvenience
+        - Medium — workaround exists but annoying
+        - High — blocks my work
+        - Critical — security issue or data loss
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Additional Environment Details
+      description: Any other relevant context (Node.js version, Python version, installed models, etc.)
+      placeholder: |
+        Node.js: v20.11.0
+        Python: 3.12.3
+        Ollama: running qwen3.5:9b
