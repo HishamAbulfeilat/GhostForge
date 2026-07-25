@@ -16,10 +16,11 @@
   "scripts": {
     "dev": "tsc && electron .",
     "build": "tsc",
-    "build:mac": "tsc && electron-builder --mac --publish never",
-    "build:win": "tsc && electron-builder --win --publish never",
-    "build:linux": "tsc && electron-builder --linux --publish never",
-    "build:all": "tsc && electron-builder -mwl --publish never",
+    "generate-icons": "node scripts/generate-icons.js",
+    "build:mac": "node scripts/generate-icons.js && tsc && electron-builder --mac dmg --x64 --publish never && electron-builder --mac dmg --arm64 --publish never && electron-builder --mac zip --publish never",
+    "build:win": "node scripts/generate-icons.js && tsc && electron-builder --win nsis --x64 --publish never && electron-builder --win portable --x64 --publish never",
+    "build:linux": "node scripts/generate-icons.js && tsc && electron-builder --linux AppImage --x64 --publish never && electron-builder --linux deb --x64 --publish never && electron-builder --linux rpm --x64 --publish never",
+    "build:all": "bash scripts/build-all-platforms.sh",
     "build:android": "bash scripts/build-android.sh",
     "start": "electron .",
     "lint": "eslint src/ --ext .ts"
@@ -47,7 +48,8 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*"
+      "dist/**/*",
+      "android-web/**/*"
     ]
   }
 }

@@ -15,21 +15,42 @@ echo ""
 
 # ── Check prerequisites ───────────────────────────────────────────────────
 
-if [ -z "${ANDROID_HOME:-}" ] && ! command -v sdkmanager &>/dev/null; then
-  echo "Error: Android SDK not found."
-  echo "Install Android SDK and set ANDROID_HOME, or install via Android Studio."
-  exit 1
-fi
+check_prereqs() {
+  local ok=true
 
-if ! command -v java &>/dev/null; then
-  echo "Error: Java not found. Install JDK 21+."
-  exit 1
-fi
+  # Android SDK
+  if [ -z "${ANDROID_HOME:-}" ] && ! command -v sdkmanager &>/dev/null; then
+    echo "Error: Android SDK not found."
+    echo "Install Android SDK and set ANDROID_HOME, or install via Android Studio."
+    ok=false
+  fi
 
-JAVA_VERSION=$(java -version 2>&1 | head -n 1 | cut -d '"' -f 2 | cut -d '.' -f 1)
-if [ "$JAVA_VERSION" -lt 21 ]; then
-  echo "Warning: Java $JAVA_VERSION detected. JDK 21+ recommended."
-fi
+  # Java
+  if ! command -v java &>/dev/null; then
+    echo "Error: Java not found. Install JDK 21+."
+    ok=false
+  else
+    JAVA_VERSION=$(java -version 2>&1 | head -n 1 | cut -d '"' -f 2 | cut -d '.' -f 1)
+    if [ "$JAVA_VERSION" -lt 21 ]; then
+      echo "Warning: Java $JAVA_VERSION detected. JDK 21+ recommended."
+    fi
+  fi
+
+  # Node.js
+  if ! command -v node &>/dev/null; then
+    echo "Error: Node.js not found."
+    ok=false
+  fi
+
+  if [ "$ok" = false ]; then
+    exit 1
+  fi
+
+  echo "Prerequisites OK"
+  echo ""
+}
+
+check_prereqs
 
 # ── Build TypeScript ──────────────────────────────────────────────────────
 
@@ -46,8 +67,25 @@ if [ -d "$WEB_UI_DIR" ]; then
   cd "$WEB_UI_DIR"
   npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
   npm run build
+
+  # Copy android-web assets into the web UI output for Capacitor
+  if [ -d "$PROJECT_DIR/android-web" ]; then
+    OUT_DIR="$WEB_UI_DIR/out"
+    mkdir -p "$OUT_DIR"
+    cp -r "$PROJECT_DIR/android-web/"* "$OUT_DIR/" 2>/dev/null || true
+    echo "Android web assets copied to $OUT_DIR"
+  fi
+
   cd "$PROJECT_DIR"
   echo "Web UI built ✓"
+  echo ""
+fi
+
+# ── Initialize Capacitor if needed ───────────────────────────────────────
+
+if [ ! -d "android" ] || [ ! -f "android/build.gradle" ]; then
+  echo "Initializing Capacitor for Android..."
+  npx cap add android
   echo ""
 fi
 
@@ -67,9 +105,9 @@ chmod +x gradlew 2>/dev/null || true
 echo "Debug APK built ✓"
 echo ""
 
-# ── Build APK (Release) ──────────────────────────────────────────────────
+# ── Build APK (Release — unsigned) ────────────────────────────────────────
 
-echo "Building Android APK (Release)..."
+echo "Building Android APK (Release, unsigned)..."
 ./gradlew assembleRelease
 echo "Release APK built ✓"
 echo ""
@@ -83,10 +121,23 @@ echo ""
 
 cd "$PROJECT_DIR"
 
+# ── Copy artifacts to release/ ────────────────────────────────────────────
+
+RELEASE_DIR="$PROJECT_DIR/release"
+mkdir -p "$RELEASE_DIR"
+
+echo "Copying APK artifacts to release/..."
+cp android/app/build/outputs/apk/debug/*.apk "$RELEASE_DIR/" 2>/dev/null || true
+cp android/app/build/outputs/apk/release/*.apk "$RELEASE_DIR/" 2>/dev/null || true
+cp android/app/build/outputs/bundle/release/*.aab "$RELEASE_DIR/" 2>/dev/null || true
+echo "Artifacts copied ✓"
+echo ""
+
 echo "══════════════════════════════════════════════"
 echo "Android build complete!"
 echo ""
 echo "APK (Debug):   android/app/build/outputs/apk/debug/"
 echo "APK (Release): android/app/build/outputs/apk/release/"
 echo "AAB (Release): android/app/build/outputs/bundle/release/"
+echo "Artifacts:     release/"
 echo "══════════════════════════════════════════════"

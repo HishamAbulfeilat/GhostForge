@@ -58,34 +58,79 @@ jobs:
         working-directory: electron-app
         run: npm ci
 
+      - name: Generate build icons
+        working-directory: electron-app
+        run: node scripts/generate-icons.js
+
       - name: Build TypeScript
         working-directory: electron-app
         run: npx tsc
 
-      - name: Build Electron — macOS (x64 + arm64)
+      - name: Build Web UI
+        working-directory: web-ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Electron — macOS arm64
         if: matrix.platform == 'mac'
         working-directory: electron-app
-        run: npx electron-builder --mac --publish never
+        run: npx electron-builder --mac dmg --arm64 --publish never
         env:
           CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Electron — Windows (x64)
+      - name: Build Electron — macOS x64
+        if: matrix.platform == 'mac'
+        working-directory: electron-app
+        run: npx electron-builder --mac dmg --x64 --publish never
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Electron — macOS ZIP
+        if: matrix.platform == 'mac'
+        working-directory: electron-app
+        run: npx electron-builder --mac zip --publish never
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+
+      - name: Build Electron — Windows NSIS (x64)
         if: matrix.platform == 'win'
         working-directory: electron-app
-        run: npx electron-builder --win --publish never
+        run: npx electron-builder --win nsis --x64 --publish never
         env:
           WIN_CSC_LINK: ${{ secrets.WIN_CERT_P12 }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Electron — Linux (x64)
+      - name: Build Electron — Windows Portable (x64)
+        if: matrix.platform == 'win'
+        working-directory: electron-app
+        run: npx electron-builder --win portable --x64 --publish never
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CERT_P12 }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD }}
+
+      - name: Build Electron — Linux AppImage (x64)
         if: matrix.platform == 'linux'
         working-directory: electron-app
-        run: npx electron-builder --linux --publish never
+        run: npx electron-builder --linux AppImage --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Electron — Linux DEB (x64)
+        if: matrix.platform == 'linux'
+        working-directory: electron-app
+        run: npx electron-builder --linux deb --x64 --publish never
+
+      - name: Build Electron — Linux RPM (x64)
+        if: matrix.platform == 'linux'
+        working-directory: electron-app
+        run: npx electron-builder --linux rpm --x64 --publish never
 
       - name: Upload macOS artifacts
         if: matrix.platform == 'mac'
@@ -95,8 +140,9 @@ jobs:
           path: |
             electron-app/release/*.dmg
             electron-app/release/*.zip
+            electron-app/release/*.blockmap
             electron-app/release/*.yml
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
       - name: Upload Windows artifacts
         if: matrix.platform == 'win'
@@ -105,8 +151,9 @@ jobs:
           name: release-win
           path: |
             electron-app/release/*.exe
+            electron-app/release/*.blockmap
             electron-app/release/*.yml
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
       - name: Upload Linux artifacts
         if: matrix.platform == 'linux'
@@ -118,8 +165,9 @@ jobs:
             electron-app/release/*.deb
             electron-app/release/*.rpm
             electron-app/release/*.snap
+            electron-app/release/*.blockmap
             electron-app/release/*.yml
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
   build-android:
     runs-on: ubuntu-latest
@@ -168,6 +216,10 @@ jobs:
         working-directory: electron-app
         run: npm ci
 
+      - name: Build TypeScript
+        working-directory: electron-app
+        run: npx tsc
+
       - name: Build Web UI (static export)
         working-directory: web-ui
         run: |
@@ -175,7 +227,9 @@ jobs:
           npm run build
 
       - name: Copy android-web assets
-        run: cp -r electron-app/android-web/* web-ui/out/
+        run: |
+          mkdir -p web-ui/out
+          cp -r electron-app/android-web/* web-ui/out/
 
       - name: Initialize Capacitor
         working-directory: electron-app
@@ -188,6 +242,10 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
+
+      - name: Build Android APK (Release)
+        working-directory: electron-app/android
+        run: ./gradlew assembleRelease
 
       - name: Build Android AAB (Release)
         working-directory: electron-app/android
@@ -204,7 +262,7 @@ jobs:
             electron-app/android/app/build/outputs/apk/debug/*.apk
             electron-app/android/app/build/outputs/apk/release/*.apk
             electron-app/android/app/build/outputs/bundle/release/*.aab
-          if-no-files-found: ignore
+          if-no-files-found: warn
 
   create-release:
     needs: [build-electron, build-android]
@@ -257,6 +315,7 @@ jobs:
             artifacts/**/*.snap
             artifacts/**/*.apk
             artifacts/**/*.aab
+            artifacts/**/*.blockmap
             artifacts/**/*.yml
             artifacts/ghostforge-jarvis-*-src.tar.gz
             artifacts/ghostforge-jarvis-*-src.zip
