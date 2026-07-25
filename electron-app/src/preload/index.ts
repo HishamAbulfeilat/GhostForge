@@ -498,6 +498,40 @@ export interface ElectronAPI {
     oauthStart: (provider: 'google' | 'outlook') => Promise<{ authUrl: string }>;
     oauthCallback: (code: string, provider: 'google' | 'outlook') => Promise<Record<string, unknown>>;
   };
+  voicebox: {
+    status: () => Promise<{ connected: boolean; version: string | null }>;
+    generate: (
+      text: string,
+      options?: {
+        profileId?: string;
+        profileName?: string;
+        language?: string;
+        engine?: string;
+        effects?: { pitchShift?: number; reverb?: number; delay?: number; chorus?: number };
+      }
+    ) => Promise<{ audio: ArrayBuffer; duration: number }>;
+    speak: (
+      text: string,
+      options?: { profile?: string; personality?: boolean; clientId?: string }
+    ) => Promise<{ success: boolean }>;
+    transcribe: (
+      audioBase64: string,
+      options?: { model?: string; language?: string }
+    ) => Promise<{ text: string; language: string; confidence: number }>;
+    profiles: () => Promise<Array<{ id: string; name: string; description?: string; language?: string }>>;
+    clone: (
+      name: string,
+      referenceAudioBase64: string,
+      description?: string
+    ) => Promise<{ id: string; name: string; description?: string; language?: string }>;
+    engines: () => Promise<Array<{ id: string; name: string; description?: string }>>;
+    languages: () => Promise<string[]>;
+    setConfig: (updates: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    getConfig: () => Promise<Record<string, unknown>>;
+    createProfile: (options: { name: string; description?: string; language?: string }) => Promise<{ id: string; name: string; description?: string; language?: string }>;
+    deleteProfile: (id: string) => Promise<{ success: boolean }>;
+    onStatusChange: (callback: (connected: boolean) => void) => void;
+  };
 }
 
 const electronAPI: ElectronAPI = {
@@ -929,6 +963,24 @@ const electronAPI: ElectronAPI = {
     removeAccount: (accountId) => ipcRenderer.invoke('contacts:remove-account', accountId),
     oauthStart: (provider) => ipcRenderer.invoke('contacts:oauth-start', provider),
     oauthCallback: (code, provider) => ipcRenderer.invoke('contacts:oauth-callback', code, provider),
+  },
+  voicebox: {
+    status: () => ipcRenderer.invoke('voicebox:status'),
+    generate: (text, options) => ipcRenderer.invoke('voicebox:generate', text, options),
+    speak: (text, options) => ipcRenderer.invoke('voicebox:speak', text, options),
+    transcribe: (audioBase64, options) => ipcRenderer.invoke('voicebox:transcribe', audioBase64, options),
+    profiles: () => ipcRenderer.invoke('voicebox:profiles'),
+    clone: (name, referenceAudioBase64, description) =>
+      ipcRenderer.invoke('voicebox:clone', name, referenceAudioBase64, description),
+    engines: () => ipcRenderer.invoke('voicebox:engines'),
+    languages: () => ipcRenderer.invoke('voicebox:languages'),
+    setConfig: (updates) => ipcRenderer.invoke('voicebox:set-config', updates),
+    getConfig: () => ipcRenderer.invoke('voicebox:get-config'),
+    createProfile: (options) => ipcRenderer.invoke('voicebox:create-profile', options),
+    deleteProfile: (id) => ipcRenderer.invoke('voicebox:delete-profile', id),
+    onStatusChange: (callback: (connected: boolean) => void) => {
+      ipcRenderer.on('voicebox:status-change', (_event, connected) => callback(connected));
+    },
   },
 };
 
