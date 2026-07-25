@@ -1,0 +1,548 @@
+{
+  "name": "GhostForge Agent Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 200],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "github-agent-webhook",
+        "options": {}
+      },
+      "id": "github-webhook-trigger",
+      "name": "GitHub Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [220, 420],
+      "webhookId": "ghostforge-agent-webhook",
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/repos/{{ $json.repository.full_name }}/issues?labels=agent:auto&state=open",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "id": "fetch-agent-issues",
+      "name": "Fetch Agent Issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "label-check",
+              "leftValue": "={{ $json.body.action }}",
+              "rightValue": "labeled",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "label-name-check",
+              "leftValue": "={{ $json.body.label?.name }}",
+              "rightValue": "agent:auto",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-agent-label",
+      "name": "IF - Has agent:auto Label",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 420],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.body.repository.full_name }}/issues/{{ $json.body.issue.number }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "get-issue-details",
+      "name": "Get Issue Details",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [740, 420],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "const issue = $input.first().json;\nconst repo = issue.repository?.url || issue.url?.replace(/\\/issues\\/\\d+/, '');\nreturn [{\n  json: {\n    issue_number: issue.number,\n    title: issue.title,\n    body: issue.body,\n    repo: issue.repository?.full_name || issue.base?.repo?.full_name,\n    labels: issue.labels?.map(l => l.name) || [],\n    api_url: issue.url\n  }\n}];"
+      },
+      "id": "prepare-issue-data",
+      "name": "Prepare Issue Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 420],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/jarvis/process",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"task\": \"process_issue\",\n  \"issue\": {\n    \"number\": {{ $json.issue_number }},\n    \"title\": \"{{ $json.title }}\",\n    \"body\": \"{{ $json.body }}\",\n    \"repo\": \"{{ $json.repo }}\"\n  },\n  \"labels\": {{ JSON.stringify($json.labels) }}\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "call-jarvis-process",
+      "name": "Call JARVIS Process Issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1180, 420],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Prepare Issue Data').item.json.repo }}/issues/{{ $('Prepare Issue Data').item.json.issue_number }}/comments",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"## 🤖 GhostForge Agent Status\\n\\n**Issue #{{ $('Prepare Issue Data').item.json.issue_number }}** is now being processed by the autonomous agent.\\n\\n- **Started at**: {{ $now.toISOString() }}\\n- **Task**: {{ $('Prepare Issue Data').item.json.title }}\\n- **Status**: In Progress\\n\\n---\\n*This is an automated message from GhostForge Agent.*\"\n}",
+        "options": {}
+      },
+      "id": "post-working-comment",
+      "name": "Post Working Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1400, 420],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=http://localhost:3000/api/jarvis/status/{{ $json.task_id }}",
+        "method": "GET",
+        "options": {}
+      },
+      "id": "poll-agent-status",
+      "name": "Poll Agent Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1620, 420],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "wait-poll-interval",
+      "name": "Wait 30s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1840, 420],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "status-check",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-agent-completed",
+      "name": "IF - Agent Completed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2060, 420],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Prepare Issue Data').item.json.repo }}/issues/{{ $('Prepare Issue Data').item.json.issue_number }}/comments",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"## ✅ GhostForge Agent — Task Complete\\n\\n**Issue #{{ $('Prepare Issue Data').item.json.issue_number }}** has been processed.\\n\\n### Summary\\n{{ $json.result?.summary || 'Agent completed processing.' }}\\n\\n### Changes Made\\n{{ $json.result?.changes || 'No changes documented.' }}\\n\\n### Test Results\\n{{ $json.result?.tests || 'Tests pending.' }}\\n\\n---\\n*Completed at {{ $now.toISOString() }} by GhostForge Agent.*\"\n}",
+        "options": {}
+      },
+      "id": "post-results-comment",
+      "name": "Post Results Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2300, 320],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "tests-passed",
+              "leftValue": "={{ $json.result?.tests_passed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-tests-passed",
+      "name": "IF - Tests Passed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2520, 320],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Prepare Issue Data').item.json.repo }}/pulls",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"title\": \"[Agent] {{ $('Prepare Issue Data').item.json.title }}\",\n  \"body\": \"Closes #{{ $('Prepare Issue Data').item.json.issue_number }}\\n\\n## Automated PR by GhostForge Agent\\n\\nThis pull request was automatically created to resolve Issue #{{ $('Prepare Issue Data').item.json.issue_number }}.\\n\\n### Changes\\n{{ $json.result?.pr_description || 'Automated changes by GhostForge Agent.' }}\\n\\n---\\n*Created by GhostForge Agent at {{ $now.toISOString() }}*\",\n  \"head\": \"{{ $json.result?.branch || 'agent/issue-' + $('Prepare Issue Data').item.json.issue_number }}\",\n  \"base\": \"main\",\n  \"draft\": false\n}",
+        "options": {}
+      },
+      "id": "create-pr",
+      "name": "Create PR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2740, 220],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Prepare Issue Data').item.json.repo }}/issues/{{ $('Prepare Issue Data').item.json.issue_number }}/comments",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"## 🔀 Pull Request Created\\n\\nA pull request has been automatically created to resolve this issue:\\n\\n**PR #{{ $json.number }}**: [{{ $json.title }}](${{ $json.html_url }})\\n\\n---\\n*Created by GhostForge Agent at {{ $now.toISOString() }}*\"\n}",
+        "options": {}
+      },
+      "id": "post-pr-comment",
+      "name": "Post PR Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2960, 220],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { status: 'agent_still_processing', poll_again: true } }];"
+      },
+      "id": "continue-polling",
+      "name": "Continue Polling",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2060, 560],
+      "parameters": {}
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $('Prepare Issue Data').item.json.repo }}/issues/{{ $('Prepare Issue Data').item.json.issue_number }}/comments",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": \"## ❌ Tests Failed — Manual Review Required\\n\\nThe agent completed work on Issue #{{ $('Prepare Issue Data').item.json.issue_number }}, but the automated tests did not pass.\\n\\n### Test Results\\n{{ $json.result?.test_details || 'See CI logs for details.' }}\\n\\n---\\n*GhostForge Agent at {{ $now.toISOString() }}*\"\n}",
+        "options": {}
+      },
+      "id": "post-test-fail-comment",
+      "name": "Post Test Fail Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2740, 420],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      },
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Agent Issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub Webhook": {
+      "main": [
+        [
+          {
+            "node": "IF - Has agent:auto Label",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has agent:auto Label": {
+      "main": [
+        [
+          {
+            "node": "Get Issue Details",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Get Issue Details": {
+      "main": [
+        [
+          {
+            "node": "Prepare Issue Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Issue Data": {
+      "main": [
+        [
+          {
+            "node": "Call JARVIS Process Issue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call JARVIS Process Issue": {
+      "main": [
+        [
+          {
+            "node": "Post Working Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Working Comment": {
+      "main": [
+        [
+          {
+            "node": "Poll Agent Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll Agent Status": {
+      "main": [
+        [
+          {
+            "node": "IF - Agent Completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Agent Completed": {
+      "main": [
+        [
+          {
+            "node": "Post Results Comment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 30s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30s": {
+      "main": [
+        [
+          {
+            "node": "Poll Agent Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Results Comment": {
+      "main": [
+        [
+          {
+            "node": "IF - Tests Passed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Tests Passed": {
+      "main": [
+        [
+          {
+            "node": "Create PR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post Test Fail Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create PR": {
+      "main": [
+        [
+          {
+            "node": "Post PR Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": "ghostforge-agent-monitor"
+  },
+  "tags": [
+    {
+      "name": "ghostforge"
+    },
+    {
+      "name": "agent"
+    }
+  ]
+}

@@ -15,11 +15,12 @@
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "tsc && electron .",
-    "build": "tsc && electron-builder",
-    "build:mac": "tsc && electron-builder --mac",
-    "build:win": "tsc && electron-builder --win",
-    "build:linux": "tsc && electron-builder --linux",
-    "build:all": "tsc && electron-builder -mwl",
+    "build": "tsc",
+    "build:mac": "tsc && electron-builder --mac --publish never",
+    "build:win": "tsc && electron-builder --win --publish never",
+    "build:linux": "tsc && electron-builder --linux --publish never",
+    "build:all": "tsc && electron-builder -mwl --publish never",
+    "build:android": "bash scripts/build-android.sh",
     "start": "electron .",
     "lint": "eslint src/ --ext .ts"
   },
@@ -46,43 +47,7 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*",
-      "resources/**/*"
-    ],
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "icon": "resources/icon.icns",
-      "target": [
-        "dmg",
-        "zip"
-      ],
-      "hardenedRuntime": true,
-      "entitlements": "build/entitlements.mac.plist",
-      "extendInfo": {
-        "NSMicrophoneUsageDescription": "GhostForge JARVIS needs microphone access for voice commands",
-        "NSScreenCaptureUsageDescription": "GhostForge JARVIS captures your screen to understand context",
-        "NSSpeechRecognitionUsageDescription": "GhostForge JARVIS uses speech recognition for voice commands"
-      }
-    },
-    "win": {
-      "icon": "resources/icon.ico",
-      "target": [
-        "nsis",
-        "portable"
-      ]
-    },
-    "linux": {
-      "icon": "resources/icon.png",
-      "target": [
-        "AppImage",
-        "deb",
-        "rpm"
-      ],
-      "category": "Development"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+      "dist/**/*"
+    ]
   }
 }

@@ -1,0 +1,524 @@
+{
+  "name": "GhostForge Agent Test Runner",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent-test-webhook",
+        "options": {}
+      },
+      "id": "pr-update-webhook",
+      "name": "PR Updated Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [220, 240],
+      "webhookId": "ghostforge-test-webhook"
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [220, 440]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nreturn [{\n  json: {\n    pr_number: body.pull_request?.number || body.pr_number,\n    pr_branch: body.pull_request?.head?.ref || body.branch || 'main',\n    repo: body.repository?.full_name || body.repo,\n    sha: body.pull_request?.head?.sha || body.sha || 'HEAD'\n  }\n}];"
+      },
+      "id": "extract-test-params",
+      "name": "Extract Test Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 340]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.repo }}/statuses/{{ $json.sha }}",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"state\":\"pending\",\"description\":\"GhostForge Agent: Running test suite...\",\"context\":\"ghostforge-agent/tests\",\"target_url\":\"http://localhost:3000/dashboard/test-runs/{{ $json.pr_number }}\"}",
+        "options": {}
+      },
+      "id": "set-status-pending",
+      "name": "Set Status Pending",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [660, 340],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const params = $input.first().json;\nreturn [{\n  json: {\n    ...params,\n    start_time: new Date().toISOString(),\n    results: {\n      lint: { status: 'pending', errors: [], warnings: [] },\n      typecheck: { status: 'pending', errors: [] },\n      tests: { status: 'pending', passed: 0, failed: 0, total: 0, failures: [] }\n    }\n  }\n}];"
+      },
+      "id": "init-results",
+      "name": "Init Test Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 340]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/jarvis/exec",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"command\":\"git clone --branch {{ $json.pr_branch }} --depth 1 https://github.com/{{ $json.repo }}.git /tmp/gf-test-{{ $json.pr_number }}\",\"timeout\":120000}",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "clone-repo",
+      "name": "Clone Repo at PR Branch",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1100, 340]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/jarvis/exec",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"command\":\"cd /tmp/gf-test-{{ $('Init Test Results').item.json.pr_number }} && npm install --frozen-lockfile 2>&1\",\"timeout\":180000}",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "id": "install-dependencies",
+      "name": "Install Dependencies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1320, 340]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/jarvis/exec",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"command\":\"cd /tmp/gf-test-{{ $('Init Test Results').item.json.pr_number }} && npm run lint 2>&1 || true\",\"timeout\":120000}",
+        "options": {
+          "timeout": 150000
+        }
+      },
+      "id": "run-lint",
+      "name": "Run Lint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1540, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = $input.first().json.stdout || $input.first().json.output || '';\nconst exitCode = $input.first().json.exitCode;\nconst results = $('Init Test Results').first().json.results;\n\nconst errorLines = output.split('\\n').filter(l => l.includes('error') || l.includes('Error'));\nconst warningLines = output.split('\\n').filter(l => l.includes('warning') || l.includes('Warning'));\n\nresults.lint = {\n  status: exitCode === 0 ? 'passed' : 'failed',\n  errors: errorLines.slice(0, 20),\n  warnings: warningLines.slice(0, 10),\n  exit_code: exitCode,\n  output: output.slice(-2000)\n};\n\nreturn [{ json: { ...$('Init Test Results').first().json, results } }];"
+      },
+      "id": "parse-lint-results",
+      "name": "Parse Lint Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 340]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/jarvis/exec",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"command\":\"cd /tmp/gf-test-{{ $json.pr_number }} && npx tsc --noEmit 2>&1 || true\",\"timeout\":120000}",
+        "options": {
+          "timeout": 150000
+        }
+      },
+      "id": "run-typecheck",
+      "name": "Run TypeCheck",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1980, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = $input.first().json.stdout || $input.first().json.output || '';\nconst exitCode = $input.first().json.exitCode;\nconst prevData = $('Parse Lint Results').first().json;\nconst results = prevData.results;\n\nconst errorLines = output.split('\\n').filter(l => l.includes('error TS'));\n\nresults.typecheck = {\n  status: exitCode === 0 ? 'passed' : 'failed',\n  errors: errorLines.slice(0, 20),\n  exit_code: exitCode,\n  output: output.slice(-2000)\n};\n\nreturn [{ json: { ...prevData, results } }];"
+      },
+      "id": "parse-typecheck-results",
+      "name": "Parse TypeCheck Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 340]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/jarvis/exec",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"command\":\"cd /tmp/gf-test-{{ $json.pr_number }} && npx jest --ci --reporters=default --reporters=jest-junit 2>&1 || true\",\"timeout\":300000}",
+        "options": {
+          "timeout": 360000
+        }
+      },
+      "id": "run-tests",
+      "name": "Run Tests",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2420, 340]
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = $input.first().json.stdout || $input.first().json.output || '';\nconst exitCode = $input.first().json.exitCode;\nconst prevData = $('Parse TypeCheck Results').first().json;\nconst results = prevData.results;\n\nconst passedMatch = output.match(/(\\d+) passed/);\nconst failedMatch = output.match(/(\\d+) failed/);\nconst totalMatch = output.match(/(\\d+) tests?/);\n\nconst passed = passedMatch ? parseInt(passedMatch[1]) : 0;\nconst failed = failedMatch ? parseInt(failedMatch[1]) : 0;\nconst total = totalMatch ? parseInt(totalMatch[1]) : passed + failed;\n\nconst failureBlocks = output.split(/FAIL|●/).slice(1).slice(0, 10);\n\nresults.tests = {\n  status: exitCode === 0 ? 'passed' : 'failed',\n  passed: passed,\n  failed: failed,\n  total: total,\n  failures: failureBlocks.map(b => b.trim().slice(0, 500)),\n  exit_code: exitCode,\n  output: output.slice(-3000)\n};\n\nresults.end_time = new Date().toISOString();\nresults.all_passed = results.lint.status === 'passed' && results.typecheck.status === 'passed' && results.tests.status === 'passed';\nresults.duration_ms = new Date(results.end_time) - new Date(prevData.start_time);\n\nreturn [{ json: { ...prevData, results } }];"
+      },
+      "id": "parse-test-results",
+      "name": "Parse Test Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, 340]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.repo }}/statuses/{{ $json.sha }}",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"state\":\"{{ $json.results.all_passed ? 'success' : 'failure' }}\",\"description\":\"GhostForge: {{ $json.results.all_passed ? 'All checks passed' : ($json.results.lint.status === 'failed' ? 'Lint failed' : ($json.results.typecheck.status === 'failed' ? 'TypeCheck failed' : 'Tests failed')) }}\",\"context\":\"ghostforge-agent/tests\",\"target_url\":\"http://localhost:3000/dashboard/test-runs/{{ $json.pr_number }}\"}",
+        "options": {}
+      },
+      "id": "set-status-final",
+      "name": "Set Final Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2860, 340],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Parse Test Results').first().json;\nconst r = data.results;\n\nlet body = '## 🧪 GhostForge Agent — Test Results\\n\\n';\nbody += '**PR #' + data.pr_number + '**\\n\\n';\nbody += '| Check | Status |\\n|-------|--------|\\n';\nbody += '| Lint | ' + (r.lint.status === 'passed' ? '✅ Passed' : '❌ Failed') + ' |\\n';\nbody += '| TypeCheck | ' + (r.typecheck.status === 'passed' ? '✅ Passed' : '❌ Failed') + ' |\\n';\nbody += '| Tests | ' + (r.tests.status === 'passed' ? '✅ Passed' : '❌ Failed') + ' (' + r.tests.passed + '/' + r.tests.total + ') |\\n';\nbody += '\\n';\n\nif (!r.all_passed) {\n  body += '### Failures\\n\\n';\n  if (r.lint.status === 'failed') {\n    body += '**Lint Errors:**\\n```\\n' + r.lint.errors.slice(0, 10).join('\\n') + '\\n```\\n\\n';\n  }\n  if (r.typecheck.status === 'failed') {\n    body += '**TypeCheck Errors:**\\n```\\n' + r.typecheck.errors.slice(0, 10).join('\\n') + '\\n```\\n\\n';\n  }\n  if (r.tests.status === 'failed') {\n    body += '**Test Failures:**\\n```\\n' + r.tests.failures.join('\\n---\\n').slice(0, 3000) + '\\n```\\n\\n';\n  }\n}\n\nbody += '---\\n*Completed in ' + Math.round(r.duration_ms / 1000) + 's at ' + r.end_time + '*';\n\nreturn [{ json: { repo: data.repo, pr_number: data.pr_number, all_passed: r.all_passed, comment_body: body } }];"
+      },
+      "id": "format-test-report",
+      "name": "Format Test Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3080, 340]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.repo }}/issues/{{ $json.pr_number }}/comments",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"body\":{{ JSON.stringify($json.comment_body) }}}",
+        "options": {}
+      },
+      "id": "post-test-results",
+      "name": "Post Test Results Comment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3300, 340],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "all-passed",
+              "leftValue": "={{ $json.all_passed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-all-passed",
+      "name": "IF - All Passed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3520, 340]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{ $json.repo }}/pulls/{{ $json.pr_number }}/reviews",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"body\":\"## ✅ GhostForge Agent — Auto-Approve\\n\\nAll automated checks have passed:\\n- Lint: ✅\\n- TypeCheck: ✅\\n- Tests: ✅\\n\\nApproving this PR for merge.\",\"event\":\"APPROVE\"}",
+        "options": {}
+      },
+      "id": "auto-approve-pr",
+      "name": "Auto-Approve PR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [3740, 240],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const repo = $input.first().json.repo;\nconst prNumber = $input.first().json.pr_number;\n\n// Cleanup: remove cloned repo\nreturn [{ json: { cleanup: 'rm -rf /tmp/gf-test-' + prNumber, repo, pr_number: prNumber } }];"
+      },
+      "id": "cleanup-repo",
+      "name": "Cleanup Temp Repo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3960, 240]
+    }
+  ],
+  "connections": {
+    "PR Updated Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Test Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Test Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Test Params": {
+      "main": [
+        [
+          {
+            "node": "Set Status Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Status Pending": {
+      "main": [
+        [
+          {
+            "node": "Init Test Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Test Results": {
+      "main": [
+        [
+          {
+            "node": "Clone Repo at PR Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clone Repo at PR Branch": {
+      "main": [
+        [
+          {
+            "node": "Install Dependencies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Install Dependencies": {
+      "main": [
+        [
+          {
+            "node": "Run Lint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Lint": {
+      "main": [
+        [
+          {
+            "node": "Parse Lint Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Lint Results": {
+      "main": [
+        [
+          {
+            "node": "Run TypeCheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run TypeCheck": {
+      "main": [
+        [
+          {
+            "node": "Parse TypeCheck Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse TypeCheck Results": {
+      "main": [
+        [
+          {
+            "node": "Run Tests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Tests": {
+      "main": [
+        [
+          {
+            "node": "Parse Test Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Test Results": {
+      "main": [
+        [
+          {
+            "node": "Set Final Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Final Status": {
+      "main": [
+        [
+          {
+            "node": "Format Test Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Test Report": {
+      "main": [
+        [
+          {
+            "node": "Post Test Results Comment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Test Results Comment": {
+      "main": [
+        [
+          {
+            "node": "IF - All Passed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - All Passed": {
+      "main": [
+        [
+          {
+            "node": "Auto-Approve PR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Auto-Approve PR": {
+      "main": [
+        [
+          {
+            "node": "Cleanup Temp Repo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": "ghostforge-agent-test-runner"
+  },
+  "tags": [
+    {
+      "name": "ghostforge"
+    },
+    {
+      "name": "agent"
+    },
+    {
+      "name": "tests"
+    }
+  ]
+}

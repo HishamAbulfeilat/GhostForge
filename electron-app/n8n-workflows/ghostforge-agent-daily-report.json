@@ -1,0 +1,337 @@
+{
+  "name": "GhostForge Agent Daily Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "daily-schedule-trigger",
+      "name": "Daily 9AM Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [220, 340]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [220, 540]
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date();\nconst today = now.toISOString().split('T')[0];\nconst yesterday = new Date(now.getTime() - 86400000).toISOString().split('T')[0];\n\nreturn [{\n  json: {\n    report_date: today,\n    period_start: yesterday,\n    period_end: today,\n    generated_at: now.toISOString()\n  }\n}];"
+      },
+      "id": "set-report-date",
+      "name": "Set Report Date",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 340]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/search/issues?q=label:agent:auto+state:open+repo:{{ $json.repo || 'GhostForge/ghostforge-agents' }}",
+        "method": "GET",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "fetch-open-agent-issues",
+      "name": "Fetch Open Agent Issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [660, 240],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/search/issues?q=label:agent:auto+state:closed+repo:{{ $('Set Report Date').item.json.repo || 'GhostForge/ghostforge-agents' }}+closed:>={{ $('Set Report Date').item.json.period_start }}",
+        "method": "GET",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "fetch-closed-agent-issues",
+      "name": "Fetch Closed Agent Issues",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [660, 440],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/search/issues?q=label:agent:pr+state:open+repo:{{ $('Set Report Date').item.json.repo || 'GhostForge/ghostforge-agents' }}",
+        "method": "GET",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "fetch-open-agent-prs",
+      "name": "Fetch Open Agent PRs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [660, 640],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/search/issues?q=label:agent:pr+state:closed+repo:{{ $('Set Report Date').item.json.repo || 'GhostForge/ghostforge-agents' }}+closed:>={{ $('Set Report Date').item.json.period_start }}",
+        "method": "GET",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "fetch-closed-agent-prs",
+      "name": "Fetch Closed Agent PRs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [880, 640],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "github-token",
+          "name": "GitHub API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const openIssues = $('Fetch Open Agent Issues').first().json;\nconst closedIssues = $('Fetch Closed Agent Issues').first().json;\nconst openPRs = $('Fetch Open Agent PRs').first().json;\nconst closedPRs = $('Fetch Closed Agent PRs').first().json;\nconst reportDate = $('Set Report Date').first().json;\n\nconst openCount = openIssues.total_count || 0;\nconst closedCount = closedIssues.total_count || 0;\nconst openPRCount = openPRs.total_count || 0;\nconst closedPRCount = closedPRs.total_count || 0;\n\nconst openIssuesList = (openIssues.items || []).slice(0, 10).map(i => ({\n  number: i.number,\n  title: i.title,\n  created: i.created_at,\n  labels: i.labels.map(l => l.name)\n}));\n\nconst closedIssuesList = (closedIssues.items || []).slice(0, 10).map(i => ({\n  number: i.number,\n  title: i.title,\n  closed: i.closed_at,\n  labels: i.labels.map(l => l.name)\n}));\n\nconst openPRList = (openPRs.items || []).slice(0, 10).map(i => ({\n  number: i.number,\n  title: i.title,\n  created: i.created_at\n}));\n\nconst closedPRList = (closedPRs.items || []).slice(0, 10).map(i => ({\n  number: i.number,\n  title: i.title,\n  closed: i.closed_at\n}));\n\nreturn [{\n  json: {\n    report_date: reportDate.report_date,\n    generated_at: reportDate.generated_at,\n    summary: {\n      open_issues: openCount,\n      completed_today: closedCount,\n      pending_issues: openCount,\n      open_prs: openPRCount,\n      merged_prs: closedPRCount,\n      total_activity: openCount + closedCount + openPRCount + closedPRCount\n    },\n    open_issues: openIssuesList,\n    completed_issues: closedIssuesList,\n    open_prs: openPRList,\n    merged_prs: closedPRList\n  }\n}];"
+      },
+      "id": "generate-report-data",
+      "name": "Generate Report Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 440]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst s = data.summary;\n\nlet report = '# 📊 GhostForge Agent — Daily Report\\n';\nreport += '**Date:** ' + data.report_date + '\\n';\nreport += '**Generated:** ' + data.generated_at + '\\n\\n';\n\nreport += '## Summary\\n\\n';\nreport += '| Metric | Count |\\n';\nreport += '|--------|-------|\\n';\nreport += '| Open Issues (Agent) | ' + s.open_issues + ' |\\n';\nreport += '| Completed (24h) | ' + s.completed_today + ' |\\n';\nreport += '| Pending Issues | ' + s.pending_issues + ' |\\n';\nreport += '| Open PRs (Agent) | ' + s.open_prs + ' |\\n';\nreport += '| Merged PRs (24h) | ' + s.merged_prs + ' |\\n';\nreport += '| **Total Activity** | **' + s.total_activity + '** |\\n\\n';\n\nif (data.open_issues.length > 0) {\n  report += '## Open Issues\\n\\n';\n  data.open_issues.forEach(i => {\n    report += '- #' + i.number + ': ' + i.title + '\\n';\n  });\n  report += '\\n';\n}\n\nif (data.completed_issues.length > 0) {\n  report += '## Completed Issues (24h)\\n\\n';\n  data.completed_issues.forEach(i => {\n    report += '- #' + i.number + ': ' + i.title + '\\n';\n  });\n  report += '\\n';\n}\n\nif (data.open_prs.length > 0) {\n  report += '## Open PRs\\n\\n';\n  data.open_prs.forEach(p => {\n    report += '- PR #' + p.number + ': ' + p.title + '\\n';\n  });\n  report += '\\n';\n}\n\nif (data.merged_prs.length > 0) {\n  report += '## Merged PRs (24h)\\n\\n';\n  data.merged_prs.forEach(p => {\n    report += '- PR #' + p.number + ': ' + p.title + '\\n';\n  });\n  report += '\\n';\n}\n\nreport += '---\\n*Generated by GhostForge Agent Monitor*';\n\nreturn [{ json: { ...data, report_markdown: report } }];"
+      },
+      "id": "format-report-markdown",
+      "name": "Format Report Markdown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 440]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:3000/api/jarvis/dashboard/report",
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"type\":\"daily_agent_report\",\"date\":\"{{ $json.report_date }}\",\"summary\":{{ JSON.stringify($json.summary) }},\"open_issues\":{{ JSON.stringify($json.open_issues) }},\"completed_issues\":{{ JSON.stringify($json.completed_issues) }},\"open_prs\":{{ JSON.stringify($json.open_prs) }},\"merged_prs\":{{ JSON.stringify($json.merged_prs) }},\"generated_at\":\"{{ $json.generated_at }}\"}",
+        "options": {}
+      },
+      "id": "post-to-dashboard",
+      "name": "Post to Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1540, 340]
+    },
+    {
+      "parameters": {
+        "sendTo": "team@ghostforge.dev",
+        "subject": "=GhostForge Agent Daily Report — {{ $('Generate Report Data').item.json.report_date }}",
+        "message": "={{ $('Format Report Markdown').item.json.report_markdown }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "send-email-report",
+      "name": "Send Email Report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1540, 540],
+      "credentials": {
+        "smtp": {
+          "id": "ghostforge-smtp",
+          "name": "GhostForge SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "#ghostforge-agents",
+        "text": "=📊 *GhostForge Agent Daily Report — {{ $('Generate Report Data').item.json.report_date }}*\\n\\n• Open Issues: {{ $('Generate Report Data').item.json.summary.open_issues }}\\n• Completed (24h): {{ $('Generate Report Data').item.json.summary.completed_today }}\\n• Open PRs: {{ $('Generate Report Data').item.json.summary.open_prs }}\\n• Merged PRs (24h): {{ $('Generate Report Data').item.json.summary.merged_prs }}\\n\\n🔗 Full report: http://localhost:3000/dashboard/reports/{{ $('Generate Report Data').item.json.report_date }}",
+        "otherOptions": {}
+      },
+      "id": "slack-notification",
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1540, 740],
+      "credentials": {
+        "slackApi": {
+          "id": "ghostforge-slack",
+          "name": "GhostForge Slack"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily 9AM Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Report Date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set Report Date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Report Date": {
+      "main": [
+        [
+          {
+            "node": "Fetch Open Agent Issues",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Closed Agent Issues",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Open Agent PRs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Open Agent Issues": {
+      "main": [
+        [
+          {
+            "node": "Fetch Closed Agent PRs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Closed Agent Issues": {
+      "main": [
+        [
+          {
+            "node": "Generate Report Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Open Agent PRs": {
+      "main": [
+        [
+          {
+            "node": "Generate Report Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Closed Agent PRs": {
+      "main": [
+        [
+          {
+            "node": "Generate Report Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Report Data": {
+      "main": [
+        [
+          {
+            "node": "Format Report Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Report Markdown": {
+      "main": [
+        [
+          {
+            "node": "Post to Dashboard",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Slack Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "UTC"
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": "ghostforge-agent-daily-report"
+  },
+  "tags": [
+    {
+      "name": "ghostforge"
+    },
+    {
+      "name": "agent"
+    },
+    {
+      "name": "reporting"
+    }
+  ]
+}

@@ -53,8 +53,8 @@ build_ts() {
 # ── macOS Build ──────────────────────────────────────────────────────────────
 
 build_mac() {
-  echo "Building for macOS..."
-  npx electron-builder --mac
+  echo "Building for macOS (x64 + arm64)..."
+  npx electron-builder --mac --publish never
   echo "macOS build complete ✓"
   echo "  Output: release/*.dmg, release/*.zip"
   echo ""
@@ -63,8 +63,8 @@ build_mac() {
 # ── Windows Build ────────────────────────────────────────────────────────────
 
 build_windows() {
-  echo "Building for Windows..."
-  npx electron-builder --win
+  echo "Building for Windows (x64)..."
+  npx electron-builder --win --publish never
   echo "Windows build complete ✓"
   echo "  Output: release/*.exe"
   echo ""
@@ -73,8 +73,8 @@ build_windows() {
 # ── Linux Build ──────────────────────────────────────────────────────────────
 
 build_linux() {
-  echo "Building for Linux..."
-  npx electron-builder --linux
+  echo "Building for Linux (x64)..."
+  npx electron-builder --linux --publish never
   echo "Linux build complete ✓"
   echo "  Output: release/*.AppImage, release/*.deb, release/*.rpm"
   echo ""
@@ -93,8 +93,8 @@ build_android() {
 
   # Build web assets
   cd ../web-ui
+  npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
   npm run build
-  npx next export
   cd "$SCRIPT_DIR"
 
   # Sync with Capacitor
