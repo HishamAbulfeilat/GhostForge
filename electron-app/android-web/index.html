@@ -527,6 +527,102 @@
 
     [aria-hidden="true"] { display: none !important; }
 
+    /* ── n8n Panel ──────────────────────────────────────────────────────── */
+    .n8n-card {
+      padding: 14px; border-radius: 14px; border: 1px solid var(--border);
+      background: var(--surface); margin-bottom: 12px;
+    }
+
+    .n8n-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+    }
+
+    .n8n-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .n8n-dot.online { background: var(--success); }
+    .n8n-dot.offline { background: var(--danger); }
+    .n8n-dot.checking { background: var(--warning); animation: pulse-dot 1.5s infinite; }
+
+    .n8n-label { font-size: 13px; font-weight: 600; color: var(--text); }
+    .n8n-sub { font-size: 11px; color: var(--text-muted); }
+
+    .n8n-btn {
+      width: 100%; padding: 10px; border-radius: 10px;
+      border: 1px solid var(--accent); background: var(--accent-glow);
+      color: var(--accent); font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s; display: flex;
+      align-items: center; justify-content: center; gap: 6px;
+      margin-bottom: 10px;
+    }
+    .n8n-btn:active { background: var(--accent); color: #fff; transform: scale(0.97); }
+
+    .n8n-webhook-list {
+      display: flex; flex-direction: column; gap: 6px;
+      margin-bottom: 10px; max-height: 160px; overflow-y: auto;
+    }
+
+    .n8n-webhook-item {
+      padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg);
+    }
+
+    .n8n-webhook-name {
+      font-size: 12px; font-weight: 500; color: var(--text);
+      margin-bottom: 4px;
+    }
+
+    .n8n-webhook-url {
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .n8n-webhook-url code {
+      flex: 1; font-size: 10px; color: var(--text-muted);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-family: 'SF Mono', 'Menlo', monospace;
+    }
+
+    .n8n-copy-btn {
+      padding: 3px 8px; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--bg);
+      color: var(--text-dim); font-size: 10px; cursor: pointer;
+      transition: all 0.15s; flex-shrink: 0;
+    }
+    .n8n-copy-btn:active { background: var(--accent-glow); color: var(--accent); }
+
+    .n8n-create-form {
+      padding: 10px; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--bg);
+    }
+
+    .n8n-create-form input, .n8n-create-form select {
+      width: 100%; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--surface);
+      color: var(--text); font-size: 13px; margin-bottom: 8px;
+      font-family: inherit; outline: none;
+    }
+    .n8n-create-form input:focus, .n8n-create-form select:focus {
+      border-color: var(--accent);
+    }
+
+    .n8n-create-btn {
+      width: 100%; padding: 8px; border-radius: 8px;
+      border: 1px solid var(--accent); background: transparent;
+      color: var(--accent); font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .n8n-create-btn:active { background: var(--accent); color: #fff; }
+
+    .n8n-toast {
+      position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+      padding: 8px 16px; border-radius: 20px;
+      background: var(--surface); border: 1px solid var(--success);
+      color: var(--success); font-size: 12px; font-weight: 500;
+      z-index: 600; animation: fade-in 0.2s ease;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    }
+
     .fade-in { animation: fade-in 0.2s ease; }
     @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
@@ -685,6 +781,37 @@
       <div class="section-title" style="margin-top: 16px">Discovered Servers</div>
       <div class="server-list" id="serverList">
         <div style="font-size:12px;color:var(--text-dim);padding:12px;text-align:center;">Scanning for servers...</div>
+      </div>
+
+      <div class="section-title" style="margin-top: 16px">N8N Workflows</div>
+      <div class="n8n-card" id="n8nCard">
+        <div class="n8n-header">
+          <div class="n8n-dot checking" id="n8nDot"></div>
+          <div>
+            <div class="n8n-label">n8n Automation</div>
+            <div class="n8n-sub" id="n8nStatus">Checking connection…</div>
+          </div>
+        </div>
+
+        <button class="n8n-btn" id="n8nOpenEditor" aria-label="Open n8n Editor">
+          <span id="n8nEditorDot" style="width:6px;height:6px;border-radius:50%;background:var(--warning)"></span>
+          Open n8n Editor
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </button>
+
+        <div class="n8n-webhook-list" id="n8nWebhookList"></div>
+
+        <div class="n8n-create-form" id="n8nCreateForm">
+          <input type="text" id="n8nNewName" placeholder="Workflow name" aria-label="Workflow name">
+          <select id="n8nNewType" aria-label="Workflow type">
+            <option value="deploy">🚀 Deploy — webhook + HTTP</option>
+            <option value="notify">📢 Notify — webhook + email</option>
+            <option value="pr">🔀 PR Review — webhook + GitHub</option>
+            <option value="custom">⚙ Custom — webhook only</option>
+          </select>
+          <input type="text" id="n8nNewDesc" placeholder="Description (optional)" aria-label="Description">
+          <button class="n8n-create-btn" id="n8nCreateBtn">+ Create Workflow</button>
+        </div>
       </div>
     </div>
   </section>
@@ -1259,11 +1386,110 @@
     }
 
     /* ═══════════════════════════════════════════════════════════════════════
+       N8N WORKFLOWS (Android Card)
+       ═══════════════════════════════════════════════════════════════════════ */
+    const N8N_URL = 'http://localhost:5678';
+    let n8nWorkflows = [];
+    let n8nReachable = false;
+
+    async function checkN8n() {
+      const dot = $('#n8nDot');
+      const status = $('#n8nStatus');
+      const editorDot = $('#n8nEditorDot');
+      try {
+        const res = await fetch(N8N_URL, { method: 'HEAD', mode: 'no-cors', signal: AbortSignal.timeout(3000) });
+        n8nReachable = true;
+        dot.className = 'n8n-dot online';
+        editorDot.style.background = 'var(--success)';
+        status.textContent = 'Reachable';
+      } catch {
+        n8nReachable = false;
+        dot.className = 'n8n-dot offline';
+        editorDot.style.background = 'var(--danger)';
+        status.textContent = 'Unreachable';
+      }
+    }
+
+    function renderN8nWebhooks() {
+      const list = $('#n8nWebhookList');
+      if (!list) return;
+      list.innerHTML = '';
+      n8nWorkflows.forEach(wf => {
+        const item = document.createElement('div');
+        item.className = 'n8n-webhook-item';
+        const webhookUrl = N8N_URL + '/webhook/ghostforge-' + wf.id;
+        item.innerHTML = `
+          <div class="n8n-webhook-name">${wf.active ? '🟢' : '⚪'} ${wf.name}</div>
+          <div class="n8n-webhook-url">
+            <code>${webhookUrl}</code>
+            <button class="n8n-copy-btn" data-url="${webhookUrl}" aria-label="Copy webhook URL">⧉</button>
+          </div>
+        `;
+        list.appendChild(item);
+      });
+      list.querySelectorAll('.n8n-copy-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const url = btn.getAttribute('data-url');
+          navigator.clipboard.writeText(url).then(() => {
+            btn.textContent = '✓';
+            showN8nToast('Webhook URL copied');
+            setTimeout(() => { btn.textContent = '⧉'; }, 1500);
+          }).catch(() => {});
+        });
+      });
+    }
+
+    function showN8nToast(msg) {
+      const existing = document.querySelector('.n8n-toast');
+      if (existing) existing.remove();
+      const t = document.createElement('div');
+      t.className = 'n8n-toast';
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => t.remove(), 2500);
+    }
+
+    async function loadN8nWorkflows() {
+      if (!api) return;
+      try {
+        const res = await api.n8n.getStatus();
+        if (res.connected) {
+          n8nWorkflows = await api.n8n.listWorkflows();
+          renderN8nWebhooks();
+        }
+      } catch {}
+    }
+
+    $('#n8nOpenEditor').addEventListener('click', () => {
+      window.open(N8N_URL, '_blank');
+    });
+
+    $('#n8nCreateBtn').addEventListener('click', async () => {
+      const name = $('#n8nNewName').value.trim();
+      if (!name) { showN8nToast('Enter a workflow name'); return; }
+      if (!api) { showN8nToast('Electron app required'); return; }
+      const type = $('#n8nNewType').value;
+      const desc = $('#n8nNewDesc').value.trim();
+      try {
+        const res = await api.n8n.createWorkflow({ name, type, description: desc });
+        showN8nToast('Workflow "' + name + '" created');
+        $('#n8nNewName').value = '';
+        $('#n8nNewDesc').value = '';
+        await loadN8nWorkflows();
+      } catch (e) {
+        showN8nToast('Create failed: ' + (e.message || 'error'));
+      }
+    });
+
+    /* ═══════════════════════════════════════════════════════════════════════
        INIT
        ═══════════════════════════════════════════════════════════════════════ */
     function init() {
       renderFeatures();
+      checkN8n();
+      setInterval(checkN8n, 15000);
       if (api) {
+        loadN8nWorkflows();
         api.jarvisConnection.getState().then((state) => {
           if (state.status === 'connected') updateConnectionStatus('online', 'Online');
           else updateConnectionStatus('offline', 'Offline');
