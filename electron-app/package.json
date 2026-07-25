@@ -2,7 +2,15 @@
   "name": "ghostforge-jarvis",
   "version": "5.2.0",
   "description": "GhostForge JARVIS — Ultimate AI Desktop Assistant with Screen Vision, Voice Control, and Blue Cursor",
-  "author": "Hisham Abulfeilat",
+  "author": {
+    "name": "Hisham Abulfeilat",
+    "email": "hisham@ghostforge.dev"
+  },
+  "homepage": "https://github.com/HishamAbulfeilat/GhostForge",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HishamAbulfeilat/GhostForge.git"
+  },
   "license": "MIT",
   "main": "dist/main/index.js",
   "scripts": {
@@ -29,6 +37,7 @@
   "build": {
     "appId": "com.ghostforge.jarvis",
     "productName": "GhostForge JARVIS",
+    "publish": "never",
     "directories": {
       "output": "release"
     },
