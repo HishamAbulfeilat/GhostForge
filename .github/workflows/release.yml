@@ -41,7 +41,7 @@ jobs:
 
       - name: Build Electron (macOS ${{ matrix.arch }})
         working-directory: electron-app
-        run: npx electron-builder --mac --${{ matrix.arch }}
+        run: npx electron-builder --mac --${{ matrix.arch }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -76,7 +76,7 @@ jobs:
 
       - name: Build Electron (Windows)
         working-directory: electron-app
-        run: npx electron-builder --win --x64
+        run: npx electron-builder --win --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -110,7 +110,7 @@ jobs:
 
       - name: Build Electron (Linux)
         working-directory: electron-app
-        run: npx electron-builder --linux --x64 AppImage deb
+        run: npx electron-builder --linux --x64 AppImage deb --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
