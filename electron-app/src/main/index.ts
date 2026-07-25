@@ -13,6 +13,8 @@ import { getSetupStatus, getSetupSteps, completeStep, isFirstRun } from './setup
 import { openUrl as browserOpen, searchWeb, navigateTab, clickElement, typeText, goBack, goForward, scrollPage, takeScreenshot as browserScreenshot, getPageText } from './browser-automation';
 import { extractText, readAndSummarize, askQuestionAboutFile, convertFormat } from './file-processor';
 import { getCpuStats, getRamStats, getDiskStats, getGpuStats, getFanSpeed, getFullSystemReport } from './hardware-monitor';
+import { JarvisConnection } from './jarvis-connection';
+import { ConnectionToggle } from './connection-toggle';
 import type { ScreenCaptureOptions, CursorTarget, JarvisConfig } from '../shared/types';
 import { DEFAULT_CONFIG } from '../shared/constants';
 
@@ -23,6 +25,8 @@ let cursorOverlay: CursorOverlay;
 let voiceSystem: VoiceSystem;
 let systemControl: SystemControl;
 let config: JarvisConfig = { ...DEFAULT_CONFIG };
+let jarvisConnection: JarvisConnection;
+let connectionToggle: ConnectionToggle;
 
 const GOT_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 
@@ -81,6 +85,8 @@ function createMainWindow(): void {
   cursorOverlay = new CursorOverlay();
   voiceSystem = new VoiceSystem(mainWindow);
   systemControl = new SystemControl();
+  jarvisConnection = new JarvisConnection(config);
+  connectionToggle = new ConnectionToggle(jarvisConnection, config);
   trayManager = new TrayManager(mainWindow);
 
   // Register clipboard change events for renderer
@@ -313,6 +319,103 @@ function registerIPC(): void {
   ipcMain.handle('hardware:gpu', () => getGpuStats());
   ipcMain.handle('hardware:fan', () => getFanSpeed());
   ipcMain.handle('hardware:full-report', () => getFullSystemReport());
+
+  // ── JARVIS Connection ─────────────────────────────────────────────────────
+  ipcMain.handle('jarvis:connect', async (_event, serverUrl?: string) => {
+    return jarvisConnection.connect(serverUrl);
+  });
+
+  ipcMain.handle('jarvis:connect-ws', async (_event, serverUrl?: string) => {
+    return jarvisConnection.connectWebSocket(serverUrl);
+  });
+
+  ipcMain.handle('jarvis:disconnect', () => {
+    jarvisConnection.disconnect();
+    return { success: true };
+  });
+
+  ipcMain.handle('jarvis:discover-servers', async () => {
+    return jarvisConnection.discoverServers();
+  });
+
+  ipcMain.handle('jarvis:get-state', () => {
+    return jarvisConnection.getState();
+  });
+
+  ipcMain.handle('jarvis:send-command', async (_event, command: string, payload?: Record<string, unknown>) => {
+    return jarvisConnection.sendCommand(command, payload);
+  });
+
+  ipcMain.handle('jarvis:send-ws-message', (_event, message: Record<string, unknown>) => {
+    jarvisConnection.sendWsMessage(message);
+    return { success: true };
+  });
+
+  ipcMain.handle('jarvis:is-connected', () => {
+    return jarvisConnection.isConnected();
+  });
+
+  // ── Connection Toggle / OmniRoute ─────────────────────────────────────────
+  ipcMain.handle('connection:get-mode', () => {
+    return connectionToggle.getConnectionMode();
+  });
+
+  ipcMain.handle('connection:set-mode', async (_event, mode: 'server' | 'omniroute') => {
+    return connectionToggle.setConnectionMode(mode);
+  });
+
+  ipcMain.handle('connection:get-status', async () => {
+    return connectionToggle.getStatus();
+  });
+
+  ipcMain.handle('connection:get-server-status', async () => {
+    return connectionToggle.getServerStatus();
+  });
+
+  ipcMain.handle('connection:get-servers', async () => {
+    return connectionToggle.getAvailableServers();
+  });
+
+  ipcMain.handle('connection:process', async (_event, text: string) => {
+    return connectionToggle.processWithMode(text);
+  });
+
+  // ── Connection Events (to renderer) ───────────────────────────────────────
+  jarvisConnection.on('status', (state) => {
+    mainWindow?.webContents.send('jarvis:status', state);
+  });
+
+  jarvisConnection.on('connected', (info) => {
+    mainWindow?.webContents.send('jarvis:connected', info);
+  });
+
+  jarvisConnection.on('disconnected', () => {
+    mainWindow?.webContents.send('jarvis:disconnected');
+  });
+
+  jarvisConnection.on('message', (msg) => {
+    mainWindow?.webContents.send('jarvis:message', msg);
+  });
+
+  jarvisConnection.on('reconnecting', (info) => {
+    mainWindow?.webContents.send('jarvis:reconnecting', info);
+  });
+
+  jarvisConnection.on('fallback', (info) => {
+    mainWindow?.webContents.send('jarvis:fallback', info);
+  });
+
+  connectionToggle.on('mode:changed', (status) => {
+    mainWindow?.webContents.send('connection:mode-changed', status);
+  });
+
+  connectionToggle.on('server:offline', (state) => {
+    mainWindow?.webContents.send('connection:server-offline', state);
+  });
+
+  connectionToggle.on('fallback', (info) => {
+    mainWindow?.webContents.send('connection:fallback', info);
+  });
 }
 
 function registerGlobalShortcuts(): void {
@@ -343,7 +446,12 @@ function registerGlobalShortcuts(): void {
 }
 
 // App lifecycle
-app.whenReady().then(createMainWindow);
+app.whenReady().then(async () => {
+  createMainWindow();
+  if (jarvisConnection) {
+    await jarvisConnection.connect();
+  }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -363,5 +471,7 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   cursorOverlay.destroyAll();
   voiceSystem.unregisterAll();
+  jarvisConnection?.destroy();
+  connectionToggle?.destroy();
   trayManager?.destroy();
 });

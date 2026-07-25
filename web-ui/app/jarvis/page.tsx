@@ -1,11 +1,14 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import CollabShare from '@/components/CollabShare'
 import LLMfitAutoSwitch from '@/components/LLMfitAutoSwitch'
 import ClickyOverlay from '@/components/ClickyOverlay'
 import { usePlatform, detectLanguage, getSpeechLang, platformLabel } from '@/lib/platform'
+
+const MarkLPanel = dynamic(() => import('@/components/MarkLPanel'), { ssr: false })
 import { collectRecognitionTranscript, findWakePhrase } from '@/lib/voice-runtime'
 import { JARVIS_QUICK_ACTIONS } from '@/lib/quick-actions'
 
@@ -848,6 +851,7 @@ export default function JarvisPage() {
   const pushToTalkRef = useRef(false)
   const [liveTranscript, setLiveTranscript] = useState('')
   const [audioLevel, setAudioLevel] = useState(0)
+  const [showMarkL, setShowMarkL] = useState(false)
   const audioAnalyserRef = useRef<AnalyserNode | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const audioAnimFrameRef = useRef<number | null>(null)
@@ -2061,11 +2065,11 @@ export default function JarvisPage() {
   const activePersona = PERSONA_OPTIONS.find(option => option.id === persona) || PERSONA_OPTIONS[0]
   const currentModelName = liveModel?.model || selectedModel || 'auto'
 
-  const QUICK_COMMANDS = JARVIS_QUICK_ACTIONS.filter(action => {
+  const QUICK_COMMANDS = useMemo(() => JARVIS_QUICK_ACTIONS.filter(action => {
     if (action.scope === 'mac') return hostCapabilities.macControl
     if (action.id === 'browser') return hostCapabilities.browserControl
     return true
-  })
+  }), [hostCapabilities.macControl, hostCapabilities.browserControl])
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -2085,35 +2089,6 @@ export default function JarvisPage() {
           toast('info', `Auto-switched to ${nextModel}: ${reason}`)
         }}
       />
-      <style>{`
-        @keyframes scanline {
-          0%   { transform: translateY(-100%); opacity: 0; }
-          10%  { opacity: 0.05; }
-          90%  { opacity: 0.05; }
-          100% { transform: translateY(100vh); opacity: 0; }
-        }
-        @keyframes hudFadeIn { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
-        @keyframes statusBlink { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        @keyframes gfai-pulse { 0%,100%{box-shadow:0 0 8px rgba(0,255,136,0.2)} 50%{box-shadow:0 0 20px rgba(0,255,136,0.5)} }
-        @keyframes orbPulse { 0%,100%{filter:drop-shadow(0 0 24px rgba(0,255,136,0.25))} 50%{filter:drop-shadow(0 0 40px rgba(0,255,136,0.6))} }
-        .gfai-scan   { animation: scanline 6s linear infinite; }
-        .gfai-fade   { animation: hudFadeIn 0.35s ease both; }
-        .gfai-blink  { animation: statusBlink 2s ease-in-out infinite; }
-        .gfai-grid   {
-          background-image:
-            linear-gradient(rgba(26,111,255,0.04) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(26,111,255,0.04) 1px, transparent 1px);
-          background-size: 40px 40px;
-        }
-        .gfai-msg-user { background: rgba(26,111,255,0.10); border-left: 2px solid #1a6fff; }
-        .gfai-msg-ai   { background: rgba(0,5,20,0.65); border-left: 2px solid; }
-        .gfai-scroll::-webkit-scrollbar { width: 4px; }
-        .gfai-scroll::-webkit-scrollbar-track { background: transparent; }
-        .gfai-scroll::-webkit-scrollbar-thumb { background: rgba(26,111,255,0.2); border-radius: 2px; }
-        .gfai-input:focus { outline: none; box-shadow: 0 0 0 1px ${mc.ring}55; }
-        .settings-slide { transition: max-height 0.3s ease, opacity 0.3s ease; }
-      `}</style>
-
       <div className="relative flex h-[100dvh] flex-col overflow-hidden bg-[#000208] text-white gfai-grid">
 
         {/* Scanline */}
@@ -2167,6 +2142,12 @@ export default function JarvisPage() {
               style={{ borderColor: `${mc.ring}44`, color: '#f59e0b99', background: showAudit ? 'rgba(245,158,11,0.08)' : 'transparent' }}
               title="View audit log of all tool actions">
               📋 AUDIT
+            </button>
+            <button type="button" onClick={() => { setShowMarkL(s => !s); if (!showMarkL) setShowSettings(false) }}
+              className="font-mono text-[10px] rounded px-2 py-1 border transition"
+              style={{ borderColor: showMarkL ? '#00ff88' : `${mc.ring}44`, color: showMarkL ? '#00ff88' : `${mc.ring}88`, background: showMarkL ? 'rgba(0,255,136,0.08)' : 'transparent' }}
+              title="Mark-L features panel — 29 capabilities">
+              ⚡ MARK-L
             </button>
             {/* ── Copilot CLI Mode Toggle ── */}
             <button type="button"
@@ -2427,6 +2408,23 @@ export default function JarvisPage() {
 
         {/* ── Main body ── */}
         <div className="relative z-10 flex flex-1 overflow-hidden">
+
+          {/* ── Mark-L Panel (overlay) ── */}
+          {showMarkL && (
+            <div className="absolute inset-y-0 left-0 z-30 w-72 overflow-y-auto border-r p-3 gfai-fade gfai-scroll"
+              style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.96)' }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-[10px] tracking-widest" style={{ color: mc.ring }}>⚡ MARK-L</span>
+                <button type="button" onClick={() => setShowMarkL(false)}
+                  className="text-blue-400/50 hover:text-blue-300 transition text-[10px]">✕</button>
+              </div>
+              <MarkLPanel
+                onRunAction={(prompt, id) => void sendToJarvis(prompt, id)}
+                disabled={mode === 'thinking' || mode === 'listening'}
+                ringColor={mc.ring}
+              />
+            </div>
+          )}
 
           {/* ── Left panel ── */}
           <div className="hidden md:flex w-44 shrink-0 flex-col gap-3 border-r p-3 font-mono text-[10px]"

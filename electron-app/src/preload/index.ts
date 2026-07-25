@@ -234,6 +234,57 @@ export interface ElectronAPI {
       uptime: number; platform: string; hostname: string;
     }>;
   };
+  jarvisConnection: {
+    connect: (serverUrl?: string) => Promise<{
+      status: string; type: string; serverUrl: string | null;
+      latency: number; lastConnected: number | null; reconnectAttempts: number;
+    }>;
+    connectWs: (serverUrl?: string) => Promise<{
+      status: string; type: string; serverUrl: string | null;
+      latency: number; lastConnected: number | null; reconnectAttempts: number;
+    }>;
+    disconnect: () => Promise<{ success: boolean }>;
+    discoverServers: () => Promise<Array<{
+      url: string; name: string; version?: string;
+      discoveredAt: number; lastSeen: number; responseTime: number;
+    }>>;
+    getState: () => Promise<{
+      status: string; type: string; serverUrl: string | null;
+      latency: number; lastConnected: number | null; reconnectAttempts: number;
+    }>;
+    sendCommand: (command: string, payload?: Record<string, unknown>) => Promise<unknown>;
+    sendWsMessage: (message: Record<string, unknown>) => Promise<{ success: boolean }>;
+    isConnected: () => Promise<boolean>;
+    onStatus: (callback: (state: Record<string, unknown>) => void) => void;
+    onConnected: (callback: (info: Record<string, unknown>) => void) => void;
+    onDisconnected: (callback: () => void) => void;
+    onMessage: (callback: (msg: Record<string, unknown>) => void) => void;
+    onReconnecting: (callback: (info: Record<string, unknown>) => void) => void;
+    onFallback: (callback: (info: Record<string, unknown>) => void) => void;
+  };
+  connectionToggle: {
+    getMode: () => Promise<string>;
+    setMode: (mode: 'server' | 'omniroute') => Promise<{
+      mode: string; serverState: Record<string, unknown> | null;
+      ollamaAvailable: boolean; pythonBridgeAvailable: boolean; activeModel: string | null;
+    }>;
+    getStatus: () => Promise<{
+      mode: string; serverState: Record<string, unknown> | null;
+      ollamaAvailable: boolean; pythonBridgeAvailable: boolean; activeModel: string | null;
+    }>;
+    getServerStatus: () => Promise<{
+      status: string; type: string; serverUrl: string | null;
+      latency: number; lastConnected: number | null; reconnectAttempts: number;
+    }>;
+    getServers: () => Promise<Array<{
+      url: string; name: string; version?: string;
+      discoveredAt: number; lastSeen: number; responseTime: number;
+    }>>;
+    process: (text: string) => Promise<{ text: string; source: string; model?: string }>;
+    onModeChanged: (callback: (status: Record<string, unknown>) => void) => void;
+    onServerOffline: (callback: (state: Record<string, unknown>) => void) => void;
+    onFallback: (callback: (info: Record<string, unknown>) => void) => void;
+  };
 }
 
 const electronAPI: ElectronAPI = {
@@ -365,6 +416,53 @@ const electronAPI: ElectronAPI = {
     gpu: () => ipcRenderer.invoke('hardware:gpu'),
     fan: () => ipcRenderer.invoke('hardware:fan'),
     fullReport: () => ipcRenderer.invoke('hardware:full-report'),
+  },
+  jarvisConnection: {
+    connect: (serverUrl?: string) => ipcRenderer.invoke('jarvis:connect', serverUrl),
+    connectWs: (serverUrl?: string) => ipcRenderer.invoke('jarvis:connect-ws', serverUrl),
+    disconnect: () => ipcRenderer.invoke('jarvis:disconnect'),
+    discoverServers: () => ipcRenderer.invoke('jarvis:discover-servers'),
+    getState: () => ipcRenderer.invoke('jarvis:get-state'),
+    sendCommand: (command: string, payload?: Record<string, unknown>) =>
+      ipcRenderer.invoke('jarvis:send-command', command, payload),
+    sendWsMessage: (message: Record<string, unknown>) =>
+      ipcRenderer.invoke('jarvis:send-ws-message', message),
+    isConnected: () => ipcRenderer.invoke('jarvis:is-connected'),
+    onStatus: (callback: (state: Record<string, unknown>) => void) => {
+      ipcRenderer.on('jarvis:status', (_event, state) => callback(state));
+    },
+    onConnected: (callback: (info: Record<string, unknown>) => void) => {
+      ipcRenderer.on('jarvis:connected', (_event, info) => callback(info));
+    },
+    onDisconnected: (callback: () => void) => {
+      ipcRenderer.on('jarvis:disconnected', () => callback());
+    },
+    onMessage: (callback: (msg: Record<string, unknown>) => void) => {
+      ipcRenderer.on('jarvis:message', (_event, msg) => callback(msg));
+    },
+    onReconnecting: (callback: (info: Record<string, unknown>) => void) => {
+      ipcRenderer.on('jarvis:reconnecting', (_event, info) => callback(info));
+    },
+    onFallback: (callback: (info: Record<string, unknown>) => void) => {
+      ipcRenderer.on('jarvis:fallback', (_event, info) => callback(info));
+    },
+  },
+  connectionToggle: {
+    getMode: () => ipcRenderer.invoke('connection:get-mode'),
+    setMode: (mode: 'server' | 'omniroute') => ipcRenderer.invoke('connection:set-mode', mode),
+    getStatus: () => ipcRenderer.invoke('connection:get-status'),
+    getServerStatus: () => ipcRenderer.invoke('connection:get-server-status'),
+    getServers: () => ipcRenderer.invoke('connection:get-servers'),
+    process: (text: string) => ipcRenderer.invoke('connection:process', text),
+    onModeChanged: (callback: (status: Record<string, unknown>) => void) => {
+      ipcRenderer.on('connection:mode-changed', (_event, status) => callback(status));
+    },
+    onServerOffline: (callback: (state: Record<string, unknown>) => void) => {
+      ipcRenderer.on('connection:server-offline', (_event, state) => callback(state));
+    },
+    onFallback: (callback: (info: Record<string, unknown>) => void) => {
+      ipcRenderer.on('connection:fallback', (_event, info) => callback(info));
+    },
   },
 };
 

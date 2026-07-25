@@ -2606,7 +2606,7 @@ export async function POST(req: NextRequest) {
     emit?: (payload: Record<string, unknown>) => void,
   ): Promise<JarvisResponsePayload> => {
     let aiResp: AIResponse = { speech: pickPersona('processing'), tool: null, toolParams: {}, emotion: 'thinking', confidence: 80 }
-    const directAction = getJarvisQuickAction(quickAction)
+    const directAction = quickAction ? getJarvisQuickAction(quickAction) : undefined
 
     if (directAction) {
       const toolParams = { ...directAction.params } as Record<string, string>
@@ -2615,7 +2615,7 @@ export async function POST(req: NextRequest) {
       }
       aiResp = {
         speech: `Running ${directAction.label.replace(/^\S+\s*/, '')}.`,
-        tool: directAction.tool,
+        tool: directAction.tool ?? null,
         toolParams,
         emotion: 'processing',
         confidence: 100,
