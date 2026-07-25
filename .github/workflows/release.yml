@@ -110,7 +110,7 @@ jobs:
 
       - name: Build Electron (Linux)
         working-directory: electron-app
-        run: npx electron-builder --linux --x64 AppImage deb --publish never
+        run: npx electron-builder --linux --x64 --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -155,14 +155,14 @@ jobs:
         run: npx next export || true
 
       - name: Install Capacitor
-        working-directory: electron-app
-        run: npm ci
+        working-directory: web-ui
+        run: npm install @capacitor/cli @capacitor/core @capacitor/android --legacy-peer-deps
 
       - name: Initialize Capacitor Android
         working-directory: electron-app
         run: |
-          npx cap add android || true
-          npx cap sync android
+          npx --prefix ../web-ui cap add android --web-dir ../web-ui/out || true
+          npx --prefix ../web-ui cap sync android
 
       - name: Build Android APK
         working-directory: electron-app/android
@@ -183,9 +183,12 @@ jobs:
 
   # ── Create Release ────────────────────────────────────────────────────────
   release:
-    needs: [build-macos, build-windows, build-linux, build-android]
+    needs: [build-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: |
+      always() &&
+      (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') &&
+      (needs.build-macos.result == 'success' || needs.build-windows.result == 'success' || needs.build-linux.result == 'success')
     steps:
       - uses: actions/checkout@v4
 
