@@ -142,16 +142,11 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install dependencies (web-ui)
-        working-directory: web-ui
-        run: npm ci --legacy-peer-deps
-
-      - name: Build web-ui
-        working-directory: web-ui
+      - name: Prepare web assets
+        working-directory: electron-app
         run: |
-          echo 'const nextConfig = { output: "export", images: { unoptimized: true } }; export default nextConfig;' > next.config.mjs
-          rm -rf app/api
-          npm run build
+          mkdir -p ../web-ui/out
+          cp android-web/index.html ../web-ui/out/index.html
 
       - name: Install Capacitor
         working-directory: electron-app
