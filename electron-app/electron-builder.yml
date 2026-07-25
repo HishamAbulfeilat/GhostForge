@@ -7,6 +7,7 @@ directories:
 
 files:
   - dist/**/*
+  - android-web/**/*
 
 mac:
   category: public.app-category.developer-tools
@@ -17,9 +18,7 @@ mac:
   target:
     - dmg
     - zip
-  arch:
-    - x64
-    - arm64
+  afterSign: scripts/notarize.js
   extendInfo:
     NSMicrophoneUsageDescription: GhostForge JARVIS needs microphone access for voice commands
     NSScreenCaptureUsageDescription: GhostForge JARVIS captures your screen to understand context
@@ -31,8 +30,6 @@ win:
   target:
     - nsis
     - portable
-  arch:
-    - x64
 
 linux:
   icon: build/icons
@@ -42,8 +39,6 @@ linux:
     - deb
     - rpm
     - snap
-  arch:
-    - x64
 
 nsis:
   oneClick: false
@@ -54,6 +49,7 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: GhostForge JARVIS
+  customNsisBinary: build/windows-installer.nsh
 
 appImage:
   license: LICENSE
@@ -61,6 +57,15 @@ appImage:
 snap:
   confinement: strict
   grade: stable
-  plugins:
+  plugs:
     - network
     - audio-record
+    - screen-capture
+    - camera
+    - desktop
+
+extraResources:
+  - from: bridge/
+    to: bridge/
+    filter:
+      - "**/*"
