@@ -854,6 +854,11 @@ export default function JarvisPage() {
   const [audioLevel, setAudioLevel] = useState(0)
   const [showMarkL, setShowMarkL] = useState(false)
   const [bridgeStatus, setBridgeStatus] = useState<string>('stopped')
+  // ── n8n workflow state ───────────────────────────────────────────────────────
+  const [n8nConnected, setN8nConnected] = useState(false)
+  const [n8nUrl, setN8nUrl] = useState('http://localhost:5678')
+  const [n8nWorkflows, setN8nWorkflows] = useState<Array<{ id: string; name: string; active: boolean; trigger: string }>>([])
+  const [n8nConnecting, setN8nConnecting] = useState(false)
   // ── Gemini Live voice state ───────────────────────────────────────────────────
   const [geminiConnectionState, setGeminiConnectionState] = useState<string>('disconnected')
   const [geminiListening, setGeminiListening] = useState(false)
@@ -1172,6 +1177,21 @@ export default function JarvisPage() {
     if (!api) return
     api.getStatus().then((res: { status: string }) => setBridgeStatus(res.status)).catch(() => {})
     api.onStatusChange((status: string) => setBridgeStatus(status))
+  }, [])
+
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const api = (window as any).electron?.n8n
+    if (!api) return
+    api.getStatus().then((res: { connected: boolean; url: string }) => {
+      setN8nConnected(res.connected)
+      if (res.url) setN8nUrl(res.url)
+      if (res.connected) {
+        api.listWorkflows().then((wfs: Array<{ id: string; name: string; active: boolean; trigger: string }>) => {
+          setN8nWorkflows(wfs)
+        }).catch(() => {})
+      }
+    }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -2469,6 +2489,115 @@ export default function JarvisPage() {
                 </div>
               </div>
 
+              {/* n8n Workflows */}
+              <div className="min-w-[280px]">
+                <p className="text-blue-400/40 tracking-widest mb-1.5">N8N WORKFLOWS</p>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="h-2 w-2 rounded-full" style={{ background: n8nConnected ? '#00ff88' : '#ff444466' }} />
+                  <span className="font-mono text-[10px]" style={{ color: n8nConnected ? '#00ff88' : 'rgba(255,100,100,0.5)' }}>
+                    {n8nConnected ? `Connected — ${n8nWorkflows.length} workflows` : 'Disconnected'}
+                  </span>
+                </div>
+                <div className="flex gap-1.5 mb-2">
+                  <input
+                    type="text"
+                    value={n8nUrl}
+                    onChange={e => setN8nUrl(e.target.value)}
+                    placeholder="http://localhost:5678"
+                    className="flex-1 rounded border px-2 py-1 font-mono text-[10px] bg-black/30 outline-none"
+                    style={{ borderColor: `${mc.ring}44`, color: mc.ring }}
+                  />
+                  <button
+                    type="button"
+                    disabled={n8nConnecting}
+                    onClick={async () => {
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      const api = (window as any).electron?.n8n
+                      if (!api) { toast('error', 'n8n requires Electron app'); return }
+                      setN8nConnecting(true)
+                      try {
+                        const res = await api.connect(n8nUrl)
+                        setN8nConnected(res.connected)
+                        if (res.connected) {
+                          const wfs = await api.listWorkflows()
+                          setN8nWorkflows(wfs)
+                          toast('success', `Connected to n8n — ${wfs.length} workflows`)
+                        } else {
+                          toast('error', 'Cannot connect to n8n — is it running?')
+                        }
+                      } catch {
+                        toast('error', 'n8n connection failed')
+                      } finally {
+                        setN8nConnecting(false)
+                      }
+                    }}
+                    className="rounded px-2 py-1 border font-mono text-[10px] transition disabled:opacity-40"
+                    style={{ borderColor: `${mc.ring}66`, color: mc.ring, background: `${mc.ring}12` }}>
+                    {n8nConnecting ? '...' : 'CONNECT'}
+                  </button>
+                </div>
+                {n8nConnected && n8nWorkflows.length > 0 && (
+                  <div className="rounded border max-h-28 overflow-y-auto mb-2"
+                    style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,0,0,0.18)' }}>
+                    {n8nWorkflows.map(wf => (
+                      <div key={wf.id} className="flex items-center justify-between px-2 py-1 border-b last:border-b-0"
+                        style={{ borderColor: `${mc.ring}11` }}>
+                        <span className="font-mono text-[9px] truncate" style={{ color: wf.active ? '#00ff88' : `${mc.ring}88` }}>
+                          {wf.active ? '🟢' : '⚪'} {wf.name}
+                        </span>
+                        <span className="font-mono text-[8px] text-blue-400/30 shrink-0">{wf.id}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: 'DEPLOY', action: 'deploy', icon: '🚀' },
+                    { label: 'NOTIFY', action: 'notify', icon: '📢' },
+                    { label: 'PR', action: 'pr', icon: '🔀' },
+                    { label: 'IMPORT', action: 'import', icon: '📥' },
+                  ].map(btn => (
+                    <button
+                      key={btn.action}
+                      type="button"
+                      disabled={!n8nConnected}
+                      onClick={async () => {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const api = (window as any).electron?.n8n
+                        if (!api) { toast('error', 'n8n requires Electron app'); return }
+                        if (btn.action === 'import') {
+                          const res = await api.importWorkflows()
+                          toast('success', `Imported ${res.count} workflows`)
+                          if (n8nConnected) {
+                            const wfs = await api.listWorkflows()
+                            setN8nWorkflows(wfs)
+                          }
+                          return
+                        }
+                        if (btn.action === 'deploy') {
+                          await api.deploy('deploy', 'ghostforge')
+                          toast('success', 'Deploy workflow triggered')
+                          return
+                        }
+                        if (btn.action === 'notify') {
+                          await api.notify('general', 'Test notification from JARVIS', 'medium')
+                          toast('success', 'Notify workflow triggered')
+                          return
+                        }
+                        if (btn.action === 'pr') {
+                          await api.pr('review', 1, 'ghostforge/ghostforge-agents')
+                          toast('success', 'PR workflow triggered')
+                          return
+                        }
+                      }}
+                      className="rounded px-2 py-1 border font-mono text-[9px] transition disabled:opacity-30"
+                      style={{ borderColor: `${mc.ring}33`, color: `${mc.ring}cc`, background: `${mc.ring}08` }}>
+                      {btn.icon} {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Voice Biometrics Enrollment */}
               <VoiceEnrollPanel mc={mc} />
             </div>
@@ -2514,6 +2643,7 @@ export default function JarvisPage() {
                 { label: 'GITHUB', val: integrations.github ? 'LINKED' : 'N/A', ok: integrations.github },
                 { label: 'DISCORD', val: integrations.discord ? 'LINKED' : 'N/A', ok: integrations.discord },
                 { label: 'BRIDGE', val: bridgeStatus === 'running' ? 'ONLINE' : bridgeStatus === 'starting' ? 'STARTING' : bridgeStatus === 'error' ? 'ERROR' : 'OFF', ok: bridgeStatus === 'running' },
+                { label: 'N8N', val: n8nConnected ? `${n8nWorkflows.length} WF` : 'OFF', ok: n8nConnected },
               ].map(s => (
                 <div key={s.label} className="flex justify-between py-0.5">
                   <span className="text-blue-400/40">{s.label}</span>

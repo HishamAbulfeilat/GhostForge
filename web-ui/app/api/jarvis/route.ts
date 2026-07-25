@@ -50,13 +50,14 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   models:      '- llmfit_recommend { task? } | - list_local_models | - install_model { model, runner? } | - open_url { url }',
   remote:      '- take_screenshot { filename? } | - describe_screen | - terminal_command { command } | - open_url { url } | - browser_control { action, url?, text? }',
   travel:      '- flight_finder { from, to, date? } | - web_search { query, mode? } | - open_url { url } | - get_weather { city }',
-  general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - browser_control { action, url?, text? } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value } | - youtube_control { action, query?, url?, region? } | - game_manager { action, game_name? } | - clipboard_analyze { action, text? } | - browser_automate { action, url?, selector?, text? } | - file_processor { action, file_path?, question?, output_format? } | - hardware_monitor { report_type? } | - system_control { action, value? } | - setup_wizard { action, step_id?, config? }',
+  general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - browser_control { action, url?, text? } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value } | - youtube_control { action, query?, url?, region? } | - game_manager { action, game_name? } | - clipboard_analyze { action, text? } | - browser_automate { action, url?, selector?, text? } | - file_processor { action, file_path?, question?, output_format? } | - hardware_monitor { report_type? } | - system_control { action, value? } | - setup_wizard { action, step_id?, config? } | - n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? }',
   youtube:     '- youtube_control { action, query?, url?, region? }',
   games:       '- game_manager { action, game_name? }',
   clipboard:   '- clipboard_analyze { action, text? }',
   browser_ext: '- browser_automate { action, url?, selector?, text? } | - browser_control { action, url?, text? }',
   files_ext:   '- file_processor { action, file_path?, question?, output_format? } | - get_files { path? } | - read_file { path }',
   hardware:    '- hardware_monitor { report_type? } | - get_system_info',
+  n8n:         '- n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? }',
   design:      '- apply_design_md { site } | - list_design_md | - design_resources { category? }',
   security:    '- vigolium_scan { target, strategy? } | - vigolium_agent { target, mode? } | - terminal_command { command }',
 }
@@ -72,6 +73,7 @@ type Domain =
   | 'code' | 'math' | 'files' | 'reminder' | 'mac_control' | 'vision'
   | 'github' | 'copilot' | 'lock' | 'screenshot' | 'models' | 'remote' | 'travel' | 'general'
   | 'youtube' | 'games' | 'clipboard' | 'browser_ext' | 'files_ext' | 'hardware'
+  | 'n8n'
 
 const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   weather:     ['weather','temperature','forecast','rain','sunny','cold','hot','humidity','wind','storm','degrees'],
@@ -99,6 +101,7 @@ const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   browser_ext: ['automate browser','playwright','click element','browser screenshot','browser text','page text'],
   files_ext:   ['summarize file','read file','file summary','convert file','file converter','ask file'],
   hardware:    ['cpu usage','ram usage','disk usage','gpu usage','fan speed','hardware report','system report','hardware stats'],
+  n8n:         ['n8n','workflow','webhook','automate','automation','deploy workflow','notify workflow','trigger workflow','import workflow','activate workflow','deactivate workflow'],
   general:     [],
 }
 
@@ -125,6 +128,7 @@ const DOMAIN_EXTRA_GUIDANCE: Partial<Record<Domain, string>> = {
   browser_ext: 'Automate browser actions: open, click, type, navigate, screenshot.',
   files_ext:   'Read, summarize, ask questions about, or convert files.',
   hardware:    'Report CPU, RAM, disk, GPU, fan speed, and full system stats.',
+  n8n:         'Manage n8n workflows: list, create, trigger, deploy, notify, import templates, activate/deactivate.',
 }
 
 function classifyDomain(text: string): Domain {
@@ -1331,6 +1335,130 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
     }
 
     // ── Vault (Knowledge Graph) — silently save user facts ────────────────────
+    case 'n8n_workflow': {
+      const action = (params.action || 'list').toLowerCase()
+      const N8N_URL = process.env.N8N_URL || 'http://localhost:5678'
+      const N8N_API_KEY = process.env.N8N_API_KEY || ''
+
+      const n8nHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (N8N_API_KEY) n8nHeaders['X-N8N-API-KEY'] = N8N_API_KEY
+
+      if (action === 'list') {
+        try {
+          const res = await fetch(`${N8N_URL}/api/v1/workflows`, {
+            headers: n8nHeaders,
+            signal: AbortSignal.timeout(8000),
+          })
+          if (!res.ok) return `n8n connection failed (${res.status}). Ensure n8n is running at ${N8N_URL}`
+          const data = await res.json() as { data?: Array<{ id: string; name: string; active: boolean }> }
+          const workflows = data.data || []
+          if (workflows.length === 0) return 'No workflows found in n8n. Import templates with: import n8n workflows'
+          return `n8n Workflows (${workflows.length}):\n${workflows.map(w => `${w.active ? '🟢' : '⚪'} ${w.name} (${w.id})`).join('\n')}\n\nn8n: ${N8N_URL}`
+        } catch {
+          return `Cannot connect to n8n at ${N8N_URL}. Is it running? Start with: n8n start`
+        }
+      }
+
+      if (action === 'deploy') {
+        const project = params.data ? (JSON.parse(params.data || '{}') as { project?: string }).project || 'ghostforge' : 'ghostforge'
+        const branch = params.data ? (JSON.parse(params.data || '{}') as { branch?: string }).branch || 'main' : 'main'
+        try {
+          const webhookUrl = `${N8N_URL}/webhook/ghostforge-deploy`
+          const res = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'deploy', project, branch, timestamp: Date.now() }),
+            signal: AbortSignal.timeout(10000),
+          })
+          if (!res.ok) return `Deploy webhook failed (${res.status}). Ensure ghostforge-deploy workflow is active in n8n.`
+          return `Deploy triggered for ${project} (${branch}). Check n8n for execution status.`
+        } catch {
+          return `Cannot reach n8n deploy webhook at ${N8N_URL}. Ensure n8n is running and the ghostforge-deploy workflow is active.`
+        }
+      }
+
+      if (action === 'notify') {
+        const channel = params.channel || 'general'
+        const message = params.message || 'Notification from GhostForge'
+        const priority = params.priority || 'medium'
+        try {
+          const webhookUrl = `${N8N_URL}/webhook/ghostforge-notify`
+          const res = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ channel, message, priority, timestamp: Date.now() }),
+            signal: AbortSignal.timeout(10000),
+          })
+          if (!res.ok) return `Notify webhook failed (${res.status}). Ensure ghostforge-notify workflow is active.`
+          return `Notification sent to #${channel}: "${message.slice(0, 60)}" (${priority})`
+        } catch {
+          return `Cannot reach n8n notify webhook. Ensure n8n is running.`
+        }
+      }
+
+      if (action === 'pr') {
+        const actionType = params.action || 'review'
+        const prNumber = parseInt(params.prNumber || '0')
+        const repo = params.repo || ''
+        const comment = params.comment || ''
+        if (!prNumber || !repo) return 'PR number and repo are required for n8n PR workflow'
+        try {
+          const webhookUrl = `${N8N_URL}/webhook/ghostforge-pr`
+          const res = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: actionType, prNumber, repo, comment, timestamp: Date.now() }),
+            signal: AbortSignal.timeout(10000),
+          })
+          if (!res.ok) return `PR webhook failed (${res.status}). Ensure ghostforge-pr workflow is active.`
+          return `PR ${actionType} triggered for #${prNumber} in ${repo}`
+        } catch {
+          return `Cannot reach n8n PR webhook. Ensure n8n is running.`
+        }
+      }
+
+      if (action === 'create') {
+        const name = params.data ? (JSON.parse(params.data || '{}') as { name?: string }).name || 'New Workflow' : 'New Workflow'
+        try {
+          const res = await fetch(`${N8N_URL}/api/v1/workflows`, {
+            method: 'POST',
+            headers: n8nHeaders,
+            body: JSON.stringify({
+              name,
+              nodes: [{ type: 'n8n-nodes-base.manualTrigger', position: [250, 300], parameters: {} }],
+              connections: {},
+            }),
+            signal: AbortSignal.timeout(8000),
+          })
+          if (!res.ok) return `Failed to create workflow (${res.status})`
+          const data = await res.json() as { id?: string; name?: string }
+          return `Workflow created: ${data.name || name} (${data.id || 'unknown id'})`
+        } catch {
+          return 'Failed to create workflow — check n8n connection'
+        }
+      }
+
+      if (action === 'trigger') {
+        const workflowId = params.workflowId || ''
+        if (!workflowId) return 'Workflow ID is required to trigger'
+        try {
+          const webhookUrl = `${N8N_URL}/webhook/ghostforge/${workflowId}`
+          const res = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ triggeredFrom: 'jarvis', timestamp: Date.now() }),
+            signal: AbortSignal.timeout(10000),
+          })
+          if (!res.ok) return `Trigger failed for workflow ${workflowId} (${res.status})`
+          return `Workflow ${workflowId} triggered successfully`
+        } catch {
+          return `Cannot trigger workflow ${workflowId} — check n8n connection`
+        }
+      }
+
+      return `Unknown n8n action: ${action}. Available: list, deploy, notify, pr, create, trigger`
+    }
+
     case 'vault_save': {
       const category = (params.category as string) || 'facts'
       const key = params.key as string

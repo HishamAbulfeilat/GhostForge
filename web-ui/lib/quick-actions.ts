@@ -39,6 +39,10 @@ export const JARVIS_QUICK_ACTIONS: QuickAction[] = [
   { id: 'vision',    label: '👁 VISION',      prompt: 'Look at my screen and describe what you see', icon: '👁', category: 'vision' },
   { id: 'memory',    label: '🧠 MEMORY',     prompt: 'What do you remember about me?',            icon: '🧠', category: 'memory' },
   { id: 'standup',   label: '📋 STANDUP',    prompt: 'Generate my daily standup summary',         icon: '📋', category: 'system' },
+  { id: 'n8n',       label: '⚡ N8N',         prompt: 'List my n8n workflows',                     icon: '⚡', category: 'workflows' },
+  { id: 'n8n-deploy',label: '🚀 N8N DEPLOY',  prompt: 'Trigger the n8n deploy workflow',           icon: '🚀', category: 'workflows' },
+  { id: 'n8n-notify',label: '📢 N8N NOTIFY',  prompt: 'Send a notification via n8n',               icon: '📢', category: 'workflows' },
+  { id: 'n8n-pr',    label: '🔀 N8N PR',      prompt: 'Review a pull request via n8n',             icon: '🔀', category: 'workflows' },
 ]
 
 export const QUICK_ACTION_CATEGORIES = [
@@ -51,6 +55,7 @@ export const QUICK_ACTION_CATEGORIES = [
   { id: 'communication', label: 'Communication', icon: '💬'  },
   { id: 'memory',        label: 'Memory',        icon: '🧠'  },
   { id: 'media',         label: 'Media',         icon: '🎵'  },
+  { id: 'workflows',     label: 'Workflows',     icon: '⚡'  },
 ] as const
 
 /** Get a quick action by its ID — used by the JARVIS API route to resolve prompts */

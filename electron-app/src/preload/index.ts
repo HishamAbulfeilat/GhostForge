@@ -316,6 +316,22 @@ export interface ElectronAPI {
     onPlaybackEnded: (callback: () => void) => void;
     onReconnecting: (callback: (info: { attempt: number; maxAttempts: number }) => void) => void;
   };
+  n8n: {
+    getStatus: () => Promise<{ connected: boolean; url: string; workflowCount: number; activeWorkflows: number }>;
+    connect: (url?: string, apiKey?: string) => Promise<{ connected: boolean; url: string; workflowCount: number; activeWorkflows: number }>;
+    listWorkflows: () => Promise<Array<{ id: string; name: string; webhookUrl: string; active: boolean; trigger: string }>>;
+    getWorkflow: (id: string) => Promise<unknown>;
+    createWorkflow: (workflow: { name: string; nodes: unknown[]; connections: Record<string, unknown> }) => Promise<{ id: string; name: string; webhookUrl: string; active: boolean; trigger: string } | null>;
+    activateWorkflow: (id: string) => Promise<boolean>;
+    deactivateWorkflow: (id: string) => Promise<boolean>;
+    trigger: (workflowId: string, data: Record<string, unknown>) => Promise<unknown>;
+    triggerByName: (name: string, data: Record<string, unknown>) => Promise<unknown>;
+    deploy: (action: 'test' | 'build' | 'deploy', project: string, branch?: string) => Promise<unknown>;
+    notify: (channel: string, message: string, priority?: 'low' | 'medium' | 'high') => Promise<unknown>;
+    pr: (action: 'review' | 'merge' | 'comment', prNumber: number, repo: string, comment?: string) => Promise<unknown>;
+    importWorkflows: () => Promise<{ imported: string[]; count: number }>;
+    onStatusChange: (callback: (status: { connected: boolean; url: string; workflowCount: number; activeWorkflows: number }) => void) => void;
+  };
 }
 
 const electronAPI: ElectronAPI = {
@@ -542,6 +558,30 @@ const electronAPI: ElectronAPI = {
     },
     onReconnecting: (callback: (info: { attempt: number; maxAttempts: number }) => void) => {
       ipcRenderer.on('gemini:reconnecting', (_event, info) => callback(info));
+    },
+  },
+  n8n: {
+    getStatus: () => ipcRenderer.invoke('jarvis:n8n-status'),
+    connect: (url?: string, apiKey?: string) => ipcRenderer.invoke('jarvis:n8n-connect', url, apiKey),
+    listWorkflows: () => ipcRenderer.invoke('jarvis:n8n-workflows'),
+    getWorkflow: (id: string) => ipcRenderer.invoke('jarvis:n8n-workflow-get', id),
+    createWorkflow: (workflow: { name: string; nodes: unknown[]; connections: Record<string, unknown> }) =>
+      ipcRenderer.invoke('jarvis:n8n-workflow-create', workflow),
+    activateWorkflow: (id: string) => ipcRenderer.invoke('jarvis:n8n-workflow-activate', id),
+    deactivateWorkflow: (id: string) => ipcRenderer.invoke('jarvis:n8n-workflow-deactivate', id),
+    trigger: (workflowId: string, data: Record<string, unknown>) =>
+      ipcRenderer.invoke('jarvis:n8n-trigger', workflowId, data),
+    triggerByName: (name: string, data: Record<string, unknown>) =>
+      ipcRenderer.invoke('jarvis:n8n-trigger-by-name', name, data),
+    deploy: (action: 'test' | 'build' | 'deploy', project: string, branch?: string) =>
+      ipcRenderer.invoke('jarvis:n8n-deploy', action, project, branch),
+    notify: (channel: string, message: string, priority?: 'low' | 'medium' | 'high') =>
+      ipcRenderer.invoke('jarvis:n8n-notify', channel, message, priority),
+    pr: (action: 'review' | 'merge' | 'comment', prNumber: number, repo: string, comment?: string) =>
+      ipcRenderer.invoke('jarvis:n8n-pr', action, prNumber, repo, comment),
+    importWorkflows: () => ipcRenderer.invoke('jarvis:n8n-workflows-import'),
+    onStatusChange: (callback: (status: { connected: boolean; url: string; workflowCount: number; activeWorkflows: number }) => void) => {
+      ipcRenderer.on('jarvis:n8n-status-changed', (_event, status) => callback(status));
     },
   },
 };
