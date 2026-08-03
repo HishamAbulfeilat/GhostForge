@@ -272,15 +272,23 @@ function parseAcfManifest(content: string, steamappsDir: string): InstalledGame 
 async function triggerSteamUpdate(appId: string): Promise<string> {
   const platform = process.platform;
 
+  // Only numeric Steam app IDs are valid — reject anything else before it
+  // reaches the `steam://update/` deep link.
+  if (!/^\d+$/.test(String(appId))) {
+    throw new Error(`Invalid Steam appId: ${appId}`);
+  }
+
+  const target = `steam://update/${appId}`;
+
   return new Promise((resolve, reject) => {
     let cmd: string;
 
     if (platform === 'darwin') {
-      cmd = `open "steam://update/${appId}"`;
+      cmd = `open "${target}"`;
     } else if (platform === 'win32') {
-      cmd = `start "" "steam://update/${appId}"`;
+      cmd = `start "" "${target}"`;
     } else {
-      cmd = `xdg-open "steam://update/${appId}"`;
+      cmd = `xdg-open "${target}"`;
     }
 
     exec(cmd, (error) => {

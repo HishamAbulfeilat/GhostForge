@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
+import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { execSync } from 'child_process'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 const ROOT = path.join(os.homedir(), 'GhostForge')
 const WEBUI = path.join(ROOT, 'web-ui')
@@ -61,10 +61,8 @@ async function testGemini(key: string, model: string): Promise<{ ok: boolean; st
   } catch { return { ok: false, status: 0 } }
 }
 
-export async function GET() {
-  const cookieStore = await cookies()
-  const auth = cookieStore.get('gf_token')
-  if (!auth?.value || auth.value !== process.env.AUTH_SECRET) {
+export async function GET(req: NextRequest) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

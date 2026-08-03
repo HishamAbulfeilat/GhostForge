@@ -53,14 +53,42 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const push = useCallback((n: Omit<Notification, 'id' | 'ts' | 'read'>) => {
     const notif: Notification = { ...n, id: crypto.randomUUID(), ts: Date.now(), read: false }
     setNotifications(prev => [notif, ...prev].slice(0, 50))
-    // Auto-toast for 4s
+    // Auto-toast for 4s — build with DOM nodes + textContent (never innerHTML)
+    // so notification title/body can't inject HTML.
     const toastEl = document.getElementById('gf-toast-container')
     if (toastEl) {
       const toast = document.createElement('div')
       toast.className = `flex items-start gap-2 rounded-xl border px-3 py-2 text-sm shadow-lg backdrop-blur-sm ${COLORS[n.type]} text-white animate-fade-in`
-      toast.innerHTML = `<span>${ICONS[n.type]}</span><div><p class="font-medium">${n.title}</p>${n.body ? `<p class="text-xs opacity-70">${n.body}</p>` : ''}</div>`
+
+      const iconSpan = document.createElement('span')
+      iconSpan.textContent = ICONS[n.type]
+
+      const textWrap = document.createElement('div')
+      textWrap.className = 'flex-1 min-w-0'
+      const titleP = document.createElement('p')
+      titleP.className = 'font-medium'
+      titleP.textContent = n.title
+      textWrap.appendChild(titleP)
+      if (n.body) {
+        const bodyP = document.createElement('p')
+        bodyP.className = 'text-xs opacity-70'
+        bodyP.textContent = n.body
+        textWrap.appendChild(bodyP)
+      }
+
+      const closeBtn = document.createElement('button')
+      closeBtn.type = 'button'
+      closeBtn.className = 'ml-1 text-white/40 hover:text-white/80 transition-colors'
+      closeBtn.textContent = '✕'
+      closeBtn.setAttribute('aria-label', 'Dismiss notification')
+      closeBtn.addEventListener('click', () => toast.remove())
+
+      toast.appendChild(iconSpan)
+      toast.appendChild(textWrap)
+      toast.appendChild(closeBtn)
       toastEl.appendChild(toast)
-      setTimeout(() => toast.remove(), 4000)
+      const removeTimer = setTimeout(() => toast.remove(), 4000)
+      closeBtn.addEventListener('click', () => clearTimeout(removeTimer))
     }
   }, [])
 

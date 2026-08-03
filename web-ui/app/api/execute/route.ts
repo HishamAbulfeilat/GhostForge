@@ -1,4 +1,4 @@
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import { access, readFile } from 'fs/promises'
 import { NextRequest, NextResponse } from 'next/server'
 import os from 'os'
@@ -8,7 +8,7 @@ import { isAuthorizedRequest } from '@/lib/auth'
 import { getBridgeUrl, getLiveBridgeToken } from '@/lib/bridge-token'
 import { normalizeBridgeHttpUrl, type ExecuteBridgeResponse } from '@/lib/ws-client'
 
-const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 
 const GHOSTFORGE_SCRIPT_MAP = [
   ['carbon', 'carbon.sh'],
@@ -34,7 +34,7 @@ const GHOSTFORGE_SCRIPT_MAP = [
 ] as const
 
 type ResolvedCommand =
-  | { kind: 'exec'; command: string }
+  | { kind: 'exec'; command: string; file: string; args: string[] }
   | { kind: 'output'; output: string }
 
 export const dynamic = 'force-dynamic'
@@ -82,7 +82,7 @@ async function resolveGhostforgeCommand(command: string, ghostforgeRoot: string)
       }
     }
 
-    return { kind: 'exec', command: `bash ${shellQuote(scriptPath)}` }
+    return { kind: 'exec', command: `bash ${shellQuote(scriptPath)}`, file: 'bash', args: [scriptPath] }
   }
 
   for (const [subcommand, scriptName] of GHOSTFORGE_SCRIPT_MAP) {
@@ -98,13 +98,24 @@ async function resolveGhostforgeCommand(command: string, ghostforgeRoot: string)
     }
 
     const args = match[1]?.trim()
+    const argList = args ? args.split(/\s+/).filter(Boolean) : []
     return {
       kind: 'exec',
-      command: `bash ${shellQuote(scriptPath)}${args ? ` ${args}` : ''}`,
+      command: `bash ${shellQuote(scriptPath)}${argList.length ? ` ${argList.map(shellQuote).join(' ')}` : ''}`,
+      file: 'bash',
+      args: [scriptPath, ...argList],
     }
   }
 
-  return { kind: 'exec', command }
+  const supported = [
+    'doctor',
+    'carbon weekly',
+    ...GHOSTFORGE_SCRIPT_MAP.map(([subcommand]) => subcommand),
+  ]
+  return {
+    kind: 'output',
+    output: `Unknown command. Supported: ${supported.map(s => `ghostforge ${s}`).join(', ')}`,
+  }
 }
 
 async function executeBridgeCommand(command: string, bridgeToken: string) {
@@ -151,7 +162,7 @@ export async function POST(req: NextRequest) {
       const data = await executeBridgeCommand(resolved.command, bridgeToken)
       return NextResponse.json(data)
     } catch {
-      // Fall through to direct local execution.
+      return NextResponse.json({ error: 'Bridge execution failed' }, { status: 502 })
     }
   }
 
@@ -176,7 +187,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { stdout, stderr } = await execAsync(resolved.command, {
+    const { stdout, stderr } = await execFileAsync(resolved.file, resolved.args, {
       env,
       timeout: 15000,
       cwd: ghostforgeRoot,

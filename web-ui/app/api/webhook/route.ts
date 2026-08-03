@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import path from 'path'
+import crypto from 'crypto'
+import { isAuthorizedRequest, getAuthSecret } from '@/lib/auth'
+import { POST as jarvisPost } from '../jarvis/route'
 
 const CONFIG_DIR = path.join(homedir(), '.ghostforge')
 const WEBHOOKS_FILE = path.join(CONFIG_DIR, 'webhooks.json')
@@ -64,16 +67,13 @@ function appendLog(entry: Omit<WebhookLogEntry, 'receivedAt'>) {
   writeFileSync(LOG_FILE, JSON.stringify(log.slice(0, 200), null, 2))
 }
 
-async function readRequestBody(req: NextRequest): Promise<unknown> {
-  try {
-    return await req.json()
-  } catch {
-    return {}
-  }
-}
-
-function getBaseUrl(req: NextRequest) {
-  return process.env.NEXTAUTH_URL || req.nextUrl.origin || 'http://localhost:3001'
+function verifySignature(rawBody: string, signatureHeader: string, secret: string): boolean {
+  const expected = `sha256=${crypto.createHmac('sha256', secret).update(rawBody).digest('hex')}`
+  const provided = signatureHeader.trim()
+  const expectedBuf = Buffer.from(expected)
+  const providedBuf = Buffer.from(provided)
+  if (expectedBuf.length !== providedBuf.length) return false
+  return crypto.timingSafeEqual(expectedBuf, providedBuf)
 }
 
 function buildJarvisPrompt(event: string, source: string, body: GitHubWebhookPayload) {
@@ -99,7 +99,29 @@ function buildJarvisPrompt(event: string, source: string, body: GitHubWebhookPay
   return `Webhook received from ${source} (${event}): ${JSON.stringify(body).substring(0, 300)}`
 }
 
+async function fanOutToJarvis(message: string) {
+  try {
+    const secret = getAuthSecret()
+    const req = new NextRequest('http://localhost/api/jarvis', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: `gf_token=${secret}`,
+      },
+      body: JSON.stringify({ message, mode: 'webhook', stream: false }),
+    })
+    const resp = await jarvisPost(req)
+    await resp.text()
+  } catch {
+    // Swallow webhook fan-out failures.
+  }
+}
+
 export async function GET(req: NextRequest) {
+  if (!isAuthorizedRequest(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { searchParams } = new URL(req.url)
   if (searchParams.get('log') === '1') return NextResponse.json(readLog())
   return NextResponse.json(readWebhooks())
@@ -107,7 +129,26 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const body = await readRequestBody(req)
+  const rawBody = await req.text().catch(() => '')
+
+  const ghEvent = req.headers.get('x-github-event')
+  if (ghEvent) {
+    const webhookSecret = process.env.WEBHOOK_SECRET
+    if (!webhookSecret) {
+      return NextResponse.json({ error: 'WEBHOOK_SECRET not configured' }, { status: 503 })
+    }
+    const signature = req.headers.get('x-hub-signature-256') || ''
+    if (!verifySignature(rawBody, signature, webhookSecret)) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    }
+  }
+
+  let body: unknown = {}
+  try {
+    body = rawBody ? JSON.parse(rawBody) : {}
+  } catch {
+    body = {}
+  }
 
   if (searchParams.get('config') === '1') {
     ensureConfigDir()
@@ -115,34 +156,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
-  const ghEvent = req.headers.get('x-github-event') || 'unknown'
+  const event = ghEvent || 'unknown'
   const source = req.headers.get('x-source') || 'generic'
   const typedBody = (body && typeof body === 'object' ? body : {}) as GitHubWebhookPayload
-  const jarvisPrompt = buildJarvisPrompt(ghEvent, source, typedBody)
+  const jarvisPrompt = buildJarvisPrompt(event, source, typedBody)
 
   appendLog({
-    source: ghEvent !== 'unknown' ? 'github' : source,
-    event: ghEvent,
+    source: ghEvent ? 'github' : source,
+    event,
     prompt: jarvisPrompt,
     body,
   })
 
   if (jarvisPrompt) {
-    try {
-      fetch(`${getBaseUrl(req)}/api/jarvis`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Cookie: 'gf_token=2001' },
-        body: JSON.stringify({ message: jarvisPrompt, mode: 'webhook', stream: false }),
-      }).catch(() => undefined)
-    } catch {
-      // Swallow webhook fan-out failures.
-    }
+    await fanOutToJarvis(jarvisPrompt)
   }
 
-  return NextResponse.json({ ok: true, event: ghEvent, prompted: !!jarvisPrompt })
+  return NextResponse.json({ ok: true, event, prompted: !!jarvisPrompt })
 }
 
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
+  if (!isAuthorizedRequest(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   ensureConfigDir()
   writeFileSync(LOG_FILE, '[]')
   return NextResponse.json({ ok: true })

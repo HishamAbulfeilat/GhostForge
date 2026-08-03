@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { extname, basename } from 'path';
-import { exec } from 'child_process';
+import { extname, basename, resolve, sep, relative } from 'path';
+import { exec, execFile } from 'child_process';
+import { homedir } from 'os';
 
 /**
  * File processor module for GhostForge JARVIS.
@@ -46,12 +47,41 @@ function runShell(cmd: string, timeout = 15000): Promise<string> {
   });
 }
 
+function runShellArgs(bin: string, args: string[], timeout = 15000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(bin, args, { timeout }, (error, stdout, stderr) => {
+      if (error) reject(new Error(stderr || error.message));
+      else resolve(stdout);
+    });
+  });
+}
+
+/** Root directory for file reads — configurable via JARVIS_FILE_ROOT, defaults to the user's home. */
+const FILE_ROOT = resolve(process.env.JARVIS_FILE_ROOT || homedir());
+
+/**
+ * Resolve a caller-supplied path and verify it stays inside FILE_ROOT.
+ * Dotfiles/dot-directories (any segment starting with '.') are blocked.
+ */
+function resolveAllowedPath(filePath: string): string {
+  const resolved = resolve(filePath);
+  if (resolved !== FILE_ROOT && !resolved.startsWith(FILE_ROOT + sep)) {
+    throw new Error(`Access denied: path is outside the allowed root (${FILE_ROOT})`);
+  }
+  const rel = relative(FILE_ROOT, resolved);
+  if (rel.split(sep).some(seg => seg.startsWith('.'))) {
+    throw new Error('Access denied: dotfiles and dot-directories are blocked');
+  }
+  return resolved;
+}
+
 function detectFileType(filePath: string): string {
   return extname(filePath).toLowerCase();
 }
 
 /** Extract text from a file based on its extension. */
 export async function extractText(filePath: string): Promise<FileExtractionResult> {
+  filePath = resolveAllowedPath(filePath);
   if (!existsSync(filePath)) {
     throw new Error(`File not found: ${filePath}`);
   }
@@ -99,7 +129,7 @@ async function extractPdf(filePath: string): Promise<string> {
   } catch {
     // Fallback: use pdftotext if available (poppler-utils)
     try {
-      return await runShell(`pdftotext "${filePath}" - 2>/dev/null`);
+      return await runShellArgs('pdftotext', [filePath, '-']);
     } catch {
       throw new Error('Cannot extract PDF text. Install pdf-parse: npm i pdf-parse');
     }
@@ -116,7 +146,7 @@ async function extractDocx(filePath: string): Promise<string> {
   } catch {
     // Fallback: use pandoc if available
     try {
-      return await runShell(`pandoc "${filePath}" -t plain 2>/dev/null`);
+      return await runShellArgs('pandoc', [filePath, '-t', 'plain']);
     } catch {
       throw new Error('Cannot extract DOCX text. Install mammoth: npm i mammoth');
     }
@@ -141,18 +171,20 @@ async function extractXlsx(filePath: string): Promise<string> {
 
     return allText.join('\n\n') || '(empty workbook)';
   } catch {
-    // Fallback: python
+    // Fallback: python — the file path is passed as argv[1], never interpolated
+    // into the script source.
+    const script = [
+      'import sys',
+      'import openpyxl',
+      'path = sys.argv[1]',
+      'wb = openpyxl.load_workbook(path)',
+      "for name in wb.sheetnames:",
+      "    print(f'--- Sheet: {name} ---')",
+      "    for row in wb[name].values:",
+      "        print('\\t'.join(str(c) if c is not None else '' for c in row))",
+    ].join('\n');
     try {
-      return await runShell(
-        `python3 -c "
-import openpyxl
-wb = openpyxl.load_workbook('${filePath}')
-for name in wb.sheetnames:
-    print(f'--- Sheet: {name} ---')
-    for row in wb[name].values:
-        print('\\t'.join(str(c) if c is not None else '' for c in row))
-" 2>/dev/null`,
-      );
+      return await runShellArgs('python3', ['-c', script, filePath]);
     } catch {
       throw new Error('Cannot extract XLSX text. Install xlsx: npm i xlsx');
     }
@@ -164,6 +196,7 @@ export async function readAndSummarize(
   filePath: string,
   llmEndpoint?: string,
 ): Promise<FileSummaryResult> {
+  filePath = resolveAllowedPath(filePath);
   const extracted = await extractText(filePath);
 
   // Truncate very large files to avoid overwhelming the LLM
@@ -204,6 +237,7 @@ export async function askQuestionAboutFile(
   question: string,
   llmEndpoint?: string,
 ): Promise<string> {
+  filePath = resolveAllowedPath(filePath);
   const extracted = await extractText(filePath);
   const truncated = extracted.content.slice(0, 25000);
 
@@ -248,6 +282,7 @@ export async function convertFormat(
   inputPath: string,
   outputFormat: 'txt' | 'md' | 'json' | 'csv' | 'html',
 ): Promise<string> {
+  inputPath = resolveAllowedPath(inputPath);
   if (!existsSync(inputPath)) {
     throw new Error(`File not found: ${inputPath}`);
   }

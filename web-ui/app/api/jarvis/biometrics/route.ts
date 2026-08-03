@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { writeFile, readFile, unlink, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
+import { isAuthorizedRequest } from '@/lib/auth'
 import { homedir } from 'os'
 import { join } from 'path'
 import { exec } from 'child_process'
@@ -62,8 +63,7 @@ print(f"{similarity:.4f}")
 `
 
 export async function GET(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  if (!token || token !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -119,8 +119,7 @@ interface BiometricMeta {
 }
 
 export async function POST(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  if (!token || token !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     void auditLog({ level: 'security', event: 'biometric_unauthorized', risk: 90 })
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

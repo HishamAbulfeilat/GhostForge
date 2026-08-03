@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 // ── Fish Audio — JARVIS voice model ───────────────────────────────────────────
 
@@ -79,8 +80,7 @@ async function elevenLabsTTS(text: string, voiceKey: string, apiKey: string): Pr
 // ── POST handler ──────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  if (!token || token !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

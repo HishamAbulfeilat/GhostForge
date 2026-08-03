@@ -7,8 +7,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const body = (await req.json()) as { prompt?: string; mode?: string }
-  const prompt = body.prompt?.trim()
+  let parsed: { prompt?: string; mode?: string }
+  try {
+    parsed = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+  const { prompt: rawPrompt, mode } = parsed
+  const prompt = rawPrompt?.trim()
 
   if (!prompt) {
     return NextResponse.json({ error: 'Prompt is required' }, { status: 400 })
@@ -31,7 +37,7 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${bridgeToken}`,
       },
-      body: JSON.stringify({ prompt, mode: body.mode ?? 'suggest' }),
+      body: JSON.stringify({ prompt, mode: mode ?? 'suggest' }),
       signal: AbortSignal.timeout(65000),
     })
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { safeGetJSON, safeSet } from '@/lib/storage'
 
 interface ModelMetrics {
   model: string
@@ -18,17 +19,12 @@ const MAX_SHORT_RATIO = 0.4
 
 function loadMetrics(): Record<string, ModelMetrics> {
   if (typeof window === 'undefined') return {}
-
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, ModelMetrics>
-  } catch {
-    return {}
-  }
+  return safeGetJSON<Record<string, ModelMetrics>>(STORAGE_KEY, {})
 }
 
 function saveMetrics(metrics: Record<string, ModelMetrics>) {
   if (typeof window === 'undefined') return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(metrics))
+  safeSet(STORAGE_KEY, JSON.stringify(metrics))
 }
 
 declare global {

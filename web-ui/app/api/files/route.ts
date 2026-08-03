@@ -3,11 +3,11 @@ import { cookies } from 'next/headers'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
+import { AUTH_COOKIE_NAME, isValidAuthToken } from '@/lib/auth'
 
 async function checkAuth() {
   const cookieStore = await cookies()
-  const auth = cookieStore.get('gf_token')
-  return auth?.value === process.env.AUTH_SECRET
+  return isValidAuthToken(cookieStore.get(AUTH_COOKIE_NAME)?.value)
 }
 
 function safePath(p: string): string {

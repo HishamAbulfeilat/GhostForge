@@ -1,4 +1,4 @@
-import { exec, execSync } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -41,19 +41,33 @@ export class SystemControl {
   }
 
   async openUrl(url: string): Promise<string> {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error(`Invalid URL: ${url}`);
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`Blocked URL with non-http(s) scheme: ${parsed.protocol}`);
+    }
+
     return new Promise((resolve, reject) => {
       const platform = this.platform;
-      let cmd: string;
+      let bin: string;
+      let args: string[];
 
       if (platform === 'darwin') {
-        cmd = `open "${url}"`;
+        bin = 'open';
+        args = [url];
       } else if (platform === 'win32') {
-        cmd = `start "" "${url}"`;
+        bin = 'cmd';
+        args = ['/c', 'start', '', url];
       } else {
-        cmd = `xdg-open "${url}"`;
+        bin = 'xdg-open';
+        args = [url];
       }
 
-      exec(cmd, (error) => {
+      execFile(bin, args, (error) => {
         if (error) reject(new Error(`Failed to open URL: ${error.message}`));
         else resolve(`Opened ${url}`);
       });
@@ -166,11 +180,12 @@ export class SystemControl {
 
   async killProcess(name: string): Promise<string> {
     return new Promise((resolve, reject) => {
-      const cmd = this.platform === 'win32'
-        ? `taskkill /IM "${name}" /F`
-        : `pkill -f "${name}"`;
+      const bin = this.platform === 'win32' ? 'taskkill' : 'pkill';
+      const args = this.platform === 'win32'
+        ? ['/IM', name, '/F']
+        : ['-f', name];
 
-      exec(cmd, (error) => {
+      execFile(bin, args, (error) => {
         if (error) reject(new Error(`Failed to kill ${name}: ${error.message}`));
         else resolve(`Killed ${name}`);
       });

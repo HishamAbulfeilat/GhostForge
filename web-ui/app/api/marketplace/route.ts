@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
+import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 function readJSON<T>(filePath: string, fallback: T): T {
   try {
@@ -15,10 +15,8 @@ function readJSON<T>(filePath: string, fallback: T): T {
 const CATALOG_PATH = path.join(os.homedir(), 'GhostForge/marketplace/catalog.json')
 const REGISTRY_PATH = path.join(os.homedir(), 'GhostForge/marketplace/registry.json')
 
-export async function GET() {
-  const cookieStore = await cookies()
-  const auth = cookieStore.get('gf_token')
-  if (!auth?.value || auth.value !== process.env.AUTH_SECRET) {
+export async function GET(req: NextRequest) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -28,14 +26,18 @@ export async function GET() {
   return NextResponse.json({ items: catalog.items, installed: registry.installed ?? [] })
 }
 
-export async function POST(req: Request) {
-  const cookieStore = await cookies()
-  const auth = cookieStore.get('gf_token')
-  if (!auth?.value || auth.value !== process.env.AUTH_SECRET) {
+export async function POST(req: NextRequest) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { action, id } = await req.json() as { action: string; id: string }
+  let parsed: { action?: string; id?: string }
+  try {
+    parsed = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+  const { action, id } = parsed as { action: string; id: string }
 
   const registry = readJSON<{ installed: string[] }>(REGISTRY_PATH, { installed: [] })
   const installed = new Set(registry.installed ?? [])

@@ -42,9 +42,14 @@ export function MacMetricsWidget() {
   useEffect(() => {
     const es = new EventSource('/api/metrics')
     es.onmessage = (e) => {
-      try { setMetrics(JSON.parse(e.data as string) as Metrics) } catch {}
+      try {
+        setMetrics(JSON.parse(e.data as string) as Metrics)
+        setError(false)
+      } catch {}
     }
-    es.onerror = () => { setError(true); es.close() }
+    // Do NOT close() here — the browser retries the EventSource automatically;
+    // just surface the error state and clear it on the next successful message.
+    es.onerror = () => { setError(true) }
     return () => es.close()
   }, [])
 

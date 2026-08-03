@@ -47,7 +47,22 @@ function relativeTime(ts: number): string {
 }
 
 function renderMarkdown(raw: string): string {
-  let html = raw
+  // Security: escape raw HTML in the source BEFORE running the markdown
+  // passes so nothing user-controlled reaches dangerouslySetInnerHTML as a
+  // tag. Fenced code blocks are pulled out first (their content must stay
+  // raw so the code-block pass below can escape it verbatim) and restored
+  // right after escaping.
+  const codeFences: string[] = [];
+  const protectedSource = raw
+    .replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang: string, code: string) => {
+      codeFences.push(`\`\`\`${lang}\n${code}\`\`\``);
+      return `\u0000GFCODE${codeFences.length - 1}\u0000`;
+    })
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\u0000GFCODE(\d+)\u0000/g, (_m, idx: string) => codeFences[Number(idx)]);
+
+  let html = protectedSource
     /* code blocks first – protect from inner transforms */
     .replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang: string, code: string) => {
       const escaped = code
@@ -66,10 +81,14 @@ function renderMarkdown(raw: string): string {
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong class="font-bold text-white">$1</strong>')
     .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>')
     .replace(/\*(.+?)\*/g, '<em class="italic text-gray-300">$1</em>')
-    /* links */
+    /* links — sanitize href: http/https/mailto only, strip quotes */
     .replace(
       /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener" class="text-[#1a6fff] underline hover:text-[#3d8bff]">$1</a>'
+      (_m, text: string, href: string) => {
+        const clean = href.replace(/"/g, "");
+        const safe = /^(https?:|mailto:)/i.test(clean) ? clean : "#";
+        return `<a href="${safe}" target="_blank" rel="noopener" class="text-[#1a6fff] underline hover:text-[#3d8bff]">${text}</a>`;
+      }
     )
     /* unordered lists */
     .replace(/^[*-] (.+)$/gm, '<li class="ml-4 list-disc text-gray-300">$1</li>')

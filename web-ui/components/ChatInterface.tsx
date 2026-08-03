@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { CommandPanel } from '@/components/CommandPanel'
 import { MacStatus } from '@/components/MacStatus'
 import { MessageBubble, type ChatMessage } from '@/components/MessageBubble'
+import { safeGetJSON, safeRemove, safeSet } from '@/lib/storage'
 import type { BridgeStatus } from '@/lib/ws-client'
 
 const QUICK_COMMANDS = [
@@ -46,26 +47,20 @@ export function ChatInterface() {
 
   // ── Load chat history from localStorage ─────────────────────────────────
   useEffect(() => {
-    try {
-      // Support both old and new key for migration
-      const saved = localStorage.getItem('gf_chat_history:v1') ?? localStorage.getItem('gf_chat_history')
-      if (saved) {
-        const parsed = JSON.parse(saved) as Array<{ role: string; content: string; timestamp: string }>
-        if (parsed.length > 0) {
-          setMessages(parsed.map(m => ({ ...m, timestamp: new Date(m.timestamp) })) as ChatMessage[])
-          return
-        }
-      }
-    } catch { /* ignore parse errors */ }
+    // Support both old and new key for migration
+    const saved =
+      safeGetJSON<Array<{ role: string; content: string; timestamp: string }> | null>('gf_chat_history:v1', null) ??
+      safeGetJSON<Array<{ role: string; content: string; timestamp: string }> | null>('gf_chat_history', null)
+    if (saved && saved.length > 0) {
+      setMessages(saved.map(m => ({ ...m, timestamp: new Date(m.timestamp) })) as ChatMessage[])
+    }
   }, [])
 
   // ── Persist messages to localStorage ─────────────────────────────────────
   useEffect(() => {
-    try {
-      localStorage.setItem('gf_chat_history:v1', JSON.stringify(
-        messages.slice(-100).map(m => ({ role: m.role, content: m.content, timestamp: m.timestamp }))
-      ))
-    } catch { /* storage full */ }
+    safeSet('gf_chat_history:v1', JSON.stringify(
+      messages.slice(-100).map(m => ({ role: m.role, content: m.content, timestamp: m.timestamp }))
+    ))
   }, [messages])
 
   // ── Request notification permission ──────────────────────────────────────
@@ -107,8 +102,8 @@ export function ChatInterface() {
 
   const clearHistory = () => {
     setMessages([INITIAL_MESSAGE])
-    localStorage.removeItem('gf_chat_history:v1')
-    localStorage.removeItem('gf_chat_history')
+    safeRemove('gf_chat_history:v1')
+    safeRemove('gf_chat_history')
   }
 
   const sendNotification = (title: string, body: string) => {

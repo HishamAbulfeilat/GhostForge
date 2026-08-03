@@ -1,40 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { execSync } from 'child_process'
-import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs'
+import { execFileSync } from 'child_process'
+import { writeFileSync, readFileSync, existsSync, unlinkSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { randomUUID } from 'crypto'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
 const CAPTURE_DIR = join(homedir(), '.ghostforge', 'screenshots')
+const FORMATS = ['jpeg', 'png', 'tiff'] as const
 
 export async function POST(req: NextRequest) {
+  if (!isAuthorizedRequest(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const body = await req.json().catch(() => ({}))
-    const { format = 'jpeg', quality = 60, captureAll = false } = body
+    const rawFormat = typeof body.format === 'string' ? body.format.toLowerCase() : 'jpeg'
+    const format = FORMATS.includes(rawFormat as typeof FORMATS[number]) ? rawFormat : null
+
+    if (!format) {
+      return NextResponse.json(
+        { error: `Invalid format. Supported: ${FORMATS.join(', ')}` },
+        { status: 400 }
+      )
+    }
+
+    const parsedQuality = Number(body.quality)
+    const quality = Math.max(1, Math.min(100, Math.round(Number.isFinite(parsedQuality) ? parsedQuality : 60)))
+    const captureAll = Boolean(body.captureAll)
 
     if (!existsSync(CAPTURE_DIR)) {
-      execSync(`mkdir -p "${CAPTURE_DIR}"`)
+      mkdirSync(CAPTURE_DIR, { recursive: true })
     }
 
     const filename = `capture-${randomUUID().slice(0, 8)}.${format}`
     const filepath = join(CAPTURE_DIR, filename)
 
     try {
-      const captureFlags = captureAll
-        ? '-x' // capture all screens
-        : `-x -D` // capture main display only
-
-      execSync(
-        `screencapture ${captureFlags} -t ${format} -Q ${quality} "${filepath}" 2>/dev/null || screencapture -x -t ${format} "${filepath}"`,
-        { timeout: 5000, encoding: 'utf-8' }
+      const captureFlags = captureAll ? ['-x'] : ['-x', '-D']
+      execFileSync(
+        'screencapture',
+        [...captureFlags, '-t', format, '-Q', String(quality), filepath],
+        { timeout: 5000 }
       )
     } catch {
-      return NextResponse.json(
-        { error: 'Screen capture failed — grant Screen Recording permission in System Settings > Privacy & Security' },
-        { status: 400 }
-      )
+      try {
+        execFileSync('screencapture', ['-x', '-t', format, filepath], { timeout: 5000 })
+      } catch {
+        return NextResponse.json(
+          { error: 'Screen capture failed — grant Screen Recording permission in System Settings > Privacy & Security' },
+          { status: 400 }
+        )
+      }
     }
 
     if (!existsSync(filepath)) {
@@ -66,7 +86,11 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!isAuthorizedRequest(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   return NextResponse.json({
     status: 'ok',
     endpoint: 'screen-capture',
@@ -74,7 +98,7 @@ export async function GET() {
     usage: {
       method: 'POST',
       body: {
-        format: 'jpeg (default) | png',
+        format: 'jpeg (default) | png | tiff',
         quality: '60 (default, 1-100)',
         captureAll: 'false (default) — true for multi-monitor',
       },

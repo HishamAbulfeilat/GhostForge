@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { readFile, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { getAuditFilePath } from '@/lib/audit'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 /** GET /api/jarvis/audit — return last N audit entries */
 export async function GET(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  if (!token || token !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

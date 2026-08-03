@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, globalShortcut, nativeTheme } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, globalShortcut, nativeTheme, shell } from 'electron';
 import { join } from 'path';
 import { ScreenCapture } from './screen-capture';
 import { CursorOverlay } from './cursor-overlay';
@@ -80,6 +80,63 @@ if (!GOT_SINGLE_INSTANCE_LOCK) {
   });
 }
 
+/** Load the first URL that connects (HTTPS → HTTP fallback for the web UI). */
+async function loadFirstReachable(urls: string[]): Promise<void> {
+  for (const url of urls) {
+    try {
+      await mainWindow?.loadURL(url);
+      return;
+    } catch {
+      // try next candidate
+    }
+  }
+  mainWindow?.loadURL(urls[urls.length - 1]);
+}
+
+// ── Navigation / IPC trust guards ───────────────────────────────────────────
+
+/** Origins the renderer is allowed to navigate to and send IPC from. */
+function getAppOrigins(): Set<string> {
+  const origins = new Set<string>([
+    'https://localhost:3001',
+    'http://localhost:3001',
+    'https://localhost:3000',
+    'http://localhost:3000',
+    'file://',
+  ]);
+  const envUrl = process.env.JARVIS_WEB_UI_URL;
+  if (envUrl) {
+    try {
+      origins.add(new URL(envUrl).origin);
+    } catch { /* ignore invalid env URL */ }
+  }
+  return origins;
+}
+
+/** True when the IPC call originated from the app's own origin. */
+function isTrustedSender(event: Electron.IpcMainInvokeEvent): boolean {
+  try {
+    const senderFrame = event.senderFrame;
+    if (!senderFrame?.url) return false;
+    const origin = new URL(senderFrame.url).origin;
+    return getAppOrigins().has(origin);
+  } catch {
+    return false;
+  }
+}
+
+/** Guard wrapper for IPC handlers that take action with untrusted arguments. */
+function trusted(
+  handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown
+): (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown {
+  return (event, ...args) => {
+    if (!isTrustedSender(event)) {
+      throw new Error('IPC rejected: untrusted sender origin');
+    }
+    return handler(event, ...args);
+  };
+}
+
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -95,9 +152,37 @@ function createMainWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
     show: false,
+  });
+
+  // ── Navigation lockdown ──────────────────────────────────────────────────
+  // Pop-ups: only allow the app's own origin; open everything else in the
+  // system browser (http/https only), otherwise deny.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const origin = new URL(url).origin;
+      if (getAppOrigins().has(origin)) {
+        return { action: 'allow' };
+      }
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        void shell.openExternal(url);
+      }
+    } catch { /* invalid URL — deny */ }
+    return { action: 'deny' };
+  });
+
+  // Navigation: block any navigation away from the app's own origins.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    try {
+      const origin = new URL(url).origin;
+      if (!getAppOrigins().has(origin)) {
+        event.preventDefault();
+      }
+    } catch {
+      event.preventDefault();
+    }
   });
 
   // ── Electron-level permission handler (mic, camera, screen) ──────────────
@@ -112,9 +197,13 @@ function createMainWindow(): void {
     return allowedPermissions.includes(permission);
   });
 
-  // Load the GhostForge web UI
-  const webUIUrl = process.env.JARVIS_WEB_UI_URL || 'http://localhost:3000';
-  mainWindow.loadURL(webUIUrl);
+  // Load the GhostForge web UI (runs on 3001; HTTPS when certs exist, else HTTP)
+  const webUICandidates = [
+    process.env.JARVIS_WEB_UI_URL,
+    'https://localhost:3001',
+    'http://localhost:3001',
+  ].filter((u): u is string => Boolean(u));
+  loadFirstReachable(webUICandidates);
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
@@ -184,15 +273,15 @@ function createMainWindow(): void {
 
 function registerIPC(): void {
   // Screen capture
-  ipcMain.handle('screen:capture', async (_event, options: ScreenCaptureOptions) => {
+  ipcMain.handle('screen:capture', trusted(async (_event, options: ScreenCaptureOptions) => {
     return screenCapture.capture(options);
-  });
+  }));
 
-  ipcMain.handle('screen:captureRegion', async (
+  ipcMain.handle('screen:captureRegion', trusted(async (
     _event, x: number, y: number, w: number, h: number, options?: ScreenCaptureOptions
   ) => {
     return screenCapture.captureRegion(x, y, w, h, options);
-  });
+  }));
 
   ipcMain.handle('screen:getDisplays', () => {
     return screen.getAllDisplays().map(d => ({
@@ -237,9 +326,9 @@ function registerIPC(): void {
     return { success: true };
   });
 
-  ipcMain.handle('voice:speak', async (_event, text: string, voice?: string) => {
+  ipcMain.handle('voice:speak', trusted(async (_event, text: string, voice?: string) => {
     return voiceSystem.speak(text, voice);
-  });
+  }));
 
   ipcMain.handle('voice:setVolume', (_event, direction: 'up' | 'down' | 'mute') => {
     voiceSystem.setSystemVolume(direction);
@@ -251,9 +340,9 @@ function registerIPC(): void {
     return systemControl.openApp(appName);
   });
 
-  ipcMain.handle('system:openUrl', async (_event, url: string) => {
+  ipcMain.handle('system:openUrl', trusted(async (_event, url: string) => {
     return systemControl.openUrl(url);
-  });
+  }));
 
   ipcMain.handle('system:lockScreen', async () => {
     return systemControl.lockScreen();
@@ -386,16 +475,16 @@ function registerIPC(): void {
   ipcMain.handle('browser:get-text', () => getPageText());
 
   // ── File Processor ────────────────────────────────────────────────────────
-  ipcMain.handle('file:read', (_event, filePath: string) => extractText(filePath));
-  ipcMain.handle('file:summarize', (_event, filePath: string) =>
+  ipcMain.handle('file:read', trusted(async (_event, filePath: string) => extractText(filePath)));
+  ipcMain.handle('file:summarize', trusted(async (_event, filePath: string) =>
     readAndSummarize(filePath)
-  );
-  ipcMain.handle('file:ask', (_event, filePath: string, question: string) =>
+  ));
+  ipcMain.handle('file:ask', trusted(async (_event, filePath: string, question: string) =>
     askQuestionAboutFile(filePath, question)
-  );
-  ipcMain.handle('file:convert', (_event, inputPath: string, format: string) =>
+  ));
+  ipcMain.handle('file:convert', trusted(async (_event, inputPath: string, format: string) =>
     convertFormat(inputPath, format as 'txt' | 'md' | 'json' | 'csv' | 'html')
-  );
+  ));
 
   // ── Hardware Monitor ──────────────────────────────────────────────────────
   ipcMain.handle('hardware:cpu', () => getCpuStats());

@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateWithFallback } from '@/lib/ai'
 import { auditLog, assessRisk } from '@/lib/audit'
 import { checkRateLimit, getClientIP } from '@/lib/ratelimit'
-import { exec } from 'child_process'
+import { isAuthorizedRequest } from '@/lib/auth'
+import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
-import { writeFile, unlink, readdir, stat, rm } from 'fs/promises'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { writeFile, unlink, readdir, stat, rm, appendFile } from 'fs/promises'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs'
 import { tmpdir, homedir } from 'os'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { chooseBestInstalledModel } from '@/lib/local-runtime'
 import { getJarvisQuickAction } from '@/lib/quick-actions'
 import { validateAppleScript } from '@/lib/apple-automation'
@@ -26,6 +27,56 @@ function appendCollabMessage(id: string, msg: {role: string, content: string, ts
 
 const execAsync = promisify(exec)
 export const dynamic = 'force-dynamic'
+
+// ── Safe subprocess runner (no shell) ────────────────────────────────────────
+
+function runSpawn(cmd: string, args: string[], opts: { timeout?: number; input?: string; env?: NodeJS.ProcessEnv } = {}): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolveSpawn, reject) => {
+    const child = spawn(cmd, args, {
+      timeout: opts.timeout,
+      env: opts.env || process.env,
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', d => { stdout += d })
+    child.stderr?.on('data', d => { stderr += d })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolveSpawn({ stdout, stderr })
+      } else {
+        const err = new Error(`Command exited with code ${code}`) as Error & { stdout?: string; stderr?: string }
+        err.stdout = stdout
+        err.stderr = stderr
+        reject(err)
+      }
+    })
+    if (opts.input !== undefined) {
+      child.stdin?.write(opts.input)
+      child.stdin?.end()
+    }
+  })
+}
+
+/** Split a shell command line into argv tokens (quotes respected, no shell evaluation) */
+function splitCommandLine(cmd: string): string[] {
+  const tokens: string[] = []
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(cmd)) !== null) {
+    tokens.push(m[1] ?? m[2] ?? m[3])
+  }
+  return tokens
+}
+
+/** Resolve a user-supplied path under the home directory, blocking dotfiles and traversal */
+function safeHomePath(p: string): string | null {
+  const home = homedir()
+  const resolved = resolve(p === '~' ? home : p)
+  if (!resolved.startsWith(home)) return null
+  if (resolved.split('/').some(seg => seg.startsWith('.'))) return null
+  return resolved
+}
 
 // ── Tool catalog ──────────────────────────────────────────────────────────────
 
@@ -324,7 +375,6 @@ function buildSystemPrompt(
   const lang = options?.lang || 'en'
   const isMobile = options?.isMobile ?? false
   const isMac = options?.isMac ?? true
-  const lastResponse = options?.lastResponse
   const bypassPlanning = options?.bypassPlanning ?? false
   const persona = options?.persona || 'default'
   const personaPrefix = {
@@ -384,9 +434,9 @@ OUTPUT: valid JSON only, starting with '{':
 
   // Inject dynamic per-request context (not cached)
   let dynamic = ''
-  if (lastResponse) {
-    dynamic += `\nYOUR LAST RESPONSE (do NOT repeat or rephrase this): "${lastResponse.slice(0, 150)}"`
-  }
+  // NOTE: lastResponse is deliberately NOT injected into the system prompt —
+  // it is client-controlled content and would allow prompt injection. It is
+  // passed to the model as an ordinary prior assistant message instead.
   if (bypassPlanning) {
     dynamic += '\nUSER SAID: just do it — skip all clarifying questions, execute immediately with best defaults (React+Tailwind, modern design).'
   }
@@ -395,13 +445,13 @@ OUTPUT: valid JSON only, starting with '{':
 }
 
 function buildMemorySlice(memory: Record<string, unknown>, userName: string, lang: string): string {
-  // Only send relevant memory fields — not the entire object
+  // Only send relevant memory fields — not the entire object.
+  // NOTE: client-sent commonPhrases are never injected into the system prompt
+  // (raw user words are a prompt-injection vector); they are only stored.
   const parts: string[] = []
   if (userName !== 'sir') parts.push(`name=${userName}`)
   if (memory.preferredLang && memory.preferredLang !== lang) parts.push(`lang=${memory.preferredLang}`)
   if (memory.speakingStyle) parts.push(`style=${memory.speakingStyle}`)
-  const phrases = memory.commonPhrases as string[] | undefined
-  if (phrases?.length) parts.push(`phrases=[${phrases.slice(-3).join(',')}]`)
   return parts.length ? `{${parts.join(', ')}}` : '{}'
 }
 
@@ -414,8 +464,8 @@ async function runScript(script: string): Promise<string> {
   const compiledPath = `${tmpPath}.compiled`
   try {
     await writeFile(tmpPath, script, 'utf8')
-    await execAsync(`osacompile -o "${compiledPath}" "${tmpPath}"`, { timeout: 8000 })
-    const { stdout } = await execAsync(`osascript "${tmpPath}"`, { timeout: 15000 })
+    await runSpawn('osacompile', ['-o', compiledPath, tmpPath], { timeout: 8000 })
+    const { stdout } = await runSpawn('osascript', [tmpPath], { timeout: 15000 })
     return stdout.trim() || 'Done'
   } catch (e: unknown) {
     return `Error: ${(e as { stderr?: string; message?: string }).stderr || (e as Error).message || 'Unknown error'}`
@@ -466,8 +516,9 @@ function buildGoogleFlightsUrl(from: string, to: string, date?: string): string 
 }
 
 async function openUrl(url: string): Promise<string> {
+  if (!/^https?:\/\//i.test(url)) return 'Could not open URL: only http/https URLs are allowed'
   try {
-    await execAsync(`open "${url}"`, { timeout: 5000 })
+    await runSpawn('open', [url], { timeout: 5000 })
     return `Opened ${url} in browser`
   } catch {
     return `Could not open URL: ${url}`
@@ -547,13 +598,13 @@ async function executeTool(tool: string, params: Record<string, string>): Promis
       return runScript(params.script || '')
 
     case 'open_app': {
-      const app = (params.app || '').replace(/"/g, '\\"')
+      const app = params.app || ''
       try {
-        await execAsync(`open -a "${app}"`, { timeout: 6000 })
+        await runSpawn('open', ['-a', app], { timeout: 6000 })
         return `Opened ${params.app}`
       } catch {
         try {
-          await execAsync(`open "${app}"`, { timeout: 6000 })
+          await runSpawn('open', [app], { timeout: 6000 })
           return `Opened ${params.app}`
         } catch {
           return `Could not find application: ${params.app}`
@@ -662,7 +713,10 @@ end tell`
       ]
       if (blocked.some(b => b.test(cmd))) return 'Command blocked for safety'
       try {
-        const { stdout, stderr } = await execAsync(cmd, { timeout: 12000, cwd: process.env.HOME })
+        const args = splitCommandLine(cmd)
+        const bin = args.shift() || ''
+        if (!bin) return 'Empty command'
+        const { stdout, stderr } = await runSpawn(bin, args, { timeout: 12000 })
         return ((stdout + stderr).trim() || 'Command completed').slice(0, 1000)
       } catch (e: unknown) {
         return `Error: ${(e as Error).message?.slice(0, 200)}`
@@ -675,7 +729,8 @@ end tell`
       const line = `\n## ${ts}\n${note}\n`
       const notePath = join(process.env.HOME || '', 'GhostForge', 'notes.md')
       try {
-        await execAsync(`echo ${JSON.stringify(line)} >> "${notePath}"`)
+        mkdirSync(join(process.env.HOME || '', 'GhostForge'), { recursive: true })
+        await appendFile(notePath, line, 'utf8')
         return `Note saved to ~/GhostForge/notes.md`
       } catch {
         return 'Could not save note'
@@ -684,9 +739,10 @@ end tell`
 
     case 'take_screenshot': {
       try {
-        const filename = params.filename || `screenshot-${Date.now()}.png`
+        const raw = params.filename || `screenshot-${Date.now()}.png`
+        const filename = /^[\w.-]+$/.test(raw) ? raw : `screenshot-${Date.now()}.png`
         const outPath = join(process.env.HOME || '', 'Desktop', filename)
-        await execAsync(`screencapture -x "${outPath}"`, { timeout: 8000 })
+        await runSpawn('screencapture', ['-x', outPath], { timeout: 8000 })
         return `Screenshot saved to ~/Desktop/${filename}`
       } catch {
         return 'Screenshot failed'
@@ -808,10 +864,12 @@ end tell`
     }
 
     case 'get_files': {
-      const dir = params.path || process.env.HOME || '~'
+      const dir = params.path || homedir()
+      const safeDir = safeHomePath(dir)
+      if (!safeDir) return 'Permission denied: path must be inside your home directory (dotfiles are blocked)'
       try {
-        const { stdout } = await execAsync(`ls -la "${dir}" | head -20`, { timeout: 5000 })
-        return stdout.trim() || 'Empty directory'
+        const entries = await readdir(safeDir, { withFileTypes: true })
+        return entries.slice(0, 20).map(e => `${e.isDirectory() ? 'd' : '-'} ${e.name}`).join('\n') || 'Empty directory'
       } catch {
         return `Cannot list ${dir}`
       }
@@ -820,12 +878,13 @@ end tell`
     case 'read_file': {
       const filePath = params.path || ''
       if (!filePath) return 'No file path provided'
-      const safePath = filePath.replace(/\.\./g, '').trim()
+      const safePath = safeHomePath(filePath)
+      if (!safePath) return 'Permission denied: path must be inside your home directory (dotfiles are blocked)'
       try {
-        const { stdout } = await execAsync(`head -50 "${safePath}"`, { timeout: 5000 })
-        return stdout.trim().slice(0, 1000) || '(empty file)'
+        const content = readFileSync(safePath, 'utf8').slice(0, 1000)
+        return content || '(empty file)'
       } catch {
-        return `Cannot read file: ${safePath}`
+        return `Cannot read file: ${filePath}`
       }
     }
 
@@ -838,7 +897,7 @@ end tell`
       const flagMap: Record<string, string> = { left: 'c', right: 'rc', double: 'dc' }
       const flag = flagMap[button] || 'c'
       try {
-        await execAsync(`cliclick ${flag}:${x},${y}`, { timeout: 5000 })
+        await runSpawn('cliclick', [`${flag}:${x},${y}`], { timeout: 5000 })
         return `${button === 'double' ? 'Double-clicked' : button === 'right' ? 'Right-clicked' : 'Clicked'} at (${x}, ${y})`
       } catch {
         return `Click failed at (${x}, ${y})`
@@ -849,7 +908,7 @@ end tell`
       const x = parseInt(params.x) || 0
       const y = parseInt(params.y) || 0
       try {
-        await execAsync(`cliclick m:${x},${y}`, { timeout: 5000 })
+        await runSpawn('cliclick', [`m:${x},${y}`], { timeout: 5000 })
         return `Moved cursor to (${x}, ${y})`
       } catch {
         return `Mouse move failed`
@@ -862,7 +921,7 @@ end tell`
       const tx = parseInt(params.toX) || 0
       const ty = parseInt(params.toY) || 0
       try {
-        await execAsync(`cliclick dd:${fx},${fy} m:${tx},${ty} du:${tx},${ty}`, { timeout: 8000 })
+        await runSpawn('cliclick', [`dd:${fx},${fy}`, `m:${tx},${ty}`, `du:${tx},${ty}`], { timeout: 8000 })
         return `Dragged from (${fx},${fy}) to (${tx},${ty})`
       } catch {
         return `Drag failed`
@@ -950,7 +1009,13 @@ end tell`
     case 'copy_to_clipboard': {
       const text = params.text || ''
       try {
-        await execAsync(`echo ${JSON.stringify(text)} | pbcopy`, { timeout: 3000 })
+        if (process.platform === 'darwin') {
+          await runSpawn('pbcopy', [], { timeout: 3000, input: text })
+        } else if (process.platform === 'win32') {
+          await runSpawn('clip', [], { timeout: 3000, input: text })
+        } else {
+          await runSpawn('xclip', ['-selection', 'clipboard'], { timeout: 3000, input: text })
+        }
         return `Copied to clipboard: "${text.slice(0, 60)}"`
       } catch {
         return 'Could not copy to clipboard'
@@ -1100,21 +1165,21 @@ end tell`
         if (lang === 'python' || lang === 'python3') {
           const pyFile = `${tmpFile}.py`
           await writeFile(pyFile, code, 'utf8')
-          const { stdout, stderr } = await execAsync(`python3 "${pyFile}"`, { timeout: 10000 })
+          const { stdout, stderr } = await runSpawn('python3', [pyFile], { timeout: 10000 })
           await unlink(pyFile).catch(() => {})
           return (stdout + stderr).trim().slice(0, 1500) || 'No output'
         } else if (lang === 'javascript' || lang === 'node') {
           const jsFile = `${tmpFile}.js`
           await writeFile(jsFile, code, 'utf8')
-          const { stdout, stderr } = await execAsync(`node "${jsFile}"`, { timeout: 10000 })
+          const { stdout, stderr } = await runSpawn('node', [jsFile], { timeout: 10000 })
           await unlink(jsFile).catch(() => {})
           return (stdout + stderr).trim().slice(0, 1500) || 'No output'
         } else {
           // Shell — write to .sh file, no inline interpolation
           const shFile = `${tmpFile}.sh`
           await writeFile(shFile, `#!/bin/bash\nset -euo pipefail\n${code}`, 'utf8')
-          await execAsync(`chmod +x "${shFile}"`)
-          const { stdout, stderr } = await execAsync(`/bin/bash "${shFile}"`, { timeout: 15000 })
+          await runSpawn('chmod', ['+x', shFile], { timeout: 5000 })
+          const { stdout, stderr } = await runSpawn('/bin/bash', [shFile], { timeout: 15000 })
           await unlink(shFile).catch(() => {})
           return (stdout + stderr).trim().slice(0, 1500) || 'Done (no output)'
         }
@@ -1129,7 +1194,7 @@ end tell`
       const ts = Date.now()
       const screenshotPath = `/tmp/gfai-screen-${ts}.png`
       try {
-        await execAsync(`screencapture -x ${screenshotPath}`, { timeout: 5000 })
+        await runSpawn('screencapture', ['-x', screenshotPath], { timeout: 5000 })
         const appInfo = await execAsync(
           `osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`,
           { timeout: 3000 },
@@ -1152,7 +1217,10 @@ end tell`
           continue
         }
         try {
-          const { stdout, stderr } = await execAsync(step, { timeout: 10000, shell: '/bin/bash' })
+          const args = splitCommandLine(step)
+          const bin = args.shift() || ''
+          if (!bin) { results.push(`✗ ${step}: empty`); continue }
+          const { stdout, stderr } = await runSpawn(bin, args, { timeout: 10000 })
           results.push(`✓ ${step}: ${(stdout + stderr).trim().slice(0, 200) || 'done'}`)
         } catch (e: unknown) {
           results.push(`✗ ${step}: ${((e as Error).message || 'failed').slice(0, 100)}`)
@@ -1180,10 +1248,10 @@ end tell`
     }
 
     case 'copilot_ask': {
-      const question = (params.question || '').replace(/'/g, "'\\''")
+      const question = params.question || ''
       if (!question) return 'No question provided'
       try {
-        const { stdout, stderr } = await execAsync(`gh copilot -p '${question}'`, { timeout: 30000 })
+        const { stdout, stderr } = await runSpawn('gh', ['copilot', '-p', question], { timeout: 30000 })
         const output = (stdout + stderr).trim()
         // Strip token/stats lines from bottom
         const lines = output.split('\n').filter(l =>
@@ -1332,9 +1400,10 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       const model = params.model || params.modelName || ''
       const runner = params.runner || 'ollama'
       if (!model) return 'Please specify a model name. Example: install qwen3:14b'
+      if (!/^[\w.:/-]+$/.test(model)) return 'Invalid model name'
       try {
         if (runner === 'ollama') {
-          execAsync(`ollama pull ${model}`, {
+          runSpawn('ollama', ['pull', model], {
             env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:${process.env.PATH || ''}` },
             timeout: 300_000,
           }).catch(() => {})
@@ -1372,8 +1441,12 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       }
 
       if (action === 'deploy') {
-        const project = params.data ? (JSON.parse(params.data || '{}') as { project?: string }).project || 'ghostforge' : 'ghostforge'
-        const branch = params.data ? (JSON.parse(params.data || '{}') as { branch?: string }).branch || 'main' : 'main'
+        let parsedData: { project?: string; branch?: string } = {}
+        if (params.data) {
+          try { parsedData = JSON.parse(params.data) } catch { console.warn('[JARVIS] Invalid JSON in n8n deploy params'); parsedData = {} }
+        }
+        const project = parsedData.project || 'ghostforge'
+        const branch = parsedData.branch || 'main'
         try {
           const webhookUrl = `${N8N_URL}/webhook/ghostforge-deploy`
           const res = await fetch(webhookUrl, {
@@ -1430,7 +1503,11 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       }
 
       if (action === 'create') {
-        const name = params.data ? (JSON.parse(params.data || '{}') as { name?: string }).name || 'New Workflow' : 'New Workflow'
+        let parsedData: { name?: string } = {}
+        if (params.data) {
+          try { parsedData = JSON.parse(params.data) } catch { console.warn('[JARVIS] Invalid JSON in n8n create params'); parsedData = {} }
+        }
+        const name = parsedData.name || 'New Workflow'
         try {
           const res = await fetch(`${N8N_URL}/api/v1/workflows`, {
             method: 'POST',
@@ -1995,11 +2072,13 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
 
       try {
         const model = params.model || 'ollama/qwen2.5-coder:7b'
+        if (!/^[\w./:-]+$/.test(model)) return 'Invalid model name'
         // Use --safe mode and --quiet for non-interactive execution
         const tmpPromptFile = join(tmpdir(), `gfai-oi-${Date.now()}.txt`)
         await writeFile(tmpPromptFile, prompt, 'utf8')
-        const { stdout, stderr } = await execAsync(
-          `python3 -m interpreter --model "${model}" --safe --quiet --single_message "$(cat ${tmpPromptFile})" 2>&1`,
+        const { stdout, stderr } = await runSpawn(
+          'python3',
+          ['-m', 'interpreter', '--model', model, '--safe', '--quiet', '--single_message', readFileSync(tmpPromptFile, 'utf8')],
           { timeout: 60000 }
         )
         await unlink(tmpPromptFile).catch(() => {})
@@ -2026,7 +2105,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
         try {
           const jsFile = join(tmpdir(), `gfai-jsrepl-${Date.now()}.js`)
           await writeFile(jsFile, code, 'utf8')
-          const { stdout, stderr } = await execAsync(`node "${jsFile}"`, { timeout: 10000 })
+          const { stdout, stderr } = await runSpawn('node', [jsFile], { timeout: 10000 })
           await unlink(jsFile).catch(() => {})
           const output = (stdout + stderr).trim().slice(0, 1500) || 'No output'
           return `✓ JavaScript (local Node.js):\n${output}\n\n💡 Also try online: https://jsrepl.io`
@@ -2040,7 +2119,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
         try {
           const pyFile = join(tmpdir(), `gfai-jsrepl-${Date.now()}.py`)
           await writeFile(pyFile, code, 'utf8')
-          const { stdout, stderr } = await execAsync(`python3 "${pyFile}"`, { timeout: 10000 })
+          const { stdout, stderr } = await runSpawn('python3', [pyFile], { timeout: 10000 })
           await unlink(pyFile).catch(() => {})
           const output = (stdout + stderr).trim().slice(0, 1500) || 'No output'
           return `✓ Python (local):\n${output}\n\n💡 Also try online: https://jsrepl.io`
@@ -2215,7 +2294,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
     case 'understand_screen': {
       try {
         const screenshotPath = `/tmp/gfai-clicky-${Date.now()}.png`
-        await execAsync(`screencapture -x ${screenshotPath}`, { timeout: 5000 })
+        await runSpawn('screencapture', ['-x', screenshotPath], { timeout: 5000 })
 
         const { readFileSync: rf } = await import('fs')
         const imgBuffer = rf(screenshotPath)
@@ -2227,6 +2306,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
         const result = await generateVision({
           prompt: question,
           imageBase64,
+          mimeType: 'image/png',
           system: 'You are a screen reader assistant. Describe the screen contents precisely. If asked to find something, give approximate coordinates (x, y) as percentages of screen width/height. Format coordinates as [POINT:x,y:label:screen1] when pointing at specific elements.',
         })
         return result.text
@@ -2238,7 +2318,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
     case 'find_element': {
       try {
         const screenshotPath = `/tmp/gfai-find-${Date.now()}.png`
-        await execAsync(`screencapture -x ${screenshotPath}`, { timeout: 5000 })
+        await runSpawn('screencapture', ['-x', screenshotPath], { timeout: 5000 })
 
         const { readFileSync: rf } = await import('fs')
         const imgBuffer = rf(screenshotPath)
@@ -2250,6 +2330,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
         const result = await generateVision({
           prompt: `Find the UI element described as "${description}" on this screen. Return its approximate pixel coordinates as [POINT:x,y:${description}:screen1]. Be precise. If you can't find it, say so.`,
           imageBase64,
+          mimeType: 'image/png',
           system: 'You are a UI element locator. Find elements on screen and return coordinates in [POINT:x,y:label:screen] format.',
         })
         return result.text
@@ -2261,7 +2342,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
     case 'read_text_on_screen': {
       try {
         const screenshotPath = `/tmp/gfai-ocr-${Date.now()}.png`
-        await execAsync(`screencapture -x ${screenshotPath}`, { timeout: 5000 })
+        await runSpawn('screencapture', ['-x', screenshotPath], { timeout: 5000 })
 
         const { readFileSync: rf } = await import('fs')
         const imgBuffer = rf(screenshotPath)
@@ -2272,6 +2353,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
         const result = await generateVision({
           prompt: 'Read all the text visible on this screen. List every piece of text you can see, organized by location (top, middle, bottom, left, right). Include button labels, menu items, window titles, and any other readable text.',
           imageBase64,
+          mimeType: 'image/png',
           system: 'You are an OCR assistant. Extract all visible text from the screen image.',
         })
         return result.text
@@ -2290,7 +2372,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
         if (!query) return 'No search query provided'
         try {
           const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`
-          await execAsync(`open "${searchUrl}"`, { timeout: 5000 })
+          await runSpawn('open', [searchUrl], { timeout: 5000 })
           return `Opened YouTube search for "${query}"`
         } catch {
           return `Could not open YouTube search for "${query}"`
@@ -2384,29 +2466,23 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       const action = (params.action || 'list').toLowerCase()
 
       if (action === 'list') {
-        const results = await Promise.allSettled([
-          execAsync(`find ~/Library/Application\\ Support/Steam/steamapps -name "appmanifest_*.acf" 2>/dev/null | head -20`),
-          execAsync(`find ~/Library/Application\\ Support/Epic/EpicGamesLauncher/Data/Manifests -name "*.item" 2>/dev/null | head -10`),
-        ])
-        const steamCount = results[0].status === 'fulfilled'
-          ? results[0].value.stdout.split('\n').filter(Boolean).length
-          : 0
-        const epicCount = results[1].status === 'fulfilled'
-          ? results[1].value.stdout.split('\n').filter(Boolean).length
-          : 0
+        const steamDir = join(homedir(), 'Library/Application Support/Steam/steamapps')
+        const epicDir = join(homedir(), 'Library/Application Support/Epic/EpicGamesLauncher/Data/Manifests')
+        const steamCount = readdirSync(steamDir).filter(f => f.startsWith('appmanifest_') && f.endsWith('.acf')).length
+        const epicCount = readdirSync(epicDir).filter(f => f.endsWith('.item')).length
         return `Installed games: ~${steamCount} Steam, ~${epicCount} Epic Games\nOpen game launchers to see full library.`
       }
 
       if (action === 'scan-steam' || action === 'scan_steam') {
         try {
-          const { stdout } = await execAsync(`find ~/Library/Application\\ Support/Steam/steamapps -name "appmanifest_*.acf" -exec grep -l "name" {} \\; 2>/dev/null | head -20`)
-          const files = stdout.split('\n').filter(Boolean)
+          const steamDir = join(homedir(), 'Library/Application Support/Steam/steamapps')
+          const files = readdirSync(steamDir).filter(f => f.startsWith('appmanifest_') && f.endsWith('.acf')).slice(0, 20)
           if (files.length === 0) return 'No Steam games found. Is Steam installed?'
           const games: string[] = []
           for (const file of files.slice(0, 10)) {
             try {
-              const content = await execAsync(`grep "name" "${file}" | head -1`, { timeout: 3000 })
-              const match = content.stdout.match(/"([^"]+)"/)
+              const content = readFileSync(join(steamDir, file), 'utf8')
+              const match = content.match(/"name"\s*"([^"]+)"/)
               if (match) games.push(match[1])
             } catch {}
           }
@@ -2418,15 +2494,13 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
 
       if (action === 'scan-epic' || action === 'scan_epic') {
         try {
-          const manifestDir = `${process.env.HOME}/Library/Application Support/Epic/EpicGamesLauncher/Data/Manifests`
-          const { stdout } = await execAsync(`ls "${manifestDir}"/*.item 2>/dev/null | head -10`)
-          const files = stdout.split('\n').filter(Boolean)
+          const manifestDir = join(homedir(), 'Library/Application Support/Epic/EpicGamesLauncher/Data/Manifests')
+          const files = readdirSync(manifestDir).filter(f => f.endsWith('.item')).slice(0, 10)
           if (files.length === 0) return 'No Epic Games found. Is the Epic Games Launcher installed?'
           const games: string[] = []
           for (const file of files.slice(0, 10)) {
             try {
-              const content = await execAsync(`cat "${file}"`, { timeout: 3000 })
-              const data = JSON.parse(content.stdout)
+              const data = JSON.parse(readFileSync(join(manifestDir, file), 'utf8'))
               if (data.AppName) games.push(data.AppName)
             } catch {}
           }
@@ -2500,7 +2574,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       if (action === 'screenshot') {
         const outPath = `/tmp/browser-screenshot-${Date.now()}.png`
         if (process.platform === 'darwin') {
-          await execAsync(`screencapture -x "${outPath}"`, { timeout: 8000 })
+          await runSpawn('screencapture', ['-x', outPath], { timeout: 8000 })
           return `Screenshot saved to ${outPath}`
         }
         return 'Browser screenshot not available on this platform'
@@ -2563,19 +2637,20 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       const outputFormat = params.output_format || params.format || 'txt'
 
       if (!filePath) return 'No file path provided'
+      const safeFilePath = safeHomePath(filePath)
+      if (!safeFilePath) return 'Permission denied: path must be inside your home directory (dotfiles are blocked)'
 
       if (action === 'read') {
         try {
           const ext = filePath.split('.').pop()?.toLowerCase() || ''
           const isText = ['txt', 'md', 'json', 'csv', 'ts', 'tsx', 'js', 'jsx', 'py', 'html', 'css', 'yaml', 'yml', 'toml', 'xml', 'sh', 'sql', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'swift', 'kt', 'php'].includes(ext)
           if (isText) {
-            const { stdout } = await execAsync(`head -100 "${filePath}"`, { timeout: 5000 })
-            return stdout.trim().slice(0, 3000) || '(empty file)'
+            return readFileSync(safeFilePath, 'utf8').slice(0, 3000).trim() || '(empty file)'
           }
           // PDF
           if (ext === 'pdf') {
             try {
-              const { stdout } = await execAsync(`pdftotext "${filePath}" - 2>/dev/null | head -100`, { timeout: 8000 })
+              const { stdout } = await runSpawn('pdftotext', [safeFilePath, '-'], { timeout: 8000 })
               return stdout.trim().slice(0, 3000) || '(empty PDF)'
             } catch {
               return `PDF found at ${filePath} but could not extract text. Install poppler: brew install poppler`
@@ -2584,7 +2659,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
           // DOCX
           if (ext === 'docx') {
             try {
-              const { stdout } = await execAsync(`pandoc "${filePath}" -t plain 2>/dev/null | head -100`, { timeout: 8000 })
+              const { stdout } = await runSpawn('pandoc', [safeFilePath, '-t', 'plain'], { timeout: 8000 })
               return stdout.trim().slice(0, 3000) || '(empty document)'
             } catch {
               return `DOCX found at ${filePath} but could not extract text. Install pandoc: brew install pandoc`
@@ -2598,8 +2673,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
 
       if (action === 'summarize') {
         try {
-          const { stdout } = await execAsync(`head -200 "${filePath}"`, { timeout: 5000 })
-          const content = stdout.trim()
+          const content = readFileSync(safeFilePath, 'utf8').slice(0, 3000).trim()
           if (!content) return `(empty file: ${filePath})`
           const lines = content.split('\n')
           const wordCount = content.split(/\s+/).length
@@ -2613,8 +2687,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       if (action === 'ask') {
         if (!question) return 'No question provided'
         try {
-          const { stdout } = await execAsync(`head -300 "${filePath}"`, { timeout: 5000 })
-          const content = stdout.trim()
+          const content = readFileSync(safeFilePath, 'utf8').slice(0, 3000).trim()
           if (!content) return `(empty file: ${filePath})`
           return `File: ${filePath}\nQuestion: ${question}\n\nContent preview:\n${content.slice(0, 2000)}\n\nFor full analysis, use JARVIS with a vision or code model.`
         } catch {
@@ -2625,8 +2698,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       if (action === 'convert') {
         if (!outputFormat) return 'No output format specified (txt, md, json, csv, html)'
         try {
-          const { stdout } = await execAsync(`cat "${filePath}"`, { timeout: 5000 })
-          const content = stdout.trim()
+          const content = readFileSync(safeFilePath, 'utf8').trim()
           const baseName = filePath.replace(/\.[^/.]+$/, '')
           const outputPath = `${baseName}.${outputFormat}`
           const { writeFileSync: wfs } = await import('fs')
@@ -2725,7 +2797,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
         const level = parseInt(value) || 50
         const fraction = Math.max(0, Math.min(100, level)) / 100
         try {
-          await execAsync(`brightness ${fraction}`, { timeout: 5000 })
+          await runSpawn('brightness', [String(fraction)], { timeout: 5000 })
           return `Brightness set to ${level}%`
         } catch {
           return 'Brightness control requires the "brightness" CLI tool (brew install brightness)'
@@ -2746,7 +2818,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
         try {
           const { stdout } = await execAsync('networksetup -getairportpower en0', { timeout: 5000 })
           const isOn = stdout.toLowerCase().includes('on')
-          await execAsync(`networksetup -setairportpower en0 ${isOn ? 'off' : 'on'}`, { timeout: 5000 })
+          await runSpawn('networksetup', ['-setairportpower', 'en0', isOn ? 'off' : 'on'], { timeout: 5000 })
           return `WiFi turned ${isOn ? 'off' : 'on'}`
         } catch {
           return 'WiFi toggle failed'
@@ -2766,7 +2838,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
         try {
           const { stdout } = await execAsync('blueutil --power', { timeout: 5000 })
           const current = parseInt(stdout.trim(), 10)
-          await execAsync(`blueutil --power ${current ? 0 : 1}`, { timeout: 5000 })
+          await runSpawn('blueutil', ['--power', current ? '0' : '1'], { timeout: 5000 })
           return `Bluetooth turned ${current ? 'off' : 'on'}`
         } catch {
           return 'Bluetooth toggle requires blueutil: brew install blueutil'
@@ -2813,7 +2885,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
         const filename = `screenshot-${Date.now()}.png`
         const outPath = join(process.env.HOME || '', 'Desktop', filename)
         try {
-          await execAsync(`screencapture -x "${outPath}"`, { timeout: 8000 })
+          await runSpawn('screencapture', ['-x', outPath], { timeout: 8000 })
           return `Screenshot saved to ~/Desktop/${filename}`
         } catch {
           return 'Screenshot failed'
@@ -3071,8 +3143,21 @@ interface JarvisRequest {
   offlineMode?: boolean
   quickAction?: string
   confirmRisk?: boolean
+  clientId?: string
   lang?: string        // optional client-detected language override
   platform?: string    // 'ios' | 'android' | 'mac' | 'windows' | 'linux'
+}
+
+// Pending danger-tool confirmations keyed by clientId — lets a confirmRisk
+// follow-up execute the exact previously-blocked tool without re-running AI.
+const pendingConfirmations = new Map<string, { tool: string; toolParams: Record<string, string> }>()
+
+function rememberPendingConfirmation(clientId: string, tool: string, toolParams: Record<string, string>) {
+  pendingConfirmations.set(clientId, { tool, toolParams })
+  if (pendingConfirmations.size > 100) {
+    const oldest = pendingConfirmations.keys().next().value
+    if (oldest) pendingConfirmations.delete(oldest)
+  }
 }
 
 interface AIResponse {
@@ -3098,6 +3183,7 @@ interface JarvisResponsePayload {
   device: { isMobile: boolean; isMac: boolean }
   offline: boolean
   requiresConfirmation?: boolean
+  clientId?: string
 }
 
 function acceptsEventStream(req: NextRequest) {
@@ -3121,8 +3207,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const token = req.cookies.get('gf_token')?.value
-  if (!token || token !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     // Log unauthorized access attempt
     void auditLog({
       level: 'security',
@@ -3136,10 +3221,26 @@ export async function POST(req: NextRequest) {
 
   let body: JarvisRequest
   try { body = await req.json() } catch { body = { message: '' } }
-  const { message: rawMessage, history = [], memory = {}, selectedProvider, selectedModel, persona, offlineMode = false, quickAction, confirmRisk = false, lang: clientLang, platform: clientPlatform } = body
+  const { message: rawMessage, history = [], memory = {}, selectedProvider, selectedModel, persona, offlineMode = false, quickAction, confirmRisk = false, clientId: rawClientId, lang: clientLang, platform: clientPlatform } = body
 
   if (!rawMessage?.trim()) {
     return NextResponse.json({ error: 'No message' }, { status: 400 })
+  }
+
+  // ClientId for the confirm-risk flow — generate one when the client didn't send it
+  const clientId = rawClientId || `${ip}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+
+  // Sanitize client-sent history before it reaches the model: whitelist roles,
+  // require string content, cap per-message and total size.
+  const sanitizedHistory = (Array.isArray(history) ? history : [])
+    .filter(h => h && typeof h === 'object' && ['user', 'assistant', 'system'].includes(String(h.role)) && typeof h.content === 'string')
+    .map(h => ({ role: h.role as 'user' | 'assistant' | 'system', content: h.content.slice(0, 4000) }))
+  let historyChars = 0
+  const cappedHistory: typeof sanitizedHistory = []
+  for (const h of sanitizedHistory) {
+    if (historyChars + h.content.length > 50_000) break
+    historyChars += h.content.length
+    cappedHistory.push(h)
   }
 
   // Apply STT corrections — fix common misheard words before LLM sees them
@@ -3199,6 +3300,75 @@ export async function POST(req: NextRequest) {
     emit?: (payload: Record<string, unknown>) => void,
   ): Promise<JarvisResponsePayload> => {
     let aiResp: AIResponse = { speech: pickPersona('processing'), tool: null, toolParams: {}, emotion: 'thinking', confidence: 80 }
+
+    // ── Confirm-risk short-circuit ──────────────────────────────────────────
+    // If the client confirms a previously-blocked danger tool, execute the
+    // exact stored tool+params directly — no AI regeneration.
+    const pending = confirmRisk && clientId ? pendingConfirmations.get(clientId) : null
+    if (pending) {
+      pendingConfirmations.delete(clientId)
+      const pendingRisk = assessRisk(pending.tool, pending.toolParams)
+      void auditLog({
+        level: 'danger',
+        event: 'tool_confirmed',
+        tool: pending.tool,
+        params: pending.toolParams,
+        risk: pendingRisk.risk,
+        blocked: false,
+      })
+      let pendingToolResult: string | null = null
+      try {
+        pendingToolResult = await executeTool(pending.tool, pending.toolParams)
+        void auditLog({
+          level: 'info',
+          event: 'tool_executed',
+          tool: pending.tool,
+          params: pending.toolParams,
+          result: (pendingToolResult || '').slice(0, 200),
+          risk: pendingRisk.risk,
+        })
+      } catch (e) {
+        pendingToolResult = `Error: ${(e as Error).message?.slice(0, 200)}`
+      }
+      let confirmedSpeech = pendingToolResult && pendingToolResult !== 'Done'
+        ? formatToolSpeech(pending.tool, pendingToolResult)
+        : `Confirmed. ${pending.tool.replace(/_/g, ' ')} executed.`
+      const confirmedPayload: JarvisResponsePayload = {
+        speech: stripMarkdownForTTS(confirmedSpeech),
+        tool: pending.tool,
+        toolParams: pending.toolParams,
+        toolResult: pendingToolResult,
+        emotion: 'neutral',
+        confidence: 100,
+        domain,
+        usedModel,
+        usedProvider,
+        risk: pendingRisk,
+        detectedLang,
+        device: { isMobile, isMac },
+        offline: offlineMode,
+        clientId,
+      }
+      emit?.({
+        type: 'response',
+        speech: confirmedPayload.speech,
+        tool: confirmedPayload.tool,
+        toolParams: confirmedPayload.toolParams,
+        emotion: confirmedPayload.emotion,
+        confidence: confirmedPayload.confidence,
+        domain,
+        risk: confirmedPayload.risk,
+        requiresConfirmation: false,
+        clientId,
+      })
+      emit?.({
+        type: 'tool_done',
+        toolResult: pendingToolResult,
+        speech: confirmedPayload.speech,
+      })
+      return confirmedPayload
+    }
+
     const directAction = quickAction ? getJarvisQuickAction(quickAction) : undefined
 
     if (directAction) {
@@ -3224,14 +3394,11 @@ export async function POST(req: NextRequest) {
           lang: detectedLang,
           isMobile,
           isMac,
-          lastResponse: history.length > 0
-            ? (history[history.length - 1].role === 'assistant' ? history[history.length - 1].content : undefined)
-            : undefined,
           bypassPlanning: hasBypassPhrase(message),
           persona,
         }),
         messages: [
-          ...history.slice(-5).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
+          ...cappedHistory.slice(-5).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
           { role: 'user' as const, content: message },
         ],
         maxTokens: maxTok,
@@ -3306,6 +3473,7 @@ export async function POST(req: NextRequest) {
       })
 
       if (risk.level === 'danger' && !confirmRisk) {
+        rememberPendingConfirmation(clientId, aiResp.tool, aiResp.toolParams || {})
         const blockedPayload: JarvisResponsePayload = {
           speech: `I've detected a high-risk operation: ${risk.reason} Please confirm if you want me to proceed.`,
           tool: aiResp.tool,
@@ -3321,6 +3489,7 @@ export async function POST(req: NextRequest) {
           detectedLang,
           device: { isMobile, isMac },
           offline: offlineMode,
+          clientId,
         }
         emit?.({
           type: 'response',
@@ -3332,6 +3501,7 @@ export async function POST(req: NextRequest) {
           domain,
           risk: blockedPayload.risk,
           requiresConfirmation: true,
+          clientId,
         })
         return blockedPayload
       }
@@ -3388,6 +3558,7 @@ export async function POST(req: NextRequest) {
       detectedLang,
       device: { isMobile, isMac },
       offline: offlineMode,
+      clientId,
     }
   }
 

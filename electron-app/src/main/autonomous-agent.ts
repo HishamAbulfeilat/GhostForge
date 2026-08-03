@@ -1,11 +1,12 @@
 import { EventEmitter } from 'events';
-import { execSync, exec as execCb } from 'child_process';
+import { execSync, exec as execCb, execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
 const execAsync = promisify(execCb);
+const execFileAsync = promisify(execFileCb);
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -394,19 +395,36 @@ Respond in JSON format:
     }
   }
 
+  /** Run git with an argument array — no shell interpolation. */
+  private async gitExecFile(args: string[]): Promise<string> {
+    try {
+      const result = await execFileAsync('git', args, {
+        cwd: this.config.workspaceDir,
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024,
+      });
+      return (result.stdout || '').trim();
+    } catch (err: any) {
+      throw new Error(`Git command failed: git ${args.join(' ')}\n${err.stderr || err.message}`);
+    }
+  }
+
   async createBranch(name: string): Promise<string> {
     const branchName = `${this.config.branchPrefix}${name}`;
+    if (!/^[A-Za-z0-9_\-/.]+$/.test(branchName)) {
+      throw new Error(`Invalid branch name: ${branchName}`);
+    }
     this.log(`Creating branch: ${branchName}`);
 
     await this.gitExec('git fetch origin');
 
     try {
       await this.gitExec('git branch --show-current');
-      await this.gitExec(`git checkout main 2>/dev/null || git checkout master`);
+      await this.gitExec('git checkout main 2>/dev/null || git checkout master');
     } catch { /* may already be on main */ }
 
     await this.gitExec('git pull origin main 2>/dev/null || git pull origin master');
-    await this.gitExec(`git checkout -b ${branchName}`);
+    await this.gitExecFile(['checkout', '-b', branchName]);
 
     return branchName;
   }
@@ -423,14 +441,14 @@ Respond in JSON format:
       }
 
       if (file.action === 'delete') {
-        await this.gitExec(`git rm "${file.path}"`);
+        await this.gitExecFile(['rm', file.path]);
       } else {
         writeFileSync(filePath, file.content, 'utf8');
-        await this.gitExec(`git add "${file.path}"`);
+        await this.gitExecFile(['add', file.path]);
       }
     }
 
-    await this.gitExec(`git commit -m "${message.replace(/"/g, '\\"')}"`);
+    await this.gitExecFile(['commit', '-m', message]);
 
     const hash = await this.gitExec('git rev-parse --short HEAD');
     return hash;
@@ -438,7 +456,7 @@ Respond in JSON format:
 
   async pushBranch(branchName: string): Promise<void> {
     this.log(`Pushing branch: ${branchName}`);
-    await this.gitExec(`git push -u origin ${branchName}`);
+    await this.gitExecFile(['push', '-u', 'origin', branchName]);
   }
 
   async getCurrentBranch(): Promise<string> {

@@ -240,6 +240,11 @@ export class GeminiLiveVoice {
 
   private async createWebSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
+      // WARNING: the API key stays in the ?key= query parameter because Google's
+      // Generative Language Live API only supports query-string auth. It does
+      // NOT accept custom headers (standard WebSocket API) or a first-message
+      // auth frame — sending { type: 'auth', key } breaks the handshake.
+      // Do not move the key into a header or a setup message.
       const url = `${WS_URL}?key=${this.config.apiKey}`;
 
       try {

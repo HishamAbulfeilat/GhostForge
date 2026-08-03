@@ -31,10 +31,12 @@ const PROVIDER_COLORS: Record<string, string> = {
   openrouter:  'border-violet-800/50 bg-violet-950/20 text-violet-300',
   groq:        'border-orange-800/50 bg-orange-950/20 text-orange-300',
   nvidia:      'border-green-800/50 bg-green-950/20 text-green-300',
+  'fish-audio':'border-cyan-800/50 bg-cyan-950/20 text-cyan-300',
+  omniroute:   'border-amber-800/50 bg-amber-950/20 text-amber-300',
 }
 
 const PROVIDER_ICONS: Record<string, string> = {
-  google: '🔵', openrouter: '🔀', groq: '⚡', nvidia: '🟢',
+  google: '🔵', openrouter: '🔀', groq: '⚡', nvidia: '🟢', 'fish-audio': '🐟', omniroute: '🛰️',
 }
 
 const CATEGORY_BADGE: Record<string, string> = {
@@ -331,8 +333,12 @@ export default function SettingsPage() {
               {Object.entries(data.keysAvailable).map(([provider, hasKey]) => (
                 <div key={provider} className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${hasKey ? 'border-emerald-800/50 bg-emerald-950/30 text-emerald-300' : 'border-gray-800 bg-gray-900/30 text-gray-600'}`}>
                   <span className={`h-1.5 w-1.5 rounded-full ${hasKey ? 'bg-emerald-400' : 'bg-gray-700'}`} />
-                  {provider}
-                  {!hasKey && <span className="text-[10px]">— add key in .env.local</span>}
+                  {provider === 'fish' ? 'fish-audio' : provider}
+                  {!hasKey && (
+                    <span className="text-[10px]">
+                      {provider === 'omniroute' ? '— not running (npx omniroute)' : '— add key in .env.local'}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -409,6 +415,7 @@ export default function SettingsPage() {
               { key: 'OPENROUTER_API_KEY', url: 'openrouter.ai/keys', hint: 'Free tier available' },
               { key: 'GROQ_API_KEY', url: 'console.groq.com', hint: 'Free, ultra-fast inference' },
               { key: 'NVIDIA_API_KEY', url: 'build.nvidia.com', hint: 'Free tier, Llama 3.3 70B' },
+              { key: 'FISH_AUDIO_API_KEY', url: 'fish.audio', hint: 'Free — movie-accurate JARVIS voice' },
             ].map(item => (
               <div key={item.key} className="flex flex-col gap-0.5 rounded bg-black/30 px-3 py-2">
                 <code className="text-emerald-400">{item.key}=your_key_here</code>
