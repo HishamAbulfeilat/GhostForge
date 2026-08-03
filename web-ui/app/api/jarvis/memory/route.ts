@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 const MEMORY_DIR  = join(homedir(), '.ghostforge', 'jarvis')
 const MEMORY_FILE = join(MEMORY_DIR, 'memory.json')
@@ -32,8 +33,7 @@ async function readMemory(): Promise<Memory> {
 }
 
 function auth(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  return token && token === process.env.AUTH_SECRET
+  return isAuthorizedRequest(req)
 }
 
 export async function GET(req: NextRequest) {
@@ -43,7 +43,12 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   if (!auth(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const patch = await req.json() as Partial<Memory>
+  let patch: Partial<Memory>
+  try {
+    patch = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
   const current = await readMemory()
   const updated: Memory = { ...current, ...patch, lastSeen: new Date().toISOString() }
   await mkdir(MEMORY_DIR, { recursive: true })

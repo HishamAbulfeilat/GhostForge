@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
-import { exec, spawn } from 'child_process';
+import { exec, spawn, execFile } from 'child_process';
 import { promisify } from 'util';
 import { EventEmitter } from 'events';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'fs';
@@ -7,6 +7,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface UpdateInfo {
   currentVersion: string;
@@ -397,9 +398,8 @@ export class SelfUpdater extends EventEmitter {
       }
 
       if (commitMessage) {
-        await execAsync(`git add "${filePath}" && git commit -m "${commitMessage}"`, {
-          cwd: PROJECT_ROOT,
-        });
+        await execFileAsync('git', ['add', filePath], { cwd: PROJECT_ROOT });
+        await execFileAsync('git', ['commit', '-m', commitMessage], { cwd: PROJECT_ROOT });
         this.log(`Changes committed: ${commitMessage}`);
       }
 

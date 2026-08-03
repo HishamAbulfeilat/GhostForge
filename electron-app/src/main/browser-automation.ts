@@ -53,7 +53,22 @@ function runShell(cmd: string, timeout = 10000): Promise<string> {
   });
 }
 
+/** Validate that a URL uses an http(s) scheme before navigation. */
+function assertHttpUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid URL: ${url}`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Blocked URL with non-http(s) scheme: ${parsed.protocol}`);
+  }
+  return url;
+}
+
 function platformOpen(url: string): Promise<string> {
+  assertHttpUrl(url);
   const platform = process.platform;
   if (platform === 'darwin') return runShell(`open "${url}"`);
   if (platform === 'win32') return runShell(`start "" "${url}"`);
@@ -62,6 +77,7 @@ function platformOpen(url: string): Promise<string> {
 
 /** Open a URL in the default browser or Playwright. */
 export async function openUrl(url: string): Promise<string> {
+  assertHttpUrl(url);
   const page = await getBrowserPage();
   if (page) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -82,6 +98,7 @@ export async function searchWeb(query: string, engine: 'google' | 'duckduckgo' =
 
 /** Navigate the current tab to a new URL. */
 export async function navigateTab(url: string): Promise<string> {
+  assertHttpUrl(url);
   const page = await getBrowserPage();
   if (page) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });

@@ -6,18 +6,27 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { shouldExecuteViaApi } from '@/lib/terminal-routing'
 
-// ttyd binary WebSocket protocol:
+// GhostForge PTY WebSocket protocol (scripts/pty-server.js):
 //   Server → client: raw terminal bytes (no prefix)
-//   Client → server input: 0x00 byte + data
-//   Client → server resize: 0x01 byte + JSON {"rows":N,"cols":N}
+//   Client → server input: raw text
+//   Client → server resize: JSON {"type":"resize","rows":N,"cols":N}
+//   Auth: raw bridge token in the query string (?token=...)
 
 type ConnStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
-function getTtydUrl(token: string) {
-  const host = window.location.hostname
+function getPtyUrl(token: string, cols: number, rows: number) {
+  // Connect through the web server (same origin) — server.js proxies /ws to
+  // the local bridge. This keeps the terminal working over HTTPS (ws:// to a
+  // separate port would be blocked as mixed content).
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const b64 = btoa(`ghostforge:${token}`)
-  return `${proto}://${host}:4748/ws?token=${encodeURIComponent(b64)}`
+  const host = window.location.hostname
+  const port = window.location.port || (proto === 'wss' ? '443' : '80')
+  const params = new URLSearchParams({ token, cols: String(cols || 120), rows: String(rows || 40) })
+  return `${proto}://${host}:${port}/ws?${params}`
+}
+
+function resizeMessage(cols: number, rows: number) {
+  return JSON.stringify({ type: 'resize', cols, rows })
 }
 
 interface Props {
@@ -32,6 +41,7 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
   const termRef = useRef<Terminal | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
+  const isDisposedRef = useRef(false)
 
   // ── Store onStatusChange in a ref so connect() never changes when the
   //    parent re-renders with a new inline arrow function.
@@ -45,6 +55,7 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
   }, []) // stable — reads from ref, no deps
 
   const connect = useCallback(async (term: Terminal, fit: FitAddon) => {
+    if (isDisposedRef.current) return
     // Close existing connection
     wsRef.current?.close()
     wsRef.current = null
@@ -74,19 +85,21 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
       return
     }
 
-    const ws = new WebSocket(getTtydUrl(bridgeToken))
+    const ws = new WebSocket(getPtyUrl(bridgeToken, term.cols, term.rows))
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
     ws.onopen = () => {
+      if (isDisposedRef.current) { ws.close(); return }
       notifyStatus('connected')
       term.write('\x1b[32m[✓ Connected — GhostForge TUI ready]\x1b[0m\r\n')
-      ws.send('\x01' + JSON.stringify({ rows: term.rows, cols: term.cols }))
-      // Send initial size after brief delay to let ttyd settle
+      ws.send(resizeMessage(term.cols, term.rows))
+      // Send initial size after brief delay to let the PTY settle
       const sizeTimer = setTimeout(() => {
+        if (isDisposedRef.current) return
         fit.fit()
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send('\x01' + JSON.stringify({ rows: term.rows, cols: term.cols }))
+          ws.send(resizeMessage(term.cols, term.rows))
         }
       }, 200)
       // Store so cleanup can cancel if ws closes before timer fires
@@ -94,24 +107,31 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
     }
 
     ws.onmessage = (e) => {
+      if (isDisposedRef.current) return
       if (e.data instanceof ArrayBuffer) {
         term.write(new Uint8Array(e.data))
       } else if (typeof e.data === 'string') {
         term.write(e.data)
       } else if (e.data instanceof Blob) {
-        e.data.arrayBuffer().then(buf => term.write(new Uint8Array(buf)))
+        e.data.arrayBuffer().then(buf => {
+          if (!isDisposedRef.current) term.write(new Uint8Array(buf))
+        })
       }
     }
 
     ws.onerror = () => {
+      if (wsRef.current === ws) wsRef.current = null
       notifyStatus('error')
+      if (isDisposedRef.current) return
       term.write('\r\n\x1b[31m[✗ Connection failed — bridge may be offline]\x1b[0m\r\n')
       term.write('\x1b[33m  Start bridge: bash ~/GhostForge/scripts/bridge.sh start\x1b[0m\r\n')
       term.write('\x1b[90m  Then click Reconnect or press R\x1b[0m\r\n')
     }
 
     ws.onclose = (e) => {
+      if (wsRef.current === ws) wsRef.current = null
       notifyStatus('disconnected')
+      if (isDisposedRef.current) return
       if (e.code === 1008) {
         term.write('\r\n\x1b[31m[Auth rejected — bridge token mismatch]\x1b[0m\r\n')
       } else if (e.code === 1006) {
@@ -124,7 +144,7 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
 
   const executeViaApi = useCallback((cmd: string, reason?: string) => {
     const term = termRef.current
-    if (!term) return
+    if (!term || isDisposedRef.current) return
 
     if (reason) term.write(`\r\n\x1b[33m[${reason}]\x1b[0m\r\n`)
     term.write('\r\n\x1b[36m$ ' + cmd + '\x1b[0m\r\n')
@@ -135,11 +155,13 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
     })
       .then(r => r.json())
       .then((data: { output?: string; error?: string }) => {
+        if (isDisposedRef.current) return
         const out = data.output || data.error || 'Done'
         term.write(out.replace(/\n/g, '\r\n') + '\r\n')
         term.write(data.error ? '\x1b[31m[Failed]\x1b[0m\r\n\n' : '\x1b[32m[Done]\x1b[0m\r\n\n')
       })
       .catch(() => {
+        if (isDisposedRef.current) return
         term.write('\x1b[31m[Execution failed — server unreachable]\x1b[0m\r\n')
       })
   }, [])
@@ -149,7 +171,7 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
     if (shouldExecuteViaApi(cmd)) {
       executeViaApi(cmd)
     } else if (ws?.readyState === WebSocket.OPEN) {
-      ws.send('\x00' + cmd + '\n')
+      ws.send(cmd + '\n')
     } else {
       executeViaApi(cmd, 'WebSocket offline — executing via API...')
     }
@@ -158,7 +180,7 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
   const reconnect = useCallback(() => {
     const term = termRef.current
     const fit = fitRef.current
-    if (term && fit) {
+    if (term && fit && !isDisposedRef.current) {
       term.write('\r\n\x1b[33m[Reconnecting...]\x1b[0m\r\n')
       void connect(term, fit)
     }
@@ -168,11 +190,11 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
   const activate = useCallback(() => {
     const fit = fitRef.current
     const term = termRef.current
-    if (fit && term) {
+    if (fit && term && !isDisposedRef.current) {
       fit.fit()
       const ws = wsRef.current
       if (ws?.readyState === WebSocket.OPEN) {
-        ws.send('\x01' + JSON.stringify({ rows: term.rows, cols: term.cols }))
+        ws.send(resizeMessage(term.cols, term.rows))
       }
       term.focus()
     }
@@ -192,6 +214,8 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
 
   useEffect(() => {
     if (!containerRef.current) return
+
+    isDisposedRef.current = false
 
     const term = new Terminal({
       fontFamily: '"JetBrains Mono", "Fira Code", Menlo, monospace',
@@ -227,7 +251,7 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
     term.onData(data => {
       const ws = wsRef.current
       if (ws?.readyState === WebSocket.OPEN) {
-        ws.send('\x00' + data)
+        ws.send(data)
       } else if (data.toLowerCase() === 'r') {
         void connect(term, fit)
       }
@@ -237,15 +261,19 @@ export default function XTermWrapper({ sendCommandRef, reconnectRef, activateRef
       fit.fit()
       const ws = wsRef.current
       if (ws?.readyState === WebSocket.OPEN) {
-        ws.send('\x01' + JSON.stringify({ rows: term.rows, cols: term.cols }))
+        ws.send(resizeMessage(term.cols, term.rows))
       }
     }
     window.addEventListener('resize', onResize)
 
     return () => {
+      isDisposedRef.current = true
       window.removeEventListener('resize', onResize)
       wsRef.current?.close()
-      term.dispose()
+      wsRef.current = null
+      try { term.dispose() } catch { /* already disposed */ }
+      termRef.current = null
+      fitRef.current = null
     }
   }, [connect]) // connect is now stable — won't retrigger on parent re-render
 

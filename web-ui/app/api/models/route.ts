@@ -1,8 +1,9 @@
-import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
+import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
+import { isAuthorizedRequest } from '@/lib/auth'
+import { isOmniRouteUp } from '@/lib/ai'
 
 const MODELS_PATH = path.join(os.homedir(), 'GhostForge/marketplace/custom-models.json')
 const SETTINGS_PATH = path.join(os.homedir(), '.ghostforge/settings.json')
@@ -123,6 +124,17 @@ const BUILTIN_MODELS = [
     context: '128K tokens',
   },
   {
+    id: 'fish-audio/jarvis',
+    name: 'Fish Audio JARVIS Voice 🆓',
+    provider: 'fish-audio',
+    providerName: 'Fish Audio',
+    description: 'Movie-accurate JARVIS voice from Iron Man. Free tier — no quota limits.',
+    free: true,
+    requiresKey: 'FISH_AUDIO_API_KEY',
+    category: 'free',
+    context: 'voice · 500 chars',
+  },
+  {
     id: 'meta/llama-3.3-70b-instruct',
     name: 'Llama 3.3 70B (NVIDIA NIM)',
     provider: 'nvidia',
@@ -135,10 +147,8 @@ const BUILTIN_MODELS = [
   },
 ]
 
-export async function GET() {
-  const cookieStore = await cookies()
-  const auth = cookieStore.get('gf_token')
-  if (!auth?.value || auth.value !== process.env.AUTH_SECRET) {
+export async function GET(req: NextRequest) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -150,10 +160,19 @@ export async function GET() {
   const hasOpenRouter = !!process.env.OPENROUTER_API_KEY
   const hasGroq = !!process.env.GROQ_API_KEY
   const hasNvidia = !!process.env.NVIDIA_API_KEY
-  // OmniRoute runs locally — check if OMNIROUTE_URL is set or use default
-  const hasOmniRoute = !!(process.env.OMNIROUTE_URL || true) // always show; detection via ping is done client-side
+  const hasFishAudio = !!process.env.FISH_AUDIO_API_KEY
+  // OmniRoute runs locally — report its REAL status (down = not usable)
+  const omniRouteUp = await isOmniRouteUp()
 
-  const keysAvailable = { google: hasGoogle, openrouter: hasOpenRouter, groq: hasGroq, nvidia: hasNvidia, omniroute: hasOmniRoute }
+  const keysAvailable = {
+    google: hasGoogle,
+    openrouter: hasOpenRouter,
+    groq: hasGroq,
+    nvidia: hasNvidia,
+    fish: hasFishAudio,
+    'fish-audio': hasFishAudio,
+    omniroute: omniRouteUp,
+  }
 
   const activeModel = settings.activeModel ?? process.env.GEMINI_MODEL ?? 'gemini-2.5-pro'
   const activeProvider = settings.activeProvider ?? 'google'
@@ -167,14 +186,18 @@ export async function GET() {
   })
 }
 
-export async function POST(req: Request) {
-  const cookieStore = await cookies()
-  const auth = cookieStore.get('gf_token')
-  if (!auth?.value || auth.value !== process.env.AUTH_SECRET) {
+export async function POST(req: NextRequest) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const { modelId, provider } = await req.json() as { modelId: string; provider: string }
+  let parsed: { modelId?: string; provider?: string }
+  try {
+    parsed = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+  const { modelId, provider } = parsed as { modelId: string; provider: string }
 
   const settings = readJSON<Record<string, unknown>>(SETTINGS_PATH, {})
   settings.activeModel = modelId

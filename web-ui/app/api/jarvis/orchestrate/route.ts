@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isAuthorizedRequest, getAuthSecret } from '@/lib/auth'
+import { POST as jarvisPost } from '../route'
 
 interface SubTask {
   id: string
@@ -25,25 +27,35 @@ interface JarvisResponse {
 }
 
 export async function POST(req: NextRequest) {
-  const { task, subtasks }: OrchestrationRequest = await req.json()
+  if (!isAuthorizedRequest(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
+  let parsed: OrchestrationRequest
+  try {
+    parsed = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  const { task, subtasks } = parsed
   const tasks: SubTask[] = subtasks?.length ? subtasks : autoDecompose(task)
   const startTime = Date.now()
-  const baseUrl = process.env.NEXTAUTH_URL || req.nextUrl.origin || 'http://localhost:3001'
+  const authSecret = getAuthSecret()
 
   const results: OrchestrationResult[] = await Promise.all(
     tasks.map(async (st): Promise<OrchestrationResult> => {
       const t0 = Date.now()
       try {
-        const resp = await fetch(`${baseUrl}/api/jarvis`, {
+        const jarvisReq = new NextRequest('http://localhost/api/jarvis', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            Cookie: req.headers.get('cookie') || 'gf_token=',
+            'content-type': 'application/json',
+            cookie: `gf_token=${authSecret}`,
           },
           body: JSON.stringify({ message: st.prompt, stream: false }),
-          signal: AbortSignal.timeout(30000),
         })
+        const resp = await jarvisPost(jarvisReq)
         const data = (await resp.json()) as JarvisResponse
         return {
           id: st.id,

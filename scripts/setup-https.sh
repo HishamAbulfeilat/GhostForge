@@ -1,10 +1,16 @@
 #!/bin/bash
 # GhostForge HTTPS Setup — mkcert local certificate
-# Enables mic/camera access from non-localhost devices (iPhone, other Macs)
-# ────────────────────────────────────────────────────────────────────────────
+# Enables mic/camera access from non-localhost devices (iPhone, other Macs).
+#
+# This script only installs the CA and generates certificates into web-ui/certs/.
+# It does NOT touch next.config.mjs — the HTTPS custom server (web-ui/server.js)
+# reads these certs and auto-regenerates them when missing or expired.
 
 set -e
-cd ~/GhostForge/web-ui
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WEB_UI_DIR="$SCRIPT_DIR/../web-ui"
+CERT_DIR="$WEB_UI_DIR/certs"
 
 echo "🔐 GhostForge HTTPS Setup"
 echo "=========================="
@@ -22,68 +28,47 @@ fi
 
 echo "✓ mkcert installed"
 
-# Install local CA
+# Install local CA (trusted by this machine)
 mkcert -install
-echo "✓ Local CA installed (trusted by your Mac)"
+echo "✓ Local CA installed (trusted by this Mac)"
 
-# Get local IP
-LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "192.168.1.x")
-echo "📍 Local IP detected: $LOCAL_IP"
+# Detect a real LAN IP (skip placeholder/loopback addresses)
+LOCAL_IP=""
+for iface in en0 en1 en2 en3; do
+  IP=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
+  if [[ -n "$IP" && "$IP" != 192.168.1.x && "$IP" != 127.* ]]; then
+    LOCAL_IP="$IP"
+    break
+  fi
+done
 
-# Generate cert for localhost + local IP
-mkdir -p certs
-mkcert -key-file certs/key.pem -cert-file certs/cert.pem localhost 127.0.0.1 "$LOCAL_IP" ::1
-echo "✓ Certificates generated: web-ui/certs/cert.pem + key.pem"
-
-# Update next.config.mjs to use HTTPS
-cat > next.config.mjs << 'NEXTCONFIG'
-/** @type {import('next').NextConfig} */
-import { readFileSync } from 'fs'
-import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
-
-let httpsConfig = {}
-try {
-  httpsConfig = {
-    key: readFileSync(join(__dirname, 'certs', 'key.pem')),
-    cert: readFileSync(join(__dirname, 'certs', 'cert.pem')),
-  }
-} catch { /* certs not yet generated */ }
-
-const nextConfig = {
-  experimental: {
-    serverComponentsExternalPackages: ['resemblyzer'],
-  },
-  server: Object.keys(httpsConfig).length > 0 ? httpsConfig : undefined,
-}
-
-export default nextConfig
-NEXTCONFIG
-
-echo "✓ next.config.mjs updated for HTTPS"
-
-# Update .env.local NEXTAUTH_URL if present
-if grep -q "NEXTAUTH_URL" .env.local 2>/dev/null; then
-  sed -i '' "s|http://localhost:3001|https://localhost:3001|g" .env.local
+if [[ -z "$LOCAL_IP" ]]; then
+  echo "⚠  Could not detect a LAN IP — cert will only cover localhost."
 fi
+
+# Generate cert for localhost + local IP (server.js regenerates if expired)
+mkdir -p "$CERT_DIR"
+ARGS=( -key-file "$CERT_DIR/key.pem" -cert-file "$CERT_DIR/cert.pem" localhost 127.0.0.1 ::1 )
+if [[ -n "$LOCAL_IP" ]]; then
+  ARGS+=( "$LOCAL_IP" )
+fi
+mkcert "${ARGS[@]}"
+echo "✓ Certificates generated: web-ui/certs/cert.pem + key.pem"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║           HTTPS SETUP COMPLETE                       ║"
 echo "╠══════════════════════════════════════════════════════╣"
-echo "║ Restart the server:  npm start -- -p 3001            ║"
+echo "║ Start the server:  npm start (in web-ui/)            ║"
 echo "║                                                      ║"
 echo "║ Access from:                                         ║"
 echo "║   https://localhost:3001      (this Mac)             ║"
-echo "║   https://$LOCAL_IP:3001   (any device on LAN)   ║"
+echo "║   http://localhost:3000  →   https (auto-redirect)   ║"
+if [[ -n "$LOCAL_IP" ]]; then
+  echo "║   https://$LOCAL_IP:3001   (any device on LAN)   ║"
+fi
 echo "║                                                      ║"
 echo "║ On iPhone: Settings → Wi-Fi → trust this IP cert    ║"
-echo "║ Or install the CA: mkcert -CAROOT (copy to phone)   ║"
+echo "║ Or install the CA on other devices:                 ║"
+echo "║   mkcert -CAROOT  (copy rootCA.pem to the device)   ║"
 echo "╚══════════════════════════════════════════════════════╝"
-
-# Add certs to gitignore
-if ! grep -q "certs/" ~/GhostForge/web-ui/.gitignore 2>/dev/null; then
-  echo "certs/" >> ~/GhostForge/web-ui/.gitignore
-fi

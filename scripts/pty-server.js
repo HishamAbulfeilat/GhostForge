@@ -95,16 +95,28 @@ wss.on('connection', (ws, req) => {
 
   // WebSocket → PTY
   ws.on('message', msg => {
-    const data = msg.toString()
     try {
-      // Check for resize message: JSON { type:'resize', cols, rows }
-      const parsed = JSON.parse(data)
-      if (parsed.type === 'resize' && parsed.cols && parsed.rows) {
-        shell.resize(parsed.cols, parsed.rows)
-        return
-      }
-    } catch { /* not JSON — normal input */ }
-    shell.write(data)
+      const data = msg.toString()
+      try {
+        // Check for resize message: JSON { type:'resize', cols, rows }
+        const parsed = JSON.parse(data)
+        if (parsed.type === 'resize') {
+          // Validate dimensions before resizing the PTY
+          if (
+            Number.isInteger(parsed.cols) && parsed.cols > 0 &&
+            Number.isInteger(parsed.rows) && parsed.rows > 0
+          ) {
+            shell.resize(parsed.cols, parsed.rows)
+          } else {
+            console.warn('[PTY] Ignored invalid resize:', data)
+          }
+          return
+        }
+      } catch { /* not JSON — normal input */ }
+      shell.write(data)
+    } catch (err) {
+      console.error('[PTY] Message handler error:', err instanceof Error ? err.message : err)
+    }
   })
 
   ws.on('close', () => {
@@ -118,6 +130,8 @@ wss.on('connection', (ws, req) => {
   })
 })
 
-httpServer.listen(PORT, () => {
-  console.log(`[PTY] GhostForge PTY server listening on port ${PORT}`)
+// Bind to loopback only — the web UI WS proxy (web-ui/server.js on 3001)
+// connects from the same machine, so no external interface is needed.
+httpServer.listen(PORT, '127.0.0.1', () => {
+  console.log(`[PTY] GhostForge PTY server listening on 127.0.0.1:${PORT}`)
 })

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { safeGet, safeSet } from '@/lib/storage'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -24,7 +25,7 @@ export default function PWAInstallBanner() {
 
     const standalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as Navigator & { standalone?: boolean }).standalone === true
     const ios = isIosDevice(window.navigator.userAgent)
-    const dismissed = localStorage.getItem('gf_pwa_dismissed')
+    const dismissed = safeGet('gf_pwa_dismissed')
 
     setIsStandalone(standalone)
     setIsIos(ios)
@@ -60,7 +61,7 @@ export default function PWAInstallBanner() {
   if (!show || isStandalone) return null
 
   const dismiss = () => {
-    localStorage.setItem('gf_pwa_dismissed', '1')
+    safeSet('gf_pwa_dismissed', '1')
     setShow(false)
   }
 

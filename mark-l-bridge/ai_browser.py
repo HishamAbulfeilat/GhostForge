@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import ipaddress
 import sys
+import urllib.parse
 from typing import Any, Optional
 
 # ---------------------------------------------------------------------------
@@ -25,10 +27,14 @@ try:
 
     _HAS_BROWSER_USE = True
 except ImportError:
-    print("[ai_browser] ⚠️  browser-use not installed — browser module will use stub responses", file=sys.stderr)
+    print(
+        "[ai_browser] ⚠️  browser-use not installed — browser module will use stub responses",
+        file=sys.stderr,
+    )
 
 try:
     import httpx as _httpx
+
     _HAS_HTTPX = True
 except ImportError:
     _HAS_HTTPX = False
@@ -45,7 +51,9 @@ async def _ensure_browser(headless: bool = True) -> tuple[Any, Any]:
     """Return (browser, controller), creating them if necessary."""
     global _browser, _controller
     if not _HAS_BROWSER_USE:
-        raise RuntimeError("browser-use is not installed. Install with: pip install browser-use")
+        raise RuntimeError(
+            "browser-use is not installed. Install with: pip install browser-use"
+        )
 
     if _browser is None:
         config = _BuBrowserConfig(headless=headless)
@@ -68,11 +76,61 @@ async def _cleanup_browser() -> None:
 
 
 # ---------------------------------------------------------------------------
+# URL validation (SSRF protection)
+# ---------------------------------------------------------------------------
+
+# Private / link-local / ULA ranges that must never be fetched by the bridge.
+# Loopback (127.0.0.0/8, ::1, localhost) is intentionally ALLOWED: the whole
+# bridge binds to 127.0.0.1 and every request requires the shared bridge
+# token, so localhost is a trusted local target rather than an SSRF vector.
+_PRIVATE_NETS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("fc00::/7"),
+]
+
+
+def _validate_url(url: str) -> str:
+    """Validate *url* for SSRF safety and return it unchanged.
+
+    Only http/https schemes are accepted (file:// and other schemes are
+    rejected) and literal hostnames in private/link-local address ranges
+    are blocked; loopback is allowed per the note above.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Only http/https URLs are allowed")
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not host:
+        raise ValueError("URL must include a host")
+    if host == "localhost" or host.endswith(".localhost"):
+        return url
+    if host.endswith(".local"):
+        raise ValueError("mDNS (.local) hosts are not allowed")
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return url  # hostname — range check applies to IP literals
+    if addr.is_loopback:
+        return url
+    if any(addr in net for net in _PRIVATE_NETS):
+        raise ValueError("Private/local network addresses are not allowed")
+    return url
+
+
+# ---------------------------------------------------------------------------
 # Sync wrappers
 # ---------------------------------------------------------------------------
 
+
 def _run_async(coro):  # type: ignore[no-untyped-def]
-    """Run an async coroutine from sync code, handling event loop."""
+    """Run an async coroutine from sync code, handling event loop.
+
+    Every run is bounded to 120s and the browser session is torn down in a
+    ``finally`` block so a hung page cannot leak sessions or threads.
+    """
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -80,19 +138,29 @@ def _run_async(coro):  # type: ignore[no-untyped-def]
 
     if loop and loop.is_running():
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            return pool.submit(asyncio.run, coro).result()
-    return asyncio.run(coro)
+            future = pool.submit(asyncio.run, asyncio.wait_for(coro, timeout=120))
+            try:
+                return future.result(timeout=120)
+            finally:
+                asyncio.run(_cleanup_browser())
+    try:
+        return asyncio.run(asyncio.wait_for(coro, timeout=120))
+    finally:
+        asyncio.run(_cleanup_browser())
 
 
 # ---------------------------------------------------------------------------
 # Simple HTTP fetch fallback (when browser-use unavailable)
 # ---------------------------------------------------------------------------
 
+
 async def _http_fetch(url: str) -> str:
     """Fetch a URL via httpx (fallback)."""
     if not _HAS_HTTPX:
         raise RuntimeError("Neither browser-use nor httpx is installed.")
+    _validate_url(url)
     async with _httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
         resp = await client.get(url)
         resp.raise_for_status()
@@ -103,8 +171,10 @@ async def _http_fetch(url: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 async def browse_async(url: str, task: str) -> dict[str, Any]:
     """Navigate to *url* and perform *task* using browser-use."""
+    _validate_url(url)
     if _HAS_BROWSER_USE:
         browser, controller = await _ensure_browser()
         result = await controller.run_task(task, browser=browser)
@@ -112,7 +182,11 @@ async def browse_async(url: str, task: str) -> dict[str, Any]:
 
     # Fallback
     html = await _http_fetch(url)
-    return {"url": url, "task": task, "result": f"[fallback] Page fetched ({len(html)} chars). Task execution requires browser-use."}
+    return {
+        "url": url,
+        "task": task,
+        "result": f"[fallback] Page fetched ({len(html)} chars). Task execution requires browser-use.",
+    }
 
 
 def browse(url: str, task: str) -> dict[str, Any]:
@@ -125,6 +199,7 @@ async def extract_async(url: str, selectors: dict[str, str]) -> dict[str, Any]:
 
     *selectors* maps a friendly name → CSS selector.
     """
+    _validate_url(url)
     if _HAS_BROWSER_USE:
         browser, controller = await _ensure_browser()
         await browser.goto(url)
@@ -139,7 +214,12 @@ async def extract_async(url: str, selectors: dict[str, str]) -> dict[str, Any]:
         return {"url": url, "extracted": results}
 
     html = await _http_fetch(url)
-    return {"url": url, "extracted": {"_fallback": f"[fallback] Fetched {len(html)} chars. Install browser-use for selector extraction."}}
+    return {
+        "url": url,
+        "extracted": {
+            "_fallback": f"[fallback] Fetched {len(html)} chars. Install browser-use for selector extraction."
+        },
+    }
 
 
 def extract(url: str, selectors: dict[str, str]) -> dict[str, Any]:
@@ -152,6 +232,7 @@ async def fill_form_async(url: str, form_data: dict[str, str]) -> dict[str, Any]
 
     *form_data* maps input name/selector → value.
     """
+    _validate_url(url)
     if _HAS_BROWSER_USE:
         browser, _ = await _ensure_browser()
         await browser.goto(url)
@@ -180,6 +261,7 @@ def fill_form(url: str, form_data: dict[str, str]) -> dict[str, Any]:
 
 async def screenshot_async(url: str) -> dict[str, Any]:
     """Capture a screenshot of *url* and return as base64."""
+    _validate_url(url)
     if _HAS_BROWSER_USE:
         browser, _ = await _ensure_browser()
         await browser.goto(url)
@@ -215,7 +297,11 @@ async def search_async(query: str) -> dict[str, Any]:
             results.append({"title": title, "url": href, "snippet": snippet})
         return {"query": query, "results": results}
 
-    return {"query": query, "results": [], "error": "browser-use is required for web search"}
+    return {
+        "query": query,
+        "results": [],
+        "error": "browser-use is required for web search",
+    }
 
 
 def search(query: str) -> dict[str, Any]:
@@ -225,6 +311,7 @@ def search(query: str) -> dict[str, Any]:
 
 async def click_async(url: str, selector: str) -> dict[str, Any]:
     """Click an element matching *selector* on *url*."""
+    _validate_url(url)
     if _HAS_BROWSER_USE:
         browser, _ = await _ensure_browser()
         await browser.goto(url)
@@ -242,6 +329,7 @@ def click(url: str, selector: str) -> dict[str, Any]:
 
 async def scroll_async(url: str, direction: str = "down") -> dict[str, Any]:
     """Scroll the page on *url* in *direction*."""
+    _validate_url(url)
     if _HAS_BROWSER_USE:
         browser, _ = await _ensure_browser()
         await browser.goto(url)
@@ -260,6 +348,7 @@ def scroll(url: str, direction: str = "down") -> dict[str, Any]:
 
 async def get_page_text_async(url: str) -> dict[str, Any]:
     """Return the full visible text of *url*."""
+    _validate_url(url)
     if _HAS_BROWSER_USE:
         browser, _ = await _ensure_browser()
         await browser.goto(url)
@@ -268,7 +357,12 @@ async def get_page_text_async(url: str) -> dict[str, Any]:
         return {"url": url, "text": text, "length": len(text)}
 
     html = await _http_fetch(url)
-    return {"url": url, "text": html[:10000], "length": len(html), "note": "Raw HTML returned (install browser-use for visible text)"}
+    return {
+        "url": url,
+        "text": html[:10000],
+        "length": len(html),
+        "note": "Raw HTML returned (install browser-use for visible text)",
+    }
 
 
 def get_page_text(url: str) -> dict[str, Any]:
@@ -278,6 +372,7 @@ def get_page_text(url: str) -> dict[str, Any]:
 
 async def wait_for_async(url: str, selector: str, timeout: int = 10) -> dict[str, Any]:
     """Navigate to *url* and wait for *selector* to appear."""
+    _validate_url(url)
     if _HAS_BROWSER_USE:
         browser, _ = await _ensure_browser()
         await browser.goto(url)
@@ -286,7 +381,12 @@ async def wait_for_async(url: str, selector: str, timeout: int = 10) -> dict[str
             await page.wait_for_selector(selector, timeout=timeout * 1000)
             return {"url": url, "selector": selector, "found": True}
         except Exception:
-            return {"url": url, "selector": selector, "found": False, "timeout": timeout}
+            return {
+                "url": url,
+                "selector": selector,
+                "found": False,
+                "timeout": timeout,
+            }
 
     return {"url": url, "error": "browser-use is required for wait_for"}
 
@@ -302,19 +402,25 @@ async def login_async(url: str, credentials: dict[str, str]) -> dict[str, Any]:
     *credentials* should contain keys like ``username``, ``password``
     (or ``email``, ``pass`` — the function tries common selectors).
     """
+    _validate_url(url)
     if _HAS_BROWSER_USE:
         browser, _ = await _ensure_browser()
         await browser.goto(url)
         page = browser.get_current_page()
 
         username_selectors = [
-            'input[name="username"]', 'input[name="email"]',
-            'input[type="email"]', '#username', '#email',
+            'input[name="username"]',
+            'input[name="email"]',
+            'input[type="email"]',
+            "#username",
+            "#email",
             'input[name="user"]',
         ]
         password_selectors = [
-            'input[name="password"]', 'input[type="password"]',
-            '#password', '#pass',
+            'input[name="password"]',
+            'input[type="password"]',
+            "#password",
+            "#pass",
         ]
 
         username = credentials.get("username") or credentials.get("email", "")
@@ -343,9 +449,19 @@ async def login_async(url: str, credentials: dict[str, str]) -> dict[str, Any]:
                 await page.keyboard.press("Enter")
             except Exception:
                 pass
-            return {"url": url, "status": "credentials_submitted", "filled_user": filled_user, "filled_pass": filled_pass}
+            return {
+                "url": url,
+                "status": "credentials_submitted",
+                "filled_user": filled_user,
+                "filled_pass": filled_pass,
+            }
 
-        return {"url": url, "error": "Could not locate login form fields", "filled_user": filled_user, "filled_pass": filled_pass}
+        return {
+            "url": url,
+            "error": "Could not locate login form fields",
+            "filled_user": filled_user,
+            "filled_pass": filled_pass,
+        }
 
     return {"url": url, "error": "browser-use is required for login"}
 

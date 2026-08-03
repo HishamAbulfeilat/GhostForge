@@ -1,5 +1,5 @@
 import { globalShortcut, ipcMain, BrowserWindow } from 'electron';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import type { VoiceCommand } from '../shared/types';
 import { VOICE, PLATFORM_COMMANDS } from '../shared/constants';
 
@@ -65,25 +65,28 @@ export class VoiceSystem {
       const platform = process.platform;
 
       if (platform === 'darwin') {
-        const voiceArg = voice ? `-v "${voice}"` : '';
-        exec(`say ${voiceArg} "${text.replace(/"/g, '\\"')}"`, (error) => {
+        // execFile with an argument array — no shell interpolation of text
+        const args = voice ? ['-v', voice, text] : [text];
+        execFile('say', args, (error) => {
           if (error) reject(error);
           else resolve();
         });
       } else if (platform === 'win32') {
-        // Windows: use PowerShell speech synthesis
+        // Windows: PowerShell speech synthesis — text is passed as an argv
+        // element ($args[0]) so no quoting/escaping of the spoken text is needed.
         const psScript = `
           Add-Type -AssemblyName System.Speech
           $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
-          $synth.Speak("${text.replace(/"/g, '\\"')}")
+          $synth.Speak($args[0])
         `;
-        exec(`powershell -Command "${psScript.replace(/\n/g, ' ')}"`, (error) => {
+        execFile('powershell', ['-NoProfile', '-Command', psScript, text], (error) => {
           if (error) reject(error);
           else resolve();
         });
       } else {
-        // Linux: use espeak or festival
-        exec(`espeak "${text.replace(/"/g, '\\"')}"`, (error) => {
+        // Linux: espeak
+        const args = voice ? ['-v', voice, text] : [text];
+        execFile('espeak', args, (error) => {
           if (error) reject(error);
           else resolve();
         });

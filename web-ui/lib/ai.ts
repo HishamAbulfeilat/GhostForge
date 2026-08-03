@@ -25,15 +25,103 @@ export interface ModelEntry {
 
 /** Build an OmniRoute LanguageModel — no API key required */
 export function makeOmniRouteModel(modelId = 'auto/coding'): LanguageModel {
-  const baseURL = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1'
+  const raw = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1'
+  const baseURL = raw.endsWith('/v1') ? raw : `${raw.replace(/\/+$/, '')}/v1`
   const omni = createOpenAI({ baseURL, apiKey: 'omniroute' })
   return omni(modelId)
 }
 
+export function omniRouteBaseURL(): string {
+  const raw = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1'
+  return raw.endsWith('/v1') ? raw : `${raw.replace(/\/+$/, '')}/v1`
+}
+
+/**
+ * Direct HTTP fallback for OmniRoute. The AI SDK's JSON handler cannot consume
+ * OmniRoute's streaming responses (v3.8.48 defaults to SSE even when `stream` is
+ * omitted, so `generateText` throws `AI_APICallError: Invalid JSON response`).
+ * Forcing `stream:false` returns a plain OpenAI-compatible JSON body.
+ */
+export async function generateWithOmniRoute(
+  modelId: string,
+  opts: Omit<Parameters<typeof generateText>[0], 'model'>,
+): Promise<string> {
+  const baseURL = omniRouteBaseURL()
+  const messages: Array<{ role: string; content: string }> = []
+  if (typeof opts.system === 'string' && opts.system.trim()) {
+    messages.push({ role: 'system', content: opts.system })
+  }
+  if (Array.isArray(opts.messages)) {
+    for (const message of opts.messages) {
+      const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content)
+      if (content) messages.push({ role: message.role, content })
+    }
+  }
+  if (messages.length === 0) messages.push({ role: 'user', content: 'Hello' })
+
+  let res: Response
+  try {
+    res = await fetch(`${baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer omniroute' },
+      signal: AbortSignal.timeout(120_000),
+      body: JSON.stringify({
+        model: modelId,
+        messages,
+        stream: false,
+        max_tokens: opts.maxTokens || 800,
+      }),
+    })
+  } catch (e) {
+    throw new Error(`OmniRoute connection failed: ${String(e).slice(0, 120)}`)
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`OmniRoute returned ${res.status}: ${body.slice(0, 160)}`)
+  }
+
+  const data = await res.json() as {
+    choices?: Array<{ message?: { content?: string | Array<unknown>; reasoning_content?: string } }>
+    error?: { message?: string }
+  }
+  if (data.error?.message) throw new Error(`OmniRoute ${modelId}: ${data.error.message.slice(0, 160)}`)
+  const content = data.choices?.[0]?.message?.content
+  const text = (typeof content === 'string' ? content : content ? JSON.stringify(content) : '').trim()
+  if (!text) throw new Error(`OmniRoute ${modelId} returned an empty response`)
+  return text
+}
+
+/** OmniRoute chain entry: custom generate fixes the SDK streaming-parse incompatibility */
+function makeOmniRouteEntry(modelId: string): ModelEntry {
+  return {
+    provider: 'omniroute',
+    modelId,
+    model: makeOmniRouteModel(modelId),
+    generate: (opts) => generateWithOmniRoute(modelId, opts),
+  }
+}
+
+/** Working OmniRoute free models — worst-first ordering gives automatic fallback between them */
+const FREE_OMNIROUTE_MODELS = ['auto/coding', 'auto/best-free', 'auto/coding:free', 'oc/deepseek-v4-flash-free']
+
 /** Whether an error should trigger a fallback to the next model */
 export function isFallbackError(e: unknown): boolean {
   const msg = String(e).toLowerCase()
+  const err = (typeof e === 'object' && e !== null ? e : {}) as { status?: unknown; statusCode?: unknown }
+  const status = typeof err.status === 'number' ? err.status : typeof err.statusCode === 'number' ? err.statusCode : 0
+  const statusMatch =
+    status === 400 || status === 401 || status === 403 || status === 404 || status === 429 || status === 502 || status === 503 ||
+    msg.includes('status 400') || msg.includes('status 401') || msg.includes('status 403') || msg.includes('status 404') ||
+    msg.includes('status 429') || msg.includes('status 502') || msg.includes('status 503')
   return (
+    statusMatch ||
+    msg.includes('invalid api key') ||
+    msg.includes('unauthorized') ||
+    msg.includes('forbidden') ||
+    msg.includes('no such model') ||
+    msg.includes('model not found') ||
+    msg.includes('permission') ||
     msg.includes('quota') ||
     msg.includes('exceeded') ||
     msg.includes('429') ||
@@ -56,13 +144,20 @@ export function isFallbackError(e: unknown): boolean {
     msg.includes('econnrefused') ||
     msg.includes('connection refused') ||
     msg.includes('timed out') ||
-    msg.includes('timeout')
+    msg.includes('timeout') ||
+    msg.includes('invalid json response') ||
+    msg.includes('invalid response data') ||
+    msg.includes('empty response') ||
+    msg.includes('connection failed')
   )
 }
 
 async function detectLocalModels(opts?: ModelOverride) {
-  const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434'
-  const llamaCppUrl = process.env.LLAMACPP_URL || 'http://localhost:8080/v1'
+  const ollamaUrl = (process.env.OLLAMA_URL || 'http://localhost:11434').replace(/\/v1\/?$/, '')
+  const llamaCppUrl = (() => {
+    const raw = (process.env.LLAMACPP_URL || 'http://localhost:8080/v1').replace(/\/+$/, '')
+    return raw.endsWith('/v1') ? raw : `${raw}/v1`
+  })()
   const [ollamaResult, llamaCppResult] = await Promise.allSettled([
     fetch(`${ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(1200) }),
     fetch(`${llamaCppUrl}/models`, { signal: AbortSignal.timeout(1200) }),
@@ -148,18 +243,54 @@ async function appendLocalModels(chain: ModelEntry[], push: (entry: ModelEntry) 
 let _chainCache: { chain: ModelEntry[]; ts: number } | null = null
 const CHAIN_CACHE_TTL = 30_000
 
+// ── OmniRoute health probe (per-URL cache) — skips dead local gateway instead of failing ──
+const OMNI_PROBE_TTL_POSITIVE = 30_000
+const OMNI_PROBE_TTL_NEGATIVE = 5_000
+const _omniProbeCache = new Map<string, { up: boolean; ts: number }>()
+const _omniProbesInFlight = new Map<string, Promise<boolean>>()
+
+export async function isOmniRouteUp(omniUrl?: string): Promise<boolean> {
+  const raw = (omniUrl || process.env.OMNIROUTE_URL || 'http://localhost:20128/v1').replace(/\/+$/, '')
+  const url = raw.endsWith('/v1') ? raw : `${raw}/v1`
+  const now = Date.now()
+  const cached = _omniProbeCache.get(url)
+  if (cached) {
+    const ttl = cached.up ? OMNI_PROBE_TTL_POSITIVE : OMNI_PROBE_TTL_NEGATIVE
+    if (now - cached.ts < ttl) return cached.up
+  }
+  const inFlight = _omniProbesInFlight.get(url)
+  if (inFlight) return inFlight
+  const probe = (async () => {
+    try {
+      const res = await fetch(`${url}/models`, { signal: AbortSignal.timeout(1200) })
+      const up = res.ok
+      _omniProbeCache.set(url, { up, ts: Date.now() })
+      return up
+    } catch {
+      _omniProbeCache.set(url, { up: false, ts: Date.now() })
+      return false
+    } finally {
+      _omniProbesInFlight.delete(url)
+    }
+  })()
+  _omniProbesInFlight.set(url, probe)
+  return probe
+}
+
 /**
  * Build an ordered fallback chain of AI models.
  * Order: user-selected → gemini → openrouter → xAI → deepseek → ollama → omniroute
  * Result is cached for 30s unless a model override is specified.
  */
 export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[]> {
-  const hasPref = !!(opts?.activeProvider && opts?.activeModel)
   const localSelected = opts?.activeProvider === 'ollama' || opts?.activeProvider === 'llamacpp' || opts?.activeProvider === 'llama.cpp'
   const offline = opts?.offline === true
+  // An override object with no actual override fields (no provider/model/offline)
+  // must not bypass the cache — treat it as a default call.
+  const isDefaultCall = !opts || (!opts.activeProvider && !opts.activeModel && !opts.offline)
 
   // Return cached chain for default (no override) calls
-  if (!opts && _chainCache && Date.now() - _chainCache.ts < CHAIN_CACHE_TTL) {
+  if (isDefaultCall && _chainCache && Date.now() - _chainCache.ts < CHAIN_CACHE_TTL) {
     return _chainCache.chain
   }
 
@@ -174,6 +305,12 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
     if (!added.has(key)) { added.add(key); chain.push(entry) }
   }
 
+  const deepseekModelMap: Record<string, string> = {
+    'deepseek-chat':     'deepseek-v4-flash',
+    'deepseek-reasoner': 'deepseek-v4-flash',
+    'deepseek-coder':    'deepseek-v4-flash',
+  }
+
   // 1. User-selected model (highest priority)
   if (opts?.activeProvider && opts?.activeModel) {
     const { activeProvider: ap, activeModel: am } = opts
@@ -185,16 +322,35 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
     } else if (ap === 'xai') {
       const xKey = process.env.XAI_API_KEY
       if (xKey) push({ provider: 'xai', modelId: am, model: createOpenAI({ baseURL: 'https://api.x.ai/v1', apiKey: xKey })(am) })
+    } else if (ap === 'groq') {
+      const gKey = process.env.GROQ_API_KEY
+      if (gKey) push({ provider: 'groq', modelId: am, model: createOpenAI({ baseURL: 'https://api.groq.com/openai/v1', apiKey: gKey })(am) })
+    } else if (ap === 'nvidia') {
+      const nKey = process.env.NVIDIA_API_KEY
+      if (nKey) push({ provider: 'nvidia', modelId: am, model: createOpenAI({ baseURL: 'https://integrate.api.nvidia.com/v1', apiKey: nKey })(am) })
     } else if (ap === 'deepseek') {
       const dsKey = process.env.DEEPSEEK_API_KEY
-      if (dsKey) { const { createDeepSeek } = await import('@ai-sdk/deepseek'); push({ provider: 'deepseek', modelId: am, model: createDeepSeek({ apiKey: dsKey })(am) }) }
-    } else if (ap === 'omniroute' && !offline) {
-      push({ provider: 'omniroute', modelId: am, model: makeOmniRouteModel(am) })
+      if (dsKey) {
+        const { createDeepSeek } = await import('@ai-sdk/deepseek')
+        // Map to the canonical id so step 5 doesn't push the same model twice
+        const mapped = deepseekModelMap[am] || am
+        push({ provider: 'deepseek', modelId: mapped, model: createDeepSeek({ apiKey: dsKey })(mapped) })
+      }
+    } else if (ap === 'omniroute' && !offline && (await isOmniRouteUp(omniUrl))) {
+      push(makeOmniRouteEntry(am))
     }
   }
 
   if (offline || localSelected) {
     await appendLocalModels(chain, push, opts)
+    // OmniRoute is a local gateway — keep it available in offline mode
+    if (offline && (await isOmniRouteUp(omniUrl))) {
+      if (opts?.activeProvider === 'omniroute') {
+        const modelId = opts.activeModel || 'auto/coding'
+        push(makeOmniRouteEntry(modelId))
+      }
+      for (const modelId of FREE_OMNIROUTE_MODELS) push(makeOmniRouteEntry(modelId))
+    }
     return chain
   }
 
@@ -230,13 +386,8 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
   if (deepseekKey) {
     const { createDeepSeek } = await import('@ai-sdk/deepseek')
     const deepseek = createDeepSeek({ apiKey: deepseekKey })
-    const modelMap: Record<string, string> = {
-      'deepseek-chat':     'deepseek-v4-flash',
-      'deepseek-reasoner': 'deepseek-v4-flash',
-      'deepseek-coder':    'deepseek-v4-flash',
-    }
     const dsModel = opts?.activeProvider === 'deepseek'
-      ? (modelMap[opts.activeModel || ''] || opts.activeModel || 'deepseek-v4-flash')
+      ? (deepseekModelMap[opts.activeModel || ''] || opts.activeModel || 'deepseek-v4-flash')
       : 'deepseek-v4-flash'
     push({ provider: 'deepseek', modelId: dsModel, model: deepseek(dsModel) })
   }
@@ -244,13 +395,13 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
   // 6. Local runtimes: prefer Ollama, then an OpenAI-compatible llama.cpp server.
   await appendLocalModels(chain, push, opts)
 
-  // 7. OmniRoute (local free gateway, always last)
-  if (omniUrl) {
-    push({ provider: 'omniroute', modelId: 'auto/coding', model: makeOmniRouteModel('auto/coding') })
+  // 7. OmniRoute (local free gateway, always last — only when actually running)
+  if (omniUrl && (await isOmniRouteUp(omniUrl))) {
+    for (const modelId of FREE_OMNIROUTE_MODELS) push(makeOmniRouteEntry(modelId))
   }
 
   // Cache default chain only (not user-overridden)
-  if (!opts) {
+  if (isDefaultCall) {
     _chainCache = { chain, ts: Date.now() }
   }
 
@@ -269,7 +420,7 @@ export async function generateWithFallback(
 
   if (chain.length === 0) {
     throw new Error(overrides?.offline
-      ? 'Offline mode needs a running Ollama or llama.cpp server with at least one installed model'
+      ? 'Offline mode needs a running Ollama, llama.cpp, or OmniRoute gateway with at least one installed model'
       : 'No AI providers configured. Start Ollama/llama.cpp or add a cloud provider key to .env.local')
   }
 
@@ -316,6 +467,7 @@ interface VisionOpts {
   imageBase64: string
   system?: string
   maxTokens?: number
+  mimeType?: string
 }
 
 /**
@@ -337,9 +489,10 @@ const VISION_MODEL_PREFERENCES = [
  * Tries Ollama vision models first (local, free), then cloud providers.
  */
 export async function generateVision(opts: VisionOpts): Promise<{ text: string; usedProvider: string; usedModel: string }> {
-  const ollamaUrl = process.env.OLLAMA_URL || 'http://localhost:11434'
+  const ollamaUrl = (process.env.OLLAMA_URL || 'http://localhost:11434').replace(/\/v1\/?$/, '')
   const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
   const orKey = process.env.OPENROUTER_API_KEY
+  const mimeType = opts.mimeType || 'image/jpeg'
 
   // 1. Try Ollama vision models (local, free)
   try {
@@ -375,7 +528,9 @@ export async function generateVision(opts: VisionOpts): Promise<{ text: string; 
         }
       }
     }
-  } catch {}
+  } catch (e) {
+    console.warn('[GhostForge] Ollama vision probe failed:', e)
+  }
 
   // 2. Try Gemini (native vision)
   if (geminiKey) {
@@ -392,13 +547,15 @@ export async function generateVision(opts: VisionOpts): Promise<{ text: string; 
             role: 'user' as const,
             content: [
               { type: 'text', text: opts.prompt },
-              { type: 'image', image: `data:image/jpeg;base64,${opts.imageBase64}` },
+              { type: 'image', image: `data:${mimeType};base64,${opts.imageBase64}` },
             ],
           },
         ],
       })
       if (text) return { text, usedProvider: 'google', usedModel: 'gemini-2.0-flash' }
-    } catch {}
+    } catch (e) {
+      console.warn('[GhostForge] Gemini vision failed:', e)
+    }
   }
 
   // 3. Try OpenRouter VL models
@@ -415,13 +572,15 @@ export async function generateVision(opts: VisionOpts): Promise<{ text: string; 
             role: 'user' as const,
             content: [
               { type: 'text', text: opts.prompt },
-              { type: 'image', image: `data:image/jpeg;base64,${opts.imageBase64}` },
+              { type: 'image', image: `data:${mimeType};base64,${opts.imageBase64}` },
             ],
           },
         ],
       })
       if (text) return { text, usedProvider: 'openrouter', usedModel: 'nvidia/nemotron-nano-12b-v2-vl:free' }
-    } catch {}
+    } catch (e) {
+      console.warn('[GhostForge] OpenRouter vision failed:', e)
+    }
   }
 
   throw new Error('No vision-capable model available. Install a vision model: ollama pull moondream')

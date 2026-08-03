@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isValidAuthToken } from '@/lib/auth'
 
 const AUTH_COOKIE = 'gf_token'
 
@@ -24,9 +25,8 @@ export function middleware(req: NextRequest) {
   }
 
   const token = req.cookies.get(AUTH_COOKIE)?.value
-  const secret = process.env.AUTH_SECRET
 
-  if (!token || !secret || token !== secret) {
+  if (!isValidAuthToken(token)) {
     const loginUrl = req.nextUrl.clone()
     loginUrl.pathname = '/login'
     // Preserve the original destination so login can redirect back

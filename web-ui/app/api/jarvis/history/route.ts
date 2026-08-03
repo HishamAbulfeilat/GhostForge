@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdir, readFile, writeFile } from 'fs/promises'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,8 +26,7 @@ interface HistorySession {
 }
 
 function isAuthorized(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  return Boolean(token && token === process.env.AUTH_SECRET)
+  return isAuthorizedRequest(req)
 }
 
 function normalizeMessage(input: unknown): HistoryMessage | null {
@@ -128,7 +128,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!isAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const payload = await req.json() as Partial<HistorySession>
+  let payload: Partial<HistorySession>
+  try {
+    payload = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
   if (typeof payload.startedAt !== 'string' || typeof payload.endedAt !== 'string' || !Array.isArray(payload.messages)) {
     return NextResponse.json({ error: 'Invalid session payload' }, { status: 400 })
   }

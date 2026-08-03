@@ -895,6 +895,7 @@ export default function JarvisPage() {
   // ── n8n workflow state ───────────────────────────────────────────────────────
   const [n8nConnected, setN8nConnected] = useState(false)
   const [n8nUrl, setN8nUrl] = useState('http://localhost:5678')
+  const [n8nUrlTouched, setN8nUrlTouched] = useState(false)
   const [n8nWorkflows, setN8nWorkflows] = useState<Array<{ id: string; name: string; active: boolean; trigger: string }>>([])
   const [n8nConnecting, setN8nConnecting] = useState(false)
   const [n8nReachable, setN8nReachable] = useState<boolean | null>(null)
@@ -1246,7 +1247,9 @@ export default function JarvisPage() {
           setTtsInfo(data.tts)
           const saved = localStorage.getItem('gf_voiceEngine') as VoiceEngine | null
           const serverEngine = data.tts.engine || 'browser'
-          if (!saved || saved === 'browser') {
+          // Only auto-select the server engine when the user has never chosen
+          // a voice engine — never override an explicit 'browser' preference.
+          if (!saved) {
             persistVoiceEngine(serverEngine)
             if (data.tts.fishAudio) toast('success', '🎙 JARVIS voice ready — Fish Audio active', 5000)
             else if (data.tts.elevenLabs) toast('info', '🎙 ElevenLabs voice active')
@@ -1320,6 +1323,13 @@ export default function JarvisPage() {
   }, [])
 
   useEffect(() => {
+    // Only probe n8n when it's actually in use (connected via Electron, or the
+    // user entered a custom URL) — avoids ERR_CONNECTION_REFUSED noise in the
+    // console every 15s when n8n is never used.
+    if (!n8nConnected && !n8nUrlTouched) {
+      setN8nReachable(null)
+      return
+    }
     let active = true
     const check = async () => {
       try {
@@ -1332,7 +1342,7 @@ export default function JarvisPage() {
     void check()
     const timer = setInterval(check, 15000)
     return () => { active = false; clearInterval(timer) }
-  }, [n8nUrl])
+  }, [n8nUrl, n8nConnected, n8nUrlTouched])
 
   // ── Agent IPC listeners ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -2837,7 +2847,7 @@ export default function JarvisPage() {
                   <input
                     type="text"
                     value={n8nUrl}
-                    onChange={e => setN8nUrl(e.target.value)}
+                    onChange={e => { setN8nUrl(e.target.value); setN8nUrlTouched(true) }}
                     placeholder="http://localhost:5678"
                     className="flex-1 rounded border px-2 py-1 font-mono text-[10px] bg-black/30 outline-none"
                     style={{ borderColor: `${mc.ring}44`, color: mc.ring }}

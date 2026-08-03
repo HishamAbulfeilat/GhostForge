@@ -25,11 +25,20 @@ generate_token() {
   date +%s | shasum -a 256 | awk '{print $1}' | cut -c 1-64
 }
 
+# Print only a fingerprint (first 6 chars) of the token, never the full value.
+token_fingerprint() {
+  if [[ -f "$TOKEN_FILE" ]]; then
+    printf '%s' "$(cut -c 1-6 "$TOKEN_FILE")…"
+  else
+    printf '%s' 'not found'
+  fi
+}
+
 start_cmd() {
   print_header
   if [[ -f "$PID_FILE" ]] && kill -0 "$(head -1 "$PID_FILE")" 2>/dev/null; then
     echo -e "${YELLOW}⚠ Bridge already running (PID $(head -1 "$PID_FILE"))${NC}"
-    [[ -f "$TOKEN_FILE" ]] && echo -e "${DIM}  Token: $(cat "$TOKEN_FILE")${NC}"
+    [[ -f "$TOKEN_FILE" ]] && echo -e "${DIM}  Token: $(token_fingerprint)${NC}"
     return
   fi
 
@@ -200,7 +209,7 @@ NODESERVER
   done
 
   echo -e "${GREEN}✅ Bridge server running on port $PORT (PID $server_pid)${NC}"
-  echo -e "${DIM}  Token: $token${NC}"
+  echo -e "${DIM}  Token: $(token_fingerprint)${NC}"
   echo ""
 
   if command -v cloudflared >/dev/null 2>&1; then
@@ -224,7 +233,7 @@ NODESERVER
       echo -e "${GREEN}${BOLD}│  🌐 Tunnel URL (add to Vercel):              │${NC}"
       echo -e "${GREEN}${BOLD}│  $tunnel_url${NC}"
       echo -e "${GREEN}${BOLD}│  🔑 Bridge Token (add to Vercel):            │${NC}"
-      echo -e "${GREEN}${BOLD}│  $(cut -c 1-20 "$TOKEN_FILE")...${NC}"
+      echo -e "${GREEN}${BOLD}│  $(token_fingerprint)${NC}"
       echo -e "${GREEN}${BOLD}└─────────────────────────────────────────────┘${NC}"
       echo ""
       echo -e "${CYAN}Add to Vercel env vars:${NC}"
@@ -238,7 +247,7 @@ NODESERVER
     echo -e "${YELLOW}⚠ cloudflared not installed — bridge accessible locally only${NC}"
     echo -e "${CYAN}  Install: brew install cloudflared${NC}"
     echo -e "${CYAN}  Local URL: http://localhost:$PORT${NC}"
-    echo -e "${DIM}  Token: $token${NC}"
+    echo -e "${DIM}  Token: $(token_fingerprint)${NC}"
   fi
 
   echo ""
@@ -264,7 +273,7 @@ status_cmd() {
   if [[ -f "$PID_FILE" ]] && kill -0 "$(head -1 "$PID_FILE")" 2>/dev/null; then
     echo -e "${GREEN}✅ Bridge is RUNNING${NC}"
     echo -e "${DIM}  PID: $(tr '\n' ' ' < "$PID_FILE")${NC}"
-    echo -e "${DIM}  Token: $(cat "$TOKEN_FILE" 2>/dev/null || echo 'not found')${NC}"
+    echo -e "${DIM}  Token: $(token_fingerprint)${NC}"
     local tunnel_url
     tunnel_url="$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$LOG_FILE" 2>/dev/null | tail -1 || true)"
     [[ -n "$tunnel_url" ]] && echo -e "${CYAN}  Tunnel: $tunnel_url${NC}"

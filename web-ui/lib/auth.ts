@@ -1,13 +1,22 @@
 import type { NextRequest } from 'next/server'
 
+export const AUTH_COOKIE = 'gf_token'
 export const AUTH_COOKIE_NAME = 'gf_token'
 
 export function getAccessPin() {
-  return process.env.ACCESS_PIN || '1234'
+  const pin = process.env.ACCESS_PIN
+  if (!pin && process.env.NODE_ENV === 'production') {
+    throw new Error('ACCESS_PIN not set. Set ACCESS_PIN in production to authenticate access.')
+  }
+  return pin || '1234'
 }
 
 export function getAuthSecret() {
-  return process.env.AUTH_SECRET || 'ghostforge-secret'
+  const secret = process.env.AUTH_SECRET
+  if (!secret && process.env.NODE_ENV === 'production') {
+    throw new Error('AUTH_SECRET not set. Set AUTH_SECRET in production to authenticate access.')
+  }
+  return secret || 'ghostforge-secret'
 }
 
 export function isValidAuthToken(token?: string | null) {

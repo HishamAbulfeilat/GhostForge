@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 
 interface CursorTarget {
   x: number
@@ -19,13 +19,18 @@ interface ClickyOverlayProps {
 }
 
 export default function ClickyOverlay({ target, point, highlight, duration = 5000, onDismiss }: ClickyOverlayProps) {
-  // Normalize: point prop maps to target internally
-  const effectiveTarget = target || (point ? { ...point, timestamp: Date.now() } : null)
+  // Normalize: point prop maps to target internally. Memoized so parent
+  // re-renders don't recreate the object and restart the animation/dismiss timer.
+  const effectiveTarget = useMemo(
+    () => target || (point ? { ...point, timestamp: Date.now() } : null),
+    [target, point]
+  )
   const [visible, setVisible] = useState(false)
   const [position, setPosition] = useState({ x: 0, y: 0 })
   const [label, setLabel] = useState<string | null>(null)
   const [pulse, setPulse] = useState(false)
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pulseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const animRef = useRef<number | null>(null)
 
   const animate = useCallback((from: { x: number; y: number }, to: { x: number; y: number }) => {
@@ -46,7 +51,8 @@ export default function ClickyOverlay({ target, point, highlight, duration = 500
         animRef.current = requestAnimationFrame(tick)
       } else {
         setPulse(true)
-        setTimeout(() => setPulse(false), 600)
+        if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current)
+        pulseTimeoutRef.current = setTimeout(() => setPulse(false), 600)
       }
     }
 
@@ -61,6 +67,7 @@ export default function ClickyOverlay({ target, point, highlight, duration = 500
 
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     if (animRef.current) cancelAnimationFrame(animRef.current)
+    if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current)
 
     const from = { x: position.x || effectiveTarget.x - 100, y: position.y || effectiveTarget.y - 100 }
     const to = { x: effectiveTarget.x, y: effectiveTarget.y }
@@ -77,6 +84,7 @@ export default function ClickyOverlay({ target, point, highlight, duration = 500
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
       if (animRef.current) cancelAnimationFrame(animRef.current)
+      if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current)
     }
   }, [effectiveTarget, duration, onDismiss, animate])
 

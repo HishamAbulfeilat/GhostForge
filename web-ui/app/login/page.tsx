@@ -22,7 +22,12 @@ function LoginForm() {
       })
       if (res.ok) {
         const from = searchParams.get('from') ?? '/chat'
-        router.push(from)
+        // Only allow internal relative redirects — block protocol-relative
+        // (//host) and backslash tricks that could redirect off-site.
+        const safeFrom = from.startsWith('/') && !from.startsWith('//') && !from.includes('\\')
+          ? from
+          : '/chat'
+        router.push(safeFrom)
         return
       }
       setError('Wrong PIN')

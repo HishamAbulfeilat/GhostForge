@@ -124,10 +124,28 @@ const ChatInput: React.FC<ChatInputProps> = ({
     recognition.onerror = () => setIsRecording(false);
     recognition.onend = () => setIsRecording(false);
 
+    // Stop any instance that might still be running to avoid InvalidStateError
+    try {
+      recognitionRef.current?.stop();
+    } catch { /* ignore */ }
     recognitionRef.current = recognition;
-    recognition.start();
-    setIsRecording(true);
+    try {
+      recognition.start();
+      setIsRecording(true);
+    } catch {
+      // start() can throw InvalidStateError if a session is still active
+      setIsRecording(false);
+    }
   }, [isRecording]);
+
+  /* ── Stop recognition on unmount ───────────────────────────────────── */
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.stop();
+      } catch { /* ignore */ }
+    };
+  }, []);
 
   /* ── File upload ────────────────────────────────────────────────── */
   const handleFileChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {

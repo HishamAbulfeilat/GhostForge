@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -73,8 +74,7 @@ function formatVaultForPrompt(store: VaultStore): string {
 }
 
 export async function GET(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  if (!token || token !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -94,8 +94,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  if (!token || token !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

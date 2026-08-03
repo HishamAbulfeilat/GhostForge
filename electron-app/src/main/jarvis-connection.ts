@@ -10,7 +10,7 @@ export interface JarvisServer {
   version?: string;
   discoveredAt: number;
   lastSeen: number;
- 响应时间: number;
+  responseTime: number;
 }
 
 export interface ConnectionState {
@@ -288,7 +288,7 @@ export class JarvisConnection extends EventEmitter {
             version: (data as any).version,
             discoveredAt: Date.now(),
             lastSeen: Date.now(),
-            响应时间: Date.now() - start,
+            responseTime: Date.now() - start,
           });
         }
       } catch { /* not reachable */ }

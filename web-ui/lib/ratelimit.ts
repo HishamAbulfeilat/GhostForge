@@ -62,11 +62,14 @@ export function checkRateLimit(
 }
 
 /** Extract client IP from Next.js request */
-export function getClientIP(req: { headers: { get(k: string): string | null } }): string {
+export function getClientIP(req: { headers: { get(k: string): string | null }; ip?: string | null }): string {
   return (
-    req.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
-    req.headers.get('x-real-ip') ||
-    req.headers.get('cf-connecting-ip') ||
+    req.headers.get('x-real-ip')?.trim() ||
+    req.ip?.trim() ||
+    // x-forwarded-for is attacker-controllable; the rightmost value is the one
+    // appended by the last proxy in the chain, so it is the least spoofable.
+    req.headers.get('x-forwarded-for')?.split(',').pop()?.trim() ||
+    req.headers.get('cf-connecting-ip')?.trim() ||
     'local'
   )
 }

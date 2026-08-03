@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { chooseBestInstalledModel } from '@/lib/local-runtime'
 import { totalmem } from 'os'
+import { isAuthorizedRequest } from '@/lib/auth'
+import { isOmniRouteUp } from '@/lib/ai'
 
 const ALL_MODELS = [
   { provider: 'google',      id: 'gemini-2.0-flash',                          label: 'Gemini 2.0 Flash',             free: true,  requiresKey: 'GOOGLE_GENERATIVE_AI_API_KEY' },
@@ -21,8 +23,7 @@ const ALL_MODELS = [
 ]
 
 export async function GET(req: NextRequest) {
-  const token = req.cookies.get('gf_token')?.value
-  if (!token || token !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -48,12 +49,14 @@ export async function GET(req: NextRequest) {
     }
   } catch { /* not running */ }
 
-  const models = ALL_MODELS.map(m => ({
+  const models = await Promise.all(ALL_MODELS.map(async m => ({
     ...m,
     available: m.provider === 'ollama'
       ? ollamaRunning && ollamaModels.includes(m.id)
-      : m.requiresKey ? !!process.env[m.requiresKey] : true,
-  }))
+      : m.provider === 'omniroute'
+        ? await isOmniRouteUp()
+        : m.requiresKey ? !!process.env[m.requiresKey] : true,
+  })))
 
   // Add any Ollama models not in the static list
   for (const name of ollamaModels) {
@@ -103,6 +106,7 @@ export async function GET(req: NextRequest) {
     },
     integrations: {
       elevenlabs:   hasElevenLabs,
+      fishAudio:    hasFishAudio,
       github:       !!process.env.GITHUB_TOKEN,
       googleSearch: !!(process.env.GOOGLE_SEARCH_API_KEY && process.env.GOOGLE_SEARCH_CX),
       discord:      !!process.env.DISCORD_WEBHOOK_URL,

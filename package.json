@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "postinstall": "node scripts/fix-node-pty-perms.js"
+  },
   "dependencies": {
     "node-pty": "^1.1.0",
     "ws": "^8.21.1"

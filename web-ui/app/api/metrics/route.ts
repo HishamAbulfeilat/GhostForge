@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
-import { cookies } from 'next/headers'
 import { execSync } from 'child_process'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 function getCPU(): number {
   try {
@@ -49,9 +49,7 @@ function getBattery(): { pct: number; charging: boolean } | null {
 }
 
 export async function GET(req: NextRequest) {
-  const cookieStore = await cookies()
-  const auth = cookieStore.get('gf_token')
-  if (!auth?.value || auth.value !== process.env.AUTH_SECRET) {
+  if (!isAuthorizedRequest(req)) {
     return new Response('Unauthorized', { status: 401 })
   }
 

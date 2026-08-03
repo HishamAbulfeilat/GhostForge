@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -23,13 +24,17 @@ from typing import Any, Optional
 
 _HAS_MEM0 = False
 _mem0_instance: Any = None
+_mem0_lock = threading.Lock()
 
 try:
     from mem0 import Memory as _Mem0Memory
 
     _HAS_MEM0 = True
 except ImportError:
-    print("[ai_memory] ⚠️  mem0ai not installed — memory module will use in-memory fallback", file=sys.stderr)
+    print(
+        "[ai_memory] ⚠️  mem0ai not installed — memory module will use in-memory fallback",
+        file=sys.stderr,
+    )
 
 # ---------------------------------------------------------------------------
 # In-memory fallback store (used when mem0 is unavailable)
@@ -44,11 +49,48 @@ _fallback_store: dict[str, dict[str, Any]] = {}
 MEMORY_CATEGORIES = {"project", "preference", "conversation", "code", "todo"}
 
 _CATEGORY_KEYWORDS: dict[str, list[str]] = {
-    "project": ["project", "repo", "repository", "deploy", "build", "pipeline", "docker", "k8s"],
-    "preference": ["prefer", "like", "hate", "favorite", "style", "theme", "setting", "config"],
+    "project": [
+        "project",
+        "repo",
+        "repository",
+        "deploy",
+        "build",
+        "pipeline",
+        "docker",
+        "k8s",
+    ],
+    "preference": [
+        "prefer",
+        "like",
+        "hate",
+        "favorite",
+        "style",
+        "theme",
+        "setting",
+        "config",
+    ],
     "conversation": ["said", "told", "asked", "mentioned", "discussed", "talked"],
-    "code": ["function", "class", "import", "def ", "const ", "let ", "var ", "type ", "interface "],
-    "todo": ["todo", "to-do", "need to", "should", "must", "fix later", "remember to", "action item"],
+    "code": [
+        "function",
+        "class",
+        "import",
+        "def ",
+        "const ",
+        "let ",
+        "var ",
+        "type ",
+        "interface ",
+    ],
+    "todo": [
+        "todo",
+        "to-do",
+        "need to",
+        "should",
+        "must",
+        "fix later",
+        "remember to",
+        "action item",
+    ],
 }
 
 DECAY_HALF_LIFE_DAYS = 90  # memories lose half relevance every 90 days
@@ -57,6 +99,7 @@ DECAY_HALF_LIFE_DAYS = 90  # memories lose half relevance every 90 days
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -85,18 +128,26 @@ def _auto_categorize(content: str) -> str:
 
 
 def _ensure_mem0() -> Any:
-    """Return the mem0 singleton or raise if unavailable."""
+    """Return the mem0 singleton or raise if unavailable.
+
+    The singleton is created under a lock so concurrent requests cannot
+    race the one-time initialisation.
+    """
     global _mem0_instance
     if not _HAS_MEM0:
-        raise RuntimeError("mem0ai is not installed. Install it with: pip install mem0ai")
-    if _mem0_instance is None:
-        _mem0_instance = _Mem0Memory()
+        raise RuntimeError(
+            "mem0ai is not installed. Install it with: pip install mem0ai"
+        )
+    with _mem0_lock:
+        if _mem0_instance is None:
+            _mem0_instance = _Mem0Memory()
     return _mem0_instance
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def add_memory(
     content: str,
@@ -174,9 +225,7 @@ def list_memories(user_id: str = "default") -> list[dict[str, Any]]:
             return results
         return []
 
-    return [
-        e for e in _fallback_store.values() if e["user_id"] == user_id
-    ]
+    return [e for e in _fallback_store.values() if e["user_id"] == user_id]
 
 
 def delete_memory(memory_id: str) -> dict[str, Any]:
@@ -202,7 +251,12 @@ def update_memory(memory_id: str, content: str) -> dict[str, Any]:
     if memory_id in _fallback_store:
         _fallback_store[memory_id]["content"] = content
         _fallback_store[memory_id]["metadata"]["updated_at"] = _now_iso()
-        return {"id": memory_id, "content": content, "updated": True, "method": "fallback"}
+        return {
+            "id": memory_id,
+            "content": content,
+            "updated": True,
+            "method": "fallback",
+        }
     raise KeyError(f"Memory {memory_id} not found")
 
 

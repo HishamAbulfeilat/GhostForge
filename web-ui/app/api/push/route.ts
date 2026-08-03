@@ -16,7 +16,13 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const { subscription, notification } = await req.json() as PushRequestBody
+  let parsed: PushRequestBody
+  try {
+    parsed = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+  const { subscription, notification } = parsed
   return NextResponse.json({
     ok: true,
     message: 'Subscription received',

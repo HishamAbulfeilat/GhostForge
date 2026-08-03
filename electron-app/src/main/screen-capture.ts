@@ -73,7 +73,7 @@ export class ScreenCapture {
   }
 
   private captureMacOS(filepath: string, format: string, quality: number, captureAll: boolean): void {
-    const flags = captureAll ? '-x' : '-x -D';
+    const flags = captureAll ? '-x' : '-x';
     try {
       execSync(
         `screencapture ${flags} -t ${format} -Q ${quality} "${filepath}" 2>/dev/null || screencapture -x -t ${format} "${filepath}"`,
@@ -136,19 +136,25 @@ export class ScreenCapture {
     const filename = `region-${randomUUID().slice(0, 8)}.${format}`;
     const filepath = join(this.captureDir, filename);
 
+    // Coerce to non-negative integers before interpolation into shell commands
+    const rx = Math.max(0, Math.floor(Number(x) || 0));
+    const ry = Math.max(0, Math.floor(Number(y) || 0));
+    const rw = Math.max(0, Math.floor(Number(width) || 0));
+    const rh = Math.max(0, Math.floor(Number(height) || 0));
+
     try {
       if (platform === 'darwin') {
         execSync(
-          `screencapture -R${x},${y},${width},${height} -t ${format} -Q ${quality} "${filepath}"`,
+          `screencapture -R${rx},${ry},${rw},${rh} -t ${format} -Q ${quality} "${filepath}"`,
           { timeout: 5000, encoding: 'utf-8' }
         );
       } else if (platform === 'win32') {
         const psScript = `
           Add-Type -AssemblyName System.Windows.Forms
           Add-Type -AssemblyName System.Drawing
-          $bitmap = New-Object System.Drawing.Bitmap(${width}, ${height})
+          $bitmap = New-Object System.Drawing.Bitmap(${rw}, ${rh})
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-          $graphics.CopyFromScreen(${x}, ${y}, 0, 0, [System.Drawing.Size]::new(${width}, ${height}))
+          $graphics.CopyFromScreen(${rx}, ${ry}, 0, 0, [System.Drawing.Size]::new(${rw}, ${rh}))
           $bitmap.Save('${filepath.replace(/\\/g, '\\\\')}')
           $graphics.Dispose()
           $bitmap.Dispose()
@@ -159,7 +165,7 @@ export class ScreenCapture {
         });
       } else {
         execSync(
-          `import -window root -crop ${width}x${height}+${x}+${y} "${filepath}"`,
+          `import -window root -crop ${rw}x${rh}+${rx}+${ry} "${filepath}"`,
           { timeout: 5000, encoding: 'utf-8' }
         );
       }
