@@ -61,6 +61,67 @@ function startOmniRoute() {
 ensureOmniRouteRunning()
 
 /**
+ * Auto-start the GhostForge Voice Pipeline (local STT / TTS / wake-word,
+ * default port 8766). JARVIS uses it for offline voice; it is fully optional —
+ * cloud / Web-Speech fallbacks cover the gap, but starting it here means local
+ * TTS is available the moment the host server boots (mirrors OmniRoute above).
+ */
+const VOICE_PORT  = parseInt(process.env.VOICE_PORT || '8766', 10)
+const VOICE_URL   = process.env.GHOSTFORGE_VOICE_URL || `http://localhost:${VOICE_PORT}`
+function getBridgeToken() {
+  const tokenFile = path.join(os.homedir(), '.ghostforge', 'bridge', 'token')
+  try { return fs.readFileSync(tokenFile, 'utf8').trim() } catch { return '' }
+}
+function ensureVoiceServerRunning() {
+  const token = getBridgeToken()
+  fetch(`${VOICE_URL}/api/voice/health`, {
+    headers: token ? { 'X-Bridge-Token': token } : {},
+    signal: AbortSignal.timeout(1500),
+  })
+    .then((res) => { if (!res.ok) startVoiceServer() })
+    .catch(() => startVoiceServer())
+}
+
+function startVoiceServer() {
+  const { spawn } = require('child_process')
+  const script = path.join(__dirname, '..', 'voice-pipeline', 'start.sh')
+  if (!fs.existsSync(script)) {
+    console.warn('  ⚠  Voice pipeline start.sh missing — local STT/TTS disabled')
+    return
+  }
+  console.log('  ⚙  Voice pipeline not running — starting local STT/TTS service…')
+  const isWin = process.platform === 'win32'
+  let child
+  if (isWin) {
+    const venvPython = path.join(__dirname, '..', 'voice-pipeline', '.venv', 'Scripts', 'python.exe')
+    const python = fs.existsSync(venvPython) ? venvPython : 'python'
+    child = spawn(python, ['-m', 'uvicorn', 'server:app', '--host', '127.0.0.1', '--port', String(VOICE_PORT)], {
+      cwd: path.join(__dirname, '..', 'voice-pipeline'), detached: true, stdio: 'ignore', env: { ...process.env, NO_RELOAD: '1' },
+    })
+  } else {
+    child = spawn('bash', [script], {
+      cwd: path.join(__dirname, '..', 'voice-pipeline'), detached: true, stdio: 'ignore', env: { ...process.env, NO_RELOAD: '1' },
+    })
+  }
+  child.unref()
+  setTimeout(async () => {
+    const token = getBridgeToken()
+    try {
+      const res = await fetch(`${VOICE_URL}/api/voice/health`, {
+        headers: token ? { 'X-Bridge-Token': token } : {},
+        signal: AbortSignal.timeout(2000),
+      })
+      if (res.ok) console.log('  ✅ Voice pipeline up (local STT/TTS ready)')
+      else console.warn('  ⚠  Voice pipeline did not become ready')
+    } catch {
+      console.warn('  ⚠  Voice pipeline did not become ready — start manually: voice-pipeline/start.sh')
+    }
+  }, 6000)
+}
+
+ensureVoiceServerRunning()
+
+/**
  * Pipe with backpressure: pause the source when the destination can't keep
  * up (write() returns false) and resume on the destination's 'drain' event.
  */

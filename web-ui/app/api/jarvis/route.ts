@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateWithFallback } from '@/lib/ai'
 import { auditLog, assessRisk } from '@/lib/audit'
 import { checkRateLimit, getClientIP } from '@/lib/ratelimit'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { isAuthorizedRequest, getCurrentUser, hasPermission } from '@/lib/auth'
+import { permissionForTool } from '@/lib/tool-permissions'
 import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import { writeFile, unlink, readdir, stat, rm, appendFile } from 'fs/promises'
@@ -12,6 +13,7 @@ import { join, resolve } from 'path'
 import { chooseBestInstalledModel } from '@/lib/local-runtime'
 import { getJarvisQuickAction } from '@/lib/quick-actions'
 import { validateAppleScript } from '@/lib/apple-automation'
+import { getLiveBridgeToken } from '@/lib/bridge-token'
 
 // Collaborative sessions store
 const collabSessions = new Map<string, Array<{role: string, content: string, ts: number}>>()
@@ -86,7 +88,7 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   time:        '- get_time | - set_reminder { title, notes? }',
   system:      '- get_system_info | - mac_cleanup | - terminal_command { command } | - execute_code { language, code }',
   music:       '- play_music { action, app?, query? } | - set_volume { level } | - open_app { app }',
-  messaging:   '- send_imessage { contact, message } | - send_teams_message { contact, message } | - send_slack_message { channel, message } | - send_whatsapp_message { contact, message } | - discord_message { message, channel? }',
+  messaging:   '- send_imessage { contact, message } | - send_teams_message { contact, message } | - send_slack_message { channel, message } | - send_whatsapp_message { contact, message } | - discord_message { message, channel? } | - send_user_message { to, message } (message another GhostForge user, e.g. "say hello to feras" → to="feras")',
   search:      '- web_search { query } | - web_search_deep { query } | - google_search { query }',
   code:        '- execute_code { language, code } | - terminal_command { command } | - github_repos | - github_prs { repo? } | - github_issues { repo?, action? } | - open_interpreter { prompt, model? } | - jsrepl_run { code, language? }',
   files:       '- get_files { path? } | - read_file { path } | - write_note { note } | - take_screenshot { filename? }',
@@ -106,7 +108,9 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   games:       '- game_manager { action, game_name? }',
   clipboard:   '- clipboard_analyze { action, text? }',
   browser_ext: '- browser_automate { action, url?, selector?, text? } | - browser_control { action, url?, text? }',
-  files_ext:   '- file_processor { action, file_path?, question?, output_format? } | - get_files { path? } | - read_file { path }',
+  files_ext:   '- file_processor { action, file_path?, question?, output_format? } | - get_files { path? } | - read_file { path } | - office_document { action: "generate"|"list"|"read", type?: "memo"|"minutes"|"report"|"cover"|"contract", title?, name?, subject?, body?, ... }',
+  office:      '- office_document { action: "generate", type?: "memo"|"minutes"|"report"|"cover"|"contract", title?, subject?, body?, to?, from?, ... } | - office_document { action: "list" } | - office_document { action: "read", file }',
+  career:      '- career { tool: "cv"|"track"|"gap"|"prep"|"linkedin", action, company?, role?, topic?, cv?, jd? }',
   hardware:    '- hardware_monitor { report_type? } | - get_system_info',
   n8n:         '- n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? }',
   design:      '- apply_design_md { site } | - list_design_md | - design_resources { category? }',
@@ -115,6 +119,10 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   calendar:    '- calendar_events { action?, days?, summary?, startDateTime?, endDateTime?, location?, attendees? } | - calendar_free_slots { date? }',
   contacts:    '- contacts_search { query } | - contacts_by_phone { phone }',
   ai_studio:   '- ai_studio_list | - ai_studio_update { modelId?, displayName?, description? } | ai_studio_test { model, prompt } | - ai_studio_compare { prompt, modelA, modelB } | - ai_studio_models',
+  voice:       '- voice_status | - voice_tts { text, voice?, engine? } (local offline STT/TTS via the voice pipeline)',
+  memory:      '- memory_remember { text, category? } | - memory_recall { query, topK? } | - memory_stats',
+  mcp:         '- mcp_call { tool, ...params } | - mcp_status',
+  native:      '- native_desktop { action: "status"|"move"|"click"|"type"|"key"|"scroll", ... }',
 }
 
 // System prompt cache — keyed by domain+lang+device to avoid rebuild on every request
@@ -128,14 +136,15 @@ type Domain =
   | 'code' | 'math' | 'files' | 'reminder' | 'mac_control' | 'vision'
   | 'github' | 'copilot' | 'lock' | 'screenshot' | 'models' | 'remote' | 'travel' | 'general'
   | 'youtube' | 'games' | 'clipboard' | 'browser_ext' | 'files_ext' | 'hardware'
-  | 'n8n' | 'email' | 'calendar' | 'contacts' | 'ai_studio'
+  | 'n8n' | 'email' | 'calendar' | 'contacts' | 'ai_studio' | 'office' | 'career'
+  | 'voice' | 'memory' | 'mcp' | 'native'
 
 const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   weather:     ['weather','temperature','forecast','rain','sunny','cold','hot','humidity','wind','storm','degrees'],
   time:        ['time','date','day','clock','today','tomorrow','calendar','when','morning','evening'],
   system:      ['cpu','ram','memory','battery','disk','system','performance','process','storage','uptime','sysinfo','clean','cleanup','free','optimize','temp files','kill process','boost'],
   music:       ['play','music','song','spotify','pause','next track','previous','playlist','artist','album','volume'],
-  messaging:   ['message','send','teams','slack','whatsapp','imessage','email','contact','chat','text','dm'],
+  messaging:   ['message','send','teams','slack','whatsapp','imessage','email','contact','chat','text','dm','say hello to','tell ','say hi to','greet','notify'],
   search:      ['search','find','look up','google','what is','who is','news','latest','tell me about','explain'],
   code:        ['code','script','function','debug','error','compile','git','github','pr','commit','branch','repo','bug','run','execute','python','javascript','node','bash'],
   math:        ['calculate','math','add','subtract','multiply','divide','percent','equals','how much','sum','average'],
@@ -161,6 +170,12 @@ const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   calendar:    ['calendar','schedule','meeting','event','appointment','today schedule','my schedule','upcoming events','free slots','am i busy','check availability'],
   contacts:    ['contact','find contact','phone number','email address','who is','contact info','address book'],
   ai_studio:   ['ai studio','ai studio app','gemini app','tuned model','fine tune','finetune','compare models','test prompt','update my ai studio'],
+  office:      ['document','documents','memo','minutes','report','draft','cover letter','agreement','contract','office','write up','write a memo','generate a document','minutes of meeting'],
+  career:      ['career','cv','resume','job application','application tracker','interview prep','interview questions','linkedin post','linkedin content','career gap','job fit','company prep','applied'],
+  voice:       ['voice','speak','speech','say out loud','play audio','offline voice','voice pipeline','wake word','hey jarvis','text to speech','stt','tts','sound','audio'],
+  memory:      ['remember that','remember','recall','semantic memory','long term memory','what do you remember','memory recall','remember i told you','store that','memory'],
+  mcp:         ['mcp','model context protocol','tool server','community tools','expose tools','connect tools','mcp tool','mcp_call'],
+  native:      ['native desktop','nut.js','translator','native click','native move','native type','desktop automation'],
   general:     [],
 }
 
@@ -169,7 +184,7 @@ const DOMAIN_EXTRA_GUIDANCE: Partial<Record<Domain, string>> = {
   time:        'Give exact time and date. Mention day of week. No filler.',
   system:      'Report CPU%, battery%, and RAM accurately. Flag anything concerning.',
   music:       'Confirm what action you\'re taking. Name the app being used.',
-  messaging:   'Confirm recipient name and message preview. Warn if app may not be running.',
+  messaging:   'Confirm recipient name and message preview. Warn if app may not be running. When the user asks to message another GhostForge user ("say hello to feras", "tell feras ..."), use send_user_message with the person\'s username.',
   search:      'Summarize the search result in 2 sentences. Cite the key fact.',
   code:        'Be precise with technical terms. Prefer shell commands over descriptions.',
   math:        'State the exact answer first, then brief explanation if helpful.',
@@ -186,12 +201,18 @@ const DOMAIN_EXTRA_GUIDANCE: Partial<Record<Domain, string>> = {
   clipboard:   'Analyze clipboard content: translate, summarize, explain, or fix code.',
   browser_ext: 'Automate browser actions: open, click, type, navigate, screenshot.',
   files_ext:   'Read, summarize, ask questions about, or convert files.',
+  office:      'Generate office documents (memo, minutes, report, cover letter, contract) with office_document. Fill in available fields from the user\'s words; infer sensible defaults for missing ones.',
+  career:      'Career tools: cv (version CV), track (job applications), gap (CV vs job description fit), prep (interview prep), linkedin (content calendar). Use career {tool, action, ...} matching the user\'s request.',
   hardware:    'Report CPU, RAM, disk, GPU, fan speed, and full system stats.',
   n8n:         'Manage n8n workflows: list, create, trigger, deploy, notify, import templates, activate/deactivate.',
   email:       'Manage emails: list, read, send, reply, search, mark read/unread, star, get unread count.',
   calendar:    'Manage calendar: list today/upcoming events, create/update/delete events, check free/busy slots.',
   contacts:    'Search contacts by name, email, or phone. Find contact details and phone numbers.',
   ai_studio:   'Manage Google AI Studio: list apps, update configs, test prompts, compare models.',
+  voice:       'Voice pipeline status and local offline TTS/STT. Use voice_status to report engine availability and voice_tts to synthesize/speak text locally.',
+  memory:      'Semantic memory: memory_remember stores facts silently, memory_recall retrieves them by meaning (vector search, keyword fallback). Use these instead of flat facts.',
+  mcp:         'Model Context Protocol interop: mcp_status lists exposed tools, mcp_call invokes a tool by name with params. Use for tools not natively wired.',
+  native:      'Native desktop automation via nut.js (or AppleScript/cliclick fallback): move, click, type, key, scroll.',
 }
 
 function classifyDomain(text: string): Domain {
@@ -426,7 +447,8 @@ OUTPUT: valid JSON only, starting with '{':
 - Greetings → introduce yourself briefly. Questions about yourself → answer in 1-2 sentences.
 - Natural, brief, JARVIS-style. Contractions ok. Address as "sir" unless named.
 - NEVER output thoughts/reasoning — JSON only
-- vault_save: call SILENTLY when user reveals personal facts (name, city, preferences, project context). NEVER announce this to the user.`
+- vault_save: call SILENTLY when user reveals personal facts (name, city, preferences, project context). NEVER announce this to the user.
+- memory_remember: call SILENTLY when the user shares something worth remembering long-term (preferences, life/business facts, decisions). NEVER announce storing a memory.`
 
     _promptCache.set(cacheKey, { prompt, ts: Date.now() })
     basePrompt = prompt.replace('__MEMORY__', buildMemorySlice(memory, userName, lang))
@@ -515,6 +537,30 @@ function buildGoogleFlightsUrl(from: string, to: string, date?: string): string 
   return `https://flights.google.com/search?q=${encodeURIComponent(q)}`
 }
 
+/**
+ * OCR an image buffer via the mark-l-bridge (PaddleOCR when installed).
+ * Returns extracted text or null when the bridge/OCR is unavailable so the
+ * caller can fall back to a vision model.
+ */
+async function ocrImageBuffer(imgBuffer: Buffer): Promise<string | null> {
+  try {
+    const body = new FormData()
+    body.append('image', new Blob([imgBuffer as unknown as BlobPart]), 'screen.png')
+    const res = await fetch('http://localhost:8765/api/mark-l/ocr', {
+      method: 'POST',
+      headers: { 'X-Bridge-Token': getLiveBridgeToken() },
+      body,
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) return null
+    const data = await res.json() as { data?: { text?: string } }
+    const text = (data.data?.text || '').trim()
+    return text || null
+  } catch {
+    return null
+  }
+}
+
 async function openUrl(url: string): Promise<string> {
   if (!/^https?:\/\//i.test(url)) return 'Could not open URL: only http/https URLs are allowed'
   try {
@@ -544,7 +590,7 @@ async function webSearchDeep(query: string): Promise<string> {
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
 
-async function executeTool(tool: string, params: Record<string, string>): Promise<string> {
+async function executeTool(tool: string, params: Record<string, string>, currentUser?: { username?: string } | null): Promise<string> {
   switch (tool) {
 
     case 'get_time':
@@ -634,7 +680,7 @@ async function executeTool(tool: string, params: Record<string, string>): Promis
         const text = (params.text || '').replace(/"/g, '\\"')
         return runScript(`tell application "System Events" to keystroke "${text}"`)
       }
-      if (action === 'click_text') return executeTool('find_and_click', { label: params.text || '', app: params.app || '' })
+      if (action === 'click_text') return executeTool('find_and_click', { label: params.text || '', app: params.app || '' }, currentUser)
       const script = scripts[action]
       if (!script) return `Unsupported browser action: ${action}`
       return runScript(script)
@@ -665,6 +711,128 @@ async function executeTool(tool: string, params: Record<string, string>): Promis
 end tell`
       const result = await runScript(script)
       return result === 'sent' ? `Message sent to ${params.contact}` : result
+    }
+
+    case 'send_user_message': {
+      const { deliverMessage } = await import('@/lib/inbox')
+      const { findUserByNameOrUsername } = await import('@/lib/users')
+      const to = String(params.to || '').trim()
+      const text = String(params.message || '').trim()
+      if (!to || !text) return 'Need both a recipient (to) and a message to send.'
+      const recipient = await findUserByNameOrUsername(to)
+      if (!recipient) {
+        return `Error: no GhostForge user found matching "${to}". Tell the user to ask an admin to create that account, or try another name.`
+      }
+      if (!recipient.active) return `Error: user "${recipient.name}" is deactivated and can't receive messages.`
+      await deliverMessage(recipient.username, currentUser?.username || 'admin', text)
+      return `Message delivered to ${recipient.name} (${recipient.username}).`
+    }
+
+    case 'office_document': {
+      const { spawnSync } = await import('child_process')
+      const { homedir } = await import('os')
+      const { join: pathJoin, dirname } = await import('path') as typeof import('path')
+      // locate office-cli by walking up from cwd (web-ui served dir) toward repo root
+      let officeCli = ''
+      let probe = process.cwd()
+      for (let i = 0; i < 6; i++) {
+        const candidate = pathJoin(probe, 'office-cli', 'office.js')
+        if (existsSync(candidate)) { officeCli = candidate; break }
+        const parent = dirname(probe)
+        if (parent === probe) break
+        probe = parent
+      }
+      if (!officeCli) return 'Office CLI not found. Install office-cli/office.js at the repo root.'
+      const officeDir = dirname(pathJoin(officeCli, '..'))
+      const action = String(params.action || 'generate').toLowerCase()
+      const type = String(params.type || 'memo').toLowerCase()
+      const docRoot = pathJoin(homedir(), '.ghostforge', 'documents')
+
+      const run = (cmdArgs: string[]) => {
+        try {
+          const r = spawnSync('node', [officeCli, ...cmdArgs], { encoding: 'utf8', timeout: 15000, cwd: officeDir })
+          if (r.error) return { error: r.error.message }
+          return { stdout: (r.stdout || '').trim() }
+        } catch (e) {
+          return { error: (e as Error).message }
+        }
+      }
+
+      if (action === 'list') {
+        const res = run(['list'])
+        if (res.error) return `Office error: ${res.error}`
+        if (!res.stdout) return 'No office documents yet. Say "generate a memo about ..." to create one.'
+        try {
+          const docs = JSON.parse(res.stdout) as Array<{ name: string }>
+          if (!docs.length) return 'No office documents yet. Say "generate a memo about ..." to create one.'
+          return `Office documents:\n${docs.map(d => `  • ${d.name}`).join('\n')}`
+        } catch {
+          return res.stdout
+        }
+      }
+
+      if (action === 'read') {
+        const name = (String(params.file || params.name || '')).replace(/\.md$/, '')
+        if (!name) return 'Specify which document to read (file name).'
+        const res = run(['read', `${name}.md`])
+        if (res.error) return `Office error: ${res.error}`
+        if (!res.stdout || res.stdout.startsWith('Not found')) return `Document not found: ${name}.md`
+        return res.stdout.slice(0, 3000)
+      }
+
+      // generate
+      const title = String(params.title || params.name || `${type} document`)
+      const knownTypes = ['memo', 'minutes', 'report', 'cover', 'contract']
+      const genType = knownTypes.includes(type) ? type : 'memo'
+      const fieldArgs: string[] = []
+      const fields = ['to', 'from', 'subject', 'body', 'details', 'action', 'meeting', 'attendees', 'facilitator', 'agenda', 'discussion', 'decisions', 'actions', 'summary', 'findings', 'metrics', 'recommendations', 'period', 'hiringManager', 'email', 'phone', 'parties', 'purpose', 'terms', 'duration']
+      for (const k of fields) {
+        if (params[k] != null && k !== 'body') fieldArgs.push(`--${k}=${String(params[k])}`)
+        else if (k === 'body') fieldArgs.push(`--body=${String(params[k] ?? '')}`)
+      }
+      const res = run(['generate', genType, title, ...fieldArgs])
+      if (res.error) return `Office error: ${res.error}`
+      if (!res.stdout) return 'Could not generate document.'
+      try {
+        const j = JSON.parse(res.stdout)
+        return `Document ${j.type} created: ${j.name} → ${j.file}\n\n${j.body}`
+      } catch {
+        return res.stdout
+      }
+    }
+
+    case 'career': {
+      const { spawnSync } = await import('child_process')
+      const { join: pathJoin, dirname } = await import('path') as typeof import('path')
+      let scriptsDir = ''
+      let probe = process.cwd()
+      for (let i = 0; i < 6; i++) {
+        const candidate = pathJoin(probe, 'scripts')
+        if (existsSync(candidate)) { scriptsDir = candidate; break }
+        const parent = dirname(probe)
+        if (parent === probe) break
+        probe = parent
+      }
+      if (!existsSync(pathJoin(scriptsDir, 'career-track.sh'))) {
+        return 'Career scripts not found. Ensure scripts/career-*.sh exist at the repo root.'
+      }
+      const sub = String(params.tool || params.subcommand || 'track').toLowerCase()
+      const action = String(params.action || 'list').toLowerCase()
+      const scriptMap: Record<string, string> = {
+        cv: 'career-cv.sh', track: 'career-track.sh', gap: 'career-gap.sh', prep: 'career-prep.sh', linkedin: 'career-linkedin.sh',
+      }
+      const script = scriptMap[sub]
+      if (!script) return `Unknown career tool "${sub}". Use cv, track, gap, prep, or linkedin.`
+      const cmdArgs: string[] = [action]
+      for (const k of ['company', 'role', 'url', 'topic', 'file', 'days', 'cv', 'jd', 'position', 'command', 'status', 'notes', 'version1', 'version2']) {
+        if (params[k] != null) cmdArgs.push(String(params[k]))
+      }
+      // Extra positional args passed via params.args (space/comma separated)
+      if (params.args) cmdArgs.push(...String(params.args).split(/[\s,]+/).filter(Boolean))
+      const r = spawnSync('bash', [pathJoin(scriptsDir, script), ...cmdArgs], { encoding: 'utf8', timeout: 20000, env: { ...process.env, GHOSTFORGE_CAREER_NONINTERACTIVE: '1' }, cwd: scriptsDir })
+      if (r.error) return `Career error: ${r.error.message}`
+      if (r.stderr && !r.stdout) return `Career error: ${r.stderr.slice(0, 500)}`
+      return (r.stdout || '').slice(0, 3000).trim() || 'No output from career script.'
     }
 
     case 'get_system_info': {
@@ -2346,9 +2514,15 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
 
         const { readFileSync: rf } = await import('fs')
         const imgBuffer = rf(screenshotPath)
-        const imageBase64 = imgBuffer.toString('base64')
         await import('fs').then(fs => fs.unlinkSync(screenshotPath)).catch(() => {})
 
+        // Prefer local PaddleOCR (fast, offline) before falling back to a vision model
+        const ocrText = await ocrImageBuffer(imgBuffer)
+        if (ocrText) {
+          return `Screen text (OCR):\n${ocrText.slice(0, 2000)}`
+        }
+
+        const imageBase64 = imgBuffer.toString('base64')
         const { generateVision } = await import('@/lib/ai')
         const result = await generateVision({
           prompt: 'Read all the text visible on this screen. List every piece of text you can see, organized by location (top, middle, bottom, left, right). Include button labels, menu items, window titles, and any other readable text.',
@@ -2968,6 +3142,111 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       return `Unknown setup action: ${action}`
     }
 
+    // ── Local voice pipeline (STT/TTS/wake) ─────────────────────────────────
+    case 'voice_status': {
+      const { formatVoiceStatus } = await import('@/lib/voice')
+      return formatVoiceStatus()
+    }
+
+    case 'voice_tts': {
+      const { localTts } = await import('@/lib/voice')
+      const text = String(params.text || '').trim()
+      if (!text) return 'No text to speak.'
+      const result = await localTts(text, { voice: params.voice || undefined, engine: params.engine || undefined })
+      if (result.error || !result.audio) return `Local TTS unavailable: ${result.error || 'no audio'}`
+      const wavPath = join(tmpdir(), `gfai-local-tts-${Date.now()}.wav`)
+      const { writeFile: wf } = await import('fs/promises')
+      await wf(wavPath, result.audio)
+      await runSpawn('afplay', [wavPath], { timeout: 30000 }).catch(() => {})
+      await rm(wavPath).catch(() => {})
+      return `Spoke "${text.slice(0, 60)}" through the local voice pipeline (${result.engine}).`
+    }
+
+    // ── Semantic memory (vector recall per user) ─────────────────────────────
+    case 'memory_remember': {
+      const { rememberMemory } = await import('@/lib/semantic-memory')
+      const username = currentUser?.username || 'admin'
+      const text = String(params.text || params.fact || '').trim()
+      if (!text) return 'Nothing to remember — pass a text/fact.'
+      const { embedded, embeddingModel } = await rememberMemory(username, text, params.category || 'general')
+      return `Remembered (${embedded ? `embedded via ${embeddingModel}` : 'keyword-stored — install Ollama for semantic recall'}).`
+    }
+
+    case 'memory_recall': {
+      const { recallMemory } = await import('@/lib/semantic-memory')
+      const username = currentUser?.username || 'admin'
+      const query = String(params.query || '').trim()
+      if (!query) return 'What should I recall? Pass a query.'
+      const k = Math.min(parseInt(params.topK || '5', 10) || 5, 10)
+      const { results, method } = await recallMemory(username, query, k)
+      if (!results.length) return `No memory matches "${query}".`
+      return `Memory (${method}):\n${results.map(r => `  • ${r.text}`).join('\n')}`
+    }
+
+    case 'memory_stats': {
+      const { memoryStats } = await import('@/lib/semantic-memory')
+      const username = currentUser?.username || 'admin'
+      const s = await memoryStats(username)
+      return `Semantic memory: ${s.count} fact${s.count === 1 ? '' : 's'} · embedding: ${s.embedding}${s.embeddingModel ? ` (${s.embeddingModel})` : ''}\n${Object.entries(s.categories).map(([c, n]) => `  • ${c}: ${n}`).join('\n')}`
+    }
+
+    // ── MCP interop (bundle server + community tools) ────────────────────────
+    case 'mcp_status': {
+      const { listMcpTools, mcpStderrTail } = await import('@/lib/mcp')
+      try {
+        const tools = await listMcpTools()
+        return `MCP server online — ${tools.length} tools exposed:\n${tools.map(t => `  • ${t.name}${t.description ? ` — ${t.description.split('.')[0]}` : ''}`).join('\n')}`
+      } catch (e) {
+        const tail = mcpStderrTail().split('\n').filter(Boolean).slice(-2).join(' | ')
+        return `MCP server unavailable: ${(e as Error).message}${tail ? ` (${tail})` : ''}`
+      }
+    }
+
+    case 'mcp_call': {
+      const { callMcpTool } = await import('@/lib/mcp')
+      const tool = String(params.tool || params.name || '').trim()
+      if (!tool) return 'MCP call needs a tool name.'
+      const safeArgs: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(params)) {
+        if (k === 'tool' || k === 'name' || k === 'params') continue
+        safeArgs[k] = v
+      }
+      if (params.params) {
+        try {
+          const nested = JSON.parse(String(params.params)) as Record<string, unknown>
+          Object.assign(safeArgs, nested)
+        } catch {}
+      }
+      try {
+        return await callMcpTool(tool, safeArgs)
+      } catch (e) {
+        return `MCP call failed: ${(e as Error).message}`
+      }
+    }
+
+    // ── Native desktop automation (nut.js → AppleScript/cliclick) ───────────
+    case 'native_desktop': {
+      const nutjs = await import('@/lib/nutjs.js').then(m => m as unknown as {
+        nativeStatus(): { nutJs: boolean; reason: string | null; fallback: string }
+        moveMouse(x: number, y: number): Promise<string>
+        click(x: number, y: number, button?: string): Promise<string>
+        typeText(text: string): Promise<string>
+        pressKey(key: string): Promise<string>
+        scroll(dir: string, amount: number): Promise<string>
+      })
+      const action = String(params.action || 'status').toLowerCase()
+      if (action === 'status') {
+        const s = nutjs.nativeStatus()
+        return `native_desktop: nut.js ${s.nutJs ? 'active' : `not loaded (${s.reason})`} · fallback: ${s.fallback}`
+      }
+      if (action === 'move') return nutjs.moveMouse(parseInt(params.x || '0', 10), parseInt(params.y || '0', 10))
+      if (action === 'click') return nutjs.click(parseInt(params.x || '0', 10), parseInt(params.y || '0', 10), params.button || 'left')
+      if (action === 'type') return nutjs.typeText(String(params.text || ''))
+      if (action === 'key') return nutjs.pressKey(String(params.key || 'enter'))
+      if (action === 'scroll') return nutjs.scroll(String(params.direction || 'down'), parseInt(params.amount || '3', 10))
+      return `Unknown native_desktop action: ${action}. Use status, move, click, type, key, scroll.`
+    }
+
     default:
       return 'Unknown tool'
   }
@@ -3035,6 +3314,12 @@ function formatToolSpeech(tool: string, result: string): string {
     case 'send_whatsapp_message':
     case 'discord_message':
       return r.startsWith('Error') ? r.slice(0, 150) : `${done} Message sent.`
+    case 'send_user_message':
+      return r.startsWith('Error') ? r.slice(0, 150) : `Done. ${r}`
+    case 'office_document':
+      return r.startsWith('Error') ? r.slice(0, 150) : `Document ready. ${r.split('\n')[0]}`
+    case 'career':
+      return r.startsWith('Error') ? r.slice(0, 150) : r
     case 'set_reminder':
       return r || `${done} Reminder set.`
     case 'write_note':
@@ -3219,6 +3504,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // ── Current user (role + permissions) — resolves admin vs limited user ──
+  const currentUser = await getCurrentUser(req)
+
   let body: JarvisRequest
   try { body = await req.json() } catch { body = { message: '' } }
   const { message: rawMessage, history = [], memory = {}, selectedProvider, selectedModel, persona, offlineMode = false, quickAction, confirmRisk = false, clientId: rawClientId, lang: clientLang, platform: clientPlatform } = body
@@ -3318,7 +3606,12 @@ export async function POST(req: NextRequest) {
       })
       let pendingToolResult: string | null = null
       try {
-        pendingToolResult = await executeTool(pending.tool, pending.toolParams)
+        const neededPerm = permissionForTool(pending.tool)
+        if (neededPerm && !hasPermission(currentUser, neededPerm)) {
+          pendingToolResult = `Permission denied — your account lacks "${permissionForTool(pending.tool)}"`
+        } else {
+          pendingToolResult = await executeTool(pending.tool, pending.toolParams, currentUser)
+        }
         void auditLog({
           level: 'info',
           event: 'tool_executed',
@@ -3520,7 +3813,47 @@ export async function POST(req: NextRequest) {
     })
 
     if (aiResp.tool && aiResp.tool !== 'null') {
-      toolResult = await executeTool(aiResp.tool, aiResp.toolParams || {})
+      // ── Permission gate — non-admin users only get their allowed tools ──
+      const neededPerm = permissionForTool(aiResp.tool)
+      if (neededPerm && !hasPermission(currentUser, neededPerm)) {
+        void auditLog({
+          level: 'warn',
+          event: 'tool_denied',
+          tool: aiResp.tool,
+          params: aiResp.toolParams,
+          ip: req.headers.get('x-forwarded-for') || 'local',
+          risk: 40,
+        })
+        const deniedPayload: JarvisResponsePayload = {
+          speech: `I can't do that — your account doesn't have permission for "${aiResp.tool.replace(/_/g, ' ')}". Ask an administrator to grant this permission.`,
+          tool: null,
+          toolParams: {},
+          toolResult: null,
+          emotion: 'neutral',
+          confidence: 90,
+          domain,
+          usedModel,
+          usedProvider,
+          risk: null,
+          detectedLang,
+          device: { isMobile, isMac },
+          offline: offlineMode,
+          clientId,
+        }
+        emit?.({
+          type: 'response',
+          speech: deniedPayload.speech,
+          tool: null,
+          toolParams: {},
+          emotion: 'neutral',
+          confidence: 90,
+          domain,
+          clientId,
+        })
+        return deniedPayload
+      }
+
+      toolResult = await executeTool(aiResp.tool, aiResp.toolParams || {}, currentUser)
 
       if (riskAssessment) {
         void auditLog({

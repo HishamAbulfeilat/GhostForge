@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isValidAuthToken } from '@/lib/auth'
+import { isValidAuthToken, AUTH_COOKIE } from '@/lib/auth-edge'
 
-const AUTH_COOKIE = 'gf_token'
+const AUTH_COOKIE_NAME = AUTH_COOKIE
 
 // Routes that require authentication
 const PROTECTED_PREFIXES = [
@@ -14,9 +14,10 @@ const PROTECTED_PREFIXES = [
   '/settings',
   '/mac-control',
   '/jarvis',
+  '/users',
 ]
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   // Skip public routes and API routes
@@ -26,10 +27,9 @@ export function middleware(req: NextRequest) {
 
   const token = req.cookies.get(AUTH_COOKIE)?.value
 
-  if (!isValidAuthToken(token)) {
+  if (!await isValidAuthToken(token)) {
     const loginUrl = req.nextUrl.clone()
     loginUrl.pathname = '/login'
-    // Preserve the original destination so login can redirect back
     loginUrl.searchParams.set('from', pathname)
     return NextResponse.redirect(loginUrl)
   }
@@ -48,5 +48,8 @@ export const config = {
     '/settings/:path*',
     '/mac-control/:path*',
     '/jarvis/:path*',
+    '/users/:path*',
   ],
 }
+
+export const _internal = { PROTECTED_PREFIXES }

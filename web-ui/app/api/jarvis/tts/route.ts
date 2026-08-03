@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAuthorizedRequest } from '@/lib/auth'
+import { localTts } from '@/lib/voice'
 
 // ── Fish Audio — JARVIS voice model ───────────────────────────────────────────
 
@@ -98,6 +99,23 @@ export async function POST(req: NextRequest) {
   const jarvisId = process.env.FISH_AUDIO_JARVIS_MODEL || '36b6f66cfecf466caac7fcba1f8b59c8'
 
   // Explicit engine requests must never silently play a different provider.
+  // Forced local (offline, no API keys) TTS via the voice pipeline.
+  // Kokoro/Piper if installed, else macOS `say` / espeak-ng. Never calls out.
+  if (engine === 'local' || engine === 'offline') {
+    const result = await localTts(ttsText, { voice: voice === 'jarvis' ? undefined : voice })
+    if (result.audio) {
+      return new NextResponse(new Uint8Array(result.audio), {
+        headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'no-store', 'X-TTS-Engine': `local-${result.engine || 'say'}` },
+      })
+    }
+    return NextResponse.json({
+      fallback: true,
+      reason: 'local_tts_error',
+      error: result.error,
+      hint: 'Local TTS failed. Install kokoro-tts/piper or rely on macOS say.',
+    }, { status: 503 })
+  }
+
   if (engine === 'fish' || engine === 'fish-audio') {
     if (!fishKey) {
       return NextResponse.json({
@@ -138,7 +156,7 @@ export async function POST(req: NextRequest) {
   // 'browser' requested but still try cloud first if keys available
   // Only pure browser-only if no API keys configured at all
 
-  // Auto chain: Fish Audio → ElevenLabs → browser fallback
+  // Auto chain: Fish Audio → ElevenLabs → local (voice pipeline) → browser fallback
   if (fishKey) {
     const audio = await fishAudioTTS(ttsText, jarvisId, fishKey)
     if (audio) return new NextResponse(audio, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-TTS-Engine': 'fish-audio' } })
@@ -147,6 +165,15 @@ export async function POST(req: NextRequest) {
   if (elKey) {
     const audio = await elevenLabsTTS(ttsText, 'adam', elKey)
     if (audio) return new NextResponse(audio, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store', 'X-TTS-Engine': 'elevenlabs' } })
+  }
+
+  // No working cloud TTS — try the local voice pipeline (offline capable:
+  // kokoro/piper if installed, else macOS `say`).
+  const local = await localTts(ttsText, { voice: voice === 'jarvis' ? undefined : voice })
+  if (local.audio) {
+    return new NextResponse(new Uint8Array(local.audio), {
+      headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'no-store', 'X-TTS-Engine': `local-${local.engine || 'say'}` },
+    })
   }
 
   // No TTS keys configured — fall back to browser Web Speech API

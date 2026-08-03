@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -257,6 +257,17 @@ try:
     _HAS_CLIPBOARD = True
 except ImportError:
     _HAS_CLIPBOARD = False
+
+# --- OCR (paddleocr) --------------------------------------------------------
+try:
+    from paddleocr import PaddleOCR as _PaddleOCR
+
+    _HAS_OCR = True
+    _ocr_engine: Optional[Any] = None
+except Exception as e:
+    _stub("ocr", e)
+    _HAS_OCR = False
+    _ocr_engine = None
 
 # ---------------------------------------------------------------------------
 # AI module imports (graceful)
@@ -1013,6 +1024,56 @@ def clipboard_endpoint(req: ClipboardRequest):
     except Exception:
         logger.exception("Clipboard error")
         raise _err("Clipboard error: internal error")
+
+
+def _get_ocr_engine():
+    """Lazily initialize the shared PaddleOCR engine."""
+    global _ocr_engine
+    if not _HAS_OCR:
+        raise _err("paddleocr is not installed on the server.", status=503)
+    if _ocr_engine is None:
+        _ocr_engine = _PaddleOCR(use_angle_cls=True, lang="en")  # type: ignore[attr-defined]
+    return _ocr_engine
+
+
+@app.post("/api/mark-l/ocr", dependencies=[Depends(require_token)])
+async def ocr_endpoint(image: UploadFile = File(...)):
+    """Extract all text from an uploaded image using PaddleOCR."""
+    data = await image.read()
+    if not data:
+        raise _err("No image provided", status=400)
+    _require_module("ocr", _HAS_OCR)
+    try:
+        ext = (image.filename or "img.png").rsplit(".", 1)[-1].lower()
+        tmp = str(tmp_path(f"gfai-ocr-{secrets.token_hex(4)}.{ext}"))
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+        engine = _get_ocr_engine()
+        result = engine.ocr(tmp, cls=True)
+        lines: list[str] = []
+        for page in result or []:
+            for item in page or []:
+                text = item[1][0]
+                if text and text.strip():
+                    lines.append(text.strip())
+        return _ok({"text": "\n".join(lines), "lines": len(lines)})
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("OCR failed")
+        raise _err("OCR failed: internal error")
+    finally:
+        try:
+            os.remove(tmp)
+        except (OSError, NameError, UnboundLocalError):
+            pass
+
+
+def tmp_path(suffix: str) -> str:
+    """Return a temp filename under the system temp dir."""
+    import tempfile as _tf
+
+    return os.path.join(_tf.gettempdir(), suffix)
 
 
 # ---------------------------------------------------------------------------

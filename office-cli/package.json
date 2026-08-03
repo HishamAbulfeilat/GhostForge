@@ -1,0 +1,11 @@
+{
+  "name": "office-cli",
+  "version": "1.0.0",
+  "description": "GhostForge Office CLI — generate, list & read office documents (~/.ghostforge/documents/)",
+  "type": "module",
+  "main": "office.js",
+  "bin": {
+    "office": "./office.js"
+  },
+  "license": "MIT"
+}

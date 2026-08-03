@@ -8,3 +8,7 @@ crewai
 browser-use
 huggingface_hub
 httpx
+
+# OCR (optional — used by read_text_on_screen). Install for local screen text.
+# paddleocr
+# paddlepaddle
