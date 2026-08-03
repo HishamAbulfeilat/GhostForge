@@ -1,0 +1,19 @@
+# GhostForge Voice Pipeline — lightweight core (FastAPI service).
+# Heavy engines (faster-whisper, kokoro, piper, openwakeword) are OPTIONAL and
+# listed below as comments — install them only if you want those engines.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9
+pydantic>=2
+
+# --- Optional STT engines (install for local speech-to-text) ----------------
+# faster-whisper>=1.0        # fastest CPU/Metal transcription (recommended)
+# openai-whisper            # torch-based fallback
+# (whisper.cpp needs no python deps — build binaries instead)
+
+# --- Optional TTS engines (install for high-quality local voices) ----------
+# kokoro-tts                # best open voice quality (Apache-2.0)
+# piper-tts                 # tiny + fast
+
+# --- Optional wake word ------------------------------------------------------
+# openwakeword              # "Hey JARVIS" always-listening layer

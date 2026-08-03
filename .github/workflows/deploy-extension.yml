@@ -1,4 +1,4 @@
-name: Deploy @ghostforge Copilot Extension
+name: Deploy GhostForge Copilot Extension
 
 on:
   push:
@@ -39,13 +39,13 @@ jobs:
       - name: Show deployment URL
         if: steps.check-secrets.outputs.skip == 'false'
         run: |
-          echo "### @ghostforge deployed ✅" >> "$GITHUB_STEP_SUMMARY"
+          echo "### GhostForge deployed ✅" >> "$GITHUB_STEP_SUMMARY"
           echo "URL: ${{ steps.vercel-deploy.outputs.preview-url }}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup instructions
         if: steps.check-secrets.outputs.skip == 'true'
         run: |
-          echo "### @ghostforge Extension — Setup Required" >> "$GITHUB_STEP_SUMMARY"
+          echo "### GhostForge Extension — Setup Required" >> "$GITHUB_STEP_SUMMARY"
           echo "Add these GitHub secrets to enable auto-deploy:" >> "$GITHUB_STEP_SUMMARY"
           echo "- VERCEL_TOKEN" >> "$GITHUB_STEP_SUMMARY"
           echo "- VERCEL_ORG_ID" >> "$GITHUB_STEP_SUMMARY"

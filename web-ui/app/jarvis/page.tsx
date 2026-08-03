@@ -844,6 +844,7 @@ export default function JarvisPage() {
   const platform = usePlatform()
   const [mode, setMode]                     = useState<Mode>('idle')
   const [messages, setMessages]             = useState<Message[]>([])
+  const [currentUser, setCurrentUser]       = useState<{ name: string; username: string; role: string } | null>(null)
   const [input, setInput]                   = useState('')
   const [memory, setMemory]                 = useState<Memory>({ userName: '', preferences: { city: 'Riyadh', music: 'spotify' }, facts: [], conversationCount: 0 })
   const [voiceSupported, setVoiceSupported] = useState(false)
@@ -1278,6 +1279,13 @@ export default function JarvisPage() {
     void loadModels()
     void loadMemory()
     void checkPermissions()
+    void fetch('/api/auth/me').then(async r => {
+      if (cancelled || !r.ok) return
+      const data = await r.json().catch(() => null)
+      if (data?.user && !cancelled) setCurrentUser(data.user)
+    }).catch(() => {})
+    // Auto-register this browser/device under the current user
+    import('@/lib/client-device').then(m => m.reportDevice()).catch(() => {})
 
     return () => {
       cancelled = true
@@ -1292,6 +1300,38 @@ export default function JarvisPage() {
         micStreamRef.current = null
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Inbox polling — surface messages from other GhostForge users ─────────
+  useEffect(() => {
+    let cancelled = false
+    let seen = new Set<string>()
+
+    const checkInbox = async () => {
+      try {
+        const res = await fetch('/api/jarvis/inbox')
+        if (!res.ok) return
+        const data = await res.json() as { messages: Array<{ id: string; from: string; text: string; ts: string }>; unread: number }
+        if (cancelled) return
+        for (const m of data.messages) {
+          if (seen.has(m.id)) continue
+          seen.add(m.id)
+          const who = m.from ? ` from ${m.from}` : ''
+          toast('info', `📨 Message${who}: ${m.text}`, 8000)
+          addAIMessage(`📨 New message${who}: ${m.text}`, 'happy', null, null)
+        }
+        void fetch('/api/jarvis/inbox', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+        }).catch(() => {})
+      } catch {
+        /* server unreachable — retry next tick */
+      }
+    }
+
+    void checkInbox()
+    const timer = window.setInterval(checkInbox, 20000)
+    return () => { cancelled = true; window.clearInterval(timer) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -2513,6 +2553,19 @@ export default function JarvisPage() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            {currentUser ? (
+              <span className="hidden sm:flex items-center gap-1.5 font-mono text-[10px]" style={{ color: currentUser.role === 'admin' ? '#fbbf24' : '#93c5fd' }}
+                title={`Signed in as ${currentUser.name}`}>
+                <span>👤</span>
+                <span>{currentUser.username.toUpperCase()}</span>
+                <span className="rounded px-1 py-px text-[9px] uppercase"
+                  style={{ background: currentUser.role === 'admin' ? 'rgba(251,191,36,0.15)' : 'rgba(147,197,253,0.15)', border: currentUser.role === 'admin' ? '1px solid rgba(251,191,36,0.4)' : '1px solid rgba(147,197,253,0.4)' }}>
+                  {currentUser.role}
+                </span>
+              </span>
+            ) : (
+              <span className="hidden font-mono text-[10px] text-blue-400/40 sm:block">👤</span>
+            )}
             {memory.userName && (
               <span className="font-mono text-[10px] text-blue-300/50 hidden sm:block">
                 {memory.userName.toUpperCase()}
@@ -2530,6 +2583,13 @@ export default function JarvisPage() {
               style={{ borderColor: `${mc.ring}44`, color: '#67e8f9cc', background: 'transparent' }}>
               📜 HISTORY
             </Link>
+            {currentUser?.role === 'admin' && (
+              <Link href="/users"
+                className="font-mono text-[10px] rounded px-2 py-1 border transition"
+                style={{ borderColor: '#fbbf2444', color: '#fde68acc', background: 'transparent' }}>
+                👥 USERS
+              </Link>
+            )}
             <button type="button" onClick={() => setShowSettings(s => !s)}
               className="font-mono text-[10px] rounded px-2 py-1 border transition"
               style={{ borderColor: `${mc.ring}44`, color: `${mc.ring}99`, background: showSettings ? `${mc.ring}18` : 'transparent' }}>

@@ -24,7 +24,7 @@ dist/
 *.tsbuildinfo
 
 # Session / local only
-.ghostforge-health-cache
+.ghforge-health-cache
 .registered-projects
 web-ui/.next/
 web-ui/node_modules/
@@ -44,3 +44,8 @@ electron-app/out/
 mark-l/
 __pycache__/
 *.pyc
+
+# Voice pipeline
+voice-pipeline/.venv/
+voice-pipeline/__pycache__/
+voice-pipeline/*.pyc

@@ -1,0 +1,15 @@
+{
+  "name": "ghostforge-mcp-server",
+  "version": "1.0.0",
+  "description": "GhostForge MCP server — exposes JARVIS-style tools over the Model Context Protocol (stdio).",
+  "type": "module",
+  "bin": {
+    "ghostforge-mcp": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
