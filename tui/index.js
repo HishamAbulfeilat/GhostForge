@@ -407,6 +407,7 @@ async function screenHome() {
       menuChoice(T.warning.bold, '🏪  Marketplace',               'browse/install agents, skills, plugins', 'marketplace'),
       menuChoice(T.success.bold, '⚡  Generate New',              'create custom agent/command/skill/plugin', 'generate'),
       menuChoice(T.accent.bold,  '🆓  Free Models',               'NVIDIA, Groq, OmniRoute, Ollama, HuggingFace', 'freemodels'),
+      menuChoice(T.accent.bold,  "🔭  Open Source Tools",     "Browse and learn about integrated open source tools", "opensourcetools"),
       menuChoice(T.accent.bold,  '🆓  Free LLM APIs',             'provider list with limits + quick setup', 'freeapis'),
       menuSeparator(),
       menuChoice(T.cyan.bold,    '🩺  Doctor',                    'health check: env, bridge, AI, tools', 'doctor'),
@@ -6289,6 +6290,53 @@ async function screenWhatsNew() {
   await pressEnter();
 }
 
+async function screenOpenSourceTools() {
+  sectionHeader('🔭  Open Source Tools', 'Browse and learn about integrated open source tools');
+
+  const tool = await select({
+    message: T.white('Choose an open source tool:'),
+    choices: [
+      { name: T.accent('🧠  OpenHuman'), value: 'openhuman' },
+      { name: T.accent('🤖  OpenBot'), value: 'openbot' },
+      { name: T.accent('🌐  Browser Use'), value: 'browseruse' },
+      { name: T.accent('🛡️  ECC Tools'), value: 'ecctools' },
+      { name: T.muted('↩  Back'), value: 'back' },
+    ],
+  });
+
+  if (tool === 'back') return;
+
+  let content = '';
+  if (tool === 'openhuman') {
+    content = `OpenHuman: Personal AI super intelligence with persistent local memory and agent orchestration.
+GitHub: https://github.com/tinyhumansai/openhuman
+License: GPL-3.0
+Integration: Can be used for persistent memory and agent orchestration in GhostForge.`;
+  } else if (tool === 'openbot') {
+    content = `OpenBot: AI coworkers with dedicated computers (browser/files/tools) governed by policy.
+GitHub: https://github.com/CopilotKit/openbot
+License: MIT
+Integration: Integrate specialized AI agents as coworkers in Jarvis workflows.`;
+  } else if (tool === 'browseruse') {
+    content = `Browser Use: Makes websites accessible for AI agents to automate web tasks.
+GitHub: https://github.com/browser-use/browser-use
+License: MIT
+Integration: Enable Jarvis to perform web automation, data extraction, and form filling.`;
+  } else if (tool === 'ecctools') {
+    content = `ECC Tools: Provides skills, rules, hooks, and AgentShield security for AI coding agents.
+GitHub: https://github.com/ECC-Tools/.github
+Website: https://ecc.tools/
+License: MIT
+Integration: Standardize GhostForge/Jarvis behavior through skills, rules, and hooks.`;
+  }
+
+  console.log(boxen(
+    T.white(content),
+    { padding: 1, borderColor: '#8B5CF6', borderStyle: 'round' }
+  ));
+  await pressEnter();
+}
+
 async function main() {
   // Silently ensure officecli is installed
   try {
@@ -6349,6 +6397,7 @@ async function main() {
         case 'marketplace':  await screenMarketplace(); break; // lazy
         case 'generate':     await screenGenerate(); break; // lazy
         case 'freemodels':   await screenFreeModels(); break; // lazy
+        case 'opensourcetools': await screenOpenSourceTools(); break;
         case 'snippets':     await screenSnippets(); break; // lazy
         case 'bundle':       await screenBundle(); break; // lazy
         case 'rtl':          await screenRTL(); break; // lazy
