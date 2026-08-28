@@ -36,6 +36,14 @@ const dev       = process.env.NODE_ENV !== 'production'
 const OMNI_PORT = 20128
 const OMNI_URL  = process.env.OMNIROUTE_URL || `http://localhost:${OMNI_PORT}/v1`
 function ensureOmniRouteRunning() {
+  if (process.env.GHOSTFORGE_AUTOSTART_OMNI !== '1' && process.env.NODE_ENV === 'production') {
+    // In production require explicit opt-in to avoid arbitrary binary exec
+    return
+  }
+  if (!process.env.GHOSTFORGE_AUTOSTART_OMNI && dev) {
+    // Dev auto-start only if binary exists
+    try { require('child_process').execSync('which omniroute', { stdio: 'ignore' }) } catch { return }
+  }
   fetch(`${OMNI_URL.replace(/\/+$/, '')}/models`, { signal: AbortSignal.timeout(1500) })
     .then((res) => { if (!res.ok) startOmniRoute() })
     .catch(() => startOmniRoute())
@@ -73,6 +81,7 @@ function getBridgeToken() {
   try { return fs.readFileSync(tokenFile, 'utf8').trim() } catch { return '' }
 }
 function ensureVoiceServerRunning() {
+  if (process.env.GHOSTFORGE_AUTOSTART_VOICE === '0') return
   const token = getBridgeToken()
   fetch(`${VOICE_URL}/api/voice/health`, {
     headers: token ? { 'X-Bridge-Token': token } : {},
@@ -188,9 +197,14 @@ function attachUpgradeHandler(server) {
   server.on('upgrade', (req, socket, head) => {
     // Match the exact path `/ws` (ignore the query string — the bridge token
     // stays in ?token=...) and require a matching same-origin request.
+    // Also validate bridge token present to avoid unauthenticated proxy.
     const pathname = (req.url || '').split('?')[0]
     const host = req.headers.host || ''
-    if (pathname === '/ws' && originMatchesRequest(req.headers.origin, host)) {
+    const url = new URL(req.url || '/', `http://${host || 'localhost'}`)
+    const token = url.searchParams.get('token') || req.headers['x-bridge-token'] || ''
+    const expected = getBridgeToken()
+    const hasValidToken = !expected || (token && token === expected)
+    if (pathname === '/ws' && originMatchesRequest(req.headers.origin, host) && hasValidToken) {
       proxyWsUpgrade(req, socket, head)
     } else if (dev && pathname.startsWith('/_next/')) {
       // Next dev HMR / React refresh websockets — handled by the dev server.

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 interface PushRequestBody {
   subscription?: unknown
@@ -10,12 +11,14 @@ interface PushRequestBody {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  if (!isAuthorizedRequest(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const key = process.env.VAPID_PUBLIC_KEY || null
   return NextResponse.json({ publicKey: key, configured: Boolean(key) })
 }
 
 export async function POST(req: NextRequest) {
+  if (!isAuthorizedRequest(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   let parsed: PushRequestBody
   try {
     parsed = await req.json()

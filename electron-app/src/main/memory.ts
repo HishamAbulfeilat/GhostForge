@@ -46,8 +46,12 @@ export class JarvisMemory {
   }
 
   private save(): void {
-    writeFileSync(this.longTermPath, JSON.stringify(this.entries, null, 2));
-    writeFileSync(this.sessionsPath, JSON.stringify(this.sessions, null, 2));
+    try {
+      writeFileSync(this.longTermPath, JSON.stringify(this.entries, null, 2));
+      writeFileSync(this.sessionsPath, JSON.stringify(this.sessions, null, 2));
+    } catch (e) {
+      console.error('[memory] save failed:', (e as Error).message);
+    }
   }
 
   private cleanExpired(): void {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -u
+set -euo pipefail
 
 ROOT="$HOME/GhostForge"
 WEB_UI="$ROOT/web-ui"
