@@ -33,10 +33,13 @@ export interface SessionPayload {
 
 export function getAccessPin() {
   const pin = process.env.ACCESS_PIN
-  if (!pin && process.env.NODE_ENV === 'production') {
-    throw new Error('ACCESS_PIN not set. Set ACCESS_PIN in production to authenticate access.')
+  if (!pin) {
+    if (process.env.NODE_ENV === 'production') throw new Error('ACCESS_PIN not set. Set ACCESS_PIN in production to authenticate access.')
+    if (process.env.NODE_ENV !== 'test') console.warn('[auth] ACCESS_PIN not set — using ephemeral dev PIN')
+    return `dev-${Math.random().toString(36).slice(2, 6)}`
   }
-  return pin || '1234'
+  if (pin.length < 4) throw new Error('ACCESS_PIN must be at least 4 characters')
+  return pin
 }
 
 function b64url(input: Buffer | string): string {

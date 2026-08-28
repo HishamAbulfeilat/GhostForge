@@ -108,14 +108,16 @@ class PiperEngine(_BaseTtsEngine):
             raise RuntimeError("piper: no runnable engine")
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             name = tmp.name
-        subprocess.run(
-            [self._bin, "-m", str(model), "-f", name, "--", text],
-            check=True,
-            timeout=120,
-        )
-        data = Path(name).read_bytes()
-        Path(name).unlink(missing_ok=True)
-        return data
+        try:
+            subprocess.run(
+                [self._bin, "-m", str(model), "-f", name, "--", text],
+                check=True,
+                timeout=120,
+            )
+            data = Path(name).read_bytes()
+            return data
+        finally:
+            Path(name).unlink(missing_ok=True)
 
 
 def _load_piper_py(engine: "PiperEngine") -> bool:

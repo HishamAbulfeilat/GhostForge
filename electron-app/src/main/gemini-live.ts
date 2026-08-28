@@ -113,7 +113,9 @@ export class GeminiLiveVoice {
 
   // ── Connect / Disconnect ───────────────────────────────────────────────────
 
+  private connectingPromise: Promise<boolean> | null = null;
   async connect(): Promise<boolean> {
+    if (this.connectingPromise) return this.connectingPromise;
     if (!this.config.apiKey) {
       this.emitError('API key not configured');
       return false;
@@ -125,14 +127,19 @@ export class GeminiLiveVoice {
 
     this.setConnectionState('connecting');
 
-    try {
-      await this.createWebSocket();
-      return true;
-    } catch (err) {
-      this.setConnectionState('error');
-      this.emitError(`Connection failed: ${(err as Error).message}`);
-      return false;
-    }
+    this.connectingPromise = (async () => {
+      try {
+        await this.createWebSocket();
+        return true;
+      } catch (err) {
+        this.setConnectionState('error');
+        this.emitError(`Connection failed: ${(err as Error).message}`);
+        return false;
+      } finally {
+        this.connectingPromise = null;
+      }
+    })();
+    return this.connectingPromise;
   }
 
   async disconnect(): Promise<void> {
@@ -269,7 +276,7 @@ export class GeminiLiveVoice {
           const raw = typeof event.data === 'string' ? event.data : String(event.data);
           const msg = JSON.parse(raw) as Record<string, unknown>;
           this.handleServerMessage(msg);
-          if (this.connectionState === 'connecting') {
+          if (this.connectionState === 'connecting' && 'setupComplete' in msg) {
             clearTimeout(connectTimeout);
             this.reconnectAttempts = 0;
             this.setConnectionState('connected');
@@ -284,7 +291,7 @@ export class GeminiLiveVoice {
         clearTimeout(connectTimeout);
         const ev = event as unknown as { code: number; reason: string };
         console.log(`Gemini Live WS closed: ${ev.code} ${ev.reason}`);
-
+        this.ws = null;
         if (this.connectionState === 'connecting') {
           reject(new Error(`Connection closed: ${ev.code} ${ev.reason}`));
           return;
@@ -407,7 +414,7 @@ export class GeminiLiveVoice {
     this.reconnectAttempts++;
 
     this.reconnectTimer = setTimeout(async () => {
-      if (this.connectionState === 'disconnected') {
+      if (this.connectionState !== 'connected') {
         this.mainWindow?.webContents.send('gemini:reconnecting', {
           attempt: this.reconnectAttempts,
           maxAttempts: MAX_RECONNECT_ATTEMPTS,

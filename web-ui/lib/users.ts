@@ -104,7 +104,14 @@ export async function ensureUserStore(): Promise<GhostUser[]> {
   if (users.some(u => u.role === 'admin')) return users
 
   const username = (process.env.ADMIN_USERNAME || DEFAULT_ADMIN_USERNAME).toLowerCase()
-  const password = process.env.ADMIN_PASSWORD || process.env.ACCESS_PIN || 'hisham1234'
+  const envPassword = process.env.ADMIN_PASSWORD || process.env.ACCESS_PIN
+  if (!envPassword) {
+    const generated = randomBytes(12).toString('base64url')
+    console.warn(`[users] No ADMIN_PASSWORD/ACCESS_PIN set — generated ephemeral admin password (will be re-generated next boot): ${generated.slice(0,4)}**** (set ADMIN_PASSWORD to persist)`)
+    var password = generated
+  } else {
+    var password = envPassword
+  }
   const name = process.env.ADMIN_NAME || DEFAULT_ADMIN_NAME
   const admin: GhostUser = {
     id: userIdFor(username),

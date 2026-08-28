@@ -151,6 +151,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (searchParams.get('config') === '1') {
+    if (!isAuthorizedRequest(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     ensureConfigDir()
     writeFileSync(WEBHOOKS_FILE, JSON.stringify(body, null, 2))
     return NextResponse.json({ ok: true })

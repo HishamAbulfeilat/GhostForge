@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isAuthorizedRequest, getAuthSecret } from '@/lib/auth'
+import { isAuthorizedRequest } from '@/lib/auth'
 import { POST as jarvisPost } from '../route'
+import { getLiveBridgeToken } from '@/lib/bridge-token'
 
 interface SubTask {
   id: string
@@ -41,7 +42,8 @@ export async function POST(req: NextRequest) {
   const { task, subtasks } = parsed
   const tasks: SubTask[] = subtasks?.length ? subtasks : autoDecompose(task)
   const startTime = Date.now()
-  const authSecret = getAuthSecret()
+  // Forward the caller's session token instead of raw secret
+  const forwardedCookie = req.headers.get('cookie') || `gf_token=${getLiveBridgeToken()}`
 
   const results: OrchestrationResult[] = await Promise.all(
     tasks.map(async (st): Promise<OrchestrationResult> => {
@@ -51,7 +53,7 @@ export async function POST(req: NextRequest) {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
-            cookie: `gf_token=${authSecret}`,
+            cookie: forwardedCookie,
           },
           body: JSON.stringify({ message: st.prompt, stream: false }),
         })

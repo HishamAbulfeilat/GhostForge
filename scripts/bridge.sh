@@ -9,6 +9,7 @@ PID_FILE="$BRIDGE_DIR/bridge.pid"
 TOKEN_FILE="$BRIDGE_DIR/token"
 LOG_FILE="$BRIDGE_DIR/bridge.log"
 PORT=4747
+BRIDGE_ROOT="${BRIDGE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 mkdir -p "$BRIDGE_DIR"
 
@@ -51,7 +52,7 @@ start_cmd() {
   chmod 600 "$TOKEN_FILE"
 
   BRIDGE_TOKEN_FILE="$TOKEN_FILE" \
-  BRIDGE_ROOT="$HOME/GhostForge" \
+  BRIDGE_ROOT="$BRIDGE_ROOT" \
   BRIDGE_READY_FILE="$BRIDGE_DIR/server.ready" \
   BRIDGE_PORT="$PORT" \
   nohup node - <<'NODESERVER' >> "$LOG_FILE" 2>&1 &
@@ -187,11 +188,11 @@ NODESERVER
   # Start the authenticated PTY WebSocket server used by /terminal.
   # The previous ttyd process used Basic Auth, while the web client sends the
   # bridge token as a query parameter, so quick commands never connected.
-  local pty_server="$HOME/GhostForge/scripts/pty-server.js"
+  local pty_server="$BRIDGE_ROOT/scripts/pty-server.js"
   if [[ -f "$pty_server" ]] && node -e "require('node-pty'); require('ws')" >/dev/null 2>&1; then
     nohup env \
       PTY_PORT=4748 \
-      BRIDGE_ROOT="$HOME/GhostForge" \
+      BRIDGE_ROOT="$BRIDGE_ROOT" \
       BRIDGE_TOKEN_FILE="$TOKEN_FILE" \
       node "$pty_server" >> "$LOG_FILE" 2>&1 &
     local pty_pid=$!
@@ -238,7 +239,7 @@ NODESERVER
       echo ""
       echo -e "${CYAN}Add to Vercel env vars:${NC}"
       echo -e "  WS_BRIDGE_URL=${tunnel_url}"
-      echo -e "  WS_BRIDGE_TOKEN=$(cat "$TOKEN_FILE")"
+      echo -e "  WS_BRIDGE_TOKEN=$(token_fingerprint) (full token in $TOKEN_FILE)"
     else
       echo -e "${YELLOW}⚠ Tunnel URL not detected yet — check $LOG_FILE${NC}"
       echo -e "${CYAN}  Local URL: http://localhost:$PORT${NC}"

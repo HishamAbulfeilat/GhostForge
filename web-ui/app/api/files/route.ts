@@ -12,9 +12,8 @@ async function checkAuth() {
 
 function safePath(p: string): string {
   const home = os.homedir()
-  const resolved = path.resolve(p.replace(/^~/, home))
-  // Only allow within home directory
-  if (!resolved.startsWith(home)) throw new Error('Access denied: path outside home directory')
+  const resolved = path.resolve(p.replace(/^~(?=\/|$)/, home))
+  if (!resolved.startsWith(home + path.sep) && resolved !== home) throw new Error('Access denied: path outside home directory')
   return resolved
 }
 
@@ -79,6 +78,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const { path: rawPath, content } = await req.json() as { path: string; content: string }
+    if (typeof content === 'string' && Buffer.byteLength(content, 'utf8') > 1024 * 1024) return NextResponse.json({ error: 'Content too large (>1MB)' }, { status: 400 })
     const resolved = safePath(rawPath)
     fs.writeFileSync(resolved, content, 'utf8')
     return NextResponse.json({ ok: true, path: resolved })

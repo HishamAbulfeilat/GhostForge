@@ -18,6 +18,7 @@ import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { filterMenuChoices, groupCommandChoices } from './lib/menu-search.js';
 import { readRecentCommands, rememberCommand } from './lib/recent-commands.js';
+import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP } from './lib/platform-utils.js';
 import { askGFAI } from './lib/gfai-client.js';
 import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
 
@@ -1155,10 +1156,11 @@ async function screenAgents() {
     const activate = await confirm({ message: T.white('Copy activation prompt to clipboard?'), default: false });
     if (activate) {
       const prompt = `Act as ${agent.name} agent from GhostForge toolkit. ${agent.desc}`;
-      try {
-        execSync(`echo "${prompt}" | pbcopy 2>/dev/null || echo "${prompt}" | xclip -selection clipboard 2>/dev/null`);
+      if (crossPlatformCopy(prompt)) {
         console.log(T.success('  ✔  Copied! Paste into GitHub Copilot Chat.'));
-      } catch { console.log(T.warning('  ⚠  Could not copy. Manually copy:\n  ') + T.dim(prompt)); }
+      } else {
+        console.log(T.warning('  ⚠  Could not copy. Manually copy:\n  ' + T.dim(prompt)));
+      }
     }
     await pressEnter();
   }
@@ -1456,7 +1458,9 @@ async function screenJarvis() {
 
   if (action === 'webui') {
     console.log(T.cyan('\n  Opening http://localhost:3001/jarvis ...\n'));
-    try { execSync('open http://localhost:3001/jarvis 2>/dev/null || xdg-open http://localhost:3001/jarvis 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    if (!crossPlatformOpen('http://localhost:3001/jarvis')) {
+      console.log(T.warning('  ⚠  Could not open URL. Please open manually: http://localhost:3001/jarvis'));
+    }
     await pressEnter(); return;
   }
 
@@ -2024,13 +2028,17 @@ async function screenAppmorphy() {
 
   if (action === 'home') {
     console.log(T.accent('\n  Opening https://appmorphy.app ...\n'));
-    try { execSync('open https://appmorphy.app 2>/dev/null || xdg-open https://appmorphy.app 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    if (!crossPlatformOpen('https://appmorphy.app')) {
+  console.log(T.warning('  ⚠  Could not open URL. Please open manually: https://appmorphy.app'));
+}
     await pressEnter(); return;
   }
 
   if (action === 'build') {
     console.log(T.accent('\n  Opening https://appmorphy.app/build ...\n'));
-    try { execSync('open https://appmorphy.app/build 2>/dev/null || xdg-open https://appmorphy.app/build 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    if (!crossPlatformOpen('https://appmorphy.app/build')) {
+  console.log(T.warning('  ⚠  Could not open URL. Please open manually: https://appmorphy.app/build'));
+}
     console.log(boxen(
       T.white.bold('Build checklist:\n\n') +
       T.muted('  □  Web app URL (publicly accessible or via tunnel)\n') +
@@ -2639,7 +2647,9 @@ async function screenMarketplace() {
       { padding: 1, borderColor: '#0077C8', borderStyle: 'round' }
     ));
     console.log();
-    try { execSync('open https://aitmpl.com 2>/dev/null || xdg-open https://aitmpl.com 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    if (!crossPlatformOpen('https://aitmpl.com')) {
+  console.log(T.warning('  ⚠  Could not open URL. Please open manually: https://aitmpl.com'));
+}
     await pressEnter();
   }
 
@@ -2657,7 +2667,9 @@ async function screenMarketplace() {
       { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
     ));
     console.log();
-    try { execSync('open https://www.opensourceprojects.dev 2>/dev/null || xdg-open https://www.opensourceprojects.dev 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    if (!crossPlatformOpen('https://www.opensourceprojects.dev')) {
+  console.log(T.warning('  ⚠  Could not open URL. Please open manually: https://www.opensourceprojects.dev'));
+}
     await pressEnter();
   }
 
@@ -2700,9 +2712,13 @@ async function screenMarketplace() {
           spawnSync('bash', ['-c', 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash'], { stdio: 'inherit', cwd: process.cwd() });
         }
       } else if (hermesAction === 'docs') {
-        try { execSync('open https://hermes-agent.nousresearch.com/docs/ 2>/dev/null || xdg-open https://hermes-agent.nousresearch.com/docs/ 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        if (!crossPlatformOpen('https://hermes-agent.nousresearch.com/docs/')) {
+  console.log(T.warning('  ⚠  Could not open URL. Please open manually: https://hermes-agent.nousresearch.com/docs/'));
+}
       } else if (hermesAction === 'github') {
-        try { execSync('open https://github.com/nousresearch/hermes-agent 2>/dev/null || xdg-open https://github.com/nousresearch/hermes-agent 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        if (!crossPlatformOpen('https://github.com/nousresearch/hermes-agent')) {
+  console.log(T.warning('  ⚠  Could not open URL. Please open manually: https://github.com/nousresearch/hermes-agent'));
+}
       }
     }
     await pressEnter();
@@ -2723,7 +2739,9 @@ async function screenMarketplace() {
       { padding: 1, borderColor: '#7C3AED', borderStyle: 'round' }
     ));
     console.log();
-    try { execSync('open https://claudemarketplaces.com 2>/dev/null || xdg-open https://claudemarketplaces.com 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    if (!crossPlatformOpen('https://claudemarketplaces.com')) {
+  console.log(T.warning('  ⚠  Could not open URL. Please open manually: https://claudemarketplaces.com'));
+}
     await pressEnter();
   }
 
@@ -2746,7 +2764,9 @@ async function screenMarketplace() {
       { padding: 1, borderColor: '#00A3E0', borderStyle: 'round' }
     ));
     console.log();
-    try { execSync('open https://pocketbase.io/docs 2>/dev/null || xdg-open https://pocketbase.io/docs 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    if (!crossPlatformOpen('https://pocketbase.io/docs')) {
+  console.log(T.warning('  ⚠  Could not open URL. Please open manually: https://pocketbase.io/docs'));
+}
     await pressEnter();
   }
 
@@ -2780,7 +2800,9 @@ async function screenMarketplace() {
           T.white('  • Agent executes it in the page — no screenshots, pure DOM manipulation\n'),
           { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
         ));
-        try { execSync('open https://chromewebstore.google.com/detail/page-agent-ext/akldabonmimlicnjlflnapfeklbfemhj 2>/dev/null || xdg-open https://chromewebstore.google.com/detail/page-agent-ext/akldabonmimlicnjlflnapfeklbfemhj 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        if (!crossPlatformOpen('https://chromewebstore.google.com/detail/page-agent-ext/akldabonmimlicnjlflnapfeklbfemhj')) {
+  console.log(T.warning('  ⚠  Could not open URL. Please open manually: https://chromewebstore.google.com/detail/page-agent-ext/akldabonmimlicnjlflnapfeklbfemhj'));
+}
       } else if (paAction === 'project') {
         console.log(boxen(
           T.cyan.bold(' 💻 Page Agent — In Your React/Next.js Project ') + '\n\n' +
@@ -5572,8 +5594,7 @@ async function screenDeviceInstall() {
 
   if (platform === 'pwa') {
     // Get local IP
-    let ip = '192.168.1.x';
-    try { ip = execSync("ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null", { encoding: 'utf8', timeout: 3000 }).trim(); } catch {}
+    const ip = getLocalIP();
     console.log('\n' + boxen(
       T.cyan.bold(' PWA Install (Fastest — no build needed!) \n\n') +
       T.white.bold('Step 1: ') + T.white('Make sure GhostForge server is running on your Mac\n') +

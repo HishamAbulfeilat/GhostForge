@@ -90,7 +90,11 @@ async function loadFirstReachable(urls: string[]): Promise<void> {
       // try next candidate
     }
   }
-  mainWindow?.loadURL(urls[urls.length - 1]);
+  try {
+    await mainWindow?.loadURL(urls[urls.length - 1]);
+  } catch (e) {
+    console.error('[electron] all web UI candidates failed:', (e as Error).message);
+  }
 }
 
 // ── Navigation / IPC trust guards ───────────────────────────────────────────
@@ -103,6 +107,7 @@ function getAppOrigins(): Set<string> {
     'https://localhost:3000',
     'http://localhost:3000',
     'file://',
+    'null',
   ]);
   const envUrl = process.env.JARVIS_WEB_UI_URL;
   if (envUrl) {
@@ -336,17 +341,17 @@ function registerIPC(): void {
   });
 
   // System control
-  ipcMain.handle('system:openApp', async (_event, appName: string) => {
+  ipcMain.handle('system:openApp', trusted(async (_event, appName: string) => {
     return systemControl.openApp(appName);
-  });
+  }));
 
   ipcMain.handle('system:openUrl', trusted(async (_event, url: string) => {
     return systemControl.openUrl(url);
   }));
 
-  ipcMain.handle('system:lockScreen', async () => {
+  ipcMain.handle('system:lockScreen', trusted(async () => {
     return systemControl.lockScreen();
-  });
+  }));
 
   ipcMain.handle('system:getInfo', async () => {
     return systemControl.getSystemInfo();
@@ -372,9 +377,9 @@ function registerIPC(): void {
     return systemControl.listRunningProcesses();
   });
 
-  ipcMain.handle('system:killProcess', async (_event, name: string) => {
+  ipcMain.handle('system:killProcess', trusted(async (_event, name: string) => {
     return systemControl.killProcess(name);
-  });
+  }));
 
   // Config
   ipcMain.handle('config:get', () => config);
@@ -1089,25 +1094,36 @@ function registerGlobalShortcuts(): void {
 }
 
 // App lifecycle
+process.on('unhandledRejection', (reason) => {
+  console.error('[electron] unhandledRejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[electron] uncaughtException:', err);
+});
+
 app.whenReady().then(async () => {
-  createMainWindow();
+  try {
+    createMainWindow();
+  } catch (e) {
+    console.error('[electron] createMainWindow failed:', (e as Error).message);
+  }
 
   if (bridgeManager.isAutoStartEnabled()) {
-    bridgeManager.startBridge().catch(() => {});
+    bridgeManager.startBridge().catch((e) => console.error('[bridge] start failed:', (e as Error).message));
   }
 
   if (jarvisConnection) {
-    await jarvisConnection.connect();
+    try { await jarvisConnection.connect(); } catch (e) { console.error('[jarvis] connect failed:', (e as Error).message); }
   }
 
   // Start the JARVIS daemon (keeps running in background)
   if (jarvisDaemon) {
-    await jarvisDaemon.start(mainWindow);
+    try { await jarvisDaemon.start(mainWindow); } catch (e) { console.error('[daemon] start failed:', (e as Error).message); }
   }
 
   // Start auto-update checker (every 6 hours)
   if (selfUpdater) {
-    selfUpdater.startAutoCheck(6 * 60 * 60 * 1000);
+    try { selfUpdater.startAutoCheck(6 * 60 * 60 * 1000); } catch (e) { console.error('[updater] startAutoCheck failed:', (e as Error).message); }
   }
 });
 

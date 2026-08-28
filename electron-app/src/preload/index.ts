@@ -543,10 +543,8 @@ const electronAPI: ElectronAPI = {
     onCaptured: (callback) => {
       ipcRenderer.on('screen:captured', (_event, result) => callback(result));
     },
-    offCaptured: (callback) => {
-      ipcRenderer.removeListener('screen:captured', (_event, result) =>
-        callback(result as any)
-      );
+    offCaptured: () => {
+      ipcRenderer.removeAllListeners('screen:captured');
     },
   },
   cursor: {
@@ -557,10 +555,8 @@ const electronAPI: ElectronAPI = {
     onPoint: (callback) => {
       ipcRenderer.on('cursor:point', (_event, target) => callback(target));
     },
-    offPoint: (callback) => {
-      ipcRenderer.removeListener('cursor:point', (_event, target) =>
-        callback(target as any)
-      );
+    offPoint: () => {
+      ipcRenderer.removeAllListeners('cursor:point');
     },
   },
   voice: {

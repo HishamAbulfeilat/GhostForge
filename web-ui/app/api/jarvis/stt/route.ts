@@ -18,7 +18,10 @@ export async function POST(req: NextRequest) {
   const lang = req.headers.get('x-language') || undefined
   const engine = req.headers.get('x-engine') || undefined
 
-  const body = Buffer.from(await req.arrayBuffer())
+  const maxBytes = 10 * 1024 * 1024
+  const raw = await req.arrayBuffer()
+  if (raw.byteLength > maxBytes) return NextResponse.json({ error: 'Audio too large (>10MB)' }, { status: 400 })
+  const body = Buffer.from(raw)
   if (!body.length) return NextResponse.json({ error: 'No audio' }, { status: 400 })
 
   // Clients post raw audio bytes (wav/webm/ogg). The local pipeline normalizes

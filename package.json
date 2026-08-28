@@ -1,4 +1,7 @@
 {
+  "name": "ghostforge",
+  "version": "5.3.1",
+  "private": true,
   "scripts": {
     "postinstall": "node scripts/fix-node-pty-perms.js"
   },

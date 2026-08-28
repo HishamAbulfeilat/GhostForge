@@ -20,8 +20,8 @@ const PROTECTED_PREFIXES = [
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // Skip public routes and API routes
-  if (!PROTECTED_PREFIXES.some(p => pathname.startsWith(p))) {
+  // Exact-or-subpath match to avoid /chat → /chatbot false positive
+  if (!PROTECTED_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))) {
     return NextResponse.next()
   }
 

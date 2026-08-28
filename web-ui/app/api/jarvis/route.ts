@@ -74,8 +74,9 @@ function splitCommandLine(cmd: string): string[] {
 /** Resolve a user-supplied path under the home directory, blocking dotfiles and traversal */
 function safeHomePath(p: string): string | null {
   const home = homedir()
-  const resolved = resolve(p === '~' ? home : p)
-  if (!resolved.startsWith(home)) return null
+  const expanded = p.replace(/^~(?=\/|$)/, home)
+  const resolved = resolve(expanded)
+  if (resolved !== home && !resolved.startsWith(home + '/')) return null
   if (resolved.split('/').some(seg => seg.startsWith('.'))) return null
   return resolved
 }

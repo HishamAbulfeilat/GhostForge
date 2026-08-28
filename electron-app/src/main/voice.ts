@@ -8,6 +8,7 @@ export class VoiceSystem {
   private isPushingToTalk = false;
   private mainWindow: BrowserWindow | null = null;
   private onTranscript: ((command: VoiceCommand) => void) | null = null;
+  private currentSpeech: import('child_process').ChildProcess | null = null;
 
   constructor(mainWindow: BrowserWindow) {
     this.mainWindow = mainWindow;
@@ -28,7 +29,14 @@ export class VoiceSystem {
   }
 
   unregisterAll(): void {
-    globalShortcut.unregisterAll();
+    globalShortcut.unregister('CommandOrControl+Alt+V');
+    this.stopCurrentSpeech();
+  }
+  private stopCurrentSpeech(): void {
+    if (this.currentSpeech) {
+      try { this.currentSpeech.kill(); } catch {}
+      this.currentSpeech = null;
+    }
   }
 
   startListening(): void {
@@ -61,35 +69,27 @@ export class VoiceSystem {
   }
 
   async speak(text: string, voice?: string): Promise<void> {
+    this.stopCurrentSpeech();
     return new Promise((resolve, reject) => {
       const platform = process.platform;
-
+      const onDone = (error: Error | null) => {
+        this.currentSpeech = null;
+        if (error) reject(error);
+        else resolve();
+      };
       if (platform === 'darwin') {
-        // execFile with an argument array — no shell interpolation of text
         const args = voice ? ['-v', voice, text] : [text];
-        execFile('say', args, (error) => {
-          if (error) reject(error);
-          else resolve();
-        });
+        this.currentSpeech = execFile('say', args, onDone as any) as any;
       } else if (platform === 'win32') {
-        // Windows: PowerShell speech synthesis — text is passed as an argv
-        // element ($args[0]) so no quoting/escaping of the spoken text is needed.
         const psScript = `
           Add-Type -AssemblyName System.Speech
           $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
           $synth.Speak($args[0])
         `;
-        execFile('powershell', ['-NoProfile', '-Command', psScript, text], (error) => {
-          if (error) reject(error);
-          else resolve();
-        });
+        this.currentSpeech = execFile('powershell', ['-NoProfile', '-Command', psScript, text], onDone as any) as any;
       } else {
-        // Linux: espeak
         const args = voice ? ['-v', voice, text] : [text];
-        execFile('espeak', args, (error) => {
-          if (error) reject(error);
-          else resolve();
-        });
+        this.currentSpeech = execFile('espeak', args, onDone as any) as any;
       }
     });
   }
