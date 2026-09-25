@@ -53,7 +53,7 @@ const config: CapacitorConfig = {
   webDir: 'out',
   server: {
     androidScheme: 'https',
-    url: 'http://192.168.1.100:3001',
+    url: '__DEV_SERVER_URL__',
     cleartext: true,
   },
   plugins: {
@@ -63,6 +63,9 @@ const config: CapacitorConfig = {
 
 export default config;
 CAPEOF
+  # Dev server the app loads: override with DEV_SERVER_URL, else this machine's LAN IP
+  DEV_SERVER_URL="${DEV_SERVER_URL:-http://$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo localhost):3001}"
+  sed -i.bak "s|__DEV_SERVER_URL__|$DEV_SERVER_URL|" capacitor.config.ts && rm -f capacitor.config.ts.bak
   echo "  ✓ Created capacitor.config.ts"
 fi
 

@@ -39,13 +39,16 @@ const config: CapacitorConfig = {
   appName: 'GhostForge AI',
   webDir: 'out',
   server: {
-    url: 'http://192.168.1.100:3001',
+    url: '__DEV_SERVER_URL__',
     cleartext: true,
   },
 };
 
 export default config;
 CAPEOF
+  # Dev server the app loads: override with DEV_SERVER_URL, else this machine's LAN IP
+  DEV_SERVER_URL="${DEV_SERVER_URL:-http://$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo localhost):3001}"
+  sed -i.bak "s|__DEV_SERVER_URL__|$DEV_SERVER_URL|" capacitor.config.ts && rm -f capacitor.config.ts.bak
 fi
 
 npx cap add ios 2>&1 | tail -5 || echo "  (ios platform may already exist)"
