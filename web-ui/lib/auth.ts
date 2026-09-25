@@ -11,7 +11,7 @@
  * Web-Crypto-only helpers in `lib/auth-edge.ts` instead. Tokens are mutually
  * compatible because both sign HMAC-SHA256 with the same base64url format.
  */
-import { createHmac, timingSafeEqual } from 'crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import type { NextRequest } from 'next/server'
 import { getAuthSecret } from './auth-secret'
 import { AUTH_COOKIE, AUTH_COOKIE_NAME, type SessionRole } from './auth-edge'
@@ -31,12 +31,19 @@ export interface SessionPayload {
   exp: number
 }
 
+let devPin: string | undefined
+
 export function getAccessPin() {
   const pin = process.env.ACCESS_PIN
   if (!pin) {
     if (process.env.NODE_ENV === 'production') throw new Error('ACCESS_PIN not set. Set ACCESS_PIN in production to authenticate access.')
-    if (process.env.NODE_ENV !== 'test') console.warn('[auth] ACCESS_PIN not set — using ephemeral dev PIN')
-    return `dev-${Math.random().toString(36).slice(2, 6)}`
+    // `next dev` gets a per-run PIN from next.config.mjs (printed at startup)
+    if (process.env.GF_DEV_ACCESS_PIN) return process.env.GF_DEV_ACCESS_PIN
+    if (!devPin) {
+      devPin = `dev-${randomBytes(4).toString('hex')}`
+      if (process.env.NODE_ENV !== 'test') console.warn(`[auth] ACCESS_PIN not set — dev PIN for this run: ${devPin}`)
+    }
+    return devPin
   }
   if (pin.length < 4) throw new Error('ACCESS_PIN must be at least 4 characters')
   return pin

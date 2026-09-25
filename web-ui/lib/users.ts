@@ -107,7 +107,8 @@ export async function ensureUserStore(): Promise<GhostUser[]> {
   const envPassword = process.env.ADMIN_PASSWORD || process.env.ACCESS_PIN
   if (!envPassword) {
     const generated = randomBytes(12).toString('base64url')
-    console.warn(`[users] No ADMIN_PASSWORD/ACCESS_PIN set — generated ephemeral admin password (will be re-generated next boot): ${generated.slice(0,4)}**** (set ADMIN_PASSWORD to persist)`)
+    // Shown once: the hash is persisted, so this stays the admin password.
+    console.warn(`[users] No ADMIN_PASSWORD/ACCESS_PIN set — created admin "${username}" with password: ${generated} (change it in Settings → Users)`)
     var password = generated
   } else {
     var password = envPassword
