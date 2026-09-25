@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { CommandPanel } from '@/components/CommandPanel'
-import { MacStatus } from '@/components/MacStatus'
+import { DeviceStatus } from '@/components/DeviceStatus'
 import { MessageBubble, type ChatMessage } from '@/components/MessageBubble'
 import { safeGetJSON, safeRemove, safeSet } from '@/lib/storage'
-import type { BridgeStatus } from '@/lib/ws-client'
+import type { DeviceStatusState } from '@/components/DeviceStatus'
 
 const QUICK_COMMANDS = [
   { label: '🌿 Carbon', cmd: 'ghostforge carbon status' },
@@ -33,7 +33,7 @@ export function ChatInterface() {
   const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_MESSAGE])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>('unknown')
+  const [bridgeStatus, setBridgeStatus] = useState<DeviceStatusState>('unknown')
   const [copilotMode, setCopilotMode] = useState<'off' | 'suggest' | 'explain'>('off')
   const [listening, setListening] = useState(false)
   const [hasVoice, setHasVoice] = useState(false)
@@ -42,7 +42,7 @@ export function ChatInterface() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null)
-  const prevBridgeStatus = useRef<BridgeStatus>('unknown')
+  const prevBridgeStatus = useRef<DeviceStatusState>('unknown')
   const router = useRouter()
 
   // ── Load chat history from localStorage ─────────────────────────────────
@@ -120,12 +120,12 @@ export function ChatInterface() {
     const checkBridge = () => {
       void fetch('/api/bridge-status').then(async res => {
         const data = (await res.json()) as { status?: string }
-        const next: BridgeStatus = data.status === 'connected' ? 'connected'
+        const next: DeviceStatusState = data.status === 'connected' ? 'connected'
           : data.status === 'unconfigured' ? 'unknown'
           : 'disconnected'
         // Notify if bridge just went offline
         if (prevBridgeStatus.current === 'connected' && next === 'disconnected') {
-          sendNotification('🔴 GhostForge Bridge Offline', 'Run: bash ~/GhostForge/scripts/bridge.sh start')
+          sendNotification('🔴 GhostForge Bridge Offline', 'Start it from the dashboard or: bash ~/GhostForge/scripts/bridge.sh start')
         }
         prevBridgeStatus.current = next
         setBridgeStatus(next)
@@ -293,7 +293,7 @@ export function ChatInterface() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <MacStatus status={bridgeStatus} />
+            <DeviceStatus status={bridgeStatus} />
             <button type="button"
               title="Toggle Copilot CLI mode (tap to cycle: GhostForge AI → Copilot Suggest → Copilot Explain)"
               onClick={() => setCopilotMode(m => m === 'off' ? 'suggest' : m === 'suggest' ? 'explain' : 'off')}

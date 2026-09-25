@@ -12,6 +12,7 @@ const MarkLPanel = dynamic(() => import('@/components/MarkLPanel'), { ssr: false
 const AgentDashboard = dynamic(() => import('@/components/AgentDashboard'), { ssr: false })
 import { collectRecognitionTranscript, findWakePhrase } from '@/lib/voice-runtime'
 import { JARVIS_QUICK_ACTIONS } from '@/lib/quick-actions'
+import { MARK_LIV_ACTIONS } from '@/lib/mark-liv-actions'
 
 // Web Speech API type shims
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -3142,6 +3143,32 @@ export default function JarvisPage() {
                 disabled={mode === 'thinking' || mode === 'listening'}
                 ringColor={mc.ring}
               />
+              {/* Mark-LIV engine registry — mirrors vendor/mark-liv actions */}
+              <div className="mt-4 border-t pt-3" style={{ borderColor: `${mc.ring}22` }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="font-mono text-[10px] tracking-widest" style={{ color: mc.ring }}>🧠 MARK-LIV ENGINE</span>
+                  <span className="rounded px-1.5 py-0.5 text-[8px]" style={{ background: `${mc.ring}18`, color: mc.ring }}>20 TOOLS</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  {MARK_LIV_ACTIONS.map(action => (
+                    <button
+                      key={action.id}
+                      type="button"
+                      title={action.description}
+                      onClick={() => void sendToJarvis(action.prompt, action.id)}
+                      disabled={mode === 'thinking' || mode === 'listening'}
+                      className="rounded border px-2 py-1 text-left text-[9px] transition disabled:opacity-30"
+                      style={{ borderColor: `${mc.ring}22`, color: `${mc.ring}99`, background: `${mc.ring}08` }}
+                    >
+                      {action.icon} {action.label}
+                      {action.scope === 'device' && <span className="ml-1 text-[7px] opacity-50">⚙</span>}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-[8px] leading-snug" style={{ color: `${mc.ring}55` }}>
+                  ⚙ = needs bridge / desktop engine (scripts/mark-liv.sh start)
+                </p>
+              </div>
             </div>
           )}
 

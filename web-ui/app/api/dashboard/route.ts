@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { exec, execSync } from 'child_process'
+import { exec } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
 import { isAuthorizedRequest } from '@/lib/auth'
+import { getCPU, getRAM, getDisk, getBattery, type MetricStat, type BatteryStat } from '@/lib/system-info'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,18 +41,6 @@ interface DashboardRelease {
   tag: string
   date: string
   msg: string
-}
-
-interface MetricStat {
-  usedGB: number
-  totalGB: number
-  pct: number
-}
-
-interface BatteryStat {
-  pct: number | null
-  charging: boolean
-  present: boolean
 }
 
 interface DashboardSystem {
@@ -232,68 +221,6 @@ async function checkUrl(url: string, timeoutMs = 1500): Promise<{ ok: boolean; s
     return { ok: res.ok, status: res.status }
   } catch {
     return { ok: false }
-  }
-}
-
-function getCPU(): number {
-  try {
-    const output = execSync(String.raw`top -l 1 -n 0 | grep 'CPU usage'`, { timeout: 3000 }).toString()
-    const idle = output.match(/(\d+\.\d+)%\s+idle/)
-    return idle ? Math.round(100 - parseFloat(idle[1])) : 0
-  } catch {
-    return 0
-  }
-}
-
-function getRAM(): MetricStat {
-  try {
-    const out = execSync('vm_stat', { timeout: 3000 }).toString()
-    const pageSize = 16384
-    const getValue = (key: string) => {
-      const match = out.match(new RegExp(`${key}:\\s+(\\d+)`))
-      return match ? parseInt(match[1], 10) : 0
-    }
-    const totalBytes = parseInt(execSync('sysctl -n hw.memsize', { timeout: 1000 }).toString().trim(), 10)
-    const freeBytes = (getValue('Pages free') + getValue('Pages speculative')) * pageSize
-    const usedBytes = Math.max(totalBytes - freeBytes, 0)
-    return {
-      usedGB: Math.round((usedBytes / 1073741824) * 10) / 10,
-      totalGB: Math.round((totalBytes / 1073741824) * 10) / 10,
-      pct: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0,
-    }
-  } catch {
-    return { usedGB: 0, totalGB: 0, pct: 0 }
-  }
-}
-
-function getDisk(): MetricStat {
-  try {
-    const out = execSync('df -k /', { timeout: 2000 }).toString()
-    const line = out.split('\n')[1] ?? ''
-    const parts = line.trim().split(/\s+/)
-    const total = (parseInt(parts[1], 10) || 0) / 1048576
-    const used = (parseInt(parts[2], 10) || 0) / 1048576
-    return {
-      usedGB: Math.round(used * 10) / 10,
-      totalGB: Math.round(total * 10) / 10,
-      pct: total > 0 ? Math.round((used / total) * 100) : 0,
-    }
-  } catch {
-    return { usedGB: 0, totalGB: 0, pct: 0 }
-  }
-}
-
-function getBattery(): BatteryStat {
-  try {
-    const out = execSync('pmset -g batt', { timeout: 2000 }).toString()
-    const pctMatch = out.match(/(\d+)%/)
-    return {
-      pct: pctMatch ? parseInt(pctMatch[1], 10) : null,
-      charging: out.includes('charging') || out.includes('AC Power'),
-      present: Boolean(pctMatch),
-    }
-  } catch {
-    return { pct: null, charging: false, present: false }
   }
 }
 

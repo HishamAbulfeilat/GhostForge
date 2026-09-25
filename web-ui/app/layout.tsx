@@ -42,8 +42,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" dir="auto" className={`dark ${mono.variable}`}>
-      <body className="min-h-dvh bg-gray-950 text-gray-100 antialiased" style={{ fontFamily: `var(--font-mono), ui-monospace, monospace` }}>
+    // suppressHydrationWarning: browser extensions (antivirus toolbars, etc.)
+    // inject attributes like bis_skin_checked into <html>/<body> before React
+    // hydrates, which previously aborted hydration and broke client-side
+    // navigation (e.g. the dashboard's Settings button).
+    <html lang="en" dir="auto" className={`dark ${mono.variable}`} suppressHydrationWarning>
+      <body className="min-h-dvh bg-gray-950 text-gray-100 antialiased" style={{ fontFamily: `var(--font-mono), ui-monospace, monospace` }} suppressHydrationWarning>
         <Providers>
           <ChunkErrorHandler />
           <Navbar />
