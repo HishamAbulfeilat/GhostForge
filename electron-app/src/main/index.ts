@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, screen, globalShortcut, nativeTheme, shell } from 'electron';
-import { join } from 'path';
+import { isAbsolute, join, relative, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { ScreenCapture } from './screen-capture';
 import { CursorOverlay } from './cursor-overlay';
 import { VoiceSystem } from './voice';
@@ -106,8 +107,6 @@ function getAppOrigins(): Set<string> {
     'http://localhost:3001',
     'https://localhost:3000',
     'http://localhost:3000',
-    'file://',
-    'null',
   ]);
   const envUrl = process.env.JARVIS_WEB_UI_URL;
   if (envUrl) {
@@ -123,8 +122,14 @@ function isTrustedSender(event: Electron.IpcMainInvokeEvent): boolean {
   try {
     const senderFrame = event.senderFrame;
     if (!senderFrame?.url) return false;
-    const origin = new URL(senderFrame.url).origin;
-    return getAppOrigins().has(origin);
+    const url = new URL(senderFrame.url);
+    // file:, data:, about: and sandboxed frames all report origin "null", so
+    // file: pages are trusted only when they are the app's own bundled files.
+    if (url.protocol === 'file:') {
+      const rel = relative(resolve(__dirname, '..'), fileURLToPath(url));
+      return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+    }
+    return getAppOrigins().has(url.origin);
   } catch {
     return false;
   }
