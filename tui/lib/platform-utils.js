@@ -101,10 +101,11 @@ function crossPlatformAlert(message, title = 'Notification') {
       const osascript = spawnSync('osascript', ['-e', applescript]);
       return osascript.status === 0 || osascript.status === null;
     } else if (process.platform === 'win32') {
-      // Windows - use PowerShell with parameters to avoid injection
+      // Windows - pass values via env vars: extra argv after -Command is
+      // appended to the script text, so $args would not prevent injection
       const psScript = `
       [System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null
-      [System.Windows.Forms.MessageBox]::Show($args[0], $args[1])
+      [System.Windows.Forms.MessageBox]::Show($env:GF_PS_MESSAGE, $env:GF_PS_TITLE)
       `;
       const powershell = spawnSync('powershell', [
         '-NoProfile',
@@ -112,10 +113,8 @@ function crossPlatformAlert(message, title = 'Notification') {
         '-WindowStyle',
         'Hidden',
         '-Command',
-        psScript,
-        message,
-        title
-      ]);
+        psScript
+      ], { env: { ...process.env, GF_PS_MESSAGE: String(message), GF_PS_TITLE: String(title) } });
       return powershell.status === 0 || powershell.status === null;
     } else {
       // Linux - use zenity or fallback to console
@@ -253,7 +252,7 @@ function crossPlatformScreenshot(filePath) {
       $bitmap = New-Object System.Drawing.Bitmap $screen.Width, $screen.Height
       $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
       $graphics.CopyFromScreen($screen.Left, $screen.Top, 0, 0, $bitmap.Size)
-      $bitmap.Save('${filePath.replace(/\\/g, '\\\\')}')
+      $bitmap.Save($env:GF_PS_FILE)
       $graphics.Dispose()
       $bitmap.Dispose()
       `;
@@ -264,7 +263,7 @@ function crossPlatformScreenshot(filePath) {
         'Hidden',
         '-Command',
         psScript
-      ]);
+      ], { env: { ...process.env, GF_PS_FILE: String(filePath) } });
       return powershell.status === 0 || powershell.status === null;
     } else {
       // Linux and other Unix-like - try various screenshot tools
@@ -311,8 +310,8 @@ function crossPlatformCleanupTempFiles(pattern = 'gfai-*', maxAgeMinutes = 60) {
       // Windows - use PowerShell to cleanup temp files
       const psScript = `
       $path = "$env:TEMP"
-      $pattern = "${pattern}"
-      $minutes = ${maxAgeMinutes}
+      $pattern = $env:GF_PS_PATTERN
+      $minutes = [int]$env:GF_PS_MINUTES
       Get-ChildItem -Path $path -Filter $pattern | Where-Object {
           $_.LastWriteTime -lt (Get-Date).AddMinutes(-$minutes)
       } | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -324,7 +323,7 @@ function crossPlatformCleanupTempFiles(pattern = 'gfai-*', maxAgeMinutes = 60) {
         'Hidden',
         '-Command',
         psScript
-      ]);
+      ], { env: { ...process.env, GF_PS_PATTERN: String(pattern), GF_PS_MINUTES: String(Number(maxAgeMinutes) || 0) } });
       success = powershell.status === 0 || powershell.status === null;
     } else {
       // Linux/macOS - use find command (generally available)
