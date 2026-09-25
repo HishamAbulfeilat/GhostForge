@@ -13,6 +13,32 @@ BRIDGE_ROOT="${BRIDGE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 mkdir -p "$BRIDGE_DIR"
 
+# ── Port-based process discovery (self-healing) ────────────────────────────
+# PID files go stale (orphaned wrappers, reboots, manual kills). The port is
+# the source of truth: whatever listens on $PORT IS the bridge.
+port_pids() {
+  # netstat -ano works on Windows (Git Bash), macOS and Linux
+  # Columns: Proto  Local  Foreign  State  PID  (state may be absent on Linux)
+  netstat -ano 2>/dev/null | awk -v p="${PORT}" '$1 == "TCP" && $2 ~ ":"p"$" && ($4 == "LISTENING" || $0 ~ /LISTEN/) {print $NF}' | sort -u
+}
+
+port_listening() {
+  [[ -n "$(port_pids)" ]]
+}
+
+port_owner_is_ours() {
+  # Verify the port owner is a node process before killing it (defensive).
+  local pid
+  for pid in $(port_pids); do
+    if command -v powershell >/dev/null 2>&1 && powershell -NoProfile -Command "try { \$p = Get-Process -Id $pid -ErrorAction Stop; if (\$p.ProcessName -eq 'node') { exit 0 } } catch { exit 1 }" >/dev/null 2>&1; then
+      return 0
+    elif ps -p "$pid" -o comm= 2>/dev/null | grep -q node; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 print_header() {
   echo -e "${CYAN}${BOLD}"
   echo "  🔌  GhostForge Mac Bridge"
@@ -37,9 +63,11 @@ token_fingerprint() {
 
 start_cmd() {
   print_header
-  if [[ -f "$PID_FILE" ]] && kill -0 "$(head -1 "$PID_FILE")" 2>/dev/null; then
-    echo -e "${YELLOW}⚠ Bridge already running (PID $(head -1 "$PID_FILE"))${NC}"
+  if port_listening; then
+    echo -e "${YELLOW}⚠ Bridge already running on port $PORT ($(port_pids | tr '\n' ' '))${NC}"
     [[ -f "$TOKEN_FILE" ]] && echo -e "${DIM}  Token: $(token_fingerprint)${NC}"
+    # Heal the PID file so stop/status work even if it went stale.
+    port_pids | head -1 > "$PID_FILE"
     return
   fi
 
@@ -55,132 +83,7 @@ start_cmd() {
   BRIDGE_ROOT="$BRIDGE_ROOT" \
   BRIDGE_READY_FILE="$BRIDGE_DIR/server.ready" \
   BRIDGE_PORT="$PORT" \
-  nohup node - <<'NODESERVER' >> "$LOG_FILE" 2>&1 &
-const http = require('http');
-const { execSync } = require('child_process');
-const fs = require('fs');
-const token = fs.readFileSync(process.env.BRIDGE_TOKEN_FILE, 'utf8').trim();
-const ROOT = process.env.BRIDGE_ROOT;
-const READY_FILE = process.env.BRIDGE_READY_FILE;
-const PORT = Number(process.env.BRIDGE_PORT || 4747);
-const FORBIDDEN_PATTERN = /[;&|><`$\n\r]/;
-
-function respond(res, status, payload) {
-  res.writeHead(status);
-  res.end(JSON.stringify(payload));
-}
-
-function isAllowedCommand(command) {
-  if (typeof command !== 'string') return false;
-  const trimmed = command.trim();
-  if (FORBIDDEN_PATTERN.test(trimmed)) return false;
-  if (trimmed.startsWith('ghostforge ')) return true;
-  if (trimmed.startsWith('gh copilot -p ')) return true;
-  return false;
-}
-
-const server = http.createServer((req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(200);
-    res.end();
-    return;
-  }
-
-  if (req.url === '/health' && req.method === 'GET') {
-    respond(res, 200, { status: 'online', name: 'GhostForge Mac Bridge' });
-    return;
-  }
-
-  if (req.url === '/copilot' && req.method === 'POST') {
-    const auth = req.headers.authorization;
-    if (auth !== 'Bearer ' + token) {
-      respond(res, 401, { error: 'Unauthorized' });
-      return;
-    }
-
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const payload = JSON.parse(body || '{}');
-        const prompt = (payload.prompt || '').trim();
-        const mode = (payload.mode || 'suggest').trim();
-        if (!prompt || FORBIDDEN_PATTERN.test(prompt)) {
-          respond(res, 400, { error: 'Invalid prompt' });
-          return;
-        }
-        const escaped = prompt.replace(/"/g, '\\"');
-        const cmd = 'gh copilot -p "' + escaped + '" --allow-all --allow-all-paths --add-dir ' + ROOT + ' -s';
-
-        const output = execSync(cmd, {
-          cwd: ROOT,
-          timeout: 60000,
-          input: 'exit\n',
-          env: Object.assign({}, process.env, {
-            PATH: (process.env.PATH || '') + ':/usr/local/bin:/opt/homebrew/bin',
-            HOME: process.env.HOME || require('os').homedir(),
-            GH_NO_UPDATE_NOTIFIER: '1',
-            NO_COLOR: '1'
-          }),
-        }).toString().trim();
-
-        respond(res, 200, { output: output, mode: mode, prompt: prompt });
-      } catch (error) {
-        const raw = (error && error.stdout) ? error.stdout.toString() : (error instanceof Error ? error.message : String(error));
-        respond(res, 200, { output: raw.trim(), error: true });
-      }
-    });
-    return;
-  }
-
-  if (req.url === '/execute' && req.method === 'POST') {
-    const auth = req.headers.authorization;
-    if (auth !== `Bearer ${token}`) {
-      respond(res, 401, { error: 'Unauthorized' });
-      return;
-    }
-
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk;
-    });
-    req.on('end', () => {
-      try {
-        const payload = JSON.parse(body || '{}');
-        const command = payload.command;
-        if (!isAllowedCommand(command)) {
-          respond(res, 403, { error: 'Only plain ghostforge commands are allowed' });
-          return;
-        }
-
-        const output = execSync(command, {
-          cwd: ROOT,
-          timeout: 30000,
-          env: { ...process.env, PATH: (process.env.PATH || '') + ':/usr/local/bin:/opt/homebrew/bin' },
-        }).toString().trim();
-
-        respond(res, 200, { output, command });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        respond(res, 200, { output: message, error: true });
-      }
-    });
-    return;
-  }
-
-  respond(res, 404, { error: 'Not found' });
-});
-
-server.listen(PORT, () => {
-  fs.writeFileSync(READY_FILE, '1');
-  console.log(`GhostForge bridge listening on port ${PORT}`);
-});
-NODESERVER
+  BRIDGE_TOKEN_FILE="$TOKEN_FILE"   BRIDGE_ROOT="$BRIDGE_ROOT"   BRIDGE_READY_FILE="$BRIDGE_DIR/server.ready"   BRIDGE_PORT="$PORT"   nohup node "$BRIDGE_ROOT/scripts/bridge-server.js" >> "$LOG_FILE" 2>&1 &
 
   local server_pid=$!
   printf '%s\n' "$server_pid" > "$PID_FILE"
@@ -258,12 +161,37 @@ NODESERVER
 
 stop_cmd() {
   print_header
+  local stopped=0
+
+  # 1) Kill whatever is actually listening on the port (source of truth).
+  if port_listening; then
+    local pid
+    for pid in $(port_pids); do
+      if port_owner_is_ours; then
+        taskkill //PID "$pid" //F 2>/dev/null || kill "$pid" 2>/dev/null || true
+      fi
+      stopped=1
+    done
+  fi
+
+  # 2) Also kill PIDs tracked in the PID file (PTY server, tunnel, etc.).
   if [[ -f "$PID_FILE" ]]; then
+    local pid
     while IFS= read -r pid; do
       [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
     done < "$PID_FILE"
-    rm -f "$PID_FILE" "$BRIDGE_DIR/server.ready"
-    echo -e "${GREEN}✅ Bridge stopped${NC}"
+    stopped=1
+  fi
+
+  rm -f "$PID_FILE" "$BRIDGE_DIR/server.ready"
+
+  if [[ $stopped -eq 1 ]]; then
+    sleep 1
+    if port_listening; then
+      echo -e "${RED}✗ Bridge still responding on port $PORT — kill PID(s): $(port_pids | tr '\n' ' ')${NC}"
+    else
+      echo -e "${GREEN}✅ Bridge stopped${NC}"
+    fi
   else
     echo -e "${YELLOW}⚠ Bridge not running${NC}"
   fi
@@ -271,10 +199,10 @@ stop_cmd() {
 
 status_cmd() {
   print_header
-  if [[ -f "$PID_FILE" ]] && kill -0 "$(head -1 "$PID_FILE")" 2>/dev/null; then
+  if port_listening; then
     echo -e "${GREEN}✅ Bridge is RUNNING${NC}"
-    echo -e "${DIM}  PID: $(tr '\n' ' ' < "$PID_FILE")${NC}"
-    echo -e "${DIM}  Token: $(token_fingerprint)${NC}"
+    echo -e "${DIM}  PID: $(port_pids | tr '\n' ' ')${NC}"
+    [[ -f "$TOKEN_FILE" ]] && echo -e "${DIM}  Token: $(token_fingerprint)${NC}"
     local tunnel_url
     tunnel_url="$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$LOG_FILE" 2>/dev/null | tail -1 || true)"
     [[ -n "$tunnel_url" ]] && echo -e "${CYAN}  Tunnel: $tunnel_url${NC}"

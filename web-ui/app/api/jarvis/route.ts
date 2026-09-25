@@ -12,6 +12,7 @@ import { tmpdir, homedir } from 'os'
 import { join, resolve } from 'path'
 import { chooseBestInstalledModel } from '@/lib/local-runtime'
 import { getJarvisQuickAction } from '@/lib/quick-actions'
+import { getMarkLivAction, resolveMarkLivTool, markLivActionHint } from '@/lib/mark-liv-actions'
 import { validateAppleScript } from '@/lib/apple-automation'
 import { getLiveBridgeToken } from '@/lib/bridge-token'
 
@@ -104,7 +105,7 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   models:      '- llmfit_recommend { task? } | - list_local_models | - install_model { model, runner? } | - open_url { url }',
   remote:      '- take_screenshot { filename? } | - describe_screen | - terminal_command { command } | - open_url { url } | - browser_control { action, url?, text? }',
   travel:      '- flight_finder { from, to, date? } | - web_search { query, mode? } | - open_url { url } | - get_weather { city }',
-  general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - browser_control { action, url?, text? } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value } | - youtube_control { action, query?, url?, region? } | - game_manager { action, game_name? } | - clipboard_analyze { action, text? } | - browser_automate { action, url?, selector?, text? } | - file_processor { action, file_path?, question?, output_format? } | - hardware_monitor { report_type? } | - system_control { action, value? } | - setup_wizard { action, step_id?, config? } | - n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? }',
+  general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - browser_control { action, url?, text? } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value } | - youtube_control { action, query?, url?, region? } | - game_manager { action, game_name? } | - clipboard_analyze { action, text? } | - browser_automate { action, url?, selector?, text? } | - file_processor { action, file_path?, question?, output_format? } | - hardware_monitor { report_type? } | - system_control { action, value? } | - setup_wizard { action, step_id?, config? } | - n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? } | - mark_liv { action: "status"|"run", id? } (Mark-LIV engine registry — status lists all 20 actions, run executes one by id)',
   youtube:     '- youtube_control { action, query?, url?, region? }',
   games:       '- game_manager { action, game_name? }',
   clipboard:   '- clipboard_analyze { action, text? }',
@@ -837,16 +838,14 @@ end tell`
     }
 
     case 'get_system_info': {
-      const [cpu, bat, mem] = await Promise.allSettled([
-        execAsync("top -l 1 -s 0 | awk '/CPU usage/{print $3+$5}' | head -1"),
-        execAsync("pmset -g batt | grep -o '[0-9]*%' | head -1"),
-        execAsync("vm_stat | grep 'Pages active' | awk '{print $3}' | tr -d '.'"),
-      ])
-      const cpuVal = cpu.status === 'fulfilled' ? `${Math.round(parseFloat(cpu.value.stdout))}%` : 'N/A'
-      const batVal = bat.status === 'fulfilled' ? bat.value.stdout.trim() : 'N/A'
-      const memPages = mem.status === 'fulfilled' ? parseInt(mem.value.stdout.trim()) : 0
-      const memGB = memPages > 0 ? `${(memPages * 4096 / 1024 / 1024 / 1024).toFixed(1)} GB active` : 'N/A'
-      return `CPU: ${cpuVal} used, Battery: ${batVal}, RAM: ${memGB}`
+      // Cross-platform (Mark-LIV system_monitor parity): works on macOS,
+      // Windows and Linux via lib/system-info instead of macOS-only commands.
+      const { getSystemSnapshot } = await import('@/lib/system-info')
+      const snap = getSystemSnapshot()
+      const bat = snap.battery.present && snap.battery.pct !== null
+        ? `${snap.battery.pct}%${snap.battery.charging ? ' (charging)' : ''}`
+        : 'N/A'
+      return `CPU: ${snap.cpu}% used, RAM: ${snap.ram.usedGB}/${snap.ram.totalGB} GB (${snap.ram.pct}%), Disk: ${snap.disk.usedGB}/${snap.disk.totalGB} GB (${snap.disk.pct}%), Battery: ${bat}, Uptime: ${Math.round(snap.uptimeSec / 3600)}h`
     }
 
     case 'set_reminder': {
@@ -2895,72 +2894,23 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
 
     // ── Hardware Monitor ──────────────────────────────────────────────────────
     case 'hardware_monitor': {
+      // Cross-platform hardware telemetry (Mark-LIV system_monitor parity).
+      const { getSystemSnapshot } = await import('@/lib/system-info')
       const reportType = (params.report_type || 'full').toLowerCase()
+      const snap = getSystemSnapshot()
 
-      if (reportType === 'cpu' || reportType === 'full') {
-        const [cpuRes, memRes] = await Promise.allSettled([
-          execAsync("top -l 1 -s 0 | grep 'CPU usage' | head -1"),
-          execAsync('sysctl hw.memsize 2>/dev/null'),
-        ])
-        const cpuLine = cpuRes.status === 'fulfilled' ? cpuRes.value.stdout.trim() : 'N/A'
-        const ramGB = memRes.status === 'fulfilled'
-          ? Math.round(parseInt(memRes.value.stdout.match(/(\d+)/)?.[1] || '0') / 1024 ** 3)
-          : 'N/A'
-        if (reportType === 'cpu') return `CPU: ${cpuLine}\nRAM: ${ramGB}GB total`
+      if (reportType === 'cpu') return `CPU: ${snap.cpu}% used`
+      if (reportType === 'ram') return `RAM: ${snap.ram.usedGB}/${snap.ram.totalGB} GB (${snap.ram.pct}%)`
+      if (reportType === 'disk') return `Disk: ${snap.disk.usedGB}/${snap.disk.totalGB} GB (${snap.disk.pct}%)`
+      if (reportType === 'battery') {
+        return snap.battery.present && snap.battery.pct !== null
+          ? `Battery: ${snap.battery.pct}%${snap.battery.charging ? ' (charging)' : ''}`
+          : 'No battery detected'
       }
-
-      if (reportType === 'ram') {
-        try {
-          const { stdout } = await execAsync('vm_stat | head -10')
-          return `RAM stats:\n${stdout.trim()}`
-        } catch {
-          return 'RAM stats unavailable'
-        }
-      }
-
-      if (reportType === 'disk') {
-        try {
-          const { stdout } = await execAsync('df -h / | tail -1')
-          return `Disk: ${stdout.trim()}`
-        } catch {
-          return 'Disk stats unavailable'
-        }
-      }
-
-      if (reportType === 'gpu') {
-        try {
-          const { stdout } = await execAsync('system_profiler SPDisplaysDataType 2>/dev/null | head -20')
-          return `GPU:\n${stdout.trim()}`
-        } catch {
-          return 'GPU stats unavailable'
-        }
-      }
-
-      if (reportType === 'fan') {
-        try {
-          const { stdout } = await execAsync('system_profiler SPPowerDataType 2>/dev/null | grep -A2 "Fan" | head -10')
-          return `Fans:\n${stdout.trim() || 'No fan data available'}`
-        } catch {
-          return 'Fan stats unavailable'
-        }
-      }
-
-      // Full report
-      const [cpuR, memR, diskR, gpuR] = await Promise.allSettled([
-        execAsync("top -l 1 -s 0 | grep 'CPU usage'"),
-        execAsync('sysctl hw.memsize 2>/dev/null'),
-        execAsync('df -h / | tail -1'),
-        execAsync('system_profiler SPDisplaysDataType 2>/dev/null | grep "Chipset Model"'),
-      ])
-      const parts: string[] = []
-      if (cpuR.status === 'fulfilled') parts.push(`CPU: ${cpuR.value.stdout.trim()}`)
-      if (memR.status === 'fulfilled') {
-        const gb = Math.round(parseInt(memR.value.stdout.match(/(\d+)/)?.[1] || '0') / 1024 ** 3)
-        parts.push(`RAM: ${gb}GB total`)
-      }
-      if (diskR.status === 'fulfilled') parts.push(`Disk: ${diskR.value.stdout.trim()}`)
-      if (gpuR.status === 'fulfilled') parts.push(`GPU: ${gpuR.value.stdout.trim()}`)
-      return parts.join('\n') || 'Hardware stats unavailable'
+      const batLine = snap.battery.present && snap.battery.pct !== null
+        ? `\nBattery: ${snap.battery.pct}%${snap.battery.charging ? ' (charging)' : ''}`
+        : ''
+      return `CPU: ${snap.cpu}% used\nRAM: ${snap.ram.usedGB}/${snap.ram.totalGB} GB (${snap.ram.pct}%)\nDisk: ${snap.disk.usedGB}/${snap.disk.totalGB} GB (${snap.disk.pct}%)${batLine}\nUptime: ${Math.round(snap.uptimeSec / 3600)}h`
     }
 
     // ── System Control (extended) ─────────────────────────────────────────────
@@ -3246,6 +3196,20 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       if (action === 'key') return nutjs.pressKey(String(params.key || 'enter'))
       if (action === 'scroll') return nutjs.scroll(String(params.direction || 'down'), parseInt(params.amount || '3', 10))
       return `Unknown native_desktop action: ${action}. Use status, move, click, type, key, scroll.`
+    }
+
+    // ── Mark-LIV engine (vendored JARVIS) ─────────────────────────────────
+    case 'mark_liv': {
+      const { markLivStatus, markLivActionHint } = await import('@/lib/mark-liv-actions')
+      const action = String(params.action || 'status').toLowerCase()
+      if (action === 'status') return markLivStatus()
+      if (action === 'run') {
+        const id = String(params.id || '').trim()
+        if (!id) return markLivStatus()
+        const hint = markLivActionHint(id)
+        return hint ?? `Unknown Mark-LIV action: ${id}. Use status to list the registry.`
+      }
+      return `Unknown mark_liv action: ${action}. Use status or run { id }.`
     }
 
     default:
@@ -3663,6 +3627,8 @@ export async function POST(req: NextRequest) {
       return confirmedPayload
     }
 
+    // Mark-LIV quick actions (registry mirrors the vendored engine's tools)
+    const markLivAction = quickAction ? getMarkLivAction(quickAction) : undefined
     const directAction = quickAction ? getJarvisQuickAction(quickAction) : undefined
 
     if (directAction) {
@@ -3674,6 +3640,15 @@ export async function POST(req: NextRequest) {
         speech: `Running ${directAction.label.replace(/^\S+\s*/, '')}.`,
         tool: directAction.tool ?? null,
         toolParams,
+        emotion: 'processing',
+        confidence: 100,
+      }
+    } else if (markLivAction) {
+      const resolved = resolveMarkLivTool(markLivAction.id, message)
+      aiResp = {
+        speech: markLivActionHint(markLivAction.id)?.split('\n')[0] ?? `Running ${markLivAction.label}.`,
+        tool: resolved?.tool ?? 'mark_liv',
+        toolParams: (resolved?.toolParams ?? { action: 'run', id: markLivAction.id }) as Record<string, string>,
         emotion: 'processing',
         confidence: 100,
       }

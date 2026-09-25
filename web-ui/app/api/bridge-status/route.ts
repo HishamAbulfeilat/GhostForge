@@ -1,22 +1,57 @@
 import { NextResponse } from 'next/server'
-import { getLiveBridgeToken, getBridgeUrl } from '@/lib/bridge-token'
+import os from 'os'
+import { getBridgeUrlCandidates, getLiveBridgeToken } from '@/lib/bridge-token'
+
+export const dynamic = 'force-dynamic'
+
+const PLATFORM_LABEL: Record<string, string> = {
+  darwin: 'macOS',
+  win32: 'Windows',
+  linux: 'Linux',
+  android: 'Android',
+  freebsd: 'FreeBSD',
+  openbsd: 'OpenBSD',
+}
 
 export async function GET() {
-  const bridgeUrl = getBridgeUrl()
+  const candidates = getBridgeUrlCandidates()
   const bridgeToken = getLiveBridgeToken()
 
-  if (!bridgeToken) {
-    return NextResponse.json({ status: 'unconfigured' })
+  // Probe each candidate bridge URL's health endpoint (no auth needed) and
+  // use the first reachable one — local first, then tunnel/LAN fallbacks.
+  let bridgeUrl = candidates[0]
+  let reachable = false
+  for (const candidate of candidates) {
+    try {
+      const res = await fetch(`${candidate}/health`, { signal: AbortSignal.timeout(2000) })
+      if (res.ok) {
+        bridgeUrl = candidate
+        reachable = true
+        break
+      }
+    } catch {
+      // try next candidate
+    }
   }
 
-  try {
-    const res = await fetch(`${bridgeUrl}/health`, {
-      headers: { Authorization: `Bearer ${bridgeToken}` },
-      signal: AbortSignal.timeout(3000),
-    })
-    if (res.ok) return NextResponse.json({ status: 'connected' })
-    return NextResponse.json({ status: 'disconnected' })
-  } catch {
-    return NextResponse.json({ status: 'disconnected' })
+  let status: 'connected' | 'unconfigured' | 'disconnected'
+  if (reachable) {
+    status = 'connected'
+  } else {
+    status = bridgeToken ? 'disconnected' : 'unconfigured'
   }
+
+  const platform = process.platform
+  return NextResponse.json({
+    status,
+    url: bridgeUrl,
+    tokenConfigured: Boolean(bridgeToken),
+    device: {
+      hostname: os.hostname(),
+      platform,
+      platformLabel: PLATFORM_LABEL[platform] ?? platform,
+      arch: os.arch(),
+      uptimeSec: Math.round(os.uptime()),
+    },
+  })
 }

@@ -6,6 +6,7 @@ import Link from 'next/link'
 import dynamic from 'next/dynamic'
 
 const MacMetricsWidget = dynamic(() => import('@/components/MacMetricsWidget').then(m => ({ default: m.MacMetricsWidget })), { ssr: false })
+const BridgeControl = dynamic(() => import('@/components/BridgeControl').then(m => ({ default: m.BridgeControl })), { ssr: false })
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -506,9 +507,14 @@ function BridgeSetupPanel() {
       <p className="mb-3 text-xs font-bold uppercase tracking-widest text-gray-500">⚙️ Setup &amp; Environment</p>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <p className="mb-2 text-xs text-gray-500">Start the Mac bridge:</p>
-          <code className="block rounded bg-gray-900 px-3 py-2 font-mono text-xs text-emerald-400">
+          <p className="mb-2 text-xs text-gray-500">Start the bridge on the host machine (or use the button above):</p>
+          <code className="mb-1 block rounded bg-gray-900 px-3 py-2 font-mono text-xs text-emerald-400">
+            # macOS / Linux
             bash ~/ghostforge/scripts/bridge.sh start
+          </code>
+          <code className="block rounded bg-gray-900 px-3 py-2 font-mono text-xs text-emerald-400">
+            # Windows (cmd)
+            scripts\\bridge.cmd start
           </code>
         </div>
         <div className="space-y-1">
@@ -652,6 +658,8 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<string>('')
+  const [bridgeNoticeDismissed, setBridgeNoticeDismissed] = useState(false)
+  const [startingBridge, setStartingBridge] = useState(false)
   const isFetching = useRef(false)
   const prevFailedRuns = useRef<Set<string>>(new Set())
 
@@ -695,6 +703,17 @@ export default function DashboardPage() {
     void fetchData()
     const id = setInterval(() => void fetchData(), 60_000)
     return () => clearInterval(id)
+  }, [fetchData])
+
+  const startBridgeFromNotice = useCallback(async () => {
+    setStartingBridge(true)
+    try {
+      await fetch('/api/bridge-start', { method: 'POST' })
+      // Give the bridge a moment, then refresh dashboard data
+      await new Promise(resolve => setTimeout(resolve, 3000))
+      await fetchData()
+    } catch { /* keep notice visible on failure */ }
+    setStartingBridge(false)
   }, [fetchData])
 
   const bridgeOk = data?.bridgeConnected ?? false
@@ -786,10 +805,28 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        {/* ── Bridge offline notice ── */}
-        {data && !bridgeOk && (
-          <div className="rounded-lg border border-amber-800/40 bg-amber-950/30 px-4 py-2.5 text-xs text-amber-300">
-            <span className="font-semibold">Bridge is offline.</span> Local dashboard data still works; only bridge-backed features are degraded.
+        {/* ── Bridge offline notice (dismissible, actionable) ── */}
+        {data && !bridgeOk && !bridgeNoticeDismissed && (
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-800/40 bg-amber-950/30 px-4 py-2.5 text-xs text-amber-300">
+            <span>
+              <span className="font-semibold">Bridge is offline.</span> Local dashboard data still works; only bridge-backed features (remote commands, terminal, remote control) are degraded.
+            </span>
+            <div className="ml-auto flex items-center gap-2">
+              <button type="button"
+                onClick={() => void startBridgeFromNotice()}
+                disabled={startingBridge}
+                className="rounded border border-amber-700/50 bg-amber-900/40 px-2 py-1 text-[10px] font-medium text-amber-200 transition hover:bg-amber-800/50 disabled:opacity-40"
+              >
+                {startingBridge ? '⏳ starting…' : '▶ Start bridge'}
+              </button>
+              <button type="button"
+                onClick={() => setBridgeNoticeDismissed(true)}
+                aria-label="Dismiss bridge notice"
+                className="rounded px-1.5 py-1 text-[10px] text-amber-500 transition hover:text-amber-300"
+              >
+                ✕
+              </button>
+            </div>
           </div>
         )}
 
@@ -809,6 +846,9 @@ export default function DashboardPage() {
             last refresh: {lastRefreshed}
           </p>
         )}
+
+        {/* ── Bridge control (live status + start) ── */}
+        <BridgeControl />
 
         {/* ── Doctor + Metrics side by side ── */}
         <div className="grid gap-3 lg:grid-cols-2">
