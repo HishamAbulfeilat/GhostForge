@@ -150,17 +150,19 @@ test('generates every design from real data, recommended first, with valid widge
   assert.match(set.designs[0].why, /frontend engineer/)
 
   const visual = set.designs[0].readme
-  assert.match(visual, /skillicons\.dev\/icons\?i=react,ts,nextjs,tailwind,docker&theme=dark/)
-  assert.match(visual, /github-profile-summary-cards\.vercel\.app\/api\/cards\/stats\?username=janedev/)
-  assert.match(visual, /ghchart\.rshah\.org\/7aa2f7\/janedev/)
-  for (const d of set.designs) assert.doesNotMatch(d.readme, /github-readme-stats|activity-graph/, 'services with broken public instances are not used')
-  assert.match(visual, /capsule-render\.vercel\.app/)
-  assert.match(visual, /\[shop-ui\]\(https:\/\/github\.com\/janedev\/shop-ui\)/)
+  // Exact substrings (not URL regexes): these check README text, not hosts
+  const has = (text, s) => assert.ok(text.includes(s), `missing: ${s}`)
+  has(visual, 'https://skillicons.dev/icons?i=react,ts,nextjs,tailwind,docker&theme=dark')
+  has(visual, 'https://github-profile-summary-cards.vercel.app/api/cards/stats?username=janedev')
+  has(visual, 'https://ghchart.rshah.org/7aa2f7/janedev')
+  for (const d of set.designs) assert.ok(!d.readme.includes('github-readme-stats') && !d.readme.includes('activity-graph'), 'services with broken public instances are not used')
+  has(visual, 'https://capsule-render.vercel.app/api?')
+  has(visual, '[shop-ui](https://github.com/janedev/shop-ui)')
   assert.doesNotMatch(visual, /forked-lib/, 'forks are not featured')
 
   const badges = set.designs.find(d => d.style === 'badges').readme
-  assert.match(badges, /img\.shields\.io\/badge\/React-1f2937\?style=for-the-badge&logo=react/)
-  assert.match(badges, /img\.shields\.io\/badge\/Storybook-1f2937/, 'unknown skills still get a text badge')
+  has(badges, 'https://img.shields.io/badge/React-1f2937?style=for-the-badge&logo=react')
+  has(badges, 'https://img.shields.io/badge/Storybook-1f2937')
   assert.match(set.designs.find(d => d.style === 'terminal').readme, /\$ whoami/)
   assert.match(set.designs.find(d => d.style === 'story').readme, /\| 2021 - Present \| Senior Frontend Engineer \| Acme KK \|/)
   assert.doesNotMatch(set.designs.find(d => d.style === 'minimal').readme, /!\[/, 'minimal has no images')
@@ -224,6 +226,14 @@ test('publish refuses a token for a different account', async () => {
     gp.publishGithubProfile('publisher3', 'tok', { username: 'janedev', readme: '# Hi', bio: '', location: '', blog: '', company: '' }),
     /belongs to "someoneelse"/,
   )
+})
+
+test('GitHub API URLs stay on api.github.com and only accept valid account names', () => {
+  assert.equal(gp.githubApiUrl(['users', 'janedev', 'repos'], { per_page: '100' }), 'https://api.github.com/users/janedev/repos?per_page=100')
+  assert.equal(gp.githubApiUrl(['repos', 'janedev', 'janedev', 'contents', 'README.md']), 'https://api.github.com/repos/janedev/janedev/contents/README.md')
+  for (const bad of ['..', '@evil.com', '//evil.com', 'a/b', 'x?y', '%2e%2e', 'evil.com']) {
+    assert.throws(() => gp.githubApiUrl(['users', bad]), /Invalid GitHub API path segment/, bad)
+  }
 })
 
 test('GitHub usernames are validated before any request', async () => {
