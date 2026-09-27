@@ -28,6 +28,18 @@ ghostforge jobs autopilot on --every 12 --limit 5 --min-score 75   # fully autom
 ghostforge jobs autopilot status | run | off
 ```
 
+## CV improvement and GitHub profile
+
+```bash
+ghostforge jobs improve              # review + rewrite (never invents facts); --adopt to use it, --restore to undo
+ghostforge jobs github <username>    # 5 profile README designs from the CV, best fit recommended
+ghostforge jobs github <username> --creative            # add a free-form AI design
+ghostforge jobs github <username> --style terminal --publish   # create <username>/<username> and push (gh login)
+```
+
+When the user asks for a GitHub profile, generate the designs, tell them which is recommended and why,
+offer the others, and publish only the one they choose, only after they confirm.
+
 ## Model and autopilot
 
 - **Model:** Job Hunter uses the model the user picks (`jobs model`, or the Jobs page),

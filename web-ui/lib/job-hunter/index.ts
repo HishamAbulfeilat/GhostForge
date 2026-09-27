@@ -69,6 +69,9 @@ export async function importCv(username: string, fileName: string, data: Buffer,
 
   const profile = await saveProfile(username, {
     cv: { text, fileName, filePath, uploadedAt: new Date().toISOString() },
+    // A new CV starts fresh: earlier improvements belonged to the old one
+    improvedCv: null,
+    originalCv: null,
     applicant,
     preferences,
   })
