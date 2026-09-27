@@ -31,10 +31,11 @@ const gd = require('../lib/job-hunter/github-designs.ts')
 const gp = require('../lib/job-hunter/github-profile.ts')
 
 const realFetch = globalThis.fetch
-test.after(() => {
+test.after(async () => {
+  await new Promise(resolve => setTimeout(resolve, 300)) // let fire-and-forget audit writes finish
   globalThis.fetch = realFetch
   hooks.deregister()
-  rmSync(fakeHome, { recursive: true, force: true })
+  rmSync(fakeHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 const CV = 'Jane Example\njane@example.com | +81 90 1234 5678 | linkedin.com/in/jane-ex\nTokyo, Japan\n\nSenior Frontend Engineer | Acme KK | 2021 - Present\n- Led React + TypeScript migration to Next.js\nSkills: React, TypeScript, Next.js, Tailwind, Docker'

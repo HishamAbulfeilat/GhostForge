@@ -29,9 +29,10 @@ const users = require('../lib/users.ts')
 const { speakerContext, toSpeaker } = require('../lib/speaker.ts')
 const intrusion = require('../lib/intrusion.ts')
 
-test.after(() => {
+test.after(async () => {
+  await new Promise(resolve => setTimeout(resolve, 300)) // let fire-and-forget audit writes finish
   hooks.deregister()
-  rmSync(fakeHome, { recursive: true, force: true })
+  rmSync(fakeHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 test('the default admin is the owner; other admins are not', async () => {

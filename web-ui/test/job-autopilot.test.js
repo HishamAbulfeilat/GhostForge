@@ -51,10 +51,11 @@ test.before(() => {
   }
 })
 
-test.after(() => {
+test.after(async () => {
+  await new Promise(resolve => setTimeout(resolve, 300)) // let fire-and-forget audit writes finish
   globalThis.fetch = realFetch
   hooks.deregister()
-  rmSync(fakeHome, { recursive: true, force: true })
+  rmSync(fakeHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 /** Fake model: every job scores High 90; writing tasks return plain text */
