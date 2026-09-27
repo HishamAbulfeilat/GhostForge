@@ -20,9 +20,28 @@ export function validGithubUsername(u: string): boolean {
   return GH_USER.test(String(u || ''))
 }
 
-async function gh<T>(path: string, init: RequestInit & { token?: string } = {}): Promise<{ status: number; data: T | null }> {
-  const { token, ...rest } = init
-  const res = await fetch(`${API}${path}`, {
+/**
+ * Build an api.github.com URL from path segments. Every segment is validated
+ * (usernames against GitHub's rules, the rest against a fixed allowlist) and
+ * URL-encoded, and the result must stay on api.github.com — user input can
+ * only ever select a GitHub account, never the host or a different endpoint.
+ */
+const FIXED_SEGMENTS = new Set(['user', 'users', 'repos', 'contents', 'README.md'])
+
+export function githubApiUrl(segments: string[], query: Record<string, string> = {}): string {
+  const parts = segments.map(s => {
+    if (!FIXED_SEGMENTS.has(s) && !validGithubUsername(s)) throw new Error(`Invalid GitHub API path segment "${s}"`)
+    return encodeURIComponent(s)
+  })
+  const url = new URL(`/${parts.join('/')}`, API)
+  for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v)
+  if (url.origin !== API) throw new Error('Refusing to call a host other than api.github.com')
+  return url.toString()
+}
+
+async function gh<T>(segments: string[], init: RequestInit & { token?: string; query?: Record<string, string> } = {}): Promise<{ status: number; data: T | null }> {
+  const { token, query, ...rest } = init
+  const res = await fetch(githubApiUrl(segments, query), {
     ...rest,
     headers: {
       Accept: 'application/vnd.github+json',
@@ -45,10 +64,10 @@ export interface GithubUserSummary { login: string; name: string; bio: string; l
 /** Public profile + the user's best own (non-fork) repositories */
 export async function fetchGithubData(username: string): Promise<{ user: GithubUserSummary; repos: GithubRepoSummary[] }> {
   if (!validGithubUsername(username)) throw new Error('That is not a valid GitHub username')
-  const u = await gh<Record<string, unknown>>(`/users/${username}`)
+  const u = await gh<Record<string, unknown>>(['users', username])
   if (u.status === 404) throw new Error(`GitHub user "${username}" not found`)
   if (u.status !== 200 || !u.data) throw new Error(`GitHub returned ${u.status}`)
-  const r = await gh<Array<Record<string, unknown>>>(`/users/${username}/repos?type=owner&sort=updated&per_page=100`)
+  const r = await gh<Array<Record<string, unknown>>>(['users', username, 'repos'], { query: { type: 'owner', sort: 'updated', per_page: '100' } })
   const repos = (r.data || [])
     .filter(x => !x.fork && !x.archived && String(x.name).toLowerCase() !== username.toLowerCase())
     .map(x => ({
@@ -86,10 +105,11 @@ export async function publishGithubProfile(
   if (!token) throw new Error('A GitHub token is required to publish')
   if (!draft.readme?.trim()) throw new Error('The README is empty')
 
-  const me = await gh<{ login: string }>('/user', { token })
+  const me = await gh<{ login: string }>(['user'], { token })
   if (me.status === 401) throw new Error('GitHub rejected the token')
   if (me.status !== 200 || !me.data) throw new Error(`GitHub returned ${me.status} for the token`)
-  const login = me.data.login
+  const login = String(me.data.login)
+  if (!validGithubUsername(login)) throw new Error('GitHub returned an unexpected account name')
   // The profile README only works in the repository named after the account
   if (login.toLowerCase() !== draft.username.toLowerCase()) {
     throw new Error(`The token belongs to "${login}", not "${draft.username}"`)
@@ -97,9 +117,9 @@ export async function publishGithubProfile(
 
   const notes: string[] = []
   let createdRepo = false
-  const repo = await gh(`/repos/${login}/${login}`, { token })
+  const repo = await gh(['repos', login, login], { token })
   if (repo.status === 404) {
-    const created = await gh('/user/repos', {
+    const created = await gh(['user', 'repos'], {
       token, method: 'POST',
       body: JSON.stringify({ name: login, description: `${login}'s GitHub profile`, auto_init: true, has_issues: false, has_wiki: false, has_projects: false }),
     })
@@ -109,8 +129,8 @@ export async function publishGithubProfile(
     throw new Error(`GitHub returned ${repo.status} for ${login}/${login}`)
   }
 
-  const existing = await gh<{ sha: string }>(`/repos/${login}/${login}/contents/README.md`, { token })
-  const put = await gh(`/repos/${login}/${login}/contents/README.md`, {
+  const existing = await gh<{ sha: string }>(['repos', login, login, 'contents', 'README.md'], { token })
+  const put = await gh(['repos', login, login, 'contents', 'README.md'], {
     token, method: 'PUT',
     body: JSON.stringify({
       message: createdRepo ? 'Set up profile README (GhostForge)' : 'Update profile README (GhostForge)',
@@ -124,7 +144,7 @@ export async function publishGithubProfile(
   if (opts.updateProfile !== false) {
     const fields = Object.fromEntries(Object.entries({ bio: draft.bio, location: draft.location, blog: draft.blog, company: draft.company }).filter(([, v]) => v))
     if (Object.keys(fields).length) {
-      const patch = await gh('/user', { token, method: 'PATCH', body: JSON.stringify(fields) })
+      const patch = await gh(['user'], { token, method: 'PATCH', body: JSON.stringify(fields) })
       profileUpdated = patch.status === 200
       if (!profileUpdated) notes.push('Profile bio/location/website were not updated — the token needs the "user" scope (classic) or "Profile: write" (fine-grained).')
     }
