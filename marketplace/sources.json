@@ -1057,6 +1057,27 @@
         "education"
       ],
       "trusted": true
+    },
+    {
+      "id": "ecc",
+      "name": "ECC — Everything Claude Code",
+      "type": "claude-skills",
+      "description": "Claude Code plugin with 68 specialist agents, 292 skills and 94 slash commands: language reviewers and build resolvers, TDD and verification loops, security review, orchestration pipelines (/orch-add-feature, /orch-fix-defect), continuous learning (instincts), plus GateGuard hooks that force fact-checking before edits and destructive commands.",
+      "url": "https://github.com/affaan-m/ECC",
+      "install": "/plugin marketplace add https://github.com/affaan-m/ECC && /plugin install ecc@ecc",
+      "activation": "Run both commands inside Claude Code; skills and agents are namespaced ecc:*",
+      "agents": 68,
+      "skills": 292,
+      "commands": 94,
+      "categories": [
+        "ai-coding",
+        "agents",
+        "skills",
+        "code-review",
+        "security",
+        "workflow"
+      ],
+      "trusted": true
     }
   ]
 }
