@@ -119,6 +119,11 @@ test('dealbreakers and salary floor mark jobs as Skip', () => {
   assert.equal(match.dealbreaker({ title: 'Engineer', company: 'A', description: '', salary: 'Competitive' }, prefs), null)
 })
 
+test('HTML entities decode once (no double unescaping)', () => {
+  assert.equal(sources.stripHtml('<p>A &amp;lt;b&amp;gt; tag &amp; more</p>'), 'A &lt;b&gt; tag & more')
+  assert.equal(sources.stripHtml('x &lt; y'), 'x < y')
+})
+
 test('extractJson tolerates think blocks and code fences', () => {
   assert.deepEqual(match.extractJson('<think>hmm</think>```json\n[{"i":0,"fit":"High"}]\n```'), [{ i: 0, fit: 'High' }])
   assert.deepEqual(match.extractJson('Sure! {"a":1} trailing'), { a: 1 })
@@ -128,7 +133,11 @@ test('extractJson tolerates think blocks and code fences', () => {
 test('ATS detection from apply URLs', () => {
   assert.equal(sources.detectAts('https://jobs.lever.co/acme/123'), 'lever')
   assert.equal(sources.detectAts('https://job-boards.greenhouse.io/embed/job_app?for=acme&token=1'), 'greenhouse')
-  assert.equal(sources.detectAts('https://stripe.com/jobs/search?gh_jid=8172508'), 'greenhouse')
+  // Only the hostname counts: a company site with ?gh_jid= or a lookalike URL is not an auto-submit ATS
+  assert.equal(sources.detectAts('https://stripe.com/jobs/search?gh_jid=8172508'), 'other')
+  assert.equal(sources.detectAts('https://evil.example/apply?next=jobs.lever.co'), 'other')
+  assert.equal(sources.detectAts('https://jobs.lever.co.evil.example/x'), 'other')
+  assert.equal(sources.detectAts('not a url'), 'other')
   assert.equal(sources.detectAts('https://jobs.ashbyhq.com/acme/abc'), 'ashby')
   assert.equal(sources.detectAts('https://acme.wd5.myworkdayjobs.com/en-US/EXT/job/x'), 'workday')
   assert.equal(sources.detectAts('https://www.linkedin.com/jobs/view/123'), 'linkedin')
@@ -189,16 +198,16 @@ test('CV extraction rejects unsupported formats', async () => {
 test('search → prepare → approve guards, end to end with mocked sources', async () => {
   const realFetch = globalThis.fetch
   globalThis.fetch = async url => {
-    const u = String(url)
-    const body = u.includes('remotive.com')
+    const host = new URL(String(url)).hostname
+    const body = host === 'remotive.com'
       ? { jobs: [
           { title: 'Senior Frontend Engineer', company_name: 'Acme', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/acme/1', salary: '', description: '<p>React TypeScript Next.js</p>', publication_date: '2026-09-01' },
           { title: 'Frontend Developer', company_name: 'Singa', candidate_required_location: 'Singapore', url: 'https://example.com/2', salary: '', description: 'React', publication_date: '2026-09-01' },
           { title: 'Freelance Writer', company_name: 'Words', candidate_required_location: 'Worldwide', url: 'https://example.com/3', salary: '', description: 'Blog posts', publication_date: '2026-09-01' },
         ] }
-      : u.includes('remoteok.com') ? [{ legal: 'notice' }]
-      : u.includes('arbeitnow.com') ? { data: [] }
-      : u.includes('themuse.com') ? { results: [] }
+      : host === 'remoteok.com' ? [{ legal: 'notice' }]
+      : host === 'www.arbeitnow.com' ? { data: [] }
+      : host === 'www.themuse.com' ? { results: [] }
       : null
     if (!body) return new Response('not found', { status: 404 })
     return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
