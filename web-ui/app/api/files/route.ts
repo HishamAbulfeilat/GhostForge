@@ -1,14 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { AUTH_COOKIE_NAME, isValidAuthToken } from '@/lib/auth'
-
-async function checkAuth() {
-  const cookieStore = await cookies()
-  return isValidAuthToken(cookieStore.get(AUTH_COOKIE_NAME)?.value)
-}
+import { requirePermission } from '@/lib/access'
 
 function safePath(p: string): string {
   const home = os.homedir()
@@ -33,7 +27,8 @@ function getFileIcon(name: string, isDir: boolean): string {
 // GET /api/files?path=~/GhostForge — list directory
 // GET /api/files?path=~/GhostForge/file.ts&content=1 — read file content
 export async function GET(req: NextRequest) {
-  if (!await checkAuth()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const access = await requirePermission(req, 'file_read')
+  if (access instanceof NextResponse) return access
 
   const url = new URL(req.url)
   const rawPath = url.searchParams.get('path') || '~'
@@ -74,7 +69,8 @@ export async function GET(req: NextRequest) {
 
 // POST /api/files — write file { path, content }
 export async function POST(req: NextRequest) {
-  if (!await checkAuth()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const access = await requirePermission(req, 'file_write')
+  if (access instanceof NextResponse) return access
 
   try {
     const { path: rawPath, content } = await req.json() as { path: string; content: string }

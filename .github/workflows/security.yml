@@ -1,0 +1,123 @@
+name: Security
+
+# Scanner evidence for every change: code scanning (SARIF), dependency and
+# secret scanning, an npm audit gate, security regression tests, and SBOMs.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, master, develop]
+  schedule:
+    - cron: '17 3 * * 1'   # weekly, catches newly published advisories
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: CodeQL (SARIF → code scanning)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - '**/node_modules/**'
+              - vendor/**
+              - electron-app/android/**
+              - electron-app/ios/**
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript-typescript
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  audit:
+    name: npm audit gate (high/critical)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Audit every package
+        run: |
+          FAIL=0
+          for dir in . web-ui electron-app; do
+            [ -f "$dir/package-lock.json" ] || continue
+            echo "::group::npm audit $dir"
+            (cd "$dir" && npm audit --omit=dev --audit-level=high) || FAIL=1
+            echo "::endgroup::"
+          done
+          exit $FAIL
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  regression:
+    name: Security regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-ui/package-lock.json
+      - run: npm ci
+        working-directory: web-ui
+      # Owner-only user management, intrusion lock/log, login lockout, job-title
+      # access profiles, per-user data isolation, SSRF guards on apply URLs
+      - run: node --test test/users-security.test.js test/job-hunter.test.js
+        working-directory: web-ui
+      - run: npm test
+        working-directory: web-ui
+      - run: npx tsc --noEmit
+        working-directory: web-ui
+
+  sbom:
+    name: SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate SBOMs
+        run: |
+          mkdir -p sbom
+          for dir in web-ui electron-app; do
+            (cd "$dir" && npm sbom --package-lock-only --omit dev --sbom-format cyclonedx) > "sbom/$dir.cdx.json"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/

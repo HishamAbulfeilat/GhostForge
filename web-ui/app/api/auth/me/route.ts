@@ -15,6 +15,9 @@ export async function GET(req: NextRequest) {
       permissions: user.permissions,
       active: user.active,
       createdAt: user.createdAt,
+      jobTitle: user.jobTitle,
+      profileId: user.profileId,
+      setupComplete: Boolean(user.setupComplete),
     },
     isAdmin: isAdmin(user),
   })

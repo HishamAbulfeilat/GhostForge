@@ -176,7 +176,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search models..."
-              className="w-full bg-[#0a0a0f] border border-[#1a1a2e] rounded-lg pl-10 pr-4 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#1a6fff]/50 transition-colors"
+              className="w-full bg-[#0a0a0f] border border-[#1a1a2e] rounded-lg ps-10 pe-4 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#1a6fff]/50 transition-colors"
             />
           </div>
         </div>
@@ -228,7 +228,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
                   key={model.id}
                   onClick={() => handleSelect(model)}
                   disabled={!model.available}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-start transition-colors ${
                     isSelected
                       ? "bg-[#1a6fff]/10 border border-[#1a6fff]/30"
                       : "border border-transparent hover:bg-[#1a1a2e]"
@@ -277,7 +277,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         <div className="px-5 py-3 border-t border-[#1a1a2e] text-[10px] text-gray-600 flex items-center justify-between">
           <span>{filtered.length} model{filtered.length !== 1 ? "s" : ""}</span>
           <span>
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1" />
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 me-1" />
             {models.filter((m) => m.available).length} available
           </span>
         </div>

@@ -173,7 +173,7 @@ export default function FilesPage() {
             <button type="button"
               key={item.path}
               onClick={() => item.isDir ? navigate(item.path) : openFileHandler(item.path)}
-              className={`group flex items-center gap-2 px-3 py-2 text-left text-xs transition-all ${
+              className={`group flex items-center gap-2 px-3 py-2 text-start text-xs transition-all ${
                 openFile?.path === item.path
                   ? 'bg-sky-950/60 text-sky-300 border-r-2 border-sky-500'
                   : 'text-white/55 hover:bg-white/[0.04] hover:text-white/90'
@@ -182,7 +182,7 @@ export default function FilesPage() {
               <span className="shrink-0 text-sm leading-none">{item.icon}</span>
               <span className="truncate flex-1">{item.name}</span>
               {item.isDir && (
-                <span className="ml-auto shrink-0 text-white/20 group-hover:text-white/40 transition">›</span>
+                <span className="ms-auto shrink-0 text-white/20 group-hover:text-white/40 transition">›</span>
               )}
             </button>
           ))}

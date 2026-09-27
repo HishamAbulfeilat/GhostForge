@@ -33,7 +33,6 @@ web-ui/node_modules/
 # Electron
 electron-app/release/
 electron-app/node_modules/
-electron-app/android/
 electron-app/.gradle/
 electron-app/dist/
 electron-app/build/*.dmg

@@ -188,7 +188,7 @@ export default function FeaturesPage() {
           <Link href="/dashboard" className="rounded p-1 text-gray-500 transition hover:text-white text-lg leading-none">‹</Link>
           <span className="text-sm font-bold tracking-tight text-white">👻 GhostForge</span>
           <span className="text-[10px] font-mono text-gray-600 hidden sm:block">FEATURES</span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ms-auto flex items-center gap-2">
             <Link href="/terminal" className="rounded border border-emerald-800/50 bg-emerald-950/30 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-900/40 transition">
               💻 Terminal
             </Link>
@@ -240,7 +240,7 @@ export default function FeaturesPage() {
                     onClick={() => runCommand(item.cmd)}
                     disabled={!!running}
                     className={`
-                      relative flex flex-col items-start gap-1.5 rounded-lg border p-3 text-left
+                      relative flex flex-col items-start gap-1.5 rounded-lg border p-3 text-start
                       transition active:scale-[0.98] touch-manipulation
                       disabled:opacity-50 disabled:cursor-not-allowed
                       ${group.bg} ${group.border}

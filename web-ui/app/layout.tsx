@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next'
-import { JetBrains_Mono } from 'next/font/google'
+import { IBM_Plex_Sans, JetBrains_Mono, Space_Grotesk } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 import { Navbar } from '@/components/Navbar'
@@ -12,6 +12,10 @@ const mono = JetBrains_Mono({
   variable: '--font-mono',
   display: 'swap',
 })
+
+// Job Hunter / Setup design (Claude Design canvas): display + body faces
+const display = Space_Grotesk({ subsets: ['latin'], weight: ['500', '600', '700'], variable: '--font-display', display: 'swap' })
+const plex = IBM_Plex_Sans({ subsets: ['latin'], weight: ['400', '500', '600'], variable: '--font-plex', display: 'swap' })
 
 export const metadata: Metadata = {
   title: 'G.F.A.I. — GhostForge AI',
@@ -46,7 +50,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     // inject attributes like bis_skin_checked into <html>/<body> before React
     // hydrates, which previously aborted hydration and broke client-side
     // navigation (e.g. the dashboard's Settings button).
-    <html lang="en" dir="auto" className={`dark ${mono.variable}`} suppressHydrationWarning>
+    <html lang="en" dir="auto" className={`dark ${mono.variable} ${display.variable} ${plex.variable}`} suppressHydrationWarning>
       <body className="min-h-dvh bg-gray-950 text-gray-100 antialiased" style={{ fontFamily: `var(--font-mono), ui-monospace, monospace` }} suppressHydrationWarning>
         <Providers>
           <ChunkErrorHandler />

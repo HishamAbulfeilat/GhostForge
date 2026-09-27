@@ -13,7 +13,7 @@ jobs:
   pr-check:
     name: GhostForge PR Quality Checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -21,143 +21,151 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The web UI tests use node:module registerHooks (Node 22.15+)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            web-ui/package-lock.json
+            electron-app/package-lock.json
 
       - name: Install dependencies
-        run: |
-          if [ -f "bun.lockb" ]; then
-            npm install -g bun && bun install
-          elif [ -f "pnpm-lock.yaml" ]; then
-            npm install -g pnpm && pnpm install
-          elif [ -f "yarn.lock" ]; then
-            yarn install
-          elif [ -f "package-lock.json" ]; then
-            npm ci
-          else
-            echo "No lockfile found, skipping install"
-          fi
+        working-directory: web-ui
+        run: npm ci
 
-      - name: Run ESLint
+      # The React/Next.js app lives in web-ui/, not at the repo root
+      - name: Run ESLint (web-ui)
         id: lint
         continue-on-error: true
+        working-directory: web-ui
         run: |
-          if [ -f ".eslintrc*" ] || [ -f "eslint.config.*" ]; then
-            npx eslint . --ext .ts,.tsx,.js,.jsx --format json --output-file /tmp/lint-results.json 2>/dev/null || true
-            ERRORS=$(node -e "try{const r=require('/tmp/lint-results.json');const e=r.reduce((a,b)=>a+b.errorCount,0);const w=r.reduce((a,b)=>a+b.warningCount,0);console.log(e+' errors, '+w+' warnings');}catch{console.log('lint check failed')}" 2>/dev/null)
+          if ls eslint.config.* .eslintrc* >/dev/null 2>&1; then
+            npx eslint . --format json --output-file /tmp/lint-results.json || true
+            ERRORS=$(node -e "try{const r=require('/tmp/lint-results.json');const e=r.reduce((a,b)=>a+b.errorCount,0);const w=r.reduce((a,b)=>a+b.warningCount,0);console.log(e+' errors, '+w+' warnings');}catch{console.log('lint check failed')}")
             echo "result=$ERRORS" >> $GITHUB_OUTPUT
           else
             echo "result=no eslint config" >> $GITHUB_OUTPUT
           fi
 
+      - name: Tests (web-ui — includes auth/permission security regressions)
+        id: tests
+        continue-on-error: true
+        working-directory: web-ui
+        run: |
+          if npm test > /tmp/test-output.txt 2>&1; then STATUS=pass; else STATUS=fail; fi
+          SUMMARY=$(grep -E '^ℹ (pass|fail) ' /tmp/test-output.txt | tr '\n' ' ')
+          echo "result=${STATUS} — ${SUMMARY}" >> $GITHUB_OUTPUT
+          [ "$STATUS" = pass ]
+
       - name: Check .env vs .env.example
         id: env-check
         continue-on-error: true
         run: |
-          ISSUES=""
-          if [ -f ".env.example" ]; then
-            if [ -f ".env" ]; then
-              MISSING=$(comm -23 <(grep -oP '^[A-Z_][A-Z0-9_]*(?==)' .env.example | sort) <(grep -oP '^[A-Z_][A-Z0-9_]*(?==)' .env | sort) 2>/dev/null | wc -l)
-              echo "result=${MISSING} keys in .env.example not in .env" >> $GITHUB_OUTPUT
-            else
-              echo "result=no .env file" >> $GITHUB_OUTPUT
+          TOTAL=0; CHECKED=0
+          for dir in . web-ui electron-app; do
+            [ -f "$dir/.env.example" ] || continue
+            CHECKED=$((CHECKED+1))
+            if [ -f "$dir/.env" ]; then
+              MISSING=$(comm -23 <(grep -oP '^[A-Z_][A-Z0-9_]*(?==)' "$dir/.env.example" | sort) <(grep -oP '^[A-Z_][A-Z0-9_]*(?==)' "$dir/.env" | sort) | wc -l)
+              TOTAL=$((TOTAL+MISSING))
             fi
-          else
-            echo "result=no .env.example" >> $GITHUB_OUTPUT
-          fi
+          done
+          if [ "$CHECKED" = 0 ]; then echo "result=no .env.example" >> $GITHUB_OUTPUT
+          else echo "result=${TOTAL} keys missing across ${CHECKED} .env.example file(s) (no committed .env)" >> $GITHUB_OUTPUT; fi
 
-      - name: Check for unused dependencies (knip)
+      - name: Check for unused files and dependencies (knip, web-ui)
         id: unused
         continue-on-error: true
+        working-directory: web-ui
         run: |
-          if [ -f "package.json" ]; then
-            RESULT=$(npx --yes knip --reporter compact 2>/dev/null | head -5 || echo "scan complete")
-            echo "result<<EOF" >> $GITHUB_OUTPUT
-            echo "$RESULT" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          fi
+          RESULT=$(npx --yes knip --reporter compact 2>/dev/null | head -5 || echo "scan complete")
+          echo "result<<EOF" >> $GITHUB_OUTPUT
+          echo "${RESULT:-No issues}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
+      # Physical left/right utilities break the Arabic (RTL) layout
       - name: RTL check (Tailwind logical properties)
         id: rtl
         continue-on-error: true
         run: |
-          COUNT=$(grep -rE '\b(ml|mr|pl|pr)-[0-9]|text-(left|right)\b' --include="*.tsx" --include="*.jsx" --include="*.ts" src/ 2>/dev/null | wc -l | tr -d ' ')
+          COUNT=$(grep -rE '\b(ml|mr|pl|pr)-[0-9]|\btext-(left|right)\b' --include="*.tsx" --include="*.jsx" web-ui/app web-ui/components 2>/dev/null | wc -l | tr -d ' ')
           echo "result=${COUNT} physical Tailwind classes found" >> $GITHUB_OUTPUT
 
-      - name: React Doctor scan
+      - name: React Doctor scan (web-ui)
         id: react-doctor
         continue-on-error: true
+        working-directory: web-ui
         run: |
-          if [ -f "package.json" ] && grep -q '"react"' package.json; then
-            SCORE=$(npx react-doctor@latest --score 2>/dev/null | grep -oP '\d+(?= / 100)' | head -1 || echo "?")
-            echo "result=${SCORE}/100" >> $GITHUB_OUTPUT
-          else
-            echo "result=not a React project" >> $GITHUB_OUTPUT
-          fi
+          SCORE=$(npx --yes react-doctor@latest --score 2>/dev/null | grep -oP '\d+(?= / 100)' | head -1)
+          echo "result=${SCORE:-?}/100" >> $GITHUB_OUTPUT
 
-      - name: Security audit
+      - name: Security audit (all packages)
         id: audit
         continue-on-error: true
         run: |
-          if [ -f "package-lock.json" ]; then
-            RESULT=$(npm audit --json 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));const v=d.metadata?.vulnerabilities||{};console.log('critical:'+v.critical+' high:'+v.high+' moderate:'+v.moderate);}catch{console.log('audit complete')}" 2>/dev/null)
-            echo "result=$RESULT" >> $GITHUB_OUTPUT
-          else
-            echo "result=no lockfile for audit" >> $GITHUB_OUTPUT
-          fi
+          OUT=""
+          for dir in . web-ui electron-app; do
+            [ -f "$dir/package-lock.json" ] || continue
+            R=$(cd "$dir" && npm audit --omit=dev --json 2>/dev/null | node -e "try{const d=JSON.parse(require('fs').readFileSync(0,'utf8'));const v=d.metadata?.vulnerabilities||{};console.log('critical:'+(v.critical||0)+' high:'+(v.high||0)+' moderate:'+(v.moderate||0));}catch{console.log('audit failed')}")
+            OUT="$OUT ${dir}=[$R]"
+          done
+          echo "result=${OUT# }" >> $GITHUB_OUTPUT
 
+      # Outputs go through env, never interpolated into the script (injection-safe)
       - name: Post PR comment
         uses: actions/github-script@v7
+        env:
+          LINT: ${{ steps.lint.outputs.result }}
+          TESTS: ${{ steps.tests.outputs.result }}
+          ENV_CHECK: ${{ steps.env-check.outputs.result }}
+          UNUSED: ${{ steps.unused.outputs.result }}
+          RTL: ${{ steps.rtl.outputs.result }}
+          REACT_DOCTOR: ${{ steps.react-doctor.outputs.result }}
+          AUDIT: ${{ steps.audit.outputs.result }}
         with:
           script: |
-            const lint      = '${{ steps.lint.outputs.result }}' || 'skipped';
-            const envCheck  = '${{ steps.env-check.outputs.result }}' || 'skipped';
-            const unused    = `${{ steps.unused.outputs.result }}` || 'skipped';
-            const rtl       = '${{ steps.rtl.outputs.result }}' || 'skipped';
-            const reactDoc  = '${{ steps.react-doctor.outputs.result }}' || 'skipped';
-            const audit     = '${{ steps.audit.outputs.result }}' || 'skipped';
-
-            const icon = (val, good, warn) => {
-              if (!val || val === 'skipped') return '⚪';
-              if (val.includes(good)) return '✅';
-              if (val.includes(warn)) return '⚠️';
-              return '❌';
-            };
+            const v = k => process.env[k] || 'skipped';
+            const lint = v('LINT'), tests = v('TESTS'), envCheck = v('ENV_CHECK'), unused = v('UNUSED');
+            const rtl = v('RTL'), reactDoc = v('REACT_DOCTOR'), audit = v('AUDIT');
 
             const rdScore = parseInt(reactDoc) || 0;
-            const rdIcon = rdScore >= 75 ? '✅' : rdScore >= 60 ? '⚠️' : '❌';
+            const rdIcon = reactDoc.startsWith('?') ? '⚪' : rdScore >= 75 ? '✅' : rdScore >= 60 ? '⚠️' : '❌';
             const rtlCount = parseInt(rtl) || 0;
+            const auditOk = !/critical:[1-9]|high:[1-9]|audit failed/.test(audit);
 
             const body = [
               '## ⚡ GhostForge PR Quality Check',
               '',
               '| Check | Result | Status |',
               '|---|---|---|',
-              `| 🔍 ESLint | ${lint} | ${lint.includes('0 errors') ? '✅' : '⚠️'} |`,
-              `| 🔒 env-check | ${envCheck} | ${envCheck.includes('0') || envCheck.includes('no .env') ? '✅' : '⚠️'} |`,
-              `| 🧹 Unused code | ${unused.split('\n')[0]} | ${unused.includes('No issues') ? '✅' : '⚠️'} |`,
+              `| 🔍 ESLint (web-ui) | ${lint} | ${lint.startsWith('0 errors') ? '✅' : '⚠️'} |`,
+              `| 🧪 Tests (web-ui) | ${tests} | ${tests.startsWith('pass') ? '✅' : '❌'} |`,
+              `| 🔒 env-check | ${envCheck} | ${envCheck.startsWith('0 ') || envCheck.startsWith('no .env') ? '✅' : '⚠️'} |`,
+              `| 🧹 Unused code (web-ui) | ${unused.split('\n')[0]} | ${unused.includes('No issues') ? '✅' : '⚠️'} |`,
               `| 🌐 RTL (Tailwind) | ${rtl} | ${rtlCount === 0 ? '✅' : '⚠️'} |`,
-              `| ⚕️ React Doctor | ${reactDoc} | ${rdIcon} |`,
-              `| 🔒 npm audit | ${audit} | ${audit.includes('critical:0') ? '✅' : '⚠️'} |`,
+              `| ⚕️ React Doctor (web-ui) | ${reactDoc} | ${rdIcon} |`,
+              `| 🔒 npm audit | ${audit} | ${auditOk ? '✅' : '⚠️'} |`,
               '',
               '<details><summary>📖 How to fix warnings</summary>',
               '',
-              '- **ESLint**: Run `npx eslint . --fix`',
+              '- **ESLint**: `cd web-ui && npx eslint . --fix`',
+              '- **Tests**: `cd web-ui && npm test`',
               '- **env-check**: Run `bash scripts/env-check.sh --fix`',
-              '- **Unused**: Run `bash scripts/unused.sh` to see details',
-              '- **RTL**: Run `bash scripts/rtl.sh . --fix` to auto-fix Tailwind classes',
-              '- **React Doctor**: Run `npx react-doctor@latest --verbose`',
-              '- **Audit**: Run `npm audit fix`',
+              '- **Unused**: `cd web-ui && npx knip`',
+              '- **RTL**: use logical utilities (`ms-/me-/ps-/pe-`, `text-start/end`)',
+              '- **React Doctor**: `cd web-ui && npx react-doctor@latest --verbose`',
+              '- **Audit**: `npm audit fix` in the listed package',
               '',
               '</details>',
+              '',
+              'Security scanning (CodeQL, dependency review, secret scan, SBOM) runs in the **Security** workflow.',
               '',
               `*Powered by [GhostForge](https://github.com/ghostforge-copilot-business/GhostForge)*`,
             ].join('\n');
 
-            // Find existing comment
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,

@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { createOpenAI } from '@ai-sdk/openai'
-import { generateText, type CoreMessage, type LanguageModel } from 'ai'
+import { generateText, type ModelMessage, type LanguageModel } from 'ai'
 import { totalmem } from 'os'
 import { buildLocalRuntimeOrder } from './local-runtime'
 import {
@@ -23,7 +23,17 @@ export interface ModelOverride {
   task?: string
 }
 
-type GenerateOpts = Omit<Parameters<typeof generateText>[0], 'model'>
+/**
+ * GhostForge's provider-neutral generation options. `maxTokens` is mapped to
+ * the AI SDK's `maxOutputTokens` (v5+) and to each raw provider's own field.
+ */
+export interface GenerateOpts {
+  system?: string
+  messages?: ModelMessage[]
+  prompt?: string
+  maxTokens?: number
+  temperature?: number
+}
 
 export interface ModelEntry {
   provider: string
@@ -41,7 +51,21 @@ function omniRouteAuth(): string {
 /** Build an OmniRoute LanguageModel — no API key required */
 export function makeOmniRouteModel(modelId = 'auto'): LanguageModel {
   const omni = createOpenAI({ baseURL: omniRouteBaseURL(), apiKey: process.env.OMNIROUTE_API_KEY || 'omniroute' })
-  return omni(modelId)
+  return omni.chat(modelId)
+}
+
+/** Map GhostForge options onto an AI SDK generateText call */
+function toSdkCall(opts: GenerateOpts, model: LanguageModel) {
+  const base = {
+    model,
+    maxRetries: 0,
+    system: opts.system,
+    maxOutputTokens: opts.maxTokens,
+    temperature: opts.temperature,
+  }
+  return opts.messages?.length
+    ? { ...base, messages: opts.messages }
+    : { ...base, prompt: opts.prompt || '' }
 }
 
 /** Flatten generateText options into plain chat messages (system first) */
@@ -115,7 +139,7 @@ async function makeProviderEntry(provider: ProviderId, modelId: string): Promise
     const mapped = DEEPSEEK_MODEL_MAP[modelId] || modelId
     return { provider, modelId: mapped, model: createDeepSeek({ apiKey })(mapped) }
   }
-  return { provider, modelId, model: createOpenAI({ baseURL: PROVIDERS[provider].baseURL, apiKey })(modelId) }
+  return { provider, modelId, model: createOpenAI({ baseURL: PROVIDERS[provider].baseURL, apiKey }).chat(modelId) }
 }
 
 /** Chain entry for a user-added OpenAI-compatible model */
@@ -288,7 +312,7 @@ async function appendLocalModels(chain: ModelEntry[], push: (entry: ModelEntry) 
       push({
         provider: 'ollama',
         modelId: entry.model,
-        model: client(entry.model),
+        model: client.chat(entry.model),
         generate: async (opts) => {
           const messages: Array<{ role: string; content: string }> = []
           if (typeof opts.system === 'string' && opts.system.trim()) {
@@ -324,7 +348,7 @@ async function appendLocalModels(chain: ModelEntry[], push: (entry: ModelEntry) 
       })
     } else {
       const client = createOpenAI({ baseURL: local.llamaCppUrl, apiKey: 'llama.cpp' })
-      push({ provider: 'llamacpp', modelId: entry.model, model: client(entry.model) })
+      push({ provider: 'llamacpp', modelId: entry.model, model: client.chat(entry.model) })
     }
   }
   return chain
@@ -490,7 +514,7 @@ export async function generateWithFallback(
     try {
       let text: string
       if (entry.generate) text = await entry.generate(opts)
-      else if (entry.model) text = (await generateText({ ...opts, model: entry.model, maxRetries: 0 })).text
+      else if (entry.model) text = (await generateText(toSdkCall(opts, entry.model))).text
       else continue
       _cooldown.delete(key)
       return { text, usedProvider: entry.provider, usedModel: entry.modelId }
@@ -522,7 +546,7 @@ export async function selectAIModel(opts?: ModelOverride): Promise<{ model: Lang
 }
 
 /** Legacy non-streaming helper */
-export async function generateGhostforgeReply(messages: CoreMessage[], modelOverride?: ModelOverride) {
+export async function generateGhostforgeReply(messages: ModelMessage[], modelOverride?: ModelOverride) {
   const { text } = await generateWithFallback(
     { system: GHOSTFORGE_SYSTEM, messages },
     modelOverride,
@@ -632,7 +656,7 @@ export async function generateVision(opts: VisionOpts): Promise<{ text: string; 
   if (orKey) {
     try {
       const or = createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })
-      const model = or('nvidia/nemotron-nano-12b-v2-vl:free')
+      const model = or.chat('nvidia/nemotron-nano-12b-v2-vl:free')
       const { text } = await generateText({
         model,
         maxRetries: 0,

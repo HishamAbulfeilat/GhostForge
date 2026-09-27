@@ -52,7 +52,7 @@ interface DeviceFile {
   devices: DeviceRecord[]
 }
 
-let _cache = new Map<string, { devices: DeviceRecord[]; ts: number }>()
+const _cache = new Map<string, { devices: DeviceRecord[]; ts: number }>()
 const CACHE_TTL = 2000
 
 function devicesFile(username: string): string {

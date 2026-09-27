@@ -16,6 +16,8 @@ interface PublicUser {
   createdAt: string
   lastSeen?: string
   owner?: boolean
+  jobTitle?: string
+  setupComplete?: boolean
 }
 
 interface EditState {
@@ -128,6 +130,18 @@ export default function UsersPage() {
     if (!confirm(`Delete user ${u.name} (${u.username})?`)) return
     const res = await fetch(`/api/users?id=${u.id}`, { method: 'DELETE' })
     if (res.ok) { void load() } else { const d = await res.json().catch(() => null); setMessage(d?.error || 'Failed') }
+  }
+
+  // Sends the user back through the job-title setup wizard on their next visit
+  const resetSetup = async (u: PublicUser) => {
+    if (!confirm(`Send ${u.name} back through setup? Their access will follow the job title they choose.`)) return
+    setMessage('')
+    const res = await fetch('/api/users', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: u.id, resetSetup: true }),
+    })
+    if (res.ok) { setMessage('Setup reset'); void load() }
+    else { const d = await res.json().catch(() => null); setMessage(d?.error || 'Failed to reset setup') }
   }
 
   const resetPassword = async (u: PublicUser) => {
@@ -243,6 +257,7 @@ export default function UsersPage() {
                         <span className={`h-2 w-2 rounded-full ${u.active ? 'bg-emerald-400' : 'bg-red-400'}`} title={u.active ? 'Active' : 'Inactive'} />
                       </div>
                       <div className="text-xs text-gray-500">
+                        {u.jobTitle ? `${u.jobTitle} · ` : u.setupComplete ? '' : 'Setup pending · '}
                         {u.lastSeen ? `Last seen ${new Date(u.lastSeen).toLocaleString()}` : 'Never logged in'}
                       </div>
                     </div>
@@ -257,6 +272,9 @@ export default function UsersPage() {
                     </button>
                     {canManage && (
                       <button onClick={() => void resetPassword(u)} className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-white hover:bg-gray-700">Reset password</button>
+                    )}
+                    {canManage && !u.owner && u.setupComplete && (
+                      <button onClick={() => void resetSetup(u)} className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-white hover:bg-gray-700">Reset setup</button>
                     )}
                     {canManage && !u.owner && (
                       <>

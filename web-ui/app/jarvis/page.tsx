@@ -19,7 +19,7 @@ import { MARK_LIV_ACTIONS } from '@/lib/mark-liv-actions'
 type Any = any
 const getSR = (): (new () => Any) | null => {
   if (typeof window === 'undefined') return null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const w = window as Any
   return w.SpeechRecognition || w.webkitSpeechRecognition || null
 }
@@ -207,7 +207,7 @@ function Clock() {
     return () => clearInterval(id)
   }, [])
   return (
-    <div className="text-right font-mono">
+    <div className="text-end font-mono">
       <div className="text-xl font-bold text-blue-300 tracking-widest">{time}</div>
       <div className="text-[9px] text-blue-400/60 tracking-widest uppercase">{date}</div>
     </div>
@@ -233,7 +233,7 @@ function ToastContainer({ toasts, onRemove }: { toasts: Toast[]; onRemove: (id: 
           <span className="shrink-0 mt-0.5">{t.type === 'warn' ? '⚠' : t.type === 'error' ? '✗' : t.type === 'success' ? '✓' : 'ℹ'}</span>
           <span className="leading-relaxed" style={{ color: 'rgba(200,210,255,0.9)' }}>{t.msg}</span>
           <button type="button" onClick={() => onRemove(t.id)}
-            className="shrink-0 ml-1 opacity-40 hover:opacity-100 transition">✕</button>
+            className="shrink-0 ms-1 opacity-40 hover:opacity-100 transition">✕</button>
         </div>
       ))}
     </div>
@@ -298,11 +298,11 @@ function AuditPanel({ onClose }: { onClose: () => void }) {
           <table className="w-full">
             <thead>
               <tr className="text-blue-400/30 text-[9px]">
-                <th className="px-3 py-1 text-left">TIME</th>
-                <th className="px-3 py-1 text-left">LEVEL</th>
-                <th className="px-3 py-1 text-left">EVENT</th>
-                <th className="px-3 py-1 text-left">TOOL</th>
-                <th className="px-3 py-1 text-left">RISK</th>
+                <th className="px-3 py-1 text-start">TIME</th>
+                <th className="px-3 py-1 text-start">LEVEL</th>
+                <th className="px-3 py-1 text-start">EVENT</th>
+                <th className="px-3 py-1 text-start">TOOL</th>
+                <th className="px-3 py-1 text-start">RISK</th>
               </tr>
             </thead>
             <tbody>
@@ -728,7 +728,7 @@ function ClipboardPanel({ text, onAction, onClose }: { text: string; onAction: (
             key={action.label}
             type="button"
             onClick={() => onAction(action.label)}
-            className="rounded-lg border px-2 py-2 text-left font-mono text-[10px] tracking-wide text-cyan-200 transition hover:bg-cyan-400/10"
+            className="rounded-lg border px-2 py-2 text-start font-mono text-[10px] tracking-wide text-cyan-200 transition hover:bg-cyan-400/10"
             style={{ borderColor: 'rgba(34,211,238,0.28)' }}
           >
             {action.icon} {action.label}
@@ -1307,7 +1307,7 @@ export default function JarvisPage() {
   // ── Inbox polling — surface messages from other GhostForge users ─────────
   useEffect(() => {
     let cancelled = false
-    let seen = new Set<string>()
+    const seen = new Set<string>()
 
     const checkInbox = async () => {
       try {
@@ -2739,10 +2739,10 @@ export default function JarvisPage() {
                           background: isActive ? `${mc.ring}18` : 'transparent',
                         }}
                         title={m.free ? 'Free tier' : 'Paid tier'}>
-                        {isActive && <span className="mr-1">✓</span>}
-                        {isLast && !isActive && <span className="mr-1" style={{ color: mc.ring }}>◉</span>}
+                        {isActive && <span className="me-1">✓</span>}
+                        {isLast && !isActive && <span className="me-1" style={{ color: mc.ring }}>◉</span>}
                         {m.label}
-                        {m.free && <span className="ml-1 opacity-40">free</span>}
+                        {m.free && <span className="ms-1 opacity-40">free</span>}
                       </button>
                     )
                   })}
@@ -2782,7 +2782,7 @@ export default function JarvisPage() {
                         setPersona(option.id)
                         localStorage.setItem('gf_persona', option.id)
                       }}
-                      className={`rounded-lg border p-2 text-left transition-colors ${persona === option.id ? 'border-blue-500 bg-blue-900/40 text-blue-300' : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
+                      className={`rounded-lg border p-2 text-start transition-colors ${persona === option.id ? 'border-blue-500 bg-blue-900/40 text-blue-300' : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
                     >
                       <div className="text-sm font-medium">{option.label}</div>
                       <div className="text-xs text-zinc-500">{option.desc}</div>
@@ -2792,7 +2792,7 @@ export default function JarvisPage() {
                 <div className="mt-4 flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm text-zinc-300">🎙️ Hotword Detection</p>
-                    <p className="text-xs text-zinc-500">"Hey GhostForge" / "Hey JARVIS"</p>
+                    <p className="text-xs text-zinc-500">&ldquo;Hey GhostForge&rdquo; / &ldquo;Hey JARVIS&rdquo;</p>
                   </div>
                   <button
                     type="button"
@@ -3157,11 +3157,11 @@ export default function JarvisPage() {
                       title={action.description}
                       onClick={() => void sendToJarvis(action.prompt, action.id)}
                       disabled={mode === 'thinking' || mode === 'listening'}
-                      className="rounded border px-2 py-1 text-left text-[9px] transition disabled:opacity-30"
+                      className="rounded border px-2 py-1 text-start text-[9px] transition disabled:opacity-30"
                       style={{ borderColor: `${mc.ring}22`, color: `${mc.ring}99`, background: `${mc.ring}08` }}
                     >
                       {action.icon} {action.label}
-                      {action.scope === 'device' && <span className="ml-1 text-[7px] opacity-50">⚙</span>}
+                      {action.scope === 'device' && <span className="ms-1 text-[7px] opacity-50">⚙</span>}
                     </button>
                   ))}
                 </div>
@@ -3265,7 +3265,7 @@ export default function JarvisPage() {
                 const borderColor = m.role === 'user' ? '#1a6fff' : (m.emotion === 'alert' ? '#ff4444' : mc.ring)
                 return (
                   <div key={m.id}
-                    className={`gfai-fade rounded-lg px-3 py-2 text-sm ${m.role === 'user' ? 'gfai-msg-user ml-8' : 'gfai-msg-ai mr-8'}`}
+                    className={`gfai-fade rounded-lg px-3 py-2 text-sm ${m.role === 'user' ? 'gfai-msg-user ms-8' : 'gfai-msg-ai me-8'}`}
                     style={{ borderLeftColor: borderColor }}>
                     <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                       <span className="font-mono text-[10px] opacity-60" style={{ color: borderColor }}>
@@ -3523,7 +3523,7 @@ export default function JarvisPage() {
                 <button type="button" key={q.id}
                   onClick={() => void sendToJarvis(q.prompt, q.id)}
                   disabled={mode === 'thinking' || mode === 'listening'}
-                  className="w-full text-left rounded px-2 py-1.5 font-mono text-[10px] border transition disabled:opacity-30 hover:border-blue-600/60"
+                  className="w-full text-start rounded px-2 py-1.5 font-mono text-[10px] border transition disabled:opacity-30 hover:border-blue-600/60"
                   style={{ borderColor: `${mc.ring}22`, color: 'rgba(200,210,255,0.7)', background: `${mc.ring}08` }}>
                   {q.label}
                 </button>
@@ -3531,7 +3531,7 @@ export default function JarvisPage() {
             </div>
             <div className="border-t pt-2 mt-1" style={{ borderColor: `${mc.ring}22` }}>
               <p className="font-mono text-[9px] text-blue-400/30 leading-relaxed">
-                Say <span style={{ color: mc.ring }}>"Hey GhostForge"</span> to activate wake word.
+                Say <span style={{ color: mc.ring }}>&ldquo;Hey GhostForge&rdquo;</span> to activate wake word.
               </p>
             </div>
 
@@ -3540,7 +3540,7 @@ export default function JarvisPage() {
               <p className="font-mono text-[10px] text-blue-400/40 tracking-widest mb-1.5">🤖 AGENT</p>
               <button type="button"
                 onClick={() => setShowAgent(s => !s)}
-                className="w-full text-left rounded px-2 py-1.5 font-mono text-[10px] border transition hover:border-blue-600/60 mb-1"
+                className="w-full text-start rounded px-2 py-1.5 font-mono text-[10px] border transition hover:border-blue-600/60 mb-1"
                 style={{
                   borderColor: showAgent ? '#3b82f666' : `${mc.ring}22`,
                   color: showAgent ? '#3b82f6' : 'rgba(200,210,255,0.7)',

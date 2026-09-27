@@ -240,7 +240,7 @@ export default function MacControlPage() {
                   <button type="button"
                     key={entry.id}
                     onClick={() => { setCommand(entry.command); setScript(entry.script); setOutput(entry.output); setError(entry.error); setTab('script') }}
-                    className="w-full px-3 py-2 text-left hover:bg-gray-800/50 transition group"
+                    className="w-full px-3 py-2 text-start hover:bg-gray-800/50 transition group"
                   >
                     <p className="text-[11px] text-gray-300 truncate group-hover:text-white">{entry.command}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
