@@ -281,6 +281,7 @@ const COMMANDS = [
   { name: '/mock-api',      cat: '💡 Development', file: 'commands/mock-api.md',       desc: 'Generate MSW handlers from OpenAPI spec' },
   { name: '/onboard-dev',   cat: '🏗  Setup',      file: 'commands/onboard-dev.md',    desc: 'New developer onboarding setup' },
   { name: '/voice',         cat: '⚙️  Modes',       file: 'commands/voice.md',          desc: 'Free TTS/STT voice features' },
+  { name: '/job-hunter',    cat: '🎯 Career',      file: 'commands/job-hunter.md',     desc: 'CV → matching jobs in your locations → one-click applications' },
   { name: '/career-cv',     cat: '🎯 Career',      file: 'commands/career-cv.md',      desc: 'Version-control your CV in git, diff between versions' },
   { name: '/career-prep',   cat: '🎯 Career',      file: 'commands/career-prep.md',    desc: 'Quick interview prep brief for any company' },
   { name: '/career-track',  cat: '🎯 Career',      file: 'commands/career-track.md',   desc: 'Local job application tracker synced with ADO' },

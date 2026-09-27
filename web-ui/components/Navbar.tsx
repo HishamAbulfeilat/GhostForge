@@ -2,9 +2,12 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useAccess } from '@/components/AccessGuard'
+import { canAccessPage } from '@/lib/title-profiles'
 
 const NAV_ITEMS = [
   { href: '/chat',        icon: '💬', label: 'Chat' },
+  { href: '/jobs',        icon: '🎯', label: 'Jobs' },
   { href: '/terminal',    icon: '🖥️', label: 'Terminal' },
   { href: '/dashboard',   icon: '📊', label: 'Dashboard' },
   { href: '/files',       icon: '🗂️', label: 'Files' },
@@ -16,11 +19,14 @@ const NAV_ITEMS = [
 ]
 
 // Pages that use their own full-screen layout — hide global nav
-const FULLSCREEN_ROUTES = ['/terminal', '/login', '/chat', '/jarvis']
+const FULLSCREEN_ROUTES = ['/terminal', '/login', '/chat', '/jarvis', '/setup']
 
 export function Navbar() {
   const pathname = usePathname()
+  const { user } = useAccess()
   if (FULLSCREEN_ROUTES.some(r => pathname.startsWith(r))) return null
+  // Only show pages the signed-in user's title (or admin role) grants
+  const items = user ? NAV_ITEMS.filter(item => canAccessPage(user, item.href)) : NAV_ITEMS
 
   return (
     <nav className="sticky top-0 z-50 flex items-center justify-between gap-2 border-b border-white/[0.06] bg-gray-950/90 px-4 py-2 backdrop-blur-md">
@@ -34,7 +40,7 @@ export function Navbar() {
 
       {/* Nav links */}
       <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-none">
-        {NAV_ITEMS.map(item => {
+        {items.map(item => {
           const active = pathname.startsWith(item.href)
           return (
             <Link

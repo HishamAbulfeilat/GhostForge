@@ -11,18 +11,19 @@ export interface Speaker {
   role: 'admin' | 'user'
   owner: boolean
   permissions: string[]
+  jobTitle?: string
 }
 
 export function toSpeaker(
-  user: { name: string; username: string; role: 'admin' | 'user'; permissions: string[] },
+  user: { name: string; username: string; role: 'admin' | 'user'; permissions: string[]; jobTitle?: string },
   owner: boolean,
 ): Speaker {
-  return { name: user.name, username: user.username, role: user.role, owner, permissions: user.permissions }
+  return { name: user.name, username: user.username, role: user.role, owner, permissions: user.permissions, jobTitle: user.jobTitle }
 }
 
 /** System-prompt block describing the verified speaker. */
 export function speakerContext(speaker: Speaker, ownerName: string): string {
-  const who = `${speaker.name} (@${speaker.username})`
+  const who = `${speaker.name} (@${speaker.username}${speaker.jobTitle ? `, ${speaker.jobTitle}` : ''})`
   if (speaker.owner) {
     return `\nSPEAKER (verified by login): ${who} — the OWNER, ${ownerName}. Full trust; address them by name.`
   }

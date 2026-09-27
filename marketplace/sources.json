@@ -1078,6 +1078,38 @@
         "workflow"
       ],
       "trusted": true
+    },
+    {
+      "id": "proficiently-claude-skills",
+      "name": "Proficiently — Job Search Skills for Claude",
+      "type": "claude-skills",
+      "description": "Job search, fit scoring, resume tailoring, cover letters and ATS form filling (Greenhouse, Lever, Workday). Merged into GhostForge's built-in Job Hunter (/jobs, ghostforge jobs).",
+      "url": "https://github.com/proficientlyjobs/proficiently-claude-skills",
+      "install": "Built into GhostForge — run: ghostforge jobs help",
+      "categories": [
+        "career",
+        "job-search",
+        "resume",
+        "skill"
+      ],
+      "license": "MIT",
+      "trusted": true
+    },
+    {
+      "id": "claude-office-skills",
+      "name": "Claude Office Skills",
+      "type": "claude-skills",
+      "description": "Office and career skills (cv-builder, resume-tailor, cover-letter, job-description and more). Its CV writing rules are merged into GhostForge's Job Hunter.",
+      "url": "https://github.com/claude-office-skills/skills",
+      "install": "Built into GhostForge — run: ghostforge jobs help",
+      "categories": [
+        "office",
+        "career",
+        "documents",
+        "skill"
+      ],
+      "license": "MIT",
+      "trusted": true
     }
   ]
 }

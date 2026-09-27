@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAuthorizedRequest } from '@/lib/auth'
 import { generateWithFallback, GHOSTFORGE_SYSTEM } from '@/lib/ai'
-import type { CoreMessage } from 'ai'
+import type { ModelMessage } from 'ai'
 
 export const dynamic = 'force-dynamic'
 
-function toCoreMessages(payload: unknown): CoreMessage[] {
+function toModelMessages(payload: unknown): ModelMessage[] {
   if (!Array.isArray(payload)) return []
   return payload.flatMap(item => {
     if (!item || typeof item !== 'object') return []
     const role = 'role' in item ? (item as Record<string,unknown>).role : undefined
     const content = 'content' in item ? (item as Record<string,unknown>).content : undefined
     if ((role === 'user' || role === 'assistant') && typeof content === 'string' && content.trim()) {
-      return [{ role, content } as CoreMessage]
+      return [{ role, content } as ModelMessage]
     }
     return []
   })
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   }
   try {
     const body = (await req.json()) as { messages?: unknown }
-    const messages = toCoreMessages(body.messages).slice(-10)
+    const messages = toModelMessages(body.messages).slice(-10)
     const { text, usedModel, usedProvider } = await generateWithFallback({
       system: GHOSTFORGE_SYSTEM,
       messages,

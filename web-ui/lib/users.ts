@@ -23,6 +23,10 @@ export interface GhostUser {
   createdAt: string
   lastSeen?: string
   lastActive?: string
+  /** Set by the setup wizard */
+  jobTitle?: string
+  profileId?: string
+  setupComplete?: boolean
 }
 
 export interface PublicUser {
@@ -34,6 +38,9 @@ export interface PublicUser {
   active: boolean
   createdAt: string
   lastSeen?: string
+  jobTitle?: string
+  profileId?: string
+  setupComplete?: boolean
 }
 
 const USERS_FILE = join(homedir(), '.ghostforge', 'users.json')
@@ -117,13 +124,14 @@ export async function ensureUserStore(): Promise<GhostUser[]> {
 
   const username = (process.env.ADMIN_USERNAME || DEFAULT_ADMIN_USERNAME).toLowerCase()
   const envPassword = process.env.ADMIN_PASSWORD || process.env.ACCESS_PIN
+  let password: string
   if (!envPassword) {
     const generated = randomBytes(12).toString('base64url')
     // Shown once: the hash is persisted, so this stays the admin password.
     console.warn(`[users] No ADMIN_PASSWORD/ACCESS_PIN set — created admin "${username}" with password: ${generated} (change it in Settings → Users)`)
-    var password = generated
+    password = generated
   } else {
-    var password = envPassword
+    password = envPassword
   }
   const name = process.env.ADMIN_NAME || DEFAULT_ADMIN_NAME
   const admin: GhostUser = {
@@ -198,7 +206,7 @@ export async function createUser(input: {
 
 export async function updateUser(
   id: string,
-  patch: Partial<Pick<GhostUser, 'name' | 'role' | 'permissions' | 'active' | 'passwordHash'>>,
+  patch: Partial<Pick<GhostUser, 'name' | 'role' | 'permissions' | 'active' | 'passwordHash' | 'jobTitle' | 'profileId' | 'setupComplete'>>,
 ): Promise<GhostUser | null> {
   const users = await listUsers()
   const idx = users.findIndex(u => u.id === id)
