@@ -31,15 +31,16 @@
     "node-screenshots": "^0.0.12",
     "pdf-parse": "^1.1.4",
     "playwright": "^1.62.0",
-    "sharp": "^0.33.2",
+    "sharp": "^0.35.4",
     "systeminformation": "^5.33.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.2",
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "@capacitor/ios": "^8.5.2",
+    "@electron/notarize": "^2.5.0",
     "@types/node": "^20.11.5",
     "electron": "^28.2.0",
     "electron-builder": "^24.9.1",
