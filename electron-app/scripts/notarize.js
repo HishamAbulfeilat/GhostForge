@@ -4,7 +4,6 @@
 // and APPLE_TEAM_ID environment variables, then uncomment the
 // notarize call below.
 
-const { notarize } = require('@electron/notarize');
 
 exports.default = async function notarizing(context) {
   const { electronPlatformName, appOutDir } = context;
@@ -18,6 +17,8 @@ exports.default = async function notarizing(context) {
     return;
   }
 
+  // Loaded lazily: @electron/notarize is only needed when credentials are set
+  const { notarize } = require('@electron/notarize');
   const appName = context.packager.appInfo.productFilename;
 
   console.log(`Notarizing ${appName}...`);

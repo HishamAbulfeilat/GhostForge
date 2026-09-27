@@ -59,27 +59,9 @@ npx tsc
 echo "TypeScript compiled ✓"
 echo ""
 
-# ── Build web assets ──────────────────────────────────────────────────────
-
-WEB_UI_DIR="$PROJECT_DIR/../web-ui"
-if [ -d "$WEB_UI_DIR" ]; then
-  echo "Building web UI..."
-  cd "$WEB_UI_DIR"
-  npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
-  npm run build
-
-  # Copy android-web assets into the web UI output for Capacitor
-  if [ -d "$PROJECT_DIR/android-web" ]; then
-    OUT_DIR="$WEB_UI_DIR/out"
-    mkdir -p "$OUT_DIR"
-    cp -r "$PROJECT_DIR/android-web/"* "$OUT_DIR/" 2>/dev/null || true
-    echo "Android web assets copied to $OUT_DIR"
-  fi
-
-  cd "$PROJECT_DIR"
-  echo "Web UI built ✓"
-  echo ""
-fi
+# ── Web assets ────────────────────────────────────────────────────────────
+# Capacitor serves android-web/ directly (webDir in capacitor.config.json).
+# The Next.js web UI is a server app and is reached over the network.
 
 # ── Initialize Capacitor if needed ───────────────────────────────────────
 

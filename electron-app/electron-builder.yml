@@ -5,6 +5,8 @@ copyright: Copyright © 2024 GhostForge
 directories:
   output: release
 
+afterSign: scripts/notarize.js
+
 files:
   - dist/**/*
   - android-web/**/*
@@ -18,12 +20,10 @@ mac:
   target:
     - dmg
     - zip
-  afterSign: scripts/notarize.js
   extendInfo:
     NSMicrophoneUsageDescription: GhostForge JARVIS needs microphone access for voice commands
     NSScreenCaptureUsageDescription: GhostForge JARVIS captures your screen to understand context
     NSSpeechRecognitionUsageDescription: GhostForge JARVIS uses speech recognition for voice commands
-    NSCameraUsageDescription: GhostForge JARVIS uses your camera for visual input
 
 win:
   icon: build/icon.ico
@@ -49,10 +49,7 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: GhostForge JARVIS
-  customNsisBinary: build/windows-installer.nsh
-
-appImage:
-  license: LICENSE
+  include: build/windows-installer.nsh
 
 snap:
   confinement: strict
@@ -61,7 +58,6 @@ snap:
     - network
     - audio-record
     - screen-capture
-    - camera
     - desktop
 
 extraResources:
