@@ -250,7 +250,7 @@ export default function VoiceboxPanel({ ringColor = '#1a6fff', onVoiceSelected }
             type="button"
             onClick={() => void refreshStatus()}
             disabled={connecting}
-            className="ml-1 rounded border px-1.5 py-0.5 transition disabled:opacity-40"
+            className="ms-1 rounded border px-1.5 py-0.5 transition disabled:opacity-40"
             style={{ borderColor: `${ringColor}33`, color: `${ringColor}88`, fontSize: 8 }}
           >
             {connecting ? '...' : 'REFRESH'}
@@ -335,7 +335,7 @@ export default function VoiceboxPanel({ ringColor = '#1a6fff', onVoiceSelected }
                 >
                   {p.name}
                   {jarvisVoice === p.id && (
-                    <span className="ml-1" style={{ color: '#00ff88', fontSize: 8 }}>JARVIS</span>
+                    <span className="ms-1" style={{ color: '#00ff88', fontSize: 8 }}>JARVIS</span>
                   )}
                 </button>
               ))}

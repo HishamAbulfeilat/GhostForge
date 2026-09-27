@@ -204,7 +204,7 @@ export default function TerminalPage() {
               {tabs.length > 1 && (
                 <button type="button"
                   onClick={e => { e.stopPropagation(); closeTab(tab.id) }}
-                  className="ml-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-red-400 transition"
+                  className="ms-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-red-400 transition"
                 >✕</button>
               )}
             </div>
@@ -212,7 +212,7 @@ export default function TerminalPage() {
         })}
         <button type="button"
           onClick={addTab}
-          className="ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-600 hover:bg-gray-800 hover:text-white transition"
+          className="ms-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-600 hover:bg-gray-800 hover:text-white transition"
           title="New terminal"
         >+</button>
       </div>

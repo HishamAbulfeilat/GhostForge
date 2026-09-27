@@ -78,7 +78,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
       const closeBtn = document.createElement('button')
       closeBtn.type = 'button'
-      closeBtn.className = 'ml-1 text-white/40 hover:text-white/80 transition-colors'
+      closeBtn.className = 'ms-1 text-white/40 hover:text-white/80 transition-colors'
       closeBtn.textContent = '✕'
       closeBtn.setAttribute('aria-label', 'Dismiss notification')
       closeBtn.addEventListener('click', () => toast.remove())
@@ -159,7 +159,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
                           {new Date(n.ts).toLocaleTimeString()}
                         </p>
                       </div>
-                      <button onClick={() => dismiss(n.id)} className="ml-1 text-white/20 hover:text-white/60 transition-colors">✕</button>
+                      <button onClick={() => dismiss(n.id)} className="ms-1 text-white/20 hover:text-white/60 transition-colors">✕</button>
                     </div>
                   </div>
                 ))

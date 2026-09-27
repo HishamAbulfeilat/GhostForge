@@ -165,7 +165,7 @@ const ToolResult: React.FC<ToolResultProps> = ({
               {headers.map((h, i) => (
                 <th
                   key={i}
-                  className="px-3 py-2 text-left text-gray-400 font-medium border-b border-[#1a1a2e] bg-[#0a0a0f]"
+                  className="px-3 py-2 text-start text-gray-400 font-medium border-b border-[#1a1a2e] bg-[#0a0a0f]"
                 >
                   {h}
                 </th>
@@ -247,7 +247,7 @@ const ToolResult: React.FC<ToolResultProps> = ({
       {/* Header */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-white/[0.02] transition-colors text-left"
+        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-white/[0.02] transition-colors text-start"
       >
         <span className={`${cfg.color} flex-shrink-0`}>{cfg.icon}</span>
         <span className="text-xs font-mono font-medium text-gray-300">{toolName}</span>
@@ -255,9 +255,9 @@ const ToolResult: React.FC<ToolResultProps> = ({
           {typeBadge[detectedType]}
         </span>
         {status === "running" && (
-          <span className="text-[10px] text-[#1a6fff] animate-pulse ml-1">running...</span>
+          <span className="text-[10px] text-[#1a6fff] animate-pulse ms-1">running...</span>
         )}
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ms-auto flex items-center gap-1">
           {!collapsed && (
             <button
               onClick={(e) => {
