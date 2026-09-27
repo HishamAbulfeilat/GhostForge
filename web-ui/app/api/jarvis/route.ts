@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateWithFallback } from '@/lib/ai'
 import { auditLog, assessRisk } from '@/lib/audit'
 import { checkRateLimit, getClientIP } from '@/lib/ratelimit'
-import { isAuthorizedRequest, getCurrentUser, hasPermission } from '@/lib/auth'
+import { isAuthorizedRequest, getCurrentUser, hasPermission, sessionTokenStatus, AUTH_COOKIE_NAME } from '@/lib/auth'
+import { isOwner } from '@/lib/users'
+import { speakerContext, toSpeaker, type Speaker } from '@/lib/speaker'
+import { PRIVILEGED_PERMISSIONS, hasStableAuthSecret, reportUnauthorizedAccess } from '@/lib/intrusion'
 import { permissionForTool } from '@/lib/tool-permissions'
 import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
@@ -403,9 +406,12 @@ function detectDeviceFromUA(ua: string): { isMobile: boolean; isMac: boolean; is
 function buildSystemPrompt(
   memory: Record<string, unknown>,
   domain?: Domain,
-  options?: { lang?: string; isMobile?: boolean; isMac?: boolean; lastResponse?: string; bypassPlanning?: boolean; persona?: string },
+  options?: { lang?: string; isMobile?: boolean; isMac?: boolean; lastResponse?: string; bypassPlanning?: boolean; persona?: string; speaker?: Speaker | null },
 ): string {
-  const userName = (memory.userName as string) || 'sir'
+  // The authenticated account is the source of truth for who is talking —
+  // never the client-sent memory.userName, which anyone can set.
+  const speaker = options?.speaker
+  const userName = speaker?.name || (memory.userName as string) || 'sir'
   const lang = options?.lang || 'en'
   const isMobile = options?.isMobile ?? false
   const isMac = options?.isMac ?? true
@@ -475,6 +481,9 @@ OUTPUT: valid JSON only, starting with '{':
   // NOTE: lastResponse is deliberately NOT injected into the system prompt —
   // it is client-controlled content and would allow prompt injection. It is
   // passed to the model as an ordinary prior assistant message instead.
+  if (speaker) {
+    dynamic += speakerContext(speaker, speaker.owner ? speaker.name : (process.env.ADMIN_NAME || 'Hisham'))
+  }
   if (bypassPlanning) {
     dynamic += '\nUSER SAID: just do it — skip all clarifying questions, execute immediately with best defaults (React+Tailwind, modern design).'
   }
@@ -3479,20 +3488,27 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const userAgent = req.headers.get('user-agent') || undefined
   if (!isAuthorizedRequest(req)) {
-    // Log unauthorized access attempt
-    void auditLog({
-      level: 'security',
-      event: 'unauthorized_access_attempt',
-      ip,
-      userAgent: req.headers.get('user-agent') || undefined,
-      risk: 90,
-    })
+    const tokenStatus = sessionTokenStatus(req.cookies.get(AUTH_COOKIE_NAME)?.value)
+    if (tokenStatus === 'forged' && hasStableAuthSecret()) {
+      // A tampered session cookie is an intrusion: log it and lock the PC
+      void reportUnauthorizedAccess({ reason: 'jarvis: forged session token', ip, userAgent })
+    } else {
+      // Missing/expired session (e.g. a logged-out device) — log only
+      void auditLog({ level: 'security', event: 'unauthorized_access_attempt', ip, userAgent, params: { tokenStatus }, risk: 60 })
+    }
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   // ── Current user (role + permissions) — resolves admin vs limited user ──
   const currentUser = await getCurrentUser(req)
+  if (!currentUser) {
+    // Validly signed token for a deleted/deactivated account
+    void reportUnauthorizedAccess({ reason: 'jarvis: session for disabled or deleted account', ip, userAgent })
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const speaker: Speaker = toSpeaker(currentUser, isOwner(currentUser))
 
   let body: JarvisRequest
   try { body = await req.json() } catch { body = { message: '' } }
@@ -3532,6 +3548,9 @@ export async function POST(req: NextRequest) {
   const isMac = process.platform === 'darwin'
   const isMobile = clientPlatform ? ['ios', 'android'].includes(clientPlatform) : device.isMobile
 
+  // Identity comes from the login, not from client-sent memory
+  memory.userName = speaker.name
+
   // Update memory with language preference if Arabic
   if (detectedLang === 'ar' && !memory.preferredLang) {
     memory.preferredLang = 'ar'
@@ -3549,6 +3568,7 @@ export async function POST(req: NextRequest) {
     event: 'jarvis_request',
     result: message.slice(0, 80),
     ip: req.headers.get('x-forwarded-for') || 'local',
+    params: { username: speaker.username },
   })
 
   // ── Domain classification (fast, keyword-based) ────────────────────────────
@@ -3687,6 +3707,7 @@ export async function POST(req: NextRequest) {
           isMac,
           bypassPlanning: hasBypassPhrase(message),
           persona,
+          speaker,
         }),
         messages: [
           ...cappedHistory.slice(-5).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
@@ -3820,10 +3841,14 @@ export async function POST(req: NextRequest) {
           level: 'warn',
           event: 'tool_denied',
           tool: aiResp.tool,
-          params: aiResp.toolParams,
+          params: { ...aiResp.toolParams, username: speaker.username },
           ip: req.headers.get('x-forwarded-for') || 'local',
           risk: 40,
         })
+        if (PRIVILEGED_PERMISSIONS.has(neededPerm)) {
+          // Restricted user reaching for system control — treat as intrusion
+          void reportUnauthorizedAccess({ reason: `jarvis: ${speaker.username} attempted privileged tool without "${neededPerm}"`, tool: aiResp.tool, username: speaker.username, ip, userAgent })
+        }
         const deniedPayload: JarvisResponsePayload = {
           speech: `I can't do that — your account doesn't have permission for "${aiResp.tool.replace(/_/g, ' ')}". Ask an administrator to grant this permission.`,
           tool: null,

@@ -15,6 +15,7 @@ interface PublicUser {
   active: boolean
   createdAt: string
   lastSeen?: string
+  owner?: boolean
 }
 
 interface EditState {
@@ -35,6 +36,8 @@ export default function UsersPage() {
   const [users, setUsers] = useState<PublicUser[]>([])
   const [loading, setLoading] = useState(true)
   const [forbidden, setForbidden] = useState(false)
+  // Only the owner may change users; other admins get a read-only view
+  const [canManage, setCanManage] = useState(false)
   const [message, setMessage] = useState('')
   const [editing, setEditing] = useState<EditFunction | null>(null)
   const [creating, setCreating] = useState(false)
@@ -56,6 +59,7 @@ export default function UsersPage() {
       if (!res.ok) { setMessage('Failed to load users'); setLoading(false); return }
       const data = await res.json()
       setUsers(data.users)
+      setCanManage(Boolean(data.canManage))
     } catch {
       setMessage('Unable to load users')
     } finally {
@@ -134,7 +138,8 @@ export default function UsersPage() {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: u.id, password: pw }),
     })
-    setMessage(res.ok ? 'Password updated' : 'Failed to update password')
+    if (res.ok) setMessage('Password updated')
+    else { const d = await res.json().catch(() => null); setMessage(d?.error || 'Failed to update password') }
   }
 
   const toggleDevices = async (u: PublicUser) => {
@@ -175,25 +180,27 @@ export default function UsersPage() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">👥 Users</h1>
-            <p className="text-sm text-gray-400">Manage GhostForge accounts and permissions</p>
+            <p className="text-sm text-gray-400">{canManage ? 'Manage GhostForge accounts and permissions' : 'Read-only — only the owner can change users and permissions'}</p>
           </div>
           <div className="flex gap-2">
             <Link href="/chat"><span className="rounded-xl bg-gray-800 px-4 py-2 text-sm text-white hover:bg-gray-700">← Chat</span></Link>
-            <button onClick={() => setCreating(!creating)} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500">
-              {creating ? 'Cancel' : '+ New user'}
-            </button>
+            {canManage && (
+              <button onClick={() => setCreating(!creating)} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500">
+                {creating ? 'Cancel' : '+ New user'}
+              </button>
+            )}
           </div>
         </div>
 
         {message ? <p className="mb-4 rounded-xl bg-gray-900 px-4 py-2 text-sm text-sky-300">{message}</p> : null}
 
-        {creating && (
+        {creating && canManage && (
           <div className="mb-6 rounded-2xl border border-gray-800 bg-gray-900 p-5">
             <h3 className="mb-3 font-semibold text-white">New user</h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <input value={nuName} onChange={e => setNuName(e.target.value)} placeholder="Full name" className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 outline-none" />
               <input value={nuUsername} onChange={e => setNuUsername(e.target.value)} placeholder="Username" className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 outline-none" />
-              <input value={nuPassword} onChange={e => setNuPassword(e.target.value)} placeholder="Password" type="password" className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 outline-none" />
+              <input value={nuPassword} onChange={e => setNuPassword(e.target.value)} placeholder="Password (min 8 characters)" type="password" className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 outline-none" />
               <select value={nuRole} onChange={e => setNuRole(e.target.value as 'user' | 'admin')} className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white outline-none">
                 <option value="user">User (limited)</option>
                 <option value="admin">Admin (full access)</option>
@@ -232,6 +239,7 @@ export default function UsersPage() {
                       <div className="flex items-center gap-2 font-semibold text-white">
                         {u.name} <span className="text-gray-500">@{u.username}</span>
                         <span className={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ${u.role === 'admin' ? 'bg-amber-900/60 text-amber-300' : 'bg-blue-900/60 text-blue-300'}`}>{u.role}</span>
+                        {u.owner && <span className="rounded-md bg-emerald-900/60 px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-300">owner</span>}
                         <span className={`h-2 w-2 rounded-full ${u.active ? 'bg-emerald-400' : 'bg-red-400'}`} title={u.active ? 'Active' : 'Inactive'} />
                       </div>
                       <div className="text-xs text-gray-500">
@@ -240,13 +248,17 @@ export default function UsersPage() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => setEditing(u.role === 'admin' ? { userId: u.id, permissions: ['*'], role: 'admin' } : { userId: u.id, permissions: u.permissions, role: 'user' })}
-                      className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-white hover:bg-gray-700">Permissions</button>
+                    {canManage && !u.owner && (
+                      <button onClick={() => setEditing(u.role === 'admin' ? { userId: u.id, permissions: ['*'], role: 'admin' } : { userId: u.id, permissions: u.permissions, role: 'user' })}
+                        className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-white hover:bg-gray-700">Permissions</button>
+                    )}
                     <button onClick={() => void toggleDevices(u)} className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-white hover:bg-gray-700">
                       {devicesOpen === u.username ? 'Hide devices' : 'Devices'}
                     </button>
-                    <button onClick={() => void resetPassword(u)} className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-white hover:bg-gray-700">Reset password</button>
-                    {u.role !== 'admin' && (
+                    {canManage && (
+                      <button onClick={() => void resetPassword(u)} className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-white hover:bg-gray-700">Reset password</button>
+                    )}
+                    {canManage && !u.owner && (
                       <>
                         <button onClick={() => void toggleActive(u)} className={`rounded-lg px-3 py-1.5 text-xs ${u.active ? 'bg-amber-900/40 text-amber-200 hover:bg-amber-900/60' : 'bg-emerald-900/40 text-emerald-200 hover:bg-emerald-900/60'}`}>
                           {u.active ? 'Deactivate' : 'Activate'}
@@ -257,12 +269,12 @@ export default function UsersPage() {
                   </div>
                 </div>
 
-                {editing && editing.userId === u.id && (
+                {canManage && editing && editing.userId === u.id && (
                   <PermissionEditor editing={editing} setEditing={setEditing} onSave={() => void saveEdits()} />
                 )}
 
                 {devicesOpen === u.username && (
-                  <DevicePanel devices={devicesByUser[u.username] || []} onRemove={id => void removeDevice(u.username, id)} />
+                  <DevicePanel devices={devicesByUser[u.username] || []} onRemove={canManage ? id => void removeDevice(u.username, id) : undefined} />
                 )}
               </div>
             ))}
@@ -331,7 +343,7 @@ function platformIcon(p?: string): string {
   }
 }
 
-function DevicePanel({ devices, onRemove }: { devices: DeviceRecord[]; onRemove: (id: string) => void }) {
+function DevicePanel({ devices, onRemove }: { devices: DeviceRecord[]; onRemove?: (id: string) => void }) {
   if (!devices.length) {
     return (
       <div className="mt-4 rounded-lg border border-gray-800 bg-gray-950/60 p-4">
@@ -368,7 +380,7 @@ function DevicePanel({ devices, onRemove }: { devices: DeviceRecord[]; onRemove:
                 <div className="text-[11px] text-gray-600">First {new Date(d.firstSeen).toLocaleString()} · Last {new Date(d.lastSeen).toLocaleString()}</div>
               </div>
             </div>
-            <button onClick={() => onRemove(d.id)} className="rounded-lg bg-red-900/40 px-3 py-1.5 text-xs text-red-200 hover:bg-red-900/60">Remove</button>
+            {onRemove && <button onClick={() => onRemove(d.id)} className="rounded-lg bg-red-900/40 px-3 py-1.5 text-xs text-red-200 hover:bg-red-900/60">Remove</button>}
           </div>
         ))}
       </div>

@@ -10,7 +10,8 @@ import {
   type DeviceRecord,
   type HostInfo,
 } from '@/lib/devices'
-import { listUsers } from '@/lib/users'
+import { listUsers, isOwner } from '@/lib/users'
+import { reportUnauthorizedAccess } from '@/lib/intrusion'
 
 /**
  * Device registry API.
@@ -23,7 +24,7 @@ import { listUsers } from '@/lib/users'
  *        appends its own captured identity (IP, MAC/hostname when local).
  *        Requires a logged-in session.
  *   DELETE /api/devices?user=<username>&id=<deviceId>
- *        Admin only — remove a device record.
+ *        Owner only — remove a device record.
  */
 export async function GET(req: NextRequest) {
   const me = await getCurrentUser(req)
@@ -99,7 +100,10 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const me = await getCurrentUser(req)
-  if (!me || !isAdmin(me)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!me || !isOwner(me)) {
+    void reportUnauthorizedAccess({ reason: 'devices:delete by non-owner', username: me?.username, ip: getClientIP(req), userAgent: req.headers.get('user-agent') || undefined })
+    return NextResponse.json({ error: 'Only the owner can remove devices' }, { status: 403 })
+  }
 
   const { searchParams } = new URL(req.url)
   const username = searchParams.get('user')?.toLowerCase() || me.username

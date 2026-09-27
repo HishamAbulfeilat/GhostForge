@@ -58,6 +58,18 @@ export function verifyPassword(password: string, stored: string): boolean {
   return timingSafeEqual(derived, expected)
 }
 
+/**
+ * The owner is the one account allowed to manage other users' permissions and
+ * access. Other admins keep full tool access but cannot edit users.
+ */
+export function ownerUsername(): string {
+  return (process.env.ADMIN_USERNAME || DEFAULT_ADMIN_USERNAME).toLowerCase()
+}
+
+export function isOwner(user?: Pick<GhostUser, 'username' | 'role'> | null): boolean {
+  return Boolean(user && user.role === 'admin' && user.username.toLowerCase() === ownerUsername())
+}
+
 export function userIdFor(username: string): string {
   return 'u_' + createHash('sha1').update(username.toLowerCase()).digest('hex').slice(0, 12)
 }
@@ -192,12 +204,15 @@ export async function updateUser(
   const idx = users.findIndex(u => u.id === id)
   if (idx === -1) return null
   const current = users[idx]
-  const updated: GhostUser = {
-    ...current,
-    ...patch,
-    role: patch.role === 'admin' ? 'admin' : current.role,
-    permissions: patch.role === 'admin' ? ['*'] : patch.permissions ?? current.permissions,
+  // The owner account is always an active admin
+  if (isOwner(current)) {
+    patch = { ...patch, role: 'admin', active: true, permissions: ['*'] }
   }
+  const role: Role = patch.role === 'admin' || patch.role === 'user' ? patch.role : current.role
+  // Demoting an admin drops the '*' wildcard — fall back to the supplied set (or none)
+  const basePermissions = patch.permissions ?? current.permissions
+  const permissions = role === 'admin' ? ['*'] : basePermissions.filter(p => p !== '*')
+  const updated: GhostUser = { ...current, ...patch, role, permissions }
   users[idx] = updated
   await writeUsers(users)
   return updated
@@ -215,7 +230,7 @@ export async function setUserPassword(id: string, newPassword: string): Promise<
 export async function deleteUser(id: string): Promise<boolean> {
   const users = await listUsers()
   const target = users.find(u => u.id === id)
-  if (!target || target.role === 'admin') return false
+  if (!target || isOwner(target)) return false
   await writeUsers(users.filter(u => u.id !== id))
   return true
 }

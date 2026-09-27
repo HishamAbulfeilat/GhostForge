@@ -92,6 +92,25 @@ export function verifySessionToken(token?: string | null): SessionPayload | null
   }
 }
 
+/**
+ * Classify a session token. `forged` means it is present but its signature or
+ * payload is invalid — a tampering signal, unlike an ordinary missing/expired token.
+ */
+export function sessionTokenStatus(token?: string | null): 'missing' | 'forged' | 'expired' | 'valid' {
+  if (!token) return 'missing'
+  const [body, sig] = token.split('.')
+  if (!body || !sig) return 'forged'
+  const expected = Buffer.from(sign(body))
+  const given = Buffer.from(sig)
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return 'forged'
+  try {
+    const payload = JSON.parse(fromB64url(body).toString('utf8')) as SessionPayload
+    return payload.exp * 1000 < Date.now() ? 'expired' : 'valid'
+  } catch {
+    return 'forged'
+  }
+}
+
 export function isValidAuthToken(token?: string | null) {
   return Boolean(token && verifySessionToken(token))
 }

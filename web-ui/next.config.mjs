@@ -7,7 +7,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // share it through the environment, so API routes and the Edge middleware sign
 // and verify sessions with the same secret. Production still requires both.
 if (process.env.NODE_ENV !== 'production') {
-  if (!process.env.AUTH_SECRET) process.env.AUTH_SECRET = randomBytes(32).toString('hex')
+  if (!process.env.AUTH_SECRET) {
+    process.env.AUTH_SECRET = randomBytes(32).toString('hex')
+    // Old cookies won't verify after a restart — don't treat them as forged
+    process.env.GF_EPHEMERAL_AUTH_SECRET = '1'
+  }
   if (!process.env.ACCESS_PIN && !process.env.GF_DEV_ACCESS_PIN) {
     process.env.GF_DEV_ACCESS_PIN = randomBytes(3).toString('hex')
     console.log(`\n  ➜ Dev login PIN: ${process.env.GF_DEV_ACCESS_PIN}  (set ACCESS_PIN in .env.local to choose your own)\n`)
