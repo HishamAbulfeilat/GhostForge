@@ -36,20 +36,13 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
     "@types/node": "^20.11.5",
     "electron": "^28.2.0",
     "electron-builder": "^24.9.1",
     "typescript": "^5.3.3"
-  },
-  "build": {
-    "appId": "com.ghostforge.jarvis",
-    "productName": "GhostForge JARVIS",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "android-web/**/*"
-    ]
   }
 }
