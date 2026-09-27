@@ -8,6 +8,7 @@ import { appendFile, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
+import { macToolToMarkLiv, markLivRisk, parseMarkLivCall } from './mark-liv-risk'
 
 const AUDIT_DIR  = join(homedir(), '.ghostforge')
 const AUDIT_FILE = join(AUDIT_DIR, 'audit.log')
@@ -91,6 +92,20 @@ export function assessRisk(tool: string, params: Record<string, unknown>): RiskA
       reason: 'Dangerous destructive command detected. This could permanently damage your system.',
       requires_confirmation: true,
     }
+  }
+
+  // Mark-LIV computer control: files, messages, code, power and network ask first
+  if (tool === 'mark_liv') {
+    const { name, parameters } = parseMarkLivCall(params)
+    const reason = markLivRisk(name, parameters)
+    return reason
+      ? { risk: 55, level: 'warn', reason, requires_confirmation: true }
+      : { risk: 15, level: 'safe', reason: `Mark-LIV ${name || 'status'}`, requires_confirmation: false }
+  }
+  if (process.platform !== 'darwin') {
+    const mapped = macToolToMarkLiv(tool, params as Record<string, string>)
+    const reason = mapped ? markLivRisk(mapped.name, mapped.parameters) : null
+    if (reason) return { risk: 55, level: 'warn', reason, requires_confirmation: true }
   }
 
   // Tool-specific risk

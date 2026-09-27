@@ -13,6 +13,7 @@ import { join, resolve } from 'path'
 import { chooseBestInstalledModel } from '@/lib/local-runtime'
 import { getJarvisQuickAction } from '@/lib/quick-actions'
 import { getMarkLivAction, resolveMarkLivTool, markLivActionHint } from '@/lib/mark-liv-actions'
+import { macToolToMarkLiv, parseMarkLivCall } from '@/lib/mark-liv-risk'
 import { validateAppleScript } from '@/lib/apple-automation'
 import { getLiveBridgeToken } from '@/lib/bridge-token'
 
@@ -83,6 +84,16 @@ function safeHomePath(p: string): string | null {
 }
 
 // ── Tool catalog ──────────────────────────────────────────────────────────────
+
+/** How JARVIS drives a Windows/Linux host — Mark-LIV's action set via the bridge */
+const MARK_LIV_GUIDANCE = `COMPUTER CONTROL: call - mark_liv { tool, args } where args is a JSON object string. Tools:
+open_app {app_name} | computer_control {action: type|click|double_click|right_click|hotkey|press|scroll|screenshot, text, x, y, keys, key, direction, amount}
+computer_settings {action: volume_up|volume_down|volume_set|mute|brightness_up|brightness_down|minimize|maximize|close_window|switch_window|show_desktop|new_tab|close_tab|copy|paste|undo|save|screenshot|lock_screen|file_explorer|dark_mode|toggle_wifi|restart|shutdown, value}
+browser_control {action: go_to|search|click|type|scroll, url, query, text} | file_controller {action: list|read|create_file|create_folder|copy|move|rename|delete, path, destination, new_name, content}
+send_message {receiver, message_text, platform} | youtube_video {action: play|summarize|get_info|trending, query} | desktop_control {action: wallpaper|organize|clean|list|stats, path}
+web_search {query} | weather_report {city} | reminder {date, time, message} | code_helper {action: write|edit|explain|run, description, language, file_path}
+Example: {"speech":"Opening Chrome.","tool":"mark_liv","toolParams":{"tool":"open_app","args":"{\\"app_name\\":\\"Chrome\\"}"}}
+set_volume, type_text, mouse_click, key_combo, scroll, open_app, take_screenshot, lock_screen, play_music and send_whatsapp_message also work — they run through Mark-LIV automatically.`
 
 // Domain-filtered tool catalogs — only send relevant tools per domain (saves ~60% prompt tokens)
 const TOOLS_BY_DOMAIN: Record<string, string> = {
@@ -426,11 +437,14 @@ function buildSystemPrompt(
         ? `LANGUAGE: Respond in ${lang.toUpperCase()}.`
         : ''
 
-    const deviceGuidance = isMac
+    // Tools run on the GhostForge host, so what matters is the host OS, not the browser's
+    const hostIsMac = process.platform === 'darwin'
+    const deviceGuidance = hostIsMac
       ? `HOST: Mac — all Mac, browser, shell, screen, and computer-use tools execute on the GhostForge host.${isMobile ? ' CLIENT: mobile remote control.' : ''}`
-      : `HOST: non-Mac — no AppleScript or Mac-only tools.`
+      : `HOST: ${process.platform === 'win32' ? 'Windows' : 'Linux'} PC — you fully control it through Mark-LIV. No AppleScript/mac_control.
+${MARK_LIV_GUIDANCE}${isMobile ? '\nCLIENT: mobile remote control.' : ''}`
 
-    const toolList = TOOLS_BY_DOMAIN[domain || 'general'] || TOOLS_BY_DOMAIN.general
+    const toolList = `${TOOLS_BY_DOMAIN[domain || 'general'] || TOOLS_BY_DOMAIN.general}${hostIsMac ? '' : ' | - mark_liv { tool, args }'}`
 
     const prompt = `${personaPrefix ? `${personaPrefix}\n` : ''}You are G.F.A.I. — GhostForge AI, JARVIS-style personal assistant.
 Intelligent, loyal, slightly witty. NOT a chatbot — you actually execute things.
@@ -593,6 +607,16 @@ async function webSearchDeep(query: string): Promise<string> {
 // ── Tool executor ─────────────────────────────────────────────────────────────
 
 async function executeTool(tool: string, params: Record<string, string>, currentUser?: { username?: string } | null): Promise<string> {
+  // Windows/Linux host: macOS-only tools run through the matching Mark-LIV action
+  if (process.platform !== 'darwin') {
+    const mapped = macToolToMarkLiv(tool, params)
+    if (mapped) {
+      const { runMarkLiv } = await import('@/lib/mark-liv-bridge')
+      return runMarkLiv(mapped.name, mapped.parameters)
+    }
+    if (tool === 'mac_control') return 'mac_control (AppleScript) only works on macOS — use mark_liv to control this PC.'
+  }
+
   switch (tool) {
 
     case 'get_time':
@@ -3200,16 +3224,14 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
 
     // ── Mark-LIV engine (vendored JARVIS) ─────────────────────────────────
     case 'mark_liv': {
-      const { markLivStatus, markLivActionHint } = await import('@/lib/mark-liv-actions')
-      const action = String(params.action || 'status').toLowerCase()
-      if (action === 'status') return markLivStatus()
-      if (action === 'run') {
-        const id = String(params.id || '').trim()
-        if (!id) return markLivStatus()
-        const hint = markLivActionHint(id)
-        return hint ?? `Unknown Mark-LIV action: ${id}. Use status to list the registry.`
+      // Runs a real Mark-LIV action through the bridge: { tool, args } (args = JSON string)
+      const { runMarkLiv, markLivCatalog } = await import('@/lib/mark-liv-bridge')
+      const { name, parameters } = parseMarkLivCall(params)
+      if (!name || name === 'status' || name === 'list') {
+        const catalog = await markLivCatalog()
+        return catalog ? `Mark-LIV tools:\n${catalog}` : 'Mark-LIV bridge is not running and could not be started.'
       }
-      return `Unknown mark_liv action: ${action}. Use status or run { id }.`
+      return runMarkLiv(name, parameters)
     }
 
     default:
@@ -3741,10 +3763,12 @@ export async function POST(req: NextRequest) {
         blocked: risk.level === 'danger' && !confirmRisk,
       })
 
-      if (risk.level === 'danger' && !confirmRisk) {
+      if ((risk.level === 'danger' || risk.requires_confirmation) && !confirmRisk) {
         rememberPendingConfirmation(clientId, aiResp.tool, aiResp.toolParams || {})
         const blockedPayload: JarvisResponsePayload = {
-          speech: `I've detected a high-risk operation: ${risk.reason} Please confirm if you want me to proceed.`,
+          speech: risk.level === 'danger'
+            ? `I've detected a high-risk operation: ${risk.reason} Please confirm if you want me to proceed.`
+            : `${risk.reason.replace(/\.$/, '')}. Say "confirm" and I'll go ahead.`,
           tool: aiResp.tool,
           toolParams: aiResp.toolParams || {},
           toolResult: null,
