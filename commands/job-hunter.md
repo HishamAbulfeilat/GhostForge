@@ -21,6 +21,12 @@ ghostforge jobs <command> [options]
 | `prepare <id>` | Tailor CV + cover letter for one job |
 | `approve <id> [--yes]` | Fill the application form (submits on Lever, Greenhouse and Ashby when everything is answered) |
 | `dismiss <id>` | Hide a job |
+| `model [provider/model \| default]` | Use any AI model you have (e.g. `groq/llama-3.3-70b-versatile`, `ollama/qwen3:8b`, `custom/<id>`); `default` follows Settings |
+| `autopilot on [--every H] [--limit N] [--min-score S]` | Fully automated: search, prepare and submit on a schedule |
+| `autopilot off \| run \| status` | Stop, run one pass now, or show the last run |
+
+## Autopilot
+Off until you turn it on. Every run searches, prepares the best matches and **submits** High-fit applications scoring at or above your minimum, up to your daily limit, on Lever, Greenhouse and Ashby. LinkedIn, Workday and other sites need a login or captcha, so they stay prepared in your queue. It runs while the GhostForge web UI server is running (set `GF_JOB_AUTOPILOT=0` to disable the scheduler).
 
 ## Sources
 Remotive, RemoteOK, The Muse, Arbeitnow and Greenhouse/Lever company boards need no key.
@@ -36,4 +42,4 @@ ghostforge jobs show 3f9a12bc
 ghostforge jobs approve 3f9a12bc
 ```
 
-Nothing is submitted without your approval of that specific job. LinkedIn and Workday applications are opened for you to finish.
+Without autopilot, nothing is submitted until you approve that specific job. LinkedIn and Workday applications are always opened for you to finish.

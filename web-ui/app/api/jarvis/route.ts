@@ -856,7 +856,9 @@ end tell`
         const top = jobs.filter(j => j.fit === 'High' || j.fit === 'Medium').sort((a, b) => b.score - a.score).slice(0, 5)
         return top.length ? top.map(j => `${j.title} at ${j.company} (${j.fit}, ${j.location})`).join('; ') : 'No good matches yet — ask me to search.'
       }
-      return `${ready.length} applications waiting for your approval, ${needs.length} need you to finish, ${applied.length} submitted. Open the Jobs page to review.`
+      const { autopilot } = await jh.getProfile(username)
+      const auto = autopilot.enabled ? ` Autopilot is on (every ${autopilot.intervalHours}h, up to ${autopilot.dailyLimit} a day).` : ' Autopilot is off.'
+      return `${ready.length} applications waiting for your approval, ${needs.length} need you to finish, ${applied.length} submitted.${auto} Open the Jobs page to review.`
     }
 
     case 'career': {

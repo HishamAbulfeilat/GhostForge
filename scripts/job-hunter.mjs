@@ -67,6 +67,15 @@ ${c.bold('Hunt')}
   jobs approve <id> [--yes]            Fill the application (submits where safe)
   jobs dismiss <id>
 
+${c.bold('Automate')}
+  jobs model [provider/model | default] Show or set the AI model (e.g. groq/llama-3.3-70b-versatile,
+                                       ollama/qwen3:8b, custom/<id>); "default" follows Settings
+  jobs autopilot status                Show autopilot settings and the last run
+  jobs autopilot on [--every 12] [--limit 5] [--min-score 75]
+                                       Search + apply on a schedule while the web UI server runs
+  jobs autopilot off
+  jobs autopilot run                   One full autopilot pass now (searches and submits)
+
 ${c.bold('Options')}
   --user <username>                    GhostForge account (default: the owner)
 
@@ -116,7 +125,7 @@ async function main() {
       const file = rest[0]
       if (!file || !existsSync(file)) throw new Error('Usage: jobs cv <path to your CV>')
       console.log(c.dim('Reading CV…'))
-      const { profile, insights } = await jh.importCv(user, basename(file), readFileSync(file), generate === null ? null : jh.aiGenerate)
+      const { profile, insights } = await jh.importCv(user, basename(file), readFileSync(file), generate)
       const a = profile.applicant
       console.log(`${c.green('✓')} ${profile.cv.fileName} (${profile.cv.text.length} characters)`)
       console.log(`  ${a.firstName} ${a.lastName} · ${a.email || c.yellow('no email')} · ${a.phone || c.yellow('no phone')}`)
@@ -201,6 +210,55 @@ Dealbreakers: ${p.dealbreakers.join(', ') || 'none'} · company boards: ${p.comp
       const color = r.job.status === 'submitted' ? c.green : r.job.status === 'needs_user' ? c.yellow : c.red
       console.log(color(r.message))
       if (r.missing.length) console.log(c.yellow(`Still needed: ${r.missing.join(', ')}`))
+      return
+    }
+    case 'model': {
+      const arg = rest[0]
+      if (arg) {
+        let model = null
+        if (arg !== 'default') {
+          const i = arg.indexOf('/')
+          if (i < 1) throw new Error('Use provider/model, e.g. groq/llama-3.3-70b-versatile, or "default"')
+          model = { provider: arg.slice(0, i), model: arg.slice(i + 1) }
+        }
+        await jh.saveProfile(user, { model })
+      }
+      const { model } = await jh.getProfile(user)
+      console.log(model ? `Job Hunter model: ${c.bold(`${model.provider}/${model.model}`)}` : 'Job Hunter model: default (the model selected in Settings)')
+      return
+    }
+    case 'autopilot': {
+      const ap = await import(pathToFileURL(join(WEB, 'lib', 'job-hunter', 'autopilot.ts')).href)
+      const sub = rest[0] || 'status'
+      const profile = await jh.getProfile(user)
+      const clampInt = (v, min, max, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d }
+      if (sub === 'on' || sub === 'off') {
+        const cur = profile.autopilot
+        const next = {
+          ...cur,
+          enabled: sub === 'on',
+          intervalHours: flags.every !== undefined ? clampInt(flags.every, 1, 168, cur.intervalHours) : cur.intervalHours,
+          dailyLimit: flags.limit !== undefined ? clampInt(flags.limit, 1, 25, cur.dailyLimit) : cur.dailyLimit,
+          minScore: flags['min-score'] !== undefined ? clampInt(flags['min-score'], 50, 100, cur.minScore) : cur.minScore,
+        }
+        if (sub === 'on' && !flags.yes && !(await confirm(
+          `Autopilot will search every ${next.intervalHours}h and SUBMIT up to ${next.dailyLimit} applications/day ` +
+          `(High fit, score ${next.minScore}+, Lever/Greenhouse/Ashby) using your CV and details. Turn it on?`))) { console.log('Cancelled.'); return }
+        await jh.saveProfile(user, { autopilot: next })
+        console.log(sub === 'on' ? c.green('Autopilot on.') + c.dim(' It runs while the GhostForge web UI server is running (or use: jobs autopilot run).') : 'Autopilot off.')
+        return
+      }
+      if (sub === 'run') {
+        console.log(c.dim('Autopilot: searching, preparing and submitting…'))
+        const r = await ap.runAutopilot(user, { force: true, generate })
+        console.log(r.ran
+          ? `Found ${r.found} · ${r.matched} in your locations · prepared ${r.prepared} · ${c.green(`submitted ${r.submitted}`)}${r.needsUser ? c.yellow(` · ${r.needsUser} need you`) : ''}${r.failed ? c.red(` · ${r.failed} failed`) : ''}`
+          : c.yellow(r.reason))
+        return
+      }
+      const a = profile.autopilot
+      console.log(`Autopilot: ${a.enabled ? c.green('on') : 'off'} · every ${a.intervalHours}h · max ${a.dailyLimit}/day (${ap.submittedToday(a)} today) · min score ${a.minScore}`)
+      if (a.lastRunAt) console.log(c.dim(`Last run ${a.lastRunAt.slice(0, 16).replace('T', ' ')}: ${a.lastResult}`))
       return
     }
     case 'dismiss': {

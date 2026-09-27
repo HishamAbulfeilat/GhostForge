@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/access'
 import { approveJob, dismissJob, getProfile, listJobs, missingApplicantFields, prepareJob, runSearch } from '@/lib/job-hunter'
 import { jsearchKey } from '@/lib/job-hunter/sources'
+import { runAutopilot, submittedToday } from '@/lib/job-hunter/autopilot'
 
 export const dynamic = 'force-dynamic'
 // Searching, tailoring and form filling can take a few minutes
@@ -15,6 +16,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     jobs: jobs.filter(j => j.status !== 'dismissed').sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
     ready: { hasCv: Boolean(profile.cv), missing: missingApplicantFields(profile), titles: profile.preferences.titles },
+    model: profile.model,
+    autopilot: { ...profile.autopilot, submittedToday: submittedToday(profile.autopilot) },
     sources: { linkedInViaJSearch: Boolean(jsearchKey()) },
   })
 }
@@ -50,6 +53,9 @@ export async function POST(req: NextRequest) {
       case 'approve':
         if (!body.id) return NextResponse.json({ error: 'Job id required' }, { status: 400 })
         return NextResponse.json(await approveJob(user.username, body.id))
+      case 'autopilot':
+        // "Run now": one full autopilot pass, even if not due (or switched off)
+        return NextResponse.json({ report: await runAutopilot(user.username, { force: true }) })
       case 'dismiss':
         if (!body.id) return NextResponse.json({ error: 'Job id required' }, { status: 400 })
         return NextResponse.json({ job: await dismissJob(user.username, body.id) })
