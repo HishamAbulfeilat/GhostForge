@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">GhostForge JARVIS</string>
+    <string name="title_activity_main">GhostForge JARVIS</string>
+    <string name="package_name">com.ghostforge.jarvis</string>
+    <string name="custom_url_scheme">com.ghostforge.jarvis</string>
+</resources>
