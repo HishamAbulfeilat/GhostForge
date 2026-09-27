@@ -70,8 +70,48 @@ export interface AutopilotSettings {
 
 export const DEFAULT_AUTOPILOT: AutopilotSettings = { enabled: false, intervalHours: 12, dailyLimit: 5, minScore: 75 }
 
+export interface CvFile { text: string; fileName: string; filePath: string; uploadedAt: string }
+
+export interface CvReview {
+  /** 0-100 overall quality (clarity, impact, ATS-readiness) */
+  score: number
+  summary: string
+  strengths: string[]
+  issues: string[]
+  suggestions: string[]
+}
+
+export interface ImprovedCv { text: string; review: CvReview; createdAt: string }
+
+export interface GithubProfileDraft {
+  username: string
+  readme: string
+  bio: string
+  location: string
+  blog: string
+  company: string
+  updatedAt: string
+  publishedAt?: string
+}
+
+export interface GithubDesign {
+  style: string
+  name: string
+  /** Why this design suits the person (set on the recommended one) */
+  why: string
+  recommended: boolean
+  readme: string
+}
+
 export interface JobProfile {
-  cv: { text: string; fileName: string; filePath: string; uploadedAt: string } | null
+  cv: CvFile | null
+  githubProfile?: GithubProfileDraft | null
+  /** The latest set of generated profile designs to choose from */
+  githubDesigns?: GithubDesign[] | null
+  /** Latest AI review + rewrite (not used until adopted) */
+  improvedCv?: ImprovedCv | null
+  /** The user's own CV, kept when an improved version is adopted */
+  originalCv?: CvFile | null
   applicant: ApplicantData
   preferences: JobPreferences
   /** Answers the user approved for unusual questions, reused on later forms */
@@ -162,6 +202,10 @@ export async function getProfile(username: string): Promise<JobProfile> {
   const stored = await readJson<Partial<JobProfile>>(join(userDir(username), 'profile.json'), {})
   return {
     cv: stored.cv ?? null,
+    improvedCv: stored.improvedCv ?? null,
+    githubProfile: stored.githubProfile ?? null,
+    githubDesigns: stored.githubDesigns ?? null,
+    originalCv: stored.originalCv ?? null,
     applicant: { ...EMPTY_APPLICANT, ...(stored.applicant || {}) },
     preferences: { ...EMPTY_PREFERENCES, ...(stored.preferences || {}) },
     customAnswers: stored.customAnswers || {},

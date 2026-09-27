@@ -25,6 +25,14 @@ ghostforge jobs <command> [options]
 | `autopilot on [--every H] [--limit N] [--min-score S]` | Fully automated: search, prepare and submit on a schedule |
 | `autopilot off \| run \| status` | Stop, run one pass now, or show the last run |
 
+## Improve your CV
+`ghostforge jobs improve` gives an honest review (score, strengths, issues) and a rewritten CV that reorganizes and sharpens what your CV already says - it never invents employers, dates or numbers. `--adopt` makes it the CV used for tailoring and uploads (as .docx); `--restore` switches back. Also in the web UI under Jobs, Improve CV.
+
+## GitHub profile
+`ghostforge jobs github <username>` writes your profile README (the `<username>/<username>` repository GitHub shows on your profile) from your CV and your real public repos, in five designs: Clean & minimal, Badge wall, Terminal, Visual showcase and Storyteller. The one that best fits your skills and personality is marked recommended; `--creative` adds a free-form design written by the AI. `--style <name> --publish` creates the repository and publishes it with your `gh` login (and updates your bio/location/website when the login allows). In the web UI: Jobs, GitHub profile - with live previews rendered by GitHub.
+
+Widgets used (all verified to render on GitHub): skillicons.dev, shields.io, github-profile-summary-cards, streak-stats, readme-typing-svg, capsule-render, ghchart.
+
 ## Autopilot
 Off until you turn it on. Every run searches, prepares the best matches and **submits** High-fit applications scoring at or above your minimum, up to your daily limit, on Lever, Greenhouse and Ashby. LinkedIn, Workday and other sites need a login or captcha, so they stay prepared in your queue. It runs while the GhostForge web UI server is running (set `GF_JOB_AUTOPILOT=0` to disable the scheduler).
 

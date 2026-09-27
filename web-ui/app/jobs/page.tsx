@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ApplicantData, AutopilotSettings, JobPreferences, JobRecord, ModelChoice } from '@/lib/job-hunter/store'
+import { CvImprover } from '@/components/career/CvImprover'
+import { GithubProfileSetup } from '@/components/career/GithubProfileSetup'
 
 // Layout and tokens follow the "GhostForge Job Hunter & Setup" Claude Design canvas.
 
@@ -68,6 +70,7 @@ export default function JobsPage() {
   const [dealbreakers, setDealbreakers] = useState('')
   const [companies, setCompanies] = useState('')
   const [applicant, setApplicant] = useState<ApplicantData | null>(null)
+  const [section, setSection] = useState<'jobs' | 'cv' | 'github'>('jobs')
   const [model, setModel] = useState<ModelChoice | null>(null)
   const [autopilot, setAutopilot] = useState<(AutopilotSettings & { submittedToday: number }) | null>(null)
 
@@ -193,7 +196,20 @@ export default function JobsPage() {
         </div>
       )}
 
-      {job ? (
+      <nav aria-label="Job Hunter sections" className="flex gap-1 border-b border-gf-line px-4 pt-4 lg:px-8">
+        {([['jobs', 'Find jobs'], ['cv', 'Improve CV'], ['github', 'GitHub profile']] as const).map(([k, label]) => (
+          <button key={k} type="button" aria-current={section === k ? 'page' : undefined} onClick={() => { setSection(k); setSelected(null) }}
+            className={`-mb-px min-h-11 border-b-2 px-4 text-sm font-medium ${section === k ? 'border-gf-accent text-gf-ink' : 'border-transparent text-gf-muted hover:text-gf-ink'}`}>
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {section === 'cv' ? (
+        <CvImprover />
+      ) : section === 'github' ? (
+        <GithubProfileSetup />
+      ) : job ? (
         <Review job={job} busy={busy} onBack={() => setSelected(null)}
           onApprove={() => void act('approve', job.id)} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)} />
       ) : (
