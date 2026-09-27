@@ -75,10 +75,10 @@ function ModelList({ models, provider, active, disabled, onSelect }: {
           return (
             <button key={m.id} type="button" disabled={isActive || disabled} onClick={() => onSelect({ provider, model: m.id })}
               title={disabled ? 'Add a key for this provider first' : `Use ${m.id}`}
-              className={`flex w-full items-center gap-2 border-b border-white/[0.03] px-3 py-1.5 text-left text-xs transition last:border-0 disabled:cursor-default ${isActive ? 'bg-emerald-950/40 text-emerald-300' : disabled ? 'text-gray-600' : 'text-gray-300 hover:bg-white/[0.04]'}`}>
+              className={`flex w-full items-center gap-2 border-b border-white/[0.03] px-3 py-1.5 text-start text-xs transition last:border-0 disabled:cursor-default ${isActive ? 'bg-emerald-950/40 text-emerald-300' : disabled ? 'text-gray-600' : 'text-gray-300 hover:bg-white/[0.04]'}`}>
               <span className="truncate">{m.label}</span>
               {m.label !== m.id && <code className="truncate text-[10px] text-gray-600">{m.id}</code>}
-              {m.free && <span className="ml-auto shrink-0 rounded bg-sky-950/60 px-1.5 text-[10px] text-sky-300">free</span>}
+              {m.free && <span className="ms-auto shrink-0 rounded bg-sky-950/60 px-1.5 text-[10px] text-sky-300">free</span>}
               {isActive && <span className="shrink-0 text-[10px]">✓ active</span>}
             </button>
           )
@@ -123,7 +123,7 @@ function ProviderCard({ provider, active, canEditKeys, onSelect, onKeySaved }: {
 
   return (
     <div className={`rounded-lg border p-3 ${active.provider === provider.id ? 'border-emerald-800/50 bg-emerald-950/10' : 'border-white/[0.06] bg-[#080d18]'}`}>
-      <button type="button" onClick={() => setOpen(o => !o)} className="flex w-full flex-wrap items-center gap-2 text-left">
+      <button type="button" onClick={() => setOpen(o => !o)} className="flex w-full flex-wrap items-center gap-2 text-start">
         <span className={`h-2 w-2 rounded-full ${provider.available ? 'bg-emerald-400' : 'bg-gray-700'}`} />
         <span className="text-sm font-bold text-gray-200">{provider.name}</span>
         <span className={`rounded px-1.5 py-0.5 text-[10px] ${provider.paid ? 'bg-amber-950/60 text-amber-300' : 'bg-sky-950/60 text-sky-300'}`}>
@@ -133,7 +133,7 @@ function ProviderCard({ provider, active, canEditKeys, onSelect, onKeySaved }: {
         {provider.models.length > 0 && (
           <span className="text-[10px] text-gray-500">· {provider.models.length} models{freeCount ? ` (${freeCount} free)` : ''}</span>
         )}
-        <span className="ml-auto text-xs text-gray-600">{open ? '▾' : '▸'}</span>
+        <span className="ms-auto text-xs text-gray-600">{open ? '▾' : '▸'}</span>
       </button>
 
       {open && (
@@ -220,7 +220,7 @@ function CustomModels({ models, active, canEdit, onSelect, onChanged }: {
             <span className="font-semibold text-gray-200">{m.name}</span>
             <code className="text-[10px] text-gray-500">{m.model} @ {m.baseURL}</code>
             {m.free && <span className="rounded bg-sky-950/60 px-1.5 text-[10px] text-sky-300">free</span>}
-            <div className="ml-auto flex gap-2">
+            <div className="ms-auto flex gap-2">
               {canEdit && (
                 <button type="button" disabled={!!busy} className={`${button} border-white/10 text-gray-300`}
                   onClick={async () => {
@@ -324,7 +324,7 @@ export default function AIProvidersPanel() {
       <div className="rounded-lg border border-emerald-800/40 bg-emerald-950/20 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-[10px] font-semibold uppercase tracking-widest text-emerald-600">Chat &amp; JARVIS model</p>
-          <div className="ml-auto flex gap-2">
+          <div className="ms-auto flex gap-2">
             {!data.isDefault && (
               <button type="button" onClick={useAutomatic} className={`${button} border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/30`}>Use automatic free models</button>
             )}
@@ -354,7 +354,7 @@ export default function AIProvidersPanel() {
           <span className="text-sm font-bold text-gray-200">Ollama (local)</span>
           <span className="rounded bg-sky-950/60 px-1.5 py-0.5 text-[10px] text-sky-300">free · private</span>
           <span className="text-[10px] text-gray-500">{data.ollama.running ? `${data.ollama.models.length} installed` : 'not running'}</span>
-          <a href="/models" className="ml-auto text-[11px] text-sky-500 hover:underline">Install models →</a>
+          <a href="/models" className="ms-auto text-[11px] text-sky-500 hover:underline">Install models →</a>
         </div>
         {data.ollama.models.length > 0 ? (
           <ModelList models={data.ollama.models.map(id => ({ id, label: id, free: true }))} provider="ollama" active={data.active} disabled={false} onSelect={select} />
@@ -371,7 +371,7 @@ export default function AIProvidersPanel() {
           <span className="text-sm font-bold text-amber-200">OmniRoute</span>
           <span className="text-[10px] text-gray-500">optional gateway · {data.omniroute.up ? `running at ${data.omniroute.url}` : 'not running (start with: omniroute serve)'}</span>
           {data.omniroute.up && (
-            <a href={data.omniroute.dashboard} target="_blank" rel="noreferrer" className="ml-auto text-[11px] text-amber-300 hover:underline">Dashboard ↗</a>
+            <a href={data.omniroute.dashboard} target="_blank" rel="noreferrer" className="ms-auto text-[11px] text-amber-300 hover:underline">Dashboard ↗</a>
           )}
         </div>
         {data.omniroute.up && omni && omni.models.length > 0 && (

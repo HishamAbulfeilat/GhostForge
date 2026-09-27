@@ -185,7 +185,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
               {f.name}
               <button
                 onClick={() => removeFile(i)}
-                className="ml-1 text-gray-500 hover:text-red-400 transition-colors"
+                className="ms-1 text-gray-500 hover:text-red-400 transition-colors"
               >
                 &times;
               </button>

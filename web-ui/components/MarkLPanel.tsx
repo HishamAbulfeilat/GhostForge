@@ -83,7 +83,7 @@ export default function MarkLPanel({ onRunAction, disabled = false, ringColor = 
         >
           ALL
         </button>
-        <div className="flex items-center gap-1.5 ml-auto">
+        <div className="flex items-center gap-1.5 ms-auto">
           <Workflow size={11} style={{ color: ringColor, opacity: 0.6 }} />
           <span className="text-[8px]" style={{ color: `${ringColor}66` }}>N8N</span>
           <span className="h-1.5 w-1.5 rounded-full bg-green-500/60" title="n8n workflows available" />
