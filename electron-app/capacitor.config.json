@@ -1,15 +1,12 @@
 {
   "appId": "com.ghostforge.jarvis",
   "appName": "GhostForge JARVIS",
-  "webDir": "../web-ui/out",
+  "webDir": "android-web",
   "server": {
     "androidScheme": "https",
     "allowNavigation": ["localhost", "127.0.0.1"]
   },
   "plugins": {
-    "CapacitorCamera": {
-      "permissions": ["camera"]
-    },
     "CapacitorMicrophone": {
       "permissions": ["microphone"]
     },
@@ -26,8 +23,7 @@
   },
   "android": {
     "allowMixedContent": true,
-    "captureInput": true,
-    "webContentsDebuggingEnabled": true
+    "captureInput": true
   },
   "ios": {
     "contentInset": "automatic",

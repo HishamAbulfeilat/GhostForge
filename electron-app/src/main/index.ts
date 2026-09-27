@@ -195,15 +195,19 @@ function createMainWindow(): void {
     }
   });
 
-  // ── Electron-level permission handler (mic, camera, screen) ──────────────
+  // ── Electron-level permission handler (mic, screen — camera is never granted) ──
   const { session } = require('electron');
-  session.defaultSession.setPermissionRequestHandler((_webContents: any, permission: string, callback: (granted: boolean) => void) => {
-    const allowedPermissions = ['microphone', 'camera', 'screen-capture', 'media', 'mediaKeySystem', 'display-capture'];
+  const allowedPermissions = ['microphone', 'screen-capture', 'media', 'mediaKeySystem', 'display-capture'];
+  session.defaultSession.setPermissionRequestHandler((_webContents: any, permission: string, callback: (granted: boolean) => void, details: any) => {
+    // 'media' covers both mic and camera — deny any request that includes video
+    if (permission === 'media' && Array.isArray(details?.mediaTypes) && details.mediaTypes.includes('video')) {
+      return callback(false);
+    }
     callback(allowedPermissions.includes(permission));
   });
 
-  session.defaultSession.setPermissionCheckHandler((_webContents: any, permission: string) => {
-    const allowedPermissions = ['microphone', 'camera', 'screen-capture', 'media', 'mediaKeySystem', 'display-capture'];
+  session.defaultSession.setPermissionCheckHandler((_webContents: any, permission: string, _origin: string, details: any) => {
+    if (permission === 'media' && details?.mediaType === 'video') return false;
     return allowedPermissions.includes(permission);
   });
 
