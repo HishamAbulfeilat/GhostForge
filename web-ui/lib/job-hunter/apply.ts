@@ -202,7 +202,8 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
         if (f.type === 'radio') {
           const group = await loc.getAttribute('name') || label
           if (handledRadioGroups.has(group)) continue
-          const radios = page.locator(`input[type="radio"][name="${group.replace(/"/g, '\\"')}"]`)
+          // Escape backslashes before quotes so the attribute selector can't be broken out of
+          const radios = page.locator(`input[type="radio"][name="${group.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`)
           const n = await radios.count()
           for (let i = 0; i < n; i++) {
             const r = radios.nth(i)

@@ -37,20 +37,27 @@ export function stripHtml(html: string): string {
   return String(html || '')
     .replace(/<\s*(br|\/p|\/li|\/h\d)\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"')
+    // &amp; last, so "&amp;lt;" decodes to the text "&lt;" rather than "<"
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&')
     .replace(/[ \t]+/g, ' ')
     .replace(/\n\s*\n+/g, '\n')
     .trim()
 }
 
-/** Identify the applicant tracking system from an apply URL */
+/**
+ * Identify the applicant tracking system from an apply URL's hostname. The ATS
+ * decides whether a form may be auto-submitted, so it must come from the host
+ * itself — never from a substring anywhere in the URL (evil.com/?lever.co).
+ */
 export function detectAts(url: string): Ats {
-  const u = String(url || '').toLowerCase()
-  if (u.includes('lever.co')) return 'lever'
-  if (u.includes('greenhouse.io') || u.includes('gh_jid=')) return 'greenhouse'
-  if (u.includes('ashbyhq.com')) return 'ashby'
-  if (u.includes('myworkdayjobs.com') || u.includes('workday')) return 'workday'
-  if (u.includes('linkedin.com')) return 'linkedin'
+  let host = ''
+  try { host = new URL(url).hostname.toLowerCase() } catch { return 'other' }
+  const on = (domain: string) => host === domain || host.endsWith(`.${domain}`)
+  if (on('lever.co')) return 'lever'
+  if (on('greenhouse.io')) return 'greenhouse'
+  if (on('ashbyhq.com')) return 'ashby'
+  if (on('myworkdayjobs.com') || on('myworkdaysite.com')) return 'workday'
+  if (on('linkedin.com')) return 'linkedin'
   return 'other'
 }
 
