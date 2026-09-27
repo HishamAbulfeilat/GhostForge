@@ -126,7 +126,7 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   browser_ext: '- browser_automate { action, url?, selector?, text? } | - browser_control { action, url?, text? }',
   files_ext:   '- file_processor { action, file_path?, question?, output_format? } | - get_files { path? } | - read_file { path } | - office_document { action: "generate"|"list"|"read", type?: "memo"|"minutes"|"report"|"cover"|"contract", title?, name?, subject?, body?, ... }',
   office:      '- office_document { action: "generate", type?: "memo"|"minutes"|"report"|"cover"|"contract", title?, subject?, body?, to?, from?, ... } | - office_document { action: "list" } | - office_document { action: "read", file }',
-  career:      '- career { tool: "cv"|"track"|"gap"|"prep"|"linkedin", action, company?, role?, topic?, cv?, jd? }',
+  career:      '- career { tool: "cv"|"track"|"gap"|"prep"|"linkedin", action, company?, role?, topic?, cv?, jd? } | - job_hunter { action: "search"|"status"|"list", terms? }',
   hardware:    '- hardware_monitor { report_type? } | - get_system_info',
   n8n:         '- n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? }',
   design:      '- apply_design_md { site } | - list_design_md | - design_resources { category? }',
@@ -187,7 +187,7 @@ const DOMAIN_KEYWORDS: Record<Domain, string[]> = {
   contacts:    ['contact','find contact','phone number','email address','who is','contact info','address book'],
   ai_studio:   ['ai studio','ai studio app','gemini app','tuned model','fine tune','finetune','compare models','test prompt','update my ai studio'],
   office:      ['document','documents','memo','minutes','report','draft','cover letter','agreement','contract','office','write up','write a memo','generate a document','minutes of meeting'],
-  career:      ['career','cv','resume','job application','application tracker','interview prep','interview questions','linkedin post','linkedin content','career gap','job fit','company prep','applied'],
+  career:      ['career','cv','resume','job application','application tracker','interview prep','interview questions','linkedin post','linkedin content','career gap','job fit','company prep','applied','find jobs','find me a job','job search','job hunt','apply for jobs','jobs for me','open positions','hiring'],
   voice:       ['voice','speak','speech','say out loud','play audio','offline voice','voice pipeline','wake word','hey jarvis','text to speech','stt','tts','sound','audio'],
   memory:      ['remember that','remember','recall','semantic memory','long term memory','what do you remember','memory recall','remember i told you','store that','memory'],
   mcp:         ['mcp','model context protocol','tool server','community tools','expose tools','connect tools','mcp tool','mcp_call'],
@@ -218,7 +218,7 @@ const DOMAIN_EXTRA_GUIDANCE: Partial<Record<Domain, string>> = {
   browser_ext: 'Automate browser actions: open, click, type, navigate, screenshot.',
   files_ext:   'Read, summarize, ask questions about, or convert files.',
   office:      'Generate office documents (memo, minutes, report, cover letter, contract) with office_document. Fill in available fields from the user\'s words; infer sensible defaults for missing ones.',
-  career:      'Career tools: cv (version CV), track (job applications), gap (CV vs job description fit), prep (interview prep), linkedin (content calendar). Use career {tool, action, ...} matching the user\'s request.',
+  career:      'Career tools: cv (version CV), track (job applications), gap (CV vs job description fit), prep (interview prep), linkedin (content calendar). Use career {tool, action, ...} matching the user\'s request. To FIND jobs matching the user\'s CV and apply, use job_hunter {action:"search"} (action "status" shows applications waiting for approval). Applications are only sent after the user approves them on the Jobs page.',
   hardware:    'Report CPU, RAM, disk, GPU, fan speed, and full system stats.',
   n8n:         'Manage n8n workflows: list, create, trigger, deploy, notify, import templates, activate/deactivate.',
   email:       'Manage emails: list, read, send, reply, search, mark read/unread, star, get unread count.',
@@ -834,6 +834,29 @@ end tell`
       } catch {
         return res.stdout
       }
+    }
+
+    case 'job_hunter': {
+      const username = currentUser?.username
+      if (!username) return 'Sign in to use the Job Hunter.'
+      const jh = await import('@/lib/job-hunter')
+      const action = String(params.action || 'status')
+      if (action === 'search') {
+        const profile = await jh.getProfile(username)
+        if (!profile.cv) return 'Upload your CV on the Jobs page first, then I can search.'
+        const terms = params.terms ? String(params.terms).split(',').map(t => t.trim()).filter(Boolean) : undefined
+        const r = await jh.runSearch(username, { terms, autoPrepare: 3 })
+        return `Found ${r.found} jobs, ${r.matched} in your locations (${r.added} new). ${r.prepared} applications are prepared and waiting for your approval on the Jobs page.`
+      }
+      const jobs = await jh.listJobs(username)
+      const ready = jobs.filter(j => j.status === 'ready')
+      const needs = jobs.filter(j => j.status === 'needs_user')
+      const applied = jobs.filter(j => j.status === 'submitted')
+      if (action === 'list') {
+        const top = jobs.filter(j => j.fit === 'High' || j.fit === 'Medium').sort((a, b) => b.score - a.score).slice(0, 5)
+        return top.length ? top.map(j => `${j.title} at ${j.company} (${j.fit}, ${j.location})`).join('; ') : 'No good matches yet — ask me to search.'
+      }
+      return `${ready.length} applications waiting for your approval, ${needs.length} need you to finish, ${applied.length} submitted. Open the Jobs page to review.`
     }
 
     case 'career': {
@@ -3630,7 +3653,7 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         pendingToolResult = `Error: ${(e as Error).message?.slice(0, 200)}`
       }
-      let confirmedSpeech = pendingToolResult && pendingToolResult !== 'Done'
+      const confirmedSpeech = pendingToolResult && pendingToolResult !== 'Done'
         ? formatToolSpeech(pending.tool, pendingToolResult)
         : `Confirmed. ${pending.tool.replace(/_/g, ' ')} executed.`
       const confirmedPayload: JarvisResponsePayload = {

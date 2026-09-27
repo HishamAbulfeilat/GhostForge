@@ -248,7 +248,7 @@ function IssueQueuePanel({ issues }: { issues: AgentIssue[] }) {
             {f === 'all' ? 'ALL' : f === 'in_progress' ? 'ACTIVE' : f.toUpperCase()} ({counts[f]})
           </button>
         ))}
-        <span className="ml-auto" />
+        <span className="ms-auto" />
         <button type="button"
           onClick={() => setSortBy(s => s === 'priority' ? 'date' : 'priority')}
           className="rounded px-2 py-1 border transition"
@@ -423,7 +423,7 @@ function ActiveTaskPanel({ task }: { task: ActiveTask | null }) {
       <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.18)' }}>
         <button type="button"
           onClick={() => setDiffExpanded(e => !e)}
-          className="w-full flex items-center justify-between px-3 py-2 text-left transition hover:bg-[rgba(255,255,255,0.02)]">
+          className="w-full flex items-center justify-between px-3 py-2 text-start transition hover:bg-[rgba(255,255,255,0.02)]">
           <span className="font-mono text-[9px] tracking-widest" style={{ color: '#52525b' }}>CODE DIFF</span>
           <span className="font-mono text-[9px]" style={{ color: '#71717a' }}>{diffExpanded ? '▲ COLLAPSE' : '▼ EXPAND'}</span>
         </button>
@@ -763,12 +763,12 @@ export default function AgentDashboard({ agentState, onStart, onStop, onPause, e
           )}
         </div>
 
-        <div className="ml-auto flex items-center gap-4">
-          <div className="text-right">
+        <div className="ms-auto flex items-center gap-4">
+          <div className="text-end">
             <div className="text-[8px] tracking-widest" style={{ color: '#52525b' }}>UPTIME</div>
             <div className="text-[11px] font-bold" style={{ color: '#a1a1aa' }}>{formatUptime(state?.uptime ?? uptime)}</div>
           </div>
-          <div className="text-right min-w-[80px]">
+          <div className="text-end min-w-[80px]">
             <div className="text-[8px] tracking-widest mb-0.5" style={{ color: '#52525b' }}>PROGRESS</div>
             <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
               <div className="h-full rounded-full transition-all duration-500"

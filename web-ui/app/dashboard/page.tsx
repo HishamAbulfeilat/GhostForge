@@ -159,7 +159,7 @@ function IssuesPanel({ issues }: { issues: Issue[] }) {
               >
                 <td className="px-3 py-2 font-mono text-[#00A3E0] w-10 shrink-0">{issue.number}</td>
                 <td className="px-1 py-2 text-gray-200 max-w-0 truncate">{issue.title}</td>
-                <td className="px-3 py-2 text-gray-500 whitespace-nowrap text-right">{issue.updated}</td>
+                <td className="px-3 py-2 text-gray-500 whitespace-nowrap text-end">{issue.updated}</td>
               </tr>
             ))}
           </tbody>
@@ -195,7 +195,7 @@ function PipelinePanel({ runs }: { runs: Run[] }) {
                   {run.branch}
                 </td>
                 <td
-                  className={`px-3 py-2 whitespace-nowrap font-mono text-right ${conclusionColor[run.conclusion] ?? 'text-gray-400'}`}
+                  className={`px-3 py-2 whitespace-nowrap font-mono text-end ${conclusionColor[run.conclusion] ?? 'text-gray-400'}`}
                 >
                   {run.conclusion}
                 </td>
@@ -233,7 +233,7 @@ function PRPanel({ prs }: { prs: PR[] }) {
                   <td className="px-1 py-2 font-mono text-gray-500 whitespace-nowrap hidden md:table-cell">
                     {pr.author}
                   </td>
-                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                  <td className="px-3 py-2 text-end whitespace-nowrap">
                     <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${badge.cls}`}>
                       {badge.text}
                     </span>
@@ -390,7 +390,7 @@ function ServicesPanel({ services }: { services: DashboardData['services'] }) {
                 <td className="px-3 py-2 font-medium text-gray-200">{service.name}</td>
                 <td className="px-1 py-2 font-mono text-gray-500">:{service.port}</td>
                 <td className="px-1 py-2 text-gray-500">{service.detail}</td>
-                <td className="px-3 py-2 text-right">
+                <td className="px-3 py-2 text-end">
                   <HealthBadge status={service.status} />
                 </td>
               </tr>
@@ -627,7 +627,7 @@ function DoctorWidget() {
                   <span className="text-gray-600 truncate">{c.detail}</span>
                 </div>
                 {c.fix && (
-                  <p className="pl-4 text-[10px] text-gray-600 font-mono">→ {c.fix}</p>
+                  <p className="ps-4 text-[10px] text-gray-600 font-mono">→ {c.fix}</p>
                 )}
               </div>
             ))
@@ -743,7 +743,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+        <div className="ms-auto flex items-center gap-2 flex-wrap justify-end">
           {/* Nav links */}
           <Link href="/features" className="rounded border border-violet-800/50 bg-violet-950/30 px-2 py-1 text-[10px] text-violet-300 hover:bg-violet-900/40 transition">
             🔧 Features
@@ -811,7 +811,7 @@ export default function DashboardPage() {
             <span>
               <span className="font-semibold">Bridge is offline.</span> Local dashboard data still works; only bridge-backed features (remote commands, terminal, remote control) are degraded.
             </span>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ms-auto flex items-center gap-2">
               <button type="button"
                 onClick={() => void startBridgeFromNotice()}
                 disabled={startingBridge}
@@ -842,7 +842,7 @@ export default function DashboardPage() {
 
         {/* ── Last refresh ── */}
         {lastRefreshed && (
-          <p className="text-right font-mono text-[10px] text-gray-700">
+          <p className="text-end font-mono text-[10px] text-gray-700">
             last refresh: {lastRefreshed}
           </p>
         )}

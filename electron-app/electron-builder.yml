@@ -61,7 +61,11 @@ snap:
     - desktop
 
 extraResources:
-  - from: bridge/
-    to: bridge/
+  # The Mark-L Python bridge; bridge-manager looks for it under resources/mark-l-bridge
+  - from: ../mark-l-bridge/
+    to: mark-l-bridge/
     filter:
       - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/.venv/**"
+      - "!**/*.pyc"

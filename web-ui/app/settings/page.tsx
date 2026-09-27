@@ -69,7 +69,7 @@ export default function SettingsPage() {
         <Link href="/dashboard" className="text-gray-500 hover:text-white transition text-lg leading-none">‹</Link>
         <span className="text-sm font-bold text-white">👻 GhostForge</span>
         <span className="text-[10px] font-mono text-gray-600 hidden sm:block">SETTINGS · AI MODELS</span>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           <Link href="/marketplace" className="rounded border border-sky-800/50 bg-sky-950/30 px-2 py-1 text-xs text-sky-300 hover:bg-sky-900/40 transition">
             🛒 Marketplace
           </Link>
@@ -109,7 +109,7 @@ export default function SettingsPage() {
                 key={mode.id}
                 type="button"
                 onClick={() => updateVoiceSetting('mode', mode.id)}
-                className="relative flex flex-col items-start gap-1.5 rounded-lg border p-3 text-left transition active:scale-[0.98]"
+                className="relative flex flex-col items-start gap-1.5 rounded-lg border p-3 text-start transition active:scale-[0.98]"
                 style={{
                   borderColor: voiceSettings.mode === mode.id ? mode.color + '88' : 'rgba(255,255,255,0.06)',
                   background: voiceSettings.mode === mode.id ? mode.color + '15' : 'rgba(0,0,0,0.3)',
@@ -214,7 +214,7 @@ export default function SettingsPage() {
                 <input type="range" min={0} max={1} step={0.05} value={voiceSettings.volume}
                   onChange={e => updateVoiceSetting('volume', parseFloat(e.target.value))}
                   className="flex-1 accent-blue-500" />
-                <span className="text-[11px] font-mono text-gray-400 w-8 text-right">{Math.round(voiceSettings.volume * 100)}%</span>
+                <span className="text-[11px] font-mono text-gray-400 w-8 text-end">{Math.round(voiceSettings.volume * 100)}%</span>
               </div>
             </div>
             <div className="flex items-center gap-2">

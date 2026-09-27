@@ -62,7 +62,7 @@ function renderMarkdown(raw: string): string {
     .replace(/>/g, "&gt;")
     .replace(/\u0000GFCODE(\d+)\u0000/g, (_m, idx: string) => codeFences[Number(idx)]);
 
-  let html = protectedSource
+  const html = protectedSource
     /* code blocks first – protect from inner transforms */
     .replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang: string, code: string) => {
       const escaped = code
@@ -91,7 +91,7 @@ function renderMarkdown(raw: string): string {
       }
     )
     /* unordered lists */
-    .replace(/^[*-] (.+)$/gm, '<li class="ml-4 list-disc text-gray-300">$1</li>')
+    .replace(/^[*-] (.+)$/gm, '<li class="ms-4 list-disc text-gray-300">$1</li>')
     /* paragraphs (lines that are not already wrapped) */
     .replace(/^(?!<[huplao])/gm, "")
     /* collapse empty lines */
@@ -168,12 +168,12 @@ function ToolCallCard({ tool }: { tool: ToolCall }) {
     <div className="my-1 border border-[#1a1a2e] rounded-lg overflow-hidden bg-[#0d0d14]">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-[#111118] transition-colors text-left"
+        className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-[#111118] transition-colors text-start"
       >
         <span className={`${statusColor} flex-shrink-0`}>{statusIcon}</span>
         <span className="text-[#8b9bf4] font-mono text-xs font-medium">{tool.name}</span>
         <svg
-          className={`w-3 h-3 ml-auto text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
+          className={`w-3 h-3 ms-auto text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -212,14 +212,14 @@ function MemoryRecallCard({ recall }: { recall: MemoryRecall }) {
     <div className="my-1 border border-[#1a1a2e] rounded-lg overflow-hidden bg-[#0d0d14]">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-[#111118] transition-colors text-left"
+        className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-[#111118] transition-colors text-start"
       >
         <svg className="w-3.5 h-3.5 text-[#b088f9] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
         </svg>
         <span className="text-[#b088f9] text-xs font-medium">Memory Recall</span>
         {recall.relevance !== undefined && (
-          <span className="text-xs text-gray-500 ml-auto">{Math.round(recall.relevance * 100)}%</span>
+          <span className="text-xs text-gray-500 ms-auto">{Math.round(recall.relevance * 100)}%</span>
         )}
         <svg
           className={`w-3 h-3 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
@@ -306,7 +306,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
           <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{message.content}</p>
         ) : (
           <div
-            className="prose-sm text-gray-300 leading-relaxed [&_a]:text-[#1a6fff] [&_a]:underline [&_li]:ml-4 [&_li]:list-disc"
+            className="prose-sm text-gray-300 leading-relaxed [&_a]:text-[#1a6fff] [&_a]:underline [&_li]:ms-4 [&_li]:list-disc"
             dangerouslySetInnerHTML={{ __html: renderedHtml }}
           />
         )}

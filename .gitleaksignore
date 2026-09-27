@@ -1,0 +1,5 @@
+# Known false positives (reviewed): planted fake credentials in an eval dataset for a
+# security-scanner benchmark, and prose matching the generic-api-key rule. The
+# openjarvis-bridge folder has since been removed; only these exact findings are ignored.
+2fbce60d5ec2c47a379c4be953311d026c5ac7d6:openjarvis-bridge/src/openjarvis/evals/datasets/research_mining.py:generic-api-key:211
+2fbce60d5ec2c47a379c4be953311d026c5ac7d6:openjarvis-bridge/src/openjarvis/evals/datasets/security_scanner.py:generic-api-key:70

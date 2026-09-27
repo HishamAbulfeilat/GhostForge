@@ -238,7 +238,7 @@ const MemoryPanel: React.FC<MemoryPanelProps> = ({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search memories..."
-              className="w-full bg-[#0a0a0f] border border-[#1a1a2e] rounded-lg pl-10 pr-4 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#1a6fff]/50 transition-colors"
+              className="w-full bg-[#0a0a0f] border border-[#1a1a2e] rounded-lg ps-10 pe-4 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-[#1a6fff]/50 transition-colors"
             />
           </div>
         </div>
@@ -257,7 +257,7 @@ const MemoryPanel: React.FC<MemoryPanelProps> = ({
             >
               {tab.label}
               {tab.key !== "all" && stats.byCat[tab.key] !== undefined && (
-                <span className="ml-1 text-[10px] opacity-60">{stats.byCat[tab.key]}</span>
+                <span className="ms-1 text-[10px] opacity-60">{stats.byCat[tab.key]}</span>
               )}
             </button>
           ))}

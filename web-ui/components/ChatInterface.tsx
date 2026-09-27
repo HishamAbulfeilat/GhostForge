@@ -81,9 +81,8 @@ export function ChatInterface() {
       rec.continuous = false
       rec.interimResults = true
       rec.lang = 'en-US'
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      rec.onresult = (e: any) => {
-        const transcript = Array.from(e.results as any[]).map((r: any) => r[0].transcript).join('')
+      rec.onresult = (e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => {
+        const transcript = Array.from(e.results).map(r => r[0].transcript).join('')
         setInput(transcript)
       }
       rec.onend = () => setListening(false)

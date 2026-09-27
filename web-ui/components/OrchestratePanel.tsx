@@ -91,7 +91,7 @@ export default function OrchestratePanel({ onSendToJarvis }: Props) {
       <button
         type="button"
         onClick={() => setOpen(current => !current)}
-        className="flex w-full items-center justify-between gap-3 rounded-3xl px-5 py-4 text-left transition hover:bg-zinc-900/70"
+        className="flex w-full items-center justify-between gap-3 rounded-3xl px-5 py-4 text-start transition hover:bg-zinc-900/70"
       >
         <div>
           <p className="text-xs uppercase tracking-[0.22em] text-cyan-400/70">Parallel reasoning</p>
@@ -206,7 +206,7 @@ export default function OrchestratePanel({ onSendToJarvis }: Props) {
                     <button
                       type="button"
                       onClick={() => setExpanded(current => ({ ...current, [item.id]: !isExpanded }))}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                      className="flex w-full items-center justify-between gap-3 px-4 py-3 text-start"
                     >
                       <div>
                         <p className="text-sm font-medium text-zinc-100">{item.label}</p>

@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { spawn, ChildProcess } from 'child_process';
 import { join } from 'path';
+import { existsSync } from 'fs';
 import { net } from 'electron';
 
 const BRIDGE_PORT = 8765;
@@ -100,8 +101,15 @@ class BridgeManager extends EventEmitter {
     this.spawnProcess();
   }
 
+  /** Packaged builds ship the bridge as an extraResource; dev runs use the repo copy */
+  private resolveBridgeDir(): string {
+    const bundled = join(process.resourcesPath || '', 'mark-l-bridge');
+    if (existsSync(join(bundled, 'server.py'))) return bundled;
+    return join(__dirname, '..', '..', '..', 'mark-l-bridge');
+  }
+
   private spawnProcess(): void {
-    const bridgeDir = join(__dirname, '..', '..', '..', 'mark-l-bridge');
+    const bridgeDir = this.resolveBridgeDir();
     const isWin = process.platform === 'win32';
 
     let cmd: string;
@@ -112,8 +120,9 @@ class BridgeManager extends EventEmitter {
       cmd = 'python';
       args = ['-m', 'uvicorn', 'server:app', '--host', '0.0.0.0', '--port', String(BRIDGE_PORT)];
     } else {
-      cmd = join(bridgeDir, 'start.sh');
-      args = [];
+      // Run through bash so a lost exec bit in the packaged copy doesn't matter
+      cmd = 'bash';
+      args = [join(bridgeDir, 'start.sh')];
       opts.cwd = bridgeDir;
     }
 

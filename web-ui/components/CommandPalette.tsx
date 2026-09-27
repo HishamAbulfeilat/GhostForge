@@ -116,14 +116,14 @@ function CommandPalette() {
         </div>
         <div className="max-h-80 overflow-y-auto py-2">
           {filtered.length === 0 ? (
-            <p className="py-6 text-center text-sm text-zinc-500">No results for "{query}"</p>
+            <p className="py-6 text-center text-sm text-zinc-500">No results for &ldquo;{query}&rdquo;</p>
           ) : filtered.map((command, index) => (
             <button
               key={command.id}
               type="button"
               onClick={command.action}
               onMouseEnter={() => setSelectedIndex(index)}
-              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors ${index === selectedIndex ? 'bg-zinc-800' : 'hover:bg-zinc-800/50'}`}
+              className={`flex w-full items-center gap-3 px-4 py-2.5 text-start transition-colors ${index === selectedIndex ? 'bg-zinc-800' : 'hover:bg-zinc-800/50'}`}
             >
               <span className="w-7 text-center text-xl">{command.icon}</span>
               <div className="min-w-0 flex-1">

@@ -4,7 +4,7 @@ import { writeFileSync, readFileSync, existsSync, unlinkSync, mkdirSync } from '
 import { join } from 'path'
 import { homedir } from 'os'
 import { randomUUID } from 'crypto'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,9 +12,8 @@ const CAPTURE_DIR = join(homedir(), '.ghostforge', 'screenshots')
 const FORMATS = ['jpeg', 'png', 'tiff'] as const
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requirePermission(req, 'screenshots')
+  if (access instanceof NextResponse) return access
 
   try {
     const body = await req.json().catch(() => ({}))
@@ -78,18 +77,17 @@ export async function POST(req: NextRequest) {
       size: imageBuffer.length,
       timestamp: Date.now(),
     })
-  } catch (error: any) {
+  } catch (error) {
     return NextResponse.json(
-      { error: error.message || 'Screen capture failed' },
+      { error: (error instanceof Error && error.message) || 'Screen capture failed' },
       { status: 500 }
     )
   }
 }
 
 export async function GET(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requirePermission(req, 'screenshots')
+  if (access instanceof NextResponse) return access
 
   return NextResponse.json({
     status: 'ok',

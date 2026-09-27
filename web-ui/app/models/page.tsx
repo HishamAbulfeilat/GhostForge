@@ -304,7 +304,7 @@ export default function ModelsPage() {
                     key={runner}
                     type="button"
                     onClick={() => setActiveRunner(runner)}
-                    className="rounded-lg border px-4 py-3 text-left transition"
+                    className="rounded-lg border px-4 py-3 text-start transition"
                     style={{
                       borderColor: isActive ? 'rgba(59,130,246,0.5)' : 'rgba(59,130,246,0.18)',
                       background: isActive ? 'rgba(59,130,246,0.12)' : 'rgba(15,23,42,0.55)',

@@ -404,7 +404,7 @@ const AgentPanel: React.FC<AgentPanelProps> = ({
                     {crew.status === "running" && crew.progress !== undefined && (
                       <div className="mb-2">
                         <ProgressBar progress={crew.progress} />
-                        <p className="text-[10px] text-gray-600 mt-1 text-right">{crew.progress}%</p>
+                        <p className="text-[10px] text-gray-600 mt-1 text-end">{crew.progress}%</p>
                       </div>
                     )}
                     <div className="flex gap-2">

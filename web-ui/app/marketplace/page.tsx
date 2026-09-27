@@ -77,7 +77,7 @@ export default function MarketplacePage() {
           <Link href="/dashboard" className="text-gray-500 hover:text-white transition text-lg leading-none">‹</Link>
           <span className="text-sm font-bold text-white">👻 GhostForge</span>
           <span className="text-[10px] font-mono text-gray-600 hidden sm:block">MARKETPLACE</span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ms-auto flex items-center gap-2">
             <Link href="/settings" className="rounded border border-amber-800/50 bg-amber-950/30 px-2 py-1 text-xs text-amber-300 hover:bg-amber-900/40 transition">
               ⚙️ Models
             </Link>
