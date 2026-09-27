@@ -20,6 +20,15 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+# Mark-LIV (vendored JARVIS engine) provides the `actions`, `core` and `memory`
+# packages imported below. MARK_LIV_DIR overrides the vendored copy.
+_MARK_LIV_DIR = Path(
+    os.environ.get("MARK_LIV_DIR")
+    or Path(__file__).resolve().parent.parent / "vendor" / "mark-liv"
+)
+if _MARK_LIV_DIR.is_dir() and str(_MARK_LIV_DIR) not in sys.path:
+    sys.path.insert(0, str(_MARK_LIV_DIR))
+
 # ---------------------------------------------------------------------------
 # Graceful module imports — each Mark-L module is optional. If the import
 # fails we stub the endpoint so the server still starts and returns a clear
@@ -1305,6 +1314,54 @@ def unified_chain_endpoint(req: UnifiedChainRequest):
     except Exception:
         logger.exception("unified_chain failed")
         raise _err("unified_chain failed: internal error")
+
+
+# ---------------------------------------------------------------------------
+# Mark-LIV tool registry — every actions/*.py TOOL, discovered like Mark-LIV's
+# own desktop app does, so JARVIS gets the full action set with no per-tool
+# wiring here.
+# ---------------------------------------------------------------------------
+
+_registry = None
+
+
+def _mark_liv_registry():
+    global _registry
+    if _registry is None:
+        from core.action_loader import discover_actions
+
+        _registry = discover_actions(
+            _MARK_LIV_DIR / "actions",
+            logger=lambda msg: logger.info("[mark-liv] %s", msg),
+        )
+    return _registry
+
+
+class MarkLivRunRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+@app.get("/api/mark-liv/tools", dependencies=[Depends(require_token)])
+def mark_liv_tools():
+    try:
+        return _ok({"dir": str(_MARK_LIV_DIR), "tools": _mark_liv_registry().get_tool_declarations()})
+    except Exception:
+        logger.exception("mark-liv tool discovery failed")
+        raise _err("Mark-LIV tool discovery failed")
+
+
+@app.post("/api/mark-liv/run", dependencies=[Depends(require_token)])
+def mark_liv_run(req: MarkLivRunRequest):
+    registry = _mark_liv_registry()
+    if req.name not in registry.names():
+        raise HTTPException(status_code=404, detail=f"Unknown Mark-LIV tool: {req.name}")
+    try:
+        result = registry.run(req.name, req.parameters)
+        return _ok({"tool": req.name, "result": str(result) if result is not None else "Done"})
+    except Exception as exc:
+        logger.exception("mark-liv %s failed", req.name)
+        return _ok({"tool": req.name, "result": f"{req.name} failed: {exc}", "error": True})
 
 
 # ---------------------------------------------------------------------------

@@ -3,24 +3,56 @@ import { chooseBestInstalledModel } from '@/lib/local-runtime'
 import { totalmem } from 'os'
 import { isAuthorizedRequest } from '@/lib/auth'
 import { isOmniRouteUp } from '@/lib/ai'
+import { PROVIDERS, getProviderKey, getSavedSelection, listCustomModels, listProviderModels, type ProviderId } from '@/lib/providers'
 
-const ALL_MODELS = [
-  { provider: 'google',      id: 'gemini-2.0-flash',                          label: 'Gemini 2.0 Flash',             free: true,  requiresKey: 'GOOGLE_GENERATIVE_AI_API_KEY' },
-  { provider: 'google',      id: 'gemini-2.5-flash',                          label: 'Gemini 2.5 Flash',             free: true,  requiresKey: 'GOOGLE_GENERATIVE_AI_API_KEY' },
-  { provider: 'xai',         id: 'grok-3-mini',                               label: 'Grok 3 Mini (xAI) ⚡',        free: false, requiresKey: 'XAI_API_KEY' },
-  { provider: 'xai',         id: 'grok-3',                                    label: 'Grok 3 (xAI) ⚡',             free: false, requiresKey: 'XAI_API_KEY' },
-  { provider: 'xai',         id: 'grok-beta',                                 label: 'Grok Beta (xAI)',              free: false, requiresKey: 'XAI_API_KEY' },
-  { provider: 'openrouter',  id: 'google/gemma-4-26b-a4b-it:free',           label: 'Gemma 4 26B (Free) ✓',        free: true,  requiresKey: 'OPENROUTER_API_KEY' },
-  { provider: 'openrouter',  id: 'nvidia/nemotron-3-super-120b-a12b:free',   label: 'Nemotron 120B (Free) ✓',      free: true,  requiresKey: 'OPENROUTER_API_KEY' },
-  { provider: 'openrouter',  id: 'nvidia/nemotron-nano-12b-v2-vl:free',      label: 'Nemotron Nano 12B (Free) ✓',  free: true,  requiresKey: 'OPENROUTER_API_KEY' },
-  { provider: 'openrouter',  id: 'deepseek/deepseek-r1:free',                label: 'DeepSeek R1 (Free)',           free: true,  requiresKey: 'OPENROUTER_API_KEY' },
-  { provider: 'ollama',      id: 'qwen3.5:9b',                               label: 'Qwen 3.5 9B (Recommended) 🔒', free: true, requiresKey: null },
-  { provider: 'ollama',      id: 'qwen3.5:27b',                              label: 'Qwen 3.5 27B (Max Quality) 🔒', free: true, requiresKey: null },
-  { provider: 'ollama',      id: 'qwen3.5:4b',                               label: 'Qwen 3.5 4B (Fast) 🔒',        free: true, requiresKey: null },
-  { provider: 'ollama',      id: 'llama3.2:3b',                              label: 'Llama 3.2 3B (Local) 🔒',    free: true,  requiresKey: null },
-  { provider: 'ollama',      id: 'qwen2.5-coder:7b',                        label: 'Qwen 2.5 Coder 7B (Local) 🔒', free: true, requiresKey: null },
-  { provider: 'omniroute',   id: 'auto/coding',                              label: 'OmniRoute Auto (Local)',       free: true,  requiresKey: null },
+interface JarvisModel {
+  provider: string
+  id: string
+  label: string
+  free: boolean
+  requiresKey: string | null
+  available: boolean
+}
+
+/** Suggested local models, shown (unavailable) until pulled into Ollama */
+const LOCAL_SUGGESTIONS = [
+  { id: 'qwen3.5:9b',       label: 'Qwen 3.5 9B (Recommended) 🔒' },
+  { id: 'qwen3.5:27b',      label: 'Qwen 3.5 27B (Max Quality) 🔒' },
+  { id: 'qwen3.5:4b',       label: 'Qwen 3.5 4B (Fast) 🔒' },
+  { id: 'llama3.2:3b',      label: 'Llama 3.2 3B (Local) 🔒' },
+  { id: 'qwen2.5-coder:7b', label: 'Qwen 2.5 Coder 7B (Local) 🔒' },
 ]
+
+/**
+ * Every provider's models: the live list when usable, else its known-free list
+ * (or default) as an unavailable placeholder. Pollinations needs no key.
+ */
+async function cloudModels(omniUp: boolean): Promise<JarvisModel[]> {
+  const lists = await Promise.all((Object.keys(PROVIDERS) as ProviderId[]).map(async provider => {
+    const info = PROVIDERS[provider]
+    if (provider === 'omniroute' && !omniUp) return []
+    const usable = provider === 'omniroute' || !info.keyEnv || !!getProviderKey(provider)
+    const listed = (await listProviderModels(provider)).models
+    const models = listed.length ? listed : [{ id: info.defaultModel, label: info.defaultModel, free: !info.paid }]
+    return models.map(m => ({
+      provider,
+      id: m.id,
+      label: `${m.label}${m.free ? ' (Free)' : ''} · ${info.name}`,
+      free: m.free,
+      requiresKey: info.keyEnv,
+      available: usable,
+    }))
+  }))
+  const custom = listCustomModels().map(m => ({
+    provider: 'custom',
+    id: m.id,
+    label: `${m.name} (${m.model}) · Custom`,
+    free: !!m.free,
+    requiresKey: null,
+    available: true,
+  }))
+  return [...lists.flat(), ...custom]
+}
 
 export async function GET(req: NextRequest) {
   if (!isAuthorizedRequest(req)) {
@@ -49,19 +81,16 @@ export async function GET(req: NextRequest) {
     }
   } catch { /* not running */ }
 
-  const models = await Promise.all(ALL_MODELS.map(async m => ({
-    ...m,
-    available: m.provider === 'ollama'
-      ? ollamaRunning && ollamaModels.includes(m.id)
-      : m.provider === 'omniroute'
-        ? await isOmniRouteUp()
-        : m.requiresKey ? !!process.env[m.requiresKey] : true,
-  })))
+  const omniUp = await isOmniRouteUp()
+  const models: JarvisModel[] = await cloudModels(omniUp)
 
-  // Add any Ollama models not in the static list
+  // Installed Ollama models, then suggestions that aren't pulled yet
   for (const name of ollamaModels) {
-    if (!models.some(m => m.id === name)) {
-      models.push({ provider: 'ollama', id: name, label: `${name} (Local) 🔒`, free: true, requiresKey: null, available: true })
+    models.push({ provider: 'ollama', id: name, label: `${name} (Local) 🔒`, free: true, requiresKey: null, available: true })
+  }
+  for (const s of LOCAL_SUGGESTIONS) {
+    if (!ollamaModels.includes(s.id)) {
+      models.push({ provider: 'ollama', id: s.id, label: s.label, free: true, requiresKey: null, available: false })
     }
   }
 
@@ -69,15 +98,17 @@ export async function GET(req: NextRequest) {
     models.push({ provider: 'llamacpp', id: name, label: `${name} (llama.cpp) 🔒`, free: true, requiresKey: null, available: true })
   }
 
-  const hasGemini = !!process.env.GOOGLE_GENERATIVE_AI_API_KEY
-  const hasOpenRouter = !!process.env.OPENROUTER_API_KEY
-  const bestLocal = chooseBestInstalledModel(ollamaModels, Math.round(totalmem() / 1024 ** 3), 'tools')?.name
-  const activeProvider = hasGemini ? 'google' : hasOpenRouter ? 'openrouter' : bestLocal ? 'ollama' : llamaCppModels.length ? 'llamacpp' : 'omniroute'
-  const activeModel = hasGemini
-    ? (process.env.GEMINI_MODEL || 'gemini-2.0-flash')
-    : hasOpenRouter
-      ? (process.env.OPENROUTER_MODEL || 'google/gemma-4-26b-a4b-it:free')
-      : bestLocal || llamaCppModels[0] || 'auto/coding'
+  // Active model: the one saved in Settings, else automatic free models
+  // (free-tier keys → OmniRoute if running → keyless Pollinations → local)
+  const saved = getSavedSelection()
+  const firstFreeKeyed = (['google', 'groq', 'cerebras', 'openrouter', 'nvidia'] as ProviderId[]).find(p => getProviderKey(p))
+  const fallback = firstFreeKeyed
+    ? { provider: firstFreeKeyed, model: PROVIDERS[firstFreeKeyed].defaultModel }
+    : omniUp
+      ? { provider: 'omniroute', model: PROVIDERS.omniroute.defaultModel }
+      : { provider: 'pollinations', model: PROVIDERS.pollinations.defaultModel }
+  const activeProvider = saved?.provider ?? fallback.provider
+  const activeModel = saved?.model ?? fallback.model
 
   const hasFishAudio  = !!process.env.FISH_AUDIO_API_KEY
   const hasElevenLabs = !!process.env.ELEVENLABS_API_KEY

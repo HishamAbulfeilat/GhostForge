@@ -1,7 +1,14 @@
+import Anthropic from '@anthropic-ai/sdk'
 import { createOpenAI } from '@ai-sdk/openai'
 import { generateText, type CoreMessage, type LanguageModel } from 'ai'
 import { totalmem } from 'os'
 import { buildLocalRuntimeOrder } from './local-runtime'
+import {
+  FREE_CATALOG, PROVIDERS, getCustomModel, getProviderKey, getSavedSelection, isProviderId, omniRouteBaseURL,
+  type ProviderId,
+} from './providers'
+
+export { omniRouteBaseURL }
 
 export const GHOSTFORGE_SYSTEM = `You are GhostForge AI — an operator-grade developer assistant built by Hisham Abulfeilat.
 You help with React, Next.js, TypeScript, Tailwind CSS, Git, CI/CD, Carbon tracking, and all GhostForge toolkit features.
@@ -16,37 +23,29 @@ export interface ModelOverride {
   task?: string
 }
 
+type GenerateOpts = Omit<Parameters<typeof generateText>[0], 'model'>
+
 export interface ModelEntry {
   provider: string
   modelId: string
-  model: LanguageModel
-  generate?: (opts: Omit<Parameters<typeof generateText>[0], 'model'>) => Promise<string>
+  /** AI SDK model; absent for providers called through their own SDK (Anthropic) */
+  model?: LanguageModel
+  generate?: (opts: GenerateOpts) => Promise<string>
+}
+
+/** OmniRoute accepts any bearer unless its dashboard requires a key (OMNIROUTE_API_KEY) */
+function omniRouteAuth(): string {
+  return `Bearer ${process.env.OMNIROUTE_API_KEY || 'omniroute'}`
 }
 
 /** Build an OmniRoute LanguageModel — no API key required */
-export function makeOmniRouteModel(modelId = 'auto/coding'): LanguageModel {
-  const raw = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1'
-  const baseURL = raw.endsWith('/v1') ? raw : `${raw.replace(/\/+$/, '')}/v1`
-  const omni = createOpenAI({ baseURL, apiKey: 'omniroute' })
+export function makeOmniRouteModel(modelId = 'auto'): LanguageModel {
+  const omni = createOpenAI({ baseURL: omniRouteBaseURL(), apiKey: process.env.OMNIROUTE_API_KEY || 'omniroute' })
   return omni(modelId)
 }
 
-export function omniRouteBaseURL(): string {
-  const raw = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1'
-  return raw.endsWith('/v1') ? raw : `${raw.replace(/\/+$/, '')}/v1`
-}
-
-/**
- * Direct HTTP fallback for OmniRoute. The AI SDK's JSON handler cannot consume
- * OmniRoute's streaming responses (v3.8.48 defaults to SSE even when `stream` is
- * omitted, so `generateText` throws `AI_APICallError: Invalid JSON response`).
- * Forcing `stream:false` returns a plain OpenAI-compatible JSON body.
- */
-export async function generateWithOmniRoute(
-  modelId: string,
-  opts: Omit<Parameters<typeof generateText>[0], 'model'>,
-): Promise<string> {
-  const baseURL = omniRouteBaseURL()
+/** Flatten generateText options into plain chat messages (system first) */
+function toChatMessages(opts: GenerateOpts): Array<{ role: string; content: string }> {
   const messages: Array<{ role: string; content: string }> = []
   if (typeof opts.system === 'string' && opts.system.trim()) {
     messages.push({ role: 'system', content: opts.system })
@@ -57,39 +56,131 @@ export async function generateWithOmniRoute(
       if (content) messages.push({ role: message.role, content })
     }
   }
+  if (typeof opts.prompt === 'string' && opts.prompt.trim()) messages.push({ role: 'user', content: opts.prompt })
+  return messages
+}
+
+/**
+ * Claude through the official Anthropic SDK. Server-side refusal fallbacks are
+ * enabled for the models that support them, so a declined request is retried
+ * on another Claude model inside the same call.
+ */
+async function generateWithAnthropic(apiKey: string, modelId: string, opts: GenerateOpts): Promise<string> {
+  const client = new Anthropic({ apiKey, maxRetries: 0 }) // the chain handles fallback
+  const chat = toChatMessages(opts)
+  const system = chat.filter(m => m.role === 'system').map(m => m.content).join('\n\n') || undefined
+  const messages: Anthropic.Beta.BetaMessageParam[] = []
+  for (const m of chat) {
+    if (m.role !== 'user' && m.role !== 'assistant') continue
+    if (messages.length === 0 && m.role === 'assistant') continue // must start with a user turn
+    messages.push({ role: m.role, content: m.content })
+  }
+  while (messages.length && messages[messages.length - 1].role === 'assistant') messages.pop() // no prefill
+  if (messages.length === 0) messages.push({ role: 'user', content: 'Hello' })
+
+  const supportsFallbacks = modelId === 'claude-opus-5' || modelId === 'claude-fable-5-1'
+  const response = await client.beta.messages.create({
+    model: modelId,
+    max_tokens: 16000,
+    system,
+    messages,
+    ...(supportsFallbacks ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
+  })
+  if (response.stop_reason === 'refusal') {
+    throw new Error(`Claude declined this request${response.stop_details?.category ? ` (${response.stop_details.category})` : ''}`)
+  }
+  const text = response.content.map(block => (block.type === 'text' ? block.text : '')).join('').trim()
+  if (!text) throw new Error(`Anthropic ${modelId} returned an empty response`)
+  return text
+}
+
+/** Chain entry for any registry provider with a key; null when the key is missing */
+async function makeProviderEntry(provider: ProviderId, modelId: string): Promise<ModelEntry | null> {
+  if (provider === 'omniroute') return makeOmniRouteEntry(modelId)
+  if (provider === 'pollinations') {
+    const baseURL = PROVIDERS.pollinations.baseURL!
+    return { provider, modelId, generate: opts => generateOpenAICompatible('Pollinations', baseURL, undefined, modelId, opts) }
+  }
+  const apiKey = getProviderKey(provider)
+  if (!apiKey) return null
+  if (provider === 'anthropic') {
+    return { provider, modelId, generate: opts => generateWithAnthropic(apiKey, modelId, opts) }
+  }
+  if (provider === 'google') {
+    const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
+    return { provider, modelId, model: createGoogleGenerativeAI({ apiKey })(modelId) }
+  }
+  if (provider === 'deepseek') {
+    const { createDeepSeek } = await import('@ai-sdk/deepseek')
+    const mapped = DEEPSEEK_MODEL_MAP[modelId] || modelId
+    return { provider, modelId: mapped, model: createDeepSeek({ apiKey })(mapped) }
+  }
+  return { provider, modelId, model: createOpenAI({ baseURL: PROVIDERS[provider].baseURL, apiKey })(modelId) }
+}
+
+/** Chain entry for a user-added OpenAI-compatible model */
+function makeCustomEntry(customId: string): ModelEntry | null {
+  const custom = getCustomModel(customId)
+  if (!custom) return null
+  return {
+    provider: 'custom',
+    modelId: custom.id,
+    generate: opts => generateOpenAICompatible(custom.name, custom.baseURL, custom.apiKey, custom.model, opts),
+  }
+}
+
+const DEEPSEEK_MODEL_MAP: Record<string, string> = {
+  'deepseek-chat':     'deepseek-v4-flash',
+  'deepseek-reasoner': 'deepseek-v4-flash',
+  'deepseek-coder':    'deepseek-v4-flash',
+}
+
+/**
+ * Plain OpenAI-compatible chat call (non-streaming). Used for OmniRoute,
+ * Pollinations and custom endpoints: forcing stream:false avoids the AI SDK's
+ * JSON handler choking on gateways that default to SSE (OmniRoute v3.8.48+).
+ */
+export async function generateOpenAICompatible(
+  label: string,
+  baseURL: string,
+  apiKey: string | undefined,
+  modelId: string,
+  opts: GenerateOpts,
+): Promise<string> {
+  const messages = toChatMessages(opts)
   if (messages.length === 0) messages.push({ role: 'user', content: 'Hello' })
 
   let res: Response
   try {
-    res = await fetch(`${baseURL}/chat/completions`, {
+    res = await fetch(`${baseURL.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer omniroute' },
+      headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
       signal: AbortSignal.timeout(120_000),
-      body: JSON.stringify({
-        model: modelId,
-        messages,
-        stream: false,
-        max_tokens: opts.maxTokens || 800,
-      }),
+      body: JSON.stringify({ model: modelId, messages, stream: false, max_tokens: opts.maxTokens || 800 }),
     })
   } catch (e) {
-    throw new Error(`OmniRoute connection failed: ${String(e).slice(0, 120)}`)
+    throw new Error(`${label} connection failed: ${String(e).slice(0, 120)}`)
   }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(`OmniRoute returned ${res.status}: ${body.slice(0, 160)}`)
+    // Carry the status so isFallbackError moves on to the next model
+    throw Object.assign(new Error(`${label} returned ${res.status}: ${body.slice(0, 160)}`), { status: res.status })
   }
 
   const data = await res.json() as {
-    choices?: Array<{ message?: { content?: string | Array<unknown>; reasoning_content?: string } }>
+    choices?: Array<{ message?: { content?: string | Array<unknown> } }>
     error?: { message?: string }
   }
-  if (data.error?.message) throw new Error(`OmniRoute ${modelId}: ${data.error.message.slice(0, 160)}`)
+  if (data.error?.message) throw new Error(`${label} ${modelId}: ${data.error.message.slice(0, 160)}`)
   const content = data.choices?.[0]?.message?.content
   const text = (typeof content === 'string' ? content : content ? JSON.stringify(content) : '').trim()
-  if (!text) throw new Error(`OmniRoute ${modelId} returned an empty response`)
+  if (!text) throw new Error(`${label} ${modelId} returned an empty response`)
   return text
+}
+
+export function generateWithOmniRoute(modelId: string, opts: GenerateOpts): Promise<string> {
+  return generateOpenAICompatible('OmniRoute', omniRouteBaseURL(), process.env.OMNIROUTE_API_KEY || 'omniroute', modelId, opts)
 }
 
 /** OmniRoute chain entry: custom generate fixes the SDK streaming-parse incompatibility */
@@ -103,7 +194,7 @@ function makeOmniRouteEntry(modelId: string): ModelEntry {
 }
 
 /** Working OmniRoute free models — worst-first ordering gives automatic fallback between them */
-const FREE_OMNIROUTE_MODELS = ['auto/coding', 'auto/best-free', 'auto/coding:free', 'oc/deepseek-v4-flash-free']
+const FREE_OMNIROUTE_MODELS = ['auto', 'auto/coding', 'auto/fast', 'auto/best-free']
 
 /** Whether an error should trigger a fallback to the next model */
 export function isFallbackError(e: unknown): boolean {
@@ -111,7 +202,7 @@ export function isFallbackError(e: unknown): boolean {
   const err = (typeof e === 'object' && e !== null ? e : {}) as { status?: unknown; statusCode?: unknown }
   const status = typeof err.status === 'number' ? err.status : typeof err.statusCode === 'number' ? err.statusCode : 0
   const statusMatch =
-    status === 400 || status === 401 || status === 403 || status === 404 || status === 429 || status === 502 || status === 503 ||
+    status === 400 || status === 401 || status === 402 || status === 403 || status === 404 || status === 429 || status >= 500 ||
     msg.includes('status 400') || msg.includes('status 401') || msg.includes('status 403') || msg.includes('status 404') ||
     msg.includes('status 429') || msg.includes('status 502') || msg.includes('status 503')
   return (
@@ -239,8 +330,8 @@ async function appendLocalModels(chain: ModelEntry[], push: (entry: ModelEntry) 
   return chain
 }
 
-// ── Model chain cache (30s TTL) — avoids Ollama ping + dynamic imports per request ──
-let _chainCache: { chain: ModelEntry[]; ts: number } | null = null
+// ── Model chain cache (30s TTL per selection) — avoids Ollama ping + dynamic imports per request ──
+const _chainCache = new Map<string, { chain: ModelEntry[]; ts: number }>()
 const CHAIN_CACHE_TTL = 30_000
 
 // ── OmniRoute health probe (per-URL cache) — skips dead local gateway instead of failing ──
@@ -262,8 +353,10 @@ export async function isOmniRouteUp(omniUrl?: string): Promise<boolean> {
   if (inFlight) return inFlight
   const probe = (async () => {
     try {
-      const res = await fetch(`${url}/models`, { signal: AbortSignal.timeout(1200) })
-      const up = res.ok
+      const res = await fetch(`${url}/models`, { headers: { Authorization: omniRouteAuth() }, signal: AbortSignal.timeout(1200) })
+      // Any answer means the gateway is running: /v1/models can require a key
+      // (401) even when chat completions do not
+      const up = res.status < 500
       _omniProbeCache.set(url, { up, ts: Date.now() })
       return up
     } catch {
@@ -277,135 +370,97 @@ export async function isOmniRouteUp(omniUrl?: string): Promise<boolean> {
   return probe
 }
 
+const LOCAL_PROVIDERS = new Set(['ollama', 'llamacpp', 'llama.cpp'])
+/** Free-tier providers used automatically when their key is set (best quality first) */
+const FREE_TIER_FALLBACKS: ProviderId[] = ['google', 'groq', 'cerebras', 'openrouter', 'nvidia', 'together', 'huggingface']
+/** How many of a provider's known-free models to try before moving on */
+const FREE_MODELS_PER_PROVIDER = 3
+
 /**
  * Build an ordered fallback chain of AI models.
- * Order: user-selected → gemini → openrouter → xAI → deepseek → ollama → omniroute
- * Result is cached for 30s unless a model override is specified.
+ * Order: selected model (request override, else the model saved in Settings)
+ *   → free-tier providers you have keys for → OmniRoute (only if running)
+ *   → Pollinations (free, no key — always available) → local runtimes.
+ * Paid providers (OpenAI, Anthropic, xAI, DeepSeek) are used only when
+ * selected — never as a silent fallback. Cached for 30s per selection.
  */
 export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[]> {
-  const localSelected = opts?.activeProvider === 'ollama' || opts?.activeProvider === 'llamacpp' || opts?.activeProvider === 'llama.cpp'
   const offline = opts?.offline === true
-  // An override object with no actual override fields (no provider/model/offline)
-  // must not bypass the cache — treat it as a default call.
-  const isDefaultCall = !opts || (!opts.activeProvider && !opts.activeModel && !opts.offline)
+  const override = opts?.activeProvider && opts?.activeModel
+    ? { provider: opts.activeProvider, model: opts.activeModel }
+    : null
+  const selection = override ?? getSavedSelection()
+  const localSelected = !!selection && LOCAL_PROVIDERS.has(selection.provider)
+  const localOpts: ModelOverride = { ...opts, activeProvider: selection?.provider, activeModel: selection?.model }
 
-  // Return cached chain for default (no override) calls
-  if (isDefaultCall && _chainCache && Date.now() - _chainCache.ts < CHAIN_CACHE_TTL) {
-    return _chainCache.chain
-  }
+  const cacheKey = `${offline}|${selection?.provider}|${selection?.model}|${opts?.task || ''}`
+  const cached = _chainCache.get(cacheKey)
+  if (cached && Date.now() - cached.ts < CHAIN_CACHE_TTL) return cached.chain
 
   const chain: ModelEntry[] = []
-  const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
-  const orKey     = process.env.OPENROUTER_API_KEY
-  const omniUrl   = process.env.OMNIROUTE_URL || 'http://localhost:20128/v1'
-
   const added = new Set<string>()
-  const push = (entry: ModelEntry) => {
+  const push = (entry: ModelEntry | null) => {
+    if (!entry) return
     const key = `${entry.provider}/${entry.modelId}`
     if (!added.has(key)) { added.add(key); chain.push(entry) }
   }
+  const omniUp = await isOmniRouteUp()
 
-  const deepseekModelMap: Record<string, string> = {
-    'deepseek-chat':     'deepseek-v4-flash',
-    'deepseek-reasoner': 'deepseek-v4-flash',
-    'deepseek-coder':    'deepseek-v4-flash',
-  }
-
-  // 1. User-selected model (highest priority)
-  if (opts?.activeProvider && opts?.activeModel) {
-    const { activeProvider: ap, activeModel: am } = opts
-    if (ap === 'google' && geminiKey) {
-      const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
-      push({ provider: 'google', modelId: am, model: createGoogleGenerativeAI({ apiKey: geminiKey })(am) })
-    } else if (ap === 'openrouter' && orKey) {
-      push({ provider: 'openrouter', modelId: am, model: createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })(am) })
-    } else if (ap === 'xai') {
-      const xKey = process.env.XAI_API_KEY
-      if (xKey) push({ provider: 'xai', modelId: am, model: createOpenAI({ baseURL: 'https://api.x.ai/v1', apiKey: xKey })(am) })
-    } else if (ap === 'groq') {
-      const gKey = process.env.GROQ_API_KEY
-      if (gKey) push({ provider: 'groq', modelId: am, model: createOpenAI({ baseURL: 'https://api.groq.com/openai/v1', apiKey: gKey })(am) })
-    } else if (ap === 'nvidia') {
-      const nKey = process.env.NVIDIA_API_KEY
-      if (nKey) push({ provider: 'nvidia', modelId: am, model: createOpenAI({ baseURL: 'https://integrate.api.nvidia.com/v1', apiKey: nKey })(am) })
-    } else if (ap === 'deepseek') {
-      const dsKey = process.env.DEEPSEEK_API_KEY
-      if (dsKey) {
-        const { createDeepSeek } = await import('@ai-sdk/deepseek')
-        // Map to the canonical id so step 5 doesn't push the same model twice
-        const mapped = deepseekModelMap[am] || am
-        push({ provider: 'deepseek', modelId: mapped, model: createDeepSeek({ apiKey: dsKey })(mapped) })
-      }
-    } else if (ap === 'omniroute' && !offline && (await isOmniRouteUp(omniUrl))) {
-      push(makeOmniRouteEntry(am))
+  // 1. Selected model (highest priority)
+  if (selection && !localSelected) {
+    if (selection.provider === 'omniroute') {
+      if (omniUp) push(makeOmniRouteEntry(selection.model))
+    } else if (selection.provider === 'custom') {
+      push(makeCustomEntry(selection.model))
+    } else if (!offline && isProviderId(selection.provider)) {
+      push(await makeProviderEntry(selection.provider, selection.model))
     }
   }
 
   if (offline || localSelected) {
-    await appendLocalModels(chain, push, opts)
+    await appendLocalModels(chain, push, localOpts)
     // OmniRoute is a local gateway — keep it available in offline mode
-    if (offline && (await isOmniRouteUp(omniUrl))) {
-      if (opts?.activeProvider === 'omniroute') {
-        const modelId = opts.activeModel || 'auto/coding'
-        push(makeOmniRouteEntry(modelId))
-      }
-      for (const modelId of FREE_OMNIROUTE_MODELS) push(makeOmniRouteEntry(modelId))
+    if (omniUp) for (const modelId of FREE_OMNIROUTE_MODELS) push(makeOmniRouteEntry(modelId))
+  } else {
+    // 2. Free-tier cloud providers you have keys for (the restored free list)
+    for (const provider of FREE_TIER_FALLBACKS) {
+      if (!getProviderKey(provider)) continue
+      const preferred = provider === 'google' ? process.env.GEMINI_MODEL
+        : provider === 'openrouter' && process.env.OPENROUTER_MODEL?.endsWith(':free') ? process.env.OPENROUTER_MODEL
+          : undefined
+      const ids = [preferred, ...(FREE_CATALOG[provider] || []).map(m => m.id)].filter((id): id is string => !!id)
+      for (const modelId of ids.slice(0, FREE_MODELS_PER_PROVIDER)) push(await makeProviderEntry(provider, modelId))
     }
-    return chain
+
+    // 3. OmniRoute — optional, only when it is running
+    if (omniUp) for (const modelId of FREE_OMNIROUTE_MODELS) push(makeOmniRouteEntry(modelId))
+
+    // 4. Pollinations — free and keyless, so JARVIS always has a model
+    for (const m of FREE_CATALOG.pollinations || []) push(await makeProviderEntry('pollinations', m.id))
+
+    // 5. Local runtimes: prefer Ollama, then an OpenAI-compatible llama.cpp server
+    await appendLocalModels(chain, push, localOpts)
   }
 
-  // 2. Gemini (fastest cloud option)
-  if (geminiKey) {
-    const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
-    const mid = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
-    push({ provider: 'google', modelId: mid, model: createGoogleGenerativeAI({ apiKey: geminiKey })(mid) })
-  }
-
-  // 3. OpenRouter free models
-  if (orKey) {
-    const or = createOpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: orKey })
-    push({ provider: 'openrouter', modelId: 'google/gemma-4-26b-a4b-it:free', model: or('google/gemma-4-26b-a4b-it:free') })
-    push({ provider: 'openrouter', modelId: 'nvidia/nemotron-3-super-120b-a12b:free', model: or('nvidia/nemotron-3-super-120b-a12b:free') })
-    const mid = process.env.OPENROUTER_MODEL
-    if (mid && mid !== 'google/gemma-2.0-flash-exp:free' && mid !== 'google/gemini-2.0-flash-exp:free') {
-      push({ provider: 'openrouter', modelId: mid, model: or(mid) })
-    }
-    push({ provider: 'openrouter', modelId: 'nvidia/nemotron-nano-12b-v2-vl:free', model: or('nvidia/nemotron-nano-12b-v2-vl:free') })
-  }
-
-  // 4. xAI Grok
-  const xaiKey = process.env.XAI_API_KEY
-  if (xaiKey) {
-    const grok = createOpenAI({ baseURL: 'https://api.x.ai/v1', apiKey: xaiKey })
-    const grokModel = opts?.activeProvider === 'xai' ? (opts.activeModel || 'grok-3-mini') : 'grok-3-mini'
-    push({ provider: 'xai', modelId: grokModel, model: grok(grokModel) })
-  }
-
-  // 5. DeepSeek
-  const deepseekKey = process.env.DEEPSEEK_API_KEY
-  if (deepseekKey) {
-    const { createDeepSeek } = await import('@ai-sdk/deepseek')
-    const deepseek = createDeepSeek({ apiKey: deepseekKey })
-    const dsModel = opts?.activeProvider === 'deepseek'
-      ? (deepseekModelMap[opts.activeModel || ''] || opts.activeModel || 'deepseek-v4-flash')
-      : 'deepseek-v4-flash'
-    push({ provider: 'deepseek', modelId: dsModel, model: deepseek(dsModel) })
-  }
-
-  // 6. Local runtimes: prefer Ollama, then an OpenAI-compatible llama.cpp server.
-  await appendLocalModels(chain, push, opts)
-
-  // 7. OmniRoute (local free gateway, always last — only when actually running)
-  if (omniUrl && (await isOmniRouteUp(omniUrl))) {
-    for (const modelId of FREE_OMNIROUTE_MODELS) push(makeOmniRouteEntry(modelId))
-  }
-
-  // Cache default chain only (not user-overridden)
-  if (isDefaultCall) {
-    _chainCache = { chain, ts: Date.now() }
-  }
-
+  _chainCache.set(cacheKey, { chain, ts: Date.now() })
   return chain
+}
+
+// ── Cooldown: skip models that just failed, so a dead key doesn't slow every request ──
+const _cooldown = new Map<string, number>()
+
+function cooldownMs(e: unknown): number {
+  const status = (e as { status?: number; statusCode?: number })?.status ?? (e as { statusCode?: number })?.statusCode ?? 0
+  const msg = String(e).toLowerCase()
+  if (status === 401 || status === 403 || msg.includes('api key not valid') || msg.includes('invalid api key') || msg.includes('unauthorized')) return 10 * 60_000
+  if (status === 404 || msg.includes('not found') || msg.includes('does not exist')) return 30 * 60_000
+  return 60_000 // rate limits, overload, timeouts
+}
+
+/** Models currently skipped after a failure (for status displays) */
+export function coolingDownModels(): string[] {
+  const now = Date.now()
+  return [..._cooldown.entries()].filter(([, until]) => until > now).map(([key]) => key)
 }
 
 /**
@@ -413,7 +468,7 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
  * Returns text + which model actually answered.
  */
 export async function generateWithFallback(
-  opts: Omit<Parameters<typeof generateText>[0], 'model'>,
+  opts: GenerateOpts,
   overrides?: ModelOverride,
 ): Promise<{ text: string; usedProvider: string; usedModel: string }> {
   const chain = await buildModelChain(overrides)
@@ -421,19 +476,28 @@ export async function generateWithFallback(
   if (chain.length === 0) {
     throw new Error(overrides?.offline
       ? 'Offline mode needs a running Ollama, llama.cpp, or OmniRoute gateway with at least one installed model'
-      : 'No AI providers configured. Start Ollama/llama.cpp or add a cloud provider key to .env.local')
+      : 'No AI model available. Start OmniRoute (omniroute serve), add a free key (Gemini, Groq, OpenRouter) in Settings → AI Models, or install an Ollama model')
   }
 
+  // Skip models that just failed; if every model is cooling down, try them all anyway
+  const now = Date.now()
+  const ready = chain.filter(entry => (_cooldown.get(`${entry.provider}/${entry.modelId}`) ?? 0) <= now)
+  const attempts = ready.length ? ready : chain
+
   let lastError: unknown
-  for (const entry of chain) {
+  for (const entry of attempts) {
+    const key = `${entry.provider}/${entry.modelId}`
     try {
-      const text = entry.generate
-        ? await entry.generate(opts)
-        : (await generateText({ ...opts, model: entry.model, maxRetries: 0 })).text
+      let text: string
+      if (entry.generate) text = await entry.generate(opts)
+      else if (entry.model) text = (await generateText({ ...opts, model: entry.model, maxRetries: 0 })).text
+      else continue
+      _cooldown.delete(key)
       return { text, usedProvider: entry.provider, usedModel: entry.modelId }
     } catch (e) {
       if (isFallbackError(e)) {
-        console.warn(`[GhostForge] ${entry.provider}/${entry.modelId} failed → trying next. Reason: ${String(e).slice(0, 80)}`)
+        _cooldown.set(key, Date.now() + cooldownMs(e))
+        console.warn(`[GhostForge] ${key} failed → trying next. Reason: ${String(e).slice(0, 80)}`)
         lastError = e
         continue
       }
@@ -441,14 +505,20 @@ export async function generateWithFallback(
     }
   }
 
-  throw lastError || new Error('All AI providers failed')
+  const tried = chain.map(entry => `${entry.provider}/${entry.modelId}`).join(', ')
+  const last = lastError instanceof Error ? lastError.message : String(lastError ?? '')
+  throw new Error(
+    `No AI model answered (tried ${tried}). ` +
+    'Add a free key (Gemini, Groq, Cerebras, OpenRouter) or a custom model in Settings → AI Models, or install an Ollama model. ' +
+    `Last error: ${last.slice(0, 200)}`,
+  )
 }
 
 /** Legacy: selectAIModel kept for compatibility with streaming routes */
 export async function selectAIModel(opts?: ModelOverride): Promise<{ model: LanguageModel; fallbackModel?: LanguageModel }> {
-  const chain = await buildModelChain(opts)
-  if (chain.length === 0) throw new Error('No AI providers configured')
-  return { model: chain[0].model, fallbackModel: chain[1]?.model }
+  const withModel = (await buildModelChain(opts)).filter(entry => entry.model)
+  if (withModel.length === 0) throw new Error('No AI providers configured')
+  return { model: withModel[0].model!, fallbackModel: withModel[1]?.model }
 }
 
 /** Legacy non-streaming helper */
@@ -490,8 +560,8 @@ const VISION_MODEL_PREFERENCES = [
  */
 export async function generateVision(opts: VisionOpts): Promise<{ text: string; usedProvider: string; usedModel: string }> {
   const ollamaUrl = (process.env.OLLAMA_URL || 'http://localhost:11434').replace(/\/v1\/?$/, '')
-  const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
-  const orKey = process.env.OPENROUTER_API_KEY
+  const geminiKey = getProviderKey('google')
+  const orKey = getProviderKey('openrouter')
   const mimeType = opts.mimeType || 'image/jpeg'
 
   // 1. Try Ollama vision models (local, free)
