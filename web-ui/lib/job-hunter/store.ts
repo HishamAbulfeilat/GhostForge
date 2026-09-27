@@ -50,12 +50,34 @@ export interface JobPreferences {
   companies: string[]
 }
 
+/** The AI model Job Hunter uses; null follows the model selected in Settings */
+export interface ModelChoice { provider: string; model: string }
+
+export interface AutopilotSettings {
+  /** Search and apply on a schedule without asking (off until the user turns it on) */
+  enabled: boolean
+  /** Hours between runs */
+  intervalHours: number
+  /** Most applications autopilot may submit per calendar day */
+  dailyLimit: number
+  /** Only jobs scored at least this high (and rated High fit) are submitted */
+  minScore: number
+  lastRunAt?: string
+  lastResult?: string
+  /** Submissions per day, e.g. { "2026-09-28": 3 } (last 14 days kept) */
+  submittedByDay?: Record<string, number>
+}
+
+export const DEFAULT_AUTOPILOT: AutopilotSettings = { enabled: false, intervalHours: 12, dailyLimit: 5, minScore: 75 }
+
 export interface JobProfile {
   cv: { text: string; fileName: string; filePath: string; uploadedAt: string } | null
   applicant: ApplicantData
   preferences: JobPreferences
   /** Answers the user approved for unusual questions, reused on later forms */
   customAnswers: Record<string, string>
+  model: ModelChoice | null
+  autopilot: AutopilotSettings
   updatedAt: string
 }
 
@@ -105,6 +127,18 @@ function safeUser(username: string): string {
   return u
 }
 
+/** Every user that has Job Hunter data (for the autopilot scheduler) */
+export async function listJobUsers(): Promise<string[]> {
+  const { readdir } = await import('fs/promises')
+  try {
+    return (await readdir(join(homedir(), '.ghostforge', 'jobs'), { withFileTypes: true }))
+      .filter(d => d.isDirectory() && !d.name.startsWith('.'))
+      .map(d => d.name)
+  } catch {
+    return []
+  }
+}
+
 export function userDir(username: string): string {
   return join(homedir(), '.ghostforge', 'jobs', safeUser(username))
 }
@@ -131,6 +165,8 @@ export async function getProfile(username: string): Promise<JobProfile> {
     applicant: { ...EMPTY_APPLICANT, ...(stored.applicant || {}) },
     preferences: { ...EMPTY_PREFERENCES, ...(stored.preferences || {}) },
     customAnswers: stored.customAnswers || {},
+    model: stored.model?.provider && stored.model?.model ? stored.model : null,
+    autopilot: { ...DEFAULT_AUTOPILOT, ...(stored.autopilot || {}) },
     updatedAt: stored.updatedAt || '',
   }
 }
@@ -143,6 +179,8 @@ export async function saveProfile(username: string, patch: Partial<Omit<JobProfi
     applicant: { ...current.applicant, ...(patch.applicant || {}) },
     preferences: { ...current.preferences, ...(patch.preferences || {}) },
     customAnswers: { ...current.customAnswers, ...(patch.customAnswers || {}) },
+    model: patch.model !== undefined ? patch.model : current.model,
+    autopilot: { ...current.autopilot, ...(patch.autopilot || {}) },
     updatedAt: new Date().toISOString(),
   }
   await writeJson(join(userDir(username), 'profile.json'), next)

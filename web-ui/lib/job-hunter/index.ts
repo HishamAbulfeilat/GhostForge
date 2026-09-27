@@ -18,7 +18,7 @@ import { dealbreaker, matchesLocation, relevantTo, scoreJobs } from './match'
 import { linkedInSearchUrl, searchSources, type SourceReport } from './sources'
 import {
   getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs,
-  type JobProfile, type JobRecord,
+  type JobProfile, type JobRecord, type ModelChoice,
 } from './store'
 import { applyToJob } from './apply'
 import { buildAnswers, missingApplicantFields, tailorResume, writeCoverLetter } from './writer'
@@ -29,15 +29,30 @@ export { missingApplicantFields } from './writer'
 
 type Generate = (opts: { system?: string; prompt?: string; maxTokens?: number }) => Promise<string>
 
-/** GhostForge's model chain (free models, keys, local Ollama) as a simple text generator */
-export const aiGenerate: Generate = async opts => (await generateWithFallback(
-  { system: opts.system, prompt: opts.prompt, maxTokens: opts.maxTokens },
-  { task: 'tools' },
-)).text
+/**
+ * GhostForge's model chain as a simple text generator. With a model choice it
+ * leads the chain; otherwise the model selected in Settings does. Either way
+ * the usual free fallbacks follow if the chosen model is unavailable.
+ */
+export function generatorFor(model: ModelChoice | null): Generate {
+  return async opts => (await generateWithFallback(
+    { system: opts.system, prompt: opts.prompt, maxTokens: opts.maxTokens },
+    { task: 'tools', ...(model ? { activeProvider: model.provider, activeModel: model.model } : {}) },
+  )).text
+}
+
+/** Default generator (follows Settings) */
+export const aiGenerate: Generate = generatorFor(null)
+
+/** The user's own model choice for Job Hunter */
+async function userGenerator(username: string): Promise<Generate> {
+  return generatorFor((await getProfile(username)).model)
+}
 
 // ── CV ───────────────────────────────────────────────────────────────────────
 
-export async function importCv(username: string, fileName: string, data: Buffer, generate: Generate | null = aiGenerate) {
+export async function importCv(username: string, fileName: string, data: Buffer, generate?: Generate | null) {
+  if (generate === undefined) generate = await userGenerator(username)
   const text = await extractCvText(fileName, data)
   const filePath = await saveCvFile(username, fileName, data)
   const insights = await analyzeCv(text, generate)
@@ -80,7 +95,7 @@ export async function runSearch(
   if (!profile.cv) throw new Error('Upload your CV first')
   const terms = (opts.terms?.length ? opts.terms : profile.preferences.titles).map(t => t.trim()).filter(Boolean)
   if (!terms.length) throw new Error('Add at least one target job title to search for')
-  const generate = opts.generate === undefined ? aiGenerate : opts.generate
+  const generate = opts.generate === undefined ? generatorFor(profile.model) : opts.generate
 
   const { jobs: raw, report } = await searchSources(profile.preferences, terms)
   const home = [profile.applicant.city, profile.applicant.country].filter(Boolean)
@@ -127,7 +142,8 @@ export async function runSearch(
 
 // ── prepare / approve ────────────────────────────────────────────────────────
 
-export async function prepareJob(username: string, id: string, generate: Generate = aiGenerate): Promise<JobRecord> {
+export async function prepareJob(username: string, id: string, generate?: Generate): Promise<JobRecord> {
+  generate ??= await userGenerator(username)
   const job = await getJob(username, id)
   if (!job) throw new Error('Job not found')
   const profile = await getProfile(username)
@@ -141,7 +157,11 @@ export async function prepareJob(username: string, id: string, generate: Generat
   return updated!
 }
 
-export async function approveJob(username: string, id: string): Promise<{ job: JobRecord; message: string; missing: string[] }> {
+export async function approveJob(
+  username: string,
+  id: string,
+  opts: { headless?: boolean; by?: 'user' | 'autopilot' } = {},
+): Promise<{ job: JobRecord; message: string; missing: string[] }> {
   const job = await getJob(username, id)
   if (!job) throw new Error('Job not found')
   if (job.status !== 'ready' && job.status !== 'needs_user' && job.status !== 'failed') {
@@ -151,10 +171,11 @@ export async function approveJob(username: string, id: string): Promise<{ job: J
   const missing = missingApplicantFields(profile)
   if (missing.length) throw new Error(`Fill in your ${missing.join(', ')} before applying`)
 
-  await updateJob(username, id, { status: 'submitting' }, 'Approved — filling the application form')
-  void auditLog({ level: 'info', event: 'job_application_approved', params: { username, jobId: id, company: job.company, title: job.title, ats: job.ats } })
+  const by = opts.by || 'user'
+  await updateJob(username, id, { status: 'submitting' }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
+  void auditLog({ level: 'info', event: 'job_application_approved', params: { username, jobId: id, company: job.company, title: job.title, ats: job.ats, by } })
 
-  const result = await applyToJob(job, profile, username)
+  const result = await applyToJob(job, profile, username, { headless: opts.headless })
   const updated = await updateJob(username, id, { status: result.status }, result.message)
   void auditLog({ level: 'info', event: 'job_application_result', params: { username, jobId: id, status: result.status, filled: result.filled.length, missing: result.missing.length } })
   return { job: updated!, message: result.message, missing: result.missing }
