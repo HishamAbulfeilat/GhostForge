@@ -21,6 +21,7 @@ export const TOOL_PERMISSION: Record<string, string> = {
   file_processor: 'file_process',
   office_document: 'documents',
   career: 'career',
+  job_hunter: 'job_hunter',
   read_text_on_screen: 'file_read',
 
   // ── messaging ────────────────────────────────────────────────────────────────

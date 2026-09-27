@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import net from 'net'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 
 export const dynamic = 'force-dynamic'
 
@@ -69,17 +69,15 @@ async function getRemoteStatus() {
 }
 
 export async function GET(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requirePermission(req, 'remote')
+  if (access instanceof NextResponse) return access
 
   return NextResponse.json(await getRemoteStatus())
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requirePermission(req, 'remote')
+  if (access instanceof NextResponse) return access
 
   const body = await req.json().catch(() => ({})) as { action?: string }
 

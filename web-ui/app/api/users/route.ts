@@ -57,8 +57,9 @@ export async function POST(req: NextRequest) {
   if (!username || !password) {
     return NextResponse.json({ error: 'Username and password are required' }, { status: 400 })
   }
-  if (!/^[a-z0-9._-]{2,32}$/i.test(username)) {
-    return NextResponse.json({ error: 'Username must be 2-32 letters, digits, dot, dash or underscore' }, { status: 400 })
+  // Must start with a letter or digit: usernames name per-user data folders
+  if (!/^[a-z0-9][a-z0-9._-]{1,31}$/i.test(username)) {
+    return NextResponse.json({ error: 'Username must be 2-32 letters, digits, dot, dash or underscore, starting with a letter or digit' }, { status: 400 })
   }
   if (password.length < 8) {
     return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
@@ -90,6 +91,7 @@ export async function PATCH(req: NextRequest) {
     permissions?: string[]
     active?: boolean
     password?: string
+    resetSetup?: boolean
   }
   try {
     body = await req.json()
@@ -112,6 +114,8 @@ export async function PATCH(req: NextRequest) {
   if (body.name !== undefined) patch.name = body.name
   if (body.role !== undefined) patch.role = body.role === 'admin' ? 'admin' : 'user'
   if (body.active !== undefined) patch.active = Boolean(body.active)
+  // Send the user back through the job-title setup wizard on their next visit
+  if (body.resetSetup) patch.setupComplete = false
   if (body.permissions !== undefined) {
     const sanitized = Array.isArray(body.permissions)
       ? body.permissions.filter(p => ALL_PERMISSIONS.includes(p))

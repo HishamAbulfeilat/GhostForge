@@ -6,7 +6,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
 import { generateWithFallback } from '@/lib/ai'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 import { knownAppleScript, validateAppleScript } from '@/lib/apple-automation'
 
 const execAsync = promisify(exec)
@@ -99,9 +99,8 @@ tell application "Finder"
 end tell`
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requirePermission(req, 'mac_control')
+  if (access instanceof NextResponse) return access
 
   if (process.platform !== 'darwin') {
     return NextResponse.json({ error: 'Mac control requires a GhostForge server running on macOS' }, { status: 409 })

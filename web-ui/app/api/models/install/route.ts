@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 import { LOCAL_MODELS, RUNNER_META, type RunnerId } from '@/lib/local-models'
 
 export const dynamic = 'force-dynamic'
@@ -18,9 +18,8 @@ const RUNNER_LINKS: Record<Exclude<RunnerId, 'ollama'>, string> = {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requirePermission(req, 'ai_models')
+  if (access instanceof NextResponse) return access
 
   const body = await req.json().catch(() => ({})) as InstallBody
   const runner = body.runner

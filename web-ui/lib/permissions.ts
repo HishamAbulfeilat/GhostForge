@@ -27,6 +27,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'file_write', label: 'Write files', description: 'Create, edit and save files.', group: 'files' },
   { key: 'file_process', label: 'File processor', description: 'Summarize and convert documents.', group: 'files' },
   { key: 'documents', label: 'Office documents', description: 'Generate and manage memos, minutes, reports, cover letters and contracts.', group: 'files' },
+  { key: 'job_hunter', label: 'Job Hunter', description: 'Find matching jobs from your CV, tailor applications and auto-fill forms for approval.', group: 'productivity' },
   { key: 'career', label: 'Career tools', description: 'CV management, job application tracker, interview prep, LinkedIn content.', group: 'productivity' },
   { key: 'voice', label: 'Voice pipeline', description: 'Local offline speech-to-text / text-to-speech and voice status.', group: 'core' },
   { key: 'semantic_memory', label: 'Semantic memory', description: 'Long-term vector memory: remember and recall facts by meaning.', group: 'core' },
