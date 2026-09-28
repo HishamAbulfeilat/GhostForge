@@ -26,7 +26,8 @@ export interface ApplyResult {
   missing: string[]
 }
 
-const AUTO_SUBMIT_ATS = new Set(['lever', 'greenhouse', 'ashby'])
+/** ATSes whose forms can be completed and submitted unattended */
+export const AUTO_SUBMIT_ATS = new Set(['lever', 'greenhouse', 'ashby'])
 
 // Browsers left open for the user to finish — keep a reference so they aren't collected
 const openBrowsers = new Set<{ close(): Promise<void> }>()
@@ -108,11 +109,11 @@ interface ScannedField {
   options: string[]
 }
 
-export async function applyToJob(job: JobRecord, profile: JobProfile, username: string): Promise<ApplyResult> {
+export async function applyToJob(job: JobRecord, profile: JobProfile, username: string, opts: { headless?: boolean } = {}): Promise<ApplyResult> {
   if (!(await resolvesPublicly(formUrl(job)))) {
     return { status: 'failed', message: 'This listing\'s application link is not a public web address, so it was not opened.', filled: [], missing: [] }
   }
-  const headless = process.env.JOB_HUNTER_HEADLESS === '1'
+  const headless = opts.headless ?? process.env.JOB_HUNTER_HEADLESS === '1'
   const browser = await launchBrowser(headless)
   const page = await browser.newPage()
   const filled: string[] = []

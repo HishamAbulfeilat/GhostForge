@@ -1,7 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ApplicantData, JobPreferences, JobRecord } from '@/lib/job-hunter/store'
+import type { ApplicantData, AutopilotSettings, JobPreferences, JobRecord, ModelChoice } from '@/lib/job-hunter/store'
+import { CvImprover } from '@/components/career/CvImprover'
+import { GithubProfileSetup } from '@/components/career/GithubProfileSetup'
 
 // Layout and tokens follow the "GhostForge Job Hunter & Setup" Claude Design canvas.
 
@@ -68,14 +70,19 @@ export default function JobsPage() {
   const [dealbreakers, setDealbreakers] = useState('')
   const [companies, setCompanies] = useState('')
   const [applicant, setApplicant] = useState<ApplicantData | null>(null)
+  const [section, setSection] = useState<'jobs' | 'cv' | 'github'>('jobs')
+  const [model, setModel] = useState<ModelChoice | null>(null)
+  const [autopilot, setAutopilot] = useState<(AutopilotSettings & { submittedToday: number }) | null>(null)
 
   const load = useCallback(async () => {
     const [j, p] = await Promise.all([
-      api<{ jobs: JobRecord[]; sources: { linkedInViaJSearch: boolean } }>('/api/jobs'),
+      api<{ jobs: JobRecord[]; sources: { linkedInViaJSearch: boolean }; model: ModelChoice | null; autopilot: AutopilotSettings & { submittedToday: number } }>('/api/jobs'),
       api<{ profile: ProfileView }>('/api/jobs/profile'),
     ])
     setJobs(j.jobs)
     setJsearch(j.sources.linkedInViaJSearch)
+    setModel(j.model)
+    setAutopilot(j.autopilot)
     setProfile(p.profile)
     return p.profile
   }, [])
@@ -138,6 +145,25 @@ export default function JobsPage() {
     if (r.message) setNotice({ tone: 'info', text: r.message })
   })
 
+  const saveAutomation = (patch: { model?: ModelChoice | null; autopilot?: Partial<AutopilotSettings> }, message?: string) => run('automation', async () => {
+    await api('/api/jobs/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
+    await load()
+    if (message) setNotice({ tone: 'info', text: message })
+  })
+
+  const runAutopilotNow = () => run('autopilot', async () => {
+    const { report } = await api<{ report: { ran: boolean; reason?: string; submitted?: number; prepared?: number; found?: number; needsUser?: number } }>('/api/jobs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'autopilot' }),
+    })
+    await load()
+    setNotice({
+      tone: report.ran ? 'info' : 'error',
+      text: report.ran
+        ? `Autopilot found ${report.found} jobs, prepared ${report.prepared} and submitted ${report.submitted}${report.needsUser ? ` (${report.needsUser} need you)` : ''}.`
+        : report.reason || 'Autopilot did not run',
+    })
+  })
+
   const saveApplicant = () => run('applicant', async () => {
     await api('/api/jobs/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ applicant }) })
     await load()
@@ -170,7 +196,20 @@ export default function JobsPage() {
         </div>
       )}
 
-      {job ? (
+      <nav aria-label="Job Hunter sections" className="flex gap-1 border-b border-gf-line px-4 pt-4 lg:px-8">
+        {([['jobs', 'Find jobs'], ['cv', 'Improve CV'], ['github', 'GitHub profile']] as const).map(([k, label]) => (
+          <button key={k} type="button" aria-current={section === k ? 'page' : undefined} onClick={() => { setSection(k); setSelected(null) }}
+            className={`-mb-px min-h-11 border-b-2 px-4 text-sm font-medium ${section === k ? 'border-gf-accent text-gf-ink' : 'border-transparent text-gf-muted hover:text-gf-ink'}`}>
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {section === 'cv' ? (
+        <CvImprover />
+      ) : section === 'github' ? (
+        <GithubProfileSetup />
+      ) : job ? (
         <Review job={job} busy={busy} onBack={() => setSelected(null)}
           onApprove={() => void act('approve', job.id)} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)} />
       ) : (
@@ -239,6 +278,13 @@ export default function JobsPage() {
               ))}
               {linkedin && <a href={linkedin} target="_blank" rel="noreferrer" className="mt-1 text-sm text-sky-300 hover:text-sky-200">Open this search on LinkedIn ↗</a>}
             </section>
+
+            {autopilot && (
+              <AutomationCard model={model} autopilot={autopilot} busy={busy}
+                onModel={m => void saveAutomation({ model: m }, m ? `Job Hunter now uses ${m.model}.` : 'Job Hunter follows the model selected in Settings.')}
+                onAutopilot={(a, msg) => void saveAutomation({ autopilot: a }, msg)}
+                onRunNow={() => void runAutopilotNow()} />
+            )}
 
             <section className="rounded-2xl border border-gf-line bg-gf-surface p-5">
               <button type="button" onClick={() => setShowDetails(v => !v)} aria-expanded={showDetails}
@@ -458,6 +504,128 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss }: {
           </div>
         </section>
       </div>
+    </div>
+  )
+}
+
+interface ModelOption { value: string; label: string; group: string }
+
+/** Autopilot + AI model settings */
+function AutomationCard({ model, autopilot, busy, onModel, onAutopilot, onRunNow }: {
+  model: ModelChoice | null
+  autopilot: AutopilotSettings & { submittedToday: number }
+  busy: string
+  onModel: (m: ModelChoice | null) => void
+  onAutopilot: (a: Partial<AutopilotSettings>, message?: string) => void
+  onRunNow: () => void
+}) {
+  const [options, setOptions] = useState<ModelOption[]>([])
+
+  useEffect(() => {
+    fetch('/api/models').then(r => (r.ok ? r.json() : null)).then(data => {
+      if (!data) return
+      const opts: ModelOption[] = []
+      for (const p of data.providers || []) {
+        if (!p.available) continue
+        for (const m of p.models || []) opts.push({ value: `${p.id}|${m.id}`, label: `${m.label || m.id}${m.free ? ' (free)' : ''}`, group: p.name })
+      }
+      for (const c of data.custom || []) opts.push({ value: `custom|${c.id}`, label: c.name, group: 'Custom models' })
+      for (const name of data.ollama?.models || []) opts.push({ value: `ollama|${name}`, label: name, group: 'Local (Ollama)' })
+      setOptions(opts)
+    }).catch(() => {})
+  }, [])
+
+  const current = model ? `${model.provider}|${model.model}` : ''
+  const groups = [...new Set(options.map(o => o.group))]
+  const known = !current || options.some(o => o.value === current)
+
+  const toggle = () => {
+    if (autopilot.enabled) { onAutopilot({ enabled: false }, 'Autopilot is off. Nothing will be submitted automatically.'); return }
+    const ok = window.confirm(
+      `Turn on autopilot?\n\nEvery ${autopilot.intervalHours} hours GhostForge will search, tailor your CV and cover letter, and SUBMIT up to ${autopilot.dailyLimit} applications a day ` +
+      `for High-fit jobs scoring ${autopilot.minScore}+ on Lever, Greenhouse and Ashby, using your CV and application details. Other sites stay in your queue.`)
+    if (ok) onAutopilot({ enabled: true }, 'Autopilot is on.')
+  }
+
+  return (
+    <section className="flex flex-col gap-4 rounded-2xl border border-gf-line bg-gf-surface p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-display text-base font-semibold">Autopilot &amp; AI model</h2>
+        <button type="button" role="switch" aria-checked={autopilot.enabled} onClick={toggle} disabled={busy === 'automation'}
+          className={`relative h-7 w-12 rounded-full transition-colors ${autopilot.enabled ? 'bg-gf-accent' : 'bg-gf-line2'}`}>
+          <span className="sr-only">Autopilot</span>
+          <span className={`absolute top-1 h-5 w-5 rounded-full bg-gf-bg transition-all ${autopilot.enabled ? 'start-6' : 'start-1'}`} />
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="jh-model" className="text-xs uppercase tracking-[0.06em] text-gf-muted">AI model</label>
+        <select id="jh-model" value={current} disabled={busy === 'automation'}
+          onChange={e => {
+            const v = e.target.value
+            if (!v) return onModel(null)
+            const i = v.indexOf('|')
+            onModel({ provider: v.slice(0, i), model: v.slice(i + 1) })
+          }}
+          className="h-11 rounded-[10px] border border-gf-line bg-gf-bar px-3 text-sm">
+          <option value="">Default — the model selected in Settings</option>
+          {!known && model && <option value={current}>{model.model} ({model.provider})</option>}
+          {groups.map(g => (
+            <optgroup key={g} label={g}>
+              {options.filter(o => o.group === g).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <span className="text-xs text-gf-muted">Used for fit scoring, CV tailoring and cover letters. Add keys or custom models in Settings → AI Models.</span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <NumberSetting id="jh-ap-every" label="Every (hours)" value={autopilot.intervalHours} min={1} max={168}
+          onCommit={v => onAutopilot({ intervalHours: v })} />
+        <NumberSetting id="jh-ap-limit" label="Max per day" value={autopilot.dailyLimit} min={1} max={25}
+          onCommit={v => onAutopilot({ dailyLimit: v })} />
+        <NumberSetting id="jh-ap-score" label="Min score" value={autopilot.minScore} min={50} max={100}
+          onCommit={v => onAutopilot({ minScore: v })} />
+      </div>
+
+      <div className="flex flex-col gap-1 rounded-xl border border-gf-line bg-gf-bar p-3 text-sm">
+        <span className={autopilot.enabled ? 'text-gf-ok' : 'text-gf-muted'}>
+          {autopilot.enabled ? `On — ${autopilot.submittedToday}/${autopilot.dailyLimit} submitted today` : 'Off — applications wait for your approval'}
+        </span>
+        {autopilot.lastRunAt && (
+          <span className="text-xs text-gf-muted">Last run {new Date(autopilot.lastRunAt).toLocaleString()}: {autopilot.lastResult}</span>
+        )}
+      </div>
+
+      <button type="button" onClick={onRunNow} disabled={busy === 'autopilot'}
+        className="min-h-11 rounded-xl border border-gf-line2 text-sm font-semibold disabled:opacity-60">
+        {busy === 'autopilot' ? 'Running autopilot…' : 'Run autopilot now'}
+      </button>
+      <p className="text-xs leading-relaxed text-gf-muted">
+        Autopilot submits only where forms can be completed unattended (Lever, Greenhouse, Ashby) and only for High-fit jobs at or above your minimum score. LinkedIn, Workday and other sites stay prepared in your queue.
+      </p>
+    </section>
+  )
+}
+
+function NumberSetting({ id, label, value, min, max, onCommit }: {
+  id: string; label: string; value: number; min: number; max: number; onCommit: (v: number) => void
+}) {
+  const [draft, setDraft] = useState(String(value))
+  useEffect(() => { setDraft(String(value)) }, [value])
+  const commit = () => {
+    const n = Math.round(Number(draft))
+    if (!Number.isFinite(n)) { setDraft(String(value)); return }
+    const v = Math.min(max, Math.max(min, n))
+    setDraft(String(v))
+    if (v !== value) onCommit(v)
+  }
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-[11px] uppercase tracking-[0.06em] text-gf-muted">{label}</label>
+      <input id={id} inputMode="numeric" value={draft} onChange={e => setDraft(e.target.value)} onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit() }}
+        className="h-10 rounded-[10px] border border-gf-line bg-gf-bar px-3 text-sm" />
     </div>
   )
 }
