@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/access'
-import { getProfile, importCv, saveProfile, type ApplicantData, type JobPreferences } from '@/lib/job-hunter'
+import { getProfile, importCv, saveProfile, type ApplicantData, type AutopilotSettings, type JobPreferences, type ModelChoice } from '@/lib/job-hunter'
 import { MAX_CV_BYTES } from '@/lib/job-hunter/cv'
 
 export const dynamic = 'force-dynamic'
@@ -30,7 +30,10 @@ export async function PUT(req: NextRequest) {
   const user = await requirePermission(req, 'job_hunter')
   if (user instanceof NextResponse) return user
 
-  let body: { applicant?: Partial<ApplicantData>; preferences?: Partial<JobPreferences>; customAnswers?: Record<string, string> }
+  let body: {
+    applicant?: Partial<ApplicantData>; preferences?: Partial<JobPreferences>; customAnswers?: Record<string, string>
+    model?: ModelChoice | null; autopilot?: Partial<AutopilotSettings>
+  }
   try {
     body = await req.json()
   } catch {
@@ -60,6 +63,27 @@ export async function PUT(req: NextRequest) {
   }
   if (body.customAnswers && typeof body.customAnswers === 'object') {
     patch.customAnswers = Object.fromEntries(Object.entries(body.customAnswers).slice(0, 50).map(([k, v]) => [text(k, 160), text(v, 1000)]))
+  }
+  if (body.model !== undefined) {
+    // null = follow the model selected in Settings
+    patch.model = body.model && body.model.provider && body.model.model
+      ? { provider: text(body.model.provider, 40), model: text(body.model.model, 200) }
+      : null
+  }
+  if (body.autopilot) {
+    const a = body.autopilot
+    const clamp = (v: unknown, min: number, max: number, dflt: number) => {
+      const n = Math.round(Number(v))
+      return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt
+    }
+    const current = (await getProfile(user.username)).autopilot
+    patch.autopilot = {
+      ...current,
+      ...(a.enabled !== undefined ? { enabled: a.enabled === true } : {}),
+      ...(a.intervalHours !== undefined ? { intervalHours: clamp(a.intervalHours, 1, 168, current.intervalHours) } : {}),
+      ...(a.dailyLimit !== undefined ? { dailyLimit: clamp(a.dailyLimit, 1, 25, current.dailyLimit) } : {}),
+      ...(a.minScore !== undefined ? { minScore: clamp(a.minScore, 50, 100, current.minScore) } : {}),
+    }
   }
   const profile = await saveProfile(user.username, patch)
   return NextResponse.json({ ok: true, updatedAt: profile.updatedAt })

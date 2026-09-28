@@ -67,6 +67,24 @@ ${c.bold('Hunt')}
   jobs approve <id> [--yes]            Fill the application (submits where safe)
   jobs dismiss <id>
 
+${c.bold('Automate')}
+  jobs model [provider/model | default] Show or set the AI model (e.g. groq/llama-3.3-70b-versatile,
+                                       ollama/qwen3:8b, custom/<id>); "default" follows Settings
+  jobs autopilot status                Show autopilot settings and the last run
+  jobs autopilot on [--every 12] [--limit 5] [--min-score 75]
+                                       Search + apply on a schedule while the web UI server runs
+  jobs autopilot off
+  jobs autopilot run                   One full autopilot pass now (searches and submits)
+
+${c.bold('CV & GitHub')}
+  jobs improve [--adopt | --restore]   Review + rewrite your CV (never invents facts); --adopt uses it
+                                       for applications (.docx), --restore goes back to your original
+  jobs github <username> [--creative] [--style minimal|badges|terminal|visual|story|creative]
+             [--show] [--publish] [--no-profile]
+                                       Design your GitHub profile README from your CV (several designs,
+                                       the best fit recommended); --publish creates <username>/<username>
+                                       and pushes it using your gh login
+
 ${c.bold('Options')}
   --user <username>                    GhostForge account (default: the owner)
 
@@ -116,7 +134,7 @@ async function main() {
       const file = rest[0]
       if (!file || !existsSync(file)) throw new Error('Usage: jobs cv <path to your CV>')
       console.log(c.dim('Reading CV…'))
-      const { profile, insights } = await jh.importCv(user, basename(file), readFileSync(file), generate === null ? null : jh.aiGenerate)
+      const { profile, insights } = await jh.importCv(user, basename(file), readFileSync(file), generate)
       const a = profile.applicant
       console.log(`${c.green('✓')} ${profile.cv.fileName} (${profile.cv.text.length} characters)`)
       console.log(`  ${a.firstName} ${a.lastName} · ${a.email || c.yellow('no email')} · ${a.phone || c.yellow('no phone')}`)
@@ -201,6 +219,101 @@ Dealbreakers: ${p.dealbreakers.join(', ') || 'none'} · company boards: ${p.comp
       const color = r.job.status === 'submitted' ? c.green : r.job.status === 'needs_user' ? c.yellow : c.red
       console.log(color(r.message))
       if (r.missing.length) console.log(c.yellow(`Still needed: ${r.missing.join(', ')}`))
+      return
+    }
+    case 'model': {
+      const arg = rest[0]
+      if (arg) {
+        let model = null
+        if (arg !== 'default') {
+          const i = arg.indexOf('/')
+          if (i < 1) throw new Error('Use provider/model, e.g. groq/llama-3.3-70b-versatile, or "default"')
+          model = { provider: arg.slice(0, i), model: arg.slice(i + 1) }
+        }
+        await jh.saveProfile(user, { model })
+      }
+      const { model } = await jh.getProfile(user)
+      console.log(model ? `Job Hunter model: ${c.bold(`${model.provider}/${model.model}`)}` : 'Job Hunter model: default (the model selected in Settings)')
+      return
+    }
+    case 'autopilot': {
+      const ap = await import(pathToFileURL(join(WEB, 'lib', 'job-hunter', 'autopilot.ts')).href)
+      const sub = rest[0] || 'status'
+      const profile = await jh.getProfile(user)
+      const clampInt = (v, min, max, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : d }
+      if (sub === 'on' || sub === 'off') {
+        const cur = profile.autopilot
+        const next = {
+          ...cur,
+          enabled: sub === 'on',
+          intervalHours: flags.every !== undefined ? clampInt(flags.every, 1, 168, cur.intervalHours) : cur.intervalHours,
+          dailyLimit: flags.limit !== undefined ? clampInt(flags.limit, 1, 25, cur.dailyLimit) : cur.dailyLimit,
+          minScore: flags['min-score'] !== undefined ? clampInt(flags['min-score'], 50, 100, cur.minScore) : cur.minScore,
+        }
+        if (sub === 'on' && !flags.yes && !(await confirm(
+          `Autopilot will search every ${next.intervalHours}h and SUBMIT up to ${next.dailyLimit} applications/day ` +
+          `(High fit, score ${next.minScore}+, Lever/Greenhouse/Ashby) using your CV and details. Turn it on?`))) { console.log('Cancelled.'); return }
+        await jh.saveProfile(user, { autopilot: next })
+        console.log(sub === 'on' ? c.green('Autopilot on.') + c.dim(' It runs while the GhostForge web UI server is running (or use: jobs autopilot run).') : 'Autopilot off.')
+        return
+      }
+      if (sub === 'run') {
+        console.log(c.dim('Autopilot: searching, preparing and submitting…'))
+        const r = await ap.runAutopilot(user, { force: true, generate })
+        console.log(r.ran
+          ? `Found ${r.found} · ${r.matched} in your locations · prepared ${r.prepared} · ${c.green(`submitted ${r.submitted}`)}${r.needsUser ? c.yellow(` · ${r.needsUser} need you`) : ''}${r.failed ? c.red(` · ${r.failed} failed`) : ''}`
+          : c.yellow(r.reason))
+        return
+      }
+      const a = profile.autopilot
+      console.log(`Autopilot: ${a.enabled ? c.green('on') : 'off'} · every ${a.intervalHours}h · max ${a.dailyLimit}/day (${ap.submittedToday(a)} today) · min score ${a.minScore}`)
+      if (a.lastRunAt) console.log(c.dim(`Last run ${a.lastRunAt.slice(0, 16).replace('T', ' ')}: ${a.lastResult}`))
+      return
+    }
+    case 'improve': {
+      const im = await import(pathToFileURL(join(WEB, 'lib', 'job-hunter', 'improve.ts')).href)
+      if (flags.restore) { const cv = await im.restoreOriginalCv(user); console.log(c.green(`Using your original CV again (${cv.fileName}).`)); return }
+      if (!flags.adopt || !(await jh.getProfile(user)).improvedCv) {
+        console.log(c.dim('Reviewing and rewriting your CV…'))
+        const { model } = await jh.getProfile(user)
+        const r = await im.improveCv(user, jh.generatorFor(model))
+        const tone = r.review.score >= 80 ? c.green : r.review.score >= 60 ? c.yellow : c.red
+        console.log(`\n${c.bold('Score')} ${tone(`${r.review.score}/100`)}  ${r.review.summary}`)
+        for (const [title, items, col] of [['Strengths', r.review.strengths, c.green], ['Issues', r.review.issues, c.yellow], ['Improvements', r.review.suggestions, c.cyan]]) {
+          if (items.length) { console.log(`\n${col(title)}`); items.forEach(i => console.log(`  • ${i}`)) }
+        }
+        console.log(`\n${c.bold('── Improved CV ──')}\n${r.text}`)
+      }
+      if (flags.adopt) {
+        const cv = await im.adoptImprovedCv(user)
+        console.log(c.green(`\nJob Hunter now uses the improved CV (${cv.filePath}).`))
+      } else {
+        console.log(c.dim('\nUse it for applications: ghostforge jobs improve --adopt'))
+      }
+      return
+    }
+    case 'github': {
+      const gd = await import(pathToFileURL(join(WEB, 'lib', 'job-hunter', 'github-designs.ts')).href)
+      const gp = await import(pathToFileURL(join(WEB, 'lib', 'job-hunter', 'github-profile.ts')).href)
+      const ghUser = String(rest[0] || '').replace(/^@/, '')
+      if (!gp.validGithubUsername(ghUser)) throw new Error('Usage: jobs github <your-github-username> [--creative] [--style …] [--publish]')
+      console.log(c.dim('Reading your CV and GitHub, designing profiles…'))
+      const { model } = await jh.getProfile(user)
+      const set = await gd.generateGithubDesigns(user, ghUser, { notes: typeof flags.notes === 'string' ? flags.notes : '', creative: Boolean(flags.creative) || flags.style === 'creative' }, jh.generatorFor(model))
+      set.designs.forEach(d => console.log(`${d.recommended ? c.green('★ recommended') : '             '}  ${c.bold(d.style.padEnd(9))} ${d.name} ${c.dim('— ' + d.why)}`))
+      const style = typeof flags.style === 'string' ? flags.style : set.designs[0].style
+      const draft = await gd.selectGithubDesign(user, style)
+      if (flags.show || !flags.publish) console.log(`\n${c.bold(`── README.md (${style}) ──`)}\n${draft.readme}`)
+      if (!flags.publish) { console.log(c.dim(`Publish it: ghostforge jobs github ${ghUser} --style ${style} --publish`)); return }
+      const { execFileSync } = await import('node:child_process')
+      let token = ''
+      try { token = execFileSync('gh', ['auth', 'token'], { encoding: 'utf8', windowsHide: true }).trim() } catch { /* not logged in */ }
+      if (!token) throw new Error('Log in to GitHub CLI first: gh auth login')
+      if (!flags.yes && !(await confirm(`Publish the "${style}" design to github.com/${draft.username}?`))) { console.log('Cancelled.'); return }
+      const r = await gp.publishGithubProfile(user, token, draft, { updateProfile: !flags['no-profile'] })
+      console.log(c.green(`${r.createdRepo ? 'Created' : 'Updated'} ${r.repoUrl}`) + (r.profileUpdated ? c.green(' · profile details updated') : ''))
+      r.notes.forEach(n => console.log(c.yellow(n)))
+      console.log(`View it: ${r.profileUrl}`)
       return
     }
     case 'dismiss': {

@@ -2492,6 +2492,7 @@ async function screenMarketplace() {
       { name: T.cyan.bold('🗣️  Daily Standup')             + T.muted(' — git activity into concise daily updates'), value: 'standup' },
       { name: T.warning.bold('🪝  Smart Git Hooks')         + T.muted(' — native git hooks for carbon, TS, lint, commits'), value: 'git-hooks-setup' },
       { name: T.brand.bold('🗄️  DB Schema Visualizer')      + T.muted(' — Prisma/Drizzle schema to ASCII or HTML ERD'), value: 'schema-viz' },
+      { name: T.success.bold('🧭  Job Hunter')               + T.muted(' — CV → matching jobs → applications · autopilot · CV & GitHub profile'), value: 'job-hunter' },
       { name: T.cyan.bold('🎯  Career Helper')             + T.muted(' — CV, LinkedIn, interview prep, job scout (14 skills)'), value: 'career-helper' },
       { name: T.success.bold('🗂️   Career-Ops')             + T.muted(' — multi-agent job search · 740+ listings · WIRED / BI'), value: 'career-ops' },
       { name: T.brand.bold('🎨  Awesome Claude Design')   + T.muted(' — DESIGN.md collection · rohitg00'), value: 'awesome-claude-design-rohitg00' },
@@ -3236,6 +3237,98 @@ async function screenMarketplace() {
       }
     }
     await pressEnter();
+  }
+
+  if (action === 'job-hunter') {
+    // Job Hunter — same engine and data as the web UI (/jobs) and `ghostforge jobs`
+    const jobs = (args) => runScriptSync('scripts/jobs.sh', args);
+    const jhAction = await select({
+      message: T.success.bold('🧭 Job Hunter — find jobs, apply, improve your CV, set up GitHub:'),
+      choices: [
+        { name: T.cyan.bold('📊  Status')                + T.muted(' — applications waiting, applied, autopilot'),          value: 'status' },
+        { name: T.success.bold('🔎  Search now')          + T.muted(' — all sources, your locations, fit score, auto-prepare'), value: 'search' },
+        { name: T.white('📋  List jobs')                  + T.muted(' — ready / found / needs you / applied'),               value: 'list' },
+        { name: T.white('👁   Review a job')              + T.muted(' — tailored CV, cover letter, form answers'),           value: 'show' },
+        { name: T.warning.bold('✅  Approve & apply')      + T.muted(' — fill (and submit where safe) one application'),     value: 'approve' },
+        { name: T.white('📄  Upload / replace CV')        + T.muted(' — PDF, DOCX or TXT'),                                  value: 'cv' },
+        { name: T.accent.bold('✨  Improve my CV')         + T.muted(' — review + rewrite, never invents facts'),             value: 'improve' },
+        { name: T.brand.bold('🐙  GitHub profile')         + T.muted(' — README designs from your CV, recommended + others'), value: 'github' },
+        { name: T.warning.bold('🤖  Autopilot')            + T.muted(' — fully automated search + apply on a schedule'),      value: 'autopilot' },
+        { name: T.white('🧠  AI model')                   + T.muted(' — use any model for Job Hunter'),                      value: 'model' },
+        { name: T.muted('🌐  Open in web UI')             + T.muted(' — http://localhost:3001/jobs'),                         value: 'web' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 14,
+    });
+    if (jhAction === '__back__') return;
+
+    if (jhAction === 'status') {
+      jobs(['autopilot', 'status']);
+      jobs(['model']);
+      jobs(['list', '--status', 'ready']);
+    } else if (jhAction === 'search') {
+      const role = await input({ message: 'Role to search (empty = your saved target roles):', default: '' });
+      jobs(role.trim() ? ['search', role.trim()] : ['search']);
+    } else if (jhAction === 'list') {
+      const status = await select({
+        message: 'Which jobs?',
+        choices: [
+          { name: 'All', value: '' }, { name: 'Ready for approval', value: 'ready' }, { name: 'Found', value: 'found' },
+          { name: 'Needs you', value: 'needs_user' }, { name: 'Applied', value: 'submitted' },
+        ],
+      });
+      jobs(status ? ['list', '--status', status] : ['list']);
+    } else if (jhAction === 'show' || jhAction === 'approve') {
+      jobs(jhAction === 'approve' ? ['list', '--status', 'ready'] : ['list']);
+      const id = (await input({ message: 'Job id:' })).trim();
+      if (id) jobs(jhAction === 'show' ? ['show', id] : ['approve', id]); // approve asks for confirmation itself
+    } else if (jhAction === 'cv') {
+      const file = (await input({ message: 'Path to your CV (PDF, DOCX or TXT):' })).trim().replace(/^["']|["']$/g, '');
+      if (file) jobs(['cv', file]);
+    } else if (jhAction === 'improve') {
+      jobs(['improve']);
+      if (await confirm({ message: 'Use the improved CV for job applications?', default: false })) jobs(['improve', '--adopt']);
+    } else if (jhAction === 'github') {
+      const user = (await input({ message: 'Your GitHub username:' })).trim().replace(/^@/, '');
+      if (user) {
+        const creative = await confirm({ message: 'Also create a free-form creative design?', default: false });
+        jobs(['github', user, ...(creative ? ['--creative'] : [])]);
+        const style = await select({
+          message: 'Publish a design? (the recommended one is marked ★ above)',
+          choices: [
+            { name: 'Not now', value: '' }, { name: 'Clean & minimal', value: 'minimal' }, { name: 'Badge wall', value: 'badges' },
+            { name: 'Terminal', value: 'terminal' }, { name: 'Visual showcase', value: 'visual' }, { name: 'Storyteller', value: 'story' },
+            ...(creative ? [{ name: 'Creative (AI)', value: 'creative' }] : []),
+          ],
+        });
+        if (style) jobs(['github', user, '--style', style, '--publish']); // asks before publishing
+      }
+    } else if (jhAction === 'autopilot') {
+      jobs(['autopilot', 'status']);
+      const ap = await select({
+        message: 'Autopilot:',
+        choices: [
+          { name: 'Run one pass now (searches and submits)', value: 'run' },
+          { name: 'Turn on', value: 'on' }, { name: 'Turn off', value: 'off' }, { name: '← Back', value: '' },
+        ],
+      });
+      if (ap === 'on') {
+        const every = await input({ message: 'Run every how many hours?', default: '12' });
+        const limit = await input({ message: 'Max applications per day?', default: '5' });
+        const score = await input({ message: 'Minimum fit score (50-100)?', default: '75' });
+        jobs(['autopilot', 'on', '--every', every, '--limit', limit, '--min-score', score]); // asks to confirm
+      } else if (ap) {
+        jobs(['autopilot', ap]);
+      }
+    } else if (jhAction === 'model') {
+      jobs(['model']);
+      const m = (await input({ message: 'provider/model (e.g. groq/llama-3.3-70b-versatile, ollama/qwen3:8b) or "default" — empty to keep:' })).trim();
+      if (m) jobs(['model', m]);
+    } else if (jhAction === 'web') {
+      console.log(T.cyan('\n  Open http://localhost:3001/jobs (start the web UI with: cd web-ui && npm run dev)\n'));
+    }
+    await pressEnter();
+    return;
   }
 
   if (action === 'career-tools') {

@@ -23,7 +23,32 @@ ghostforge jobs search                                 # search → location fil
 ghostforge jobs list --status ready                    # applications waiting for approval
 ghostforge jobs show <id>                              # tailored CV, cover letter, form answers
 ghostforge jobs approve <id>                           # fills the form — ONLY after the user says yes
+ghostforge jobs model groq/llama-3.3-70b-versatile     # any model the user has (provider/model), or "default"
+ghostforge jobs autopilot on --every 12 --limit 5 --min-score 75   # fully automated (user must ask for this)
+ghostforge jobs autopilot status | run | off
 ```
+
+## CV improvement and GitHub profile
+
+```bash
+ghostforge jobs improve              # review + rewrite (never invents facts); --adopt to use it, --restore to undo
+ghostforge jobs github <username>    # 5 profile README designs from the CV, best fit recommended
+ghostforge jobs github <username> --creative            # add a free-form AI design
+ghostforge jobs github <username> --style terminal --publish   # create <username>/<username> and push (gh login)
+```
+
+When the user asks for a GitHub profile, generate the designs, tell them which is recommended and why,
+offer the others, and publish only the one they choose, only after they confirm.
+
+## Model and autopilot
+
+- **Model:** Job Hunter uses the model the user picks (`jobs model`, or the Jobs page),
+  otherwise the model selected in Settings, with GhostForge's free models as fallback.
+- **Autopilot** is fully automated: on a schedule it searches, prepares, and **submits**
+  High-fit applications scoring at or above the minimum, up to the daily limit, on
+  Lever/Greenhouse/Ashby. Turn it on **only when the user explicitly asks** for automatic
+  applying, and confirm the limits with them. It runs while the web UI server runs;
+  LinkedIn, Workday and other sites always stay in the queue for the user.
 
 ## Workflow
 

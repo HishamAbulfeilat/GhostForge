@@ -35,9 +35,10 @@ const writer = require('../lib/job-hunter/writer.ts')
 const cv = require('../lib/job-hunter/cv.ts')
 const store = require('../lib/job-hunter/store.ts')
 
-test.after(() => {
+test.after(async () => {
+  await new Promise(resolve => setTimeout(resolve, 300)) // let fire-and-forget audit writes finish
   hooks.deregister()
-  rmSync(fakeHome, { recursive: true, force: true })
+  rmSync(fakeHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 // ── title profiles & page access ────────────────────────────────────────────

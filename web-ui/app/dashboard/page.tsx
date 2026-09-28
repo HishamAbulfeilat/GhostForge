@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic'
 
 const MacMetricsWidget = dynamic(() => import('@/components/MacMetricsWidget').then(m => ({ default: m.MacMetricsWidget })), { ssr: false })
 const BridgeControl = dynamic(() => import('@/components/BridgeControl').then(m => ({ default: m.BridgeControl })), { ssr: false })
+const JobHunterWidget = dynamic(() => import('@/components/JobHunterWidget').then(m => ({ default: m.JobHunterWidget })), { ssr: false })
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -855,6 +856,9 @@ export default function DashboardPage() {
           <DoctorWidget />
           <MacMetricsWidget />
         </div>
+
+        {/* ── Job Hunter (hidden without the job_hunter permission) ── */}
+        <JobHunterWidget />
 
         {data ? (
           <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
