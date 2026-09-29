@@ -41,6 +41,12 @@ jobs:
     defaults:
       run:
         working-directory: electron-app
+    # Only Windows/macOS can be signed, and only when a certificate secret exists.
+    # An empty CSC_LINK makes electron-builder try to resolve "" as a path and
+    # fail ("Env WIN_CSC_LINK is not correct … not a file"), so the build is split
+    # into signed / unsigned steps and CSC_LINK is simply never set when unsigned.
+    env:
+      HAS_CSC: ${{ (matrix.name == 'windows' && secrets.WIN_CSC_LINK != '') || (matrix.name == 'macos' && secrets.MAC_CSC_LINK != '') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,16 +59,24 @@ jobs:
       - run: npm ci
       - run: node scripts/generate-icons.js
       - run: npx tsc
-      - run: ${{ matrix.build }}
+      - name: Build desktop (signed)
+        if: env.HAS_CSC == 'true'
+        run: ${{ matrix.build }}
         env:
-          # Signed when the secrets exist (see docs/SIGNING.md); unsigned otherwise
-          # Windows (.pfx) and macOS (.p12) need different certificates
-          CSC_LINK: ${{ matrix.name == 'windows' && secrets.WIN_CSC_LINK || matrix.name == 'macos' && secrets.MAC_CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.name == 'windows' && secrets.WIN_CSC_KEY_PASSWORD || matrix.name == 'macos' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.name == 'macos' && secrets.MAC_CSC_LINK != '' && 'true' || 'false' }}
+          # Windows (.pfx) and macOS (.p12) need different certificates (see docs/SIGNING.md)
+          CSC_LINK: ${{ matrix.name == 'windows' && secrets.WIN_CSC_LINK || secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ matrix.name == 'windows' && secrets.WIN_CSC_KEY_PASSWORD || secrets.MAC_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.name == 'macos' && 'true' || 'false' }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Build desktop (unsigned)
+        if: env.HAS_CSC != 'true'
+        run: ${{ matrix.build }}
+        env:
+          # No certificate: build unsigned. CSC_LINK is left unset so electron-builder
+          # skips signing instead of trying to resolve an empty path.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v4
         with:
           name: ghostforge-${{ matrix.name }}
@@ -90,6 +104,11 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
+        with:
+          # The obsolete "tools" package was removed from Google's SDK repo and
+          # now 404s ("Failed to find package 'tools'"). Install only platform-tools;
+          # the Android Gradle plugin fetches build-tools/platforms it needs.
+          packages: platform-tools
       - run: npm ci
       - run: npx cap sync android
       # Release signing: base64 keystore in ANDROID_KEYSTORE_BASE64 (see docs/SIGNING.md)
