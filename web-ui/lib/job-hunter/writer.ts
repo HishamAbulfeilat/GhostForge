@@ -67,10 +67,13 @@ export const FIELD_RULES: FieldRule[] = [
   { pattern: /current (location|city)|^location|^city/i, value: p => [p.applicant.city, p.applicant.country].filter(Boolean).join(', ') },
   { pattern: /^country/i, value: p => p.applicant.country },
   { pattern: /how did you hear|referral source|where did you (find|hear)/i, value: p => p.applicant.howHeard || 'Job board' },
-  { pattern: /sponsorship|visa/i, value: p => yesNo(p.applicant.needsSponsorship) },
+  // Authorization must be tested before sponsorship: "authorized to work without
+  // requiring visa sponsorship?" is an authorization question and must answer
+  // from workAuthorized, not be inverted by the "visa"/"sponsorship" rule below.
   { pattern: /authori[sz]ed to work|work authori[sz]ation|legally (eligible|able) to work|right to work/i, value: p => yesNo(p.applicant.workAuthorized) },
+  { pattern: /sponsorship|visa/i, value: p => yesNo(p.applicant.needsSponsorship) },
   { pattern: /previously (worked|been employed)|former employee/i, value: () => 'No' },
-  { pattern: /gender|race|ethnicity|hispanic|veteran|disability|sexual orientation/i, value: () => 'Decline to self-identify' },
+  { pattern: /gender|\brace\b|ethnicity|hispanic|veteran|disability|sexual orientation/i, value: () => 'Decline to self-identify' },
   { pattern: /current (company|employer)|^company$|^organization$/i, value: p => currentEmployer(p) },
 ]
 
