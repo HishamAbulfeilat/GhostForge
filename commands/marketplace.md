@@ -37,6 +37,7 @@ Browse and install **agents, commands, skills, and plugins** from trusted source
 | **Claude Marketplaces** | Discovery directory | https://claudemarketplaces.com |
 | **find-skills (Vercel Labs)** | Skill discovery | https://github.com/vercel-labs/skills |
 | **claude-mem** | Persistent memory | https://github.com/thedotmack/claude-mem |
+| **rtk (Rust Token Killer)** | Token/cost optimizer (compresses tool output 60-90%) | https://github.com/rtk-ai/rtk |
 | **frontend-design (Anthropic)** | Design skill | https://github.com/anthropics/skills |
 | **extract-design-system** | Design token extractor | https://github.com/arvindrk/extract-design-system |
 | **Superpowers** | AI dev methodology | https://github.com/obra/superpowers |

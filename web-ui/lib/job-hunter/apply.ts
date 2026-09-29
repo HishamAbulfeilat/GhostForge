@@ -124,7 +124,15 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
   }
 
   try {
-    await page.goto(formUrl(job), { waitUntil: 'domcontentloaded', timeout: 45_000 })
+    const nav = await page.goto(formUrl(job), { waitUntil: 'domcontentloaded', timeout: 45_000 })
+    // Defence against DNS rebinding: the pre-navigation lookup in resolvesPublicly()
+    // and the browser's own resolution can differ. Verify the IP the browser
+    // actually connected to (this is also the post-redirect host) is public.
+    const serverIp = (await nav?.serverAddr())?.ipAddress
+    if (serverIp && isPrivateAddress(serverIp)) {
+      await browser.close().catch(() => {})
+      return { status: 'failed', message: 'This listing\'s application link resolved to a private address, so it was not used.', filled: [], missing: [] }
+    }
     await page.waitForTimeout(2500)
 
     if (job.ats === 'linkedin') return keepOpen('LinkedIn applications are finished by you — the listing is open in the browser. Your answers are in the Review panel.')
