@@ -191,6 +191,19 @@ function proxyWsUpgrade(req, clientSocket, head) {
   })
   up.on('error', () => clientSocket.destroy())
   clientSocket.on('error', () => up.destroy())
+  // Tear down the paired socket when either side closes, so the upstream PTY
+  // process is not orphaned when the browser tab/network drops.
+  clientSocket.on('close', () => up.destroy())
+  up.on('close', () => clientSocket.destroy())
+}
+
+// Constant-time token check that also requires a configured token (never
+// fail open when the bridge token file is missing).
+function tokenMatches(token, expected) {
+  if (!expected || !token) return false
+  const a = Buffer.from(String(token))
+  const b = Buffer.from(String(expected))
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
 }
 
 function attachUpgradeHandler(server) {
@@ -203,7 +216,7 @@ function attachUpgradeHandler(server) {
     const url = new URL(req.url || '/', `http://${host || 'localhost'}`)
     const token = url.searchParams.get('token') || req.headers['x-bridge-token'] || ''
     const expected = getBridgeToken()
-    const hasValidToken = !expected || (token && token === expected)
+    const hasValidToken = tokenMatches(token, expected)
     if (pathname === '/ws' && originMatchesRequest(req.headers.origin, host) && hasValidToken) {
       proxyWsUpgrade(req, socket, head)
     } else if (dev && pathname.startsWith('/_next/')) {
