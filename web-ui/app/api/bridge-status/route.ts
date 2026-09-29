@@ -1,6 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import os from 'os'
 import { getBridgeUrlCandidates, getLiveBridgeToken } from '@/lib/bridge-token'
+import { isAuthorizedRequest } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,7 +14,12 @@ const PLATFORM_LABEL: Record<string, string> = {
   openbsd: 'OpenBSD',
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // Host details (hostname, platform, bridge URL) must not leak to unauthenticated
+  // callers — the middleware does not cover /api/*, so guard in-route.
+  if (!isAuthorizedRequest(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   const candidates = getBridgeUrlCandidates()
   const bridgeToken = getLiveBridgeToken()
 
