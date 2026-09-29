@@ -259,6 +259,25 @@
       "trusted": true
     },
     {
+      "id": "rtk",
+      "name": "rtk — Rust Token Killer",
+      "type": "optimization",
+      "description": "CLI proxy that compresses noisy tool output (git, npm, cargo, docker, test runners, linters) before it reaches the model — 60-90% fewer tokens without breaking prompt caching. Single Rust binary, zero dependencies, fully local. Installs a Claude Code PreToolUse hook that auto-rewrites bash commands.",
+      "url": "https://github.com/rtk-ai/rtk",
+      "docs": "https://github.com/rtk-ai/rtk/blob/develop/INSTALL.md",
+      "install_command": "winget install rtk-ai.rtk",
+      "install_alt": "brew install rtk",
+      "install_claude_code": "rtk init -g",
+      "verify_command": "rtk gain",
+      "categories": [
+        "optimization",
+        "tokens",
+        "cost",
+        "developer-tools"
+      ],
+      "trusted": true
+    },
+    {
       "id": "frontend-design-skill",
       "name": "frontend-design (Anthropic Official)",
       "type": "claude-skills",
