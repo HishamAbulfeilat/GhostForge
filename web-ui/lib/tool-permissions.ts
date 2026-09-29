@@ -91,6 +91,67 @@ export const TOOL_PERMISSION: Record<string, string> = {
   mcp_call: 'mcp',
   mcp_status: 'mcp',
   native_desktop: 'native_desktop',
+
+  // ── computer control (keyboard / mouse / windows) — same risk class as mac_control ──
+  type_text: 'mac_control',
+  key_combo: 'mac_control',
+  mouse_click: 'mac_control',
+  mouse_move: 'mac_control',
+  drag_mouse: 'mac_control',
+  scroll: 'mac_control',
+  point_cursor: 'mac_control',
+  find_and_click: 'mac_control',
+  highlight_area: 'mac_control',
+  focus_window: 'mac_control',
+  get_windows: 'mac_control',
+  get_frontmost_app: 'mac_control',
+  play_music: 'mac_control',
+  // Mark-LIV is the full computer-control bridge on Windows/Linux — gate like mac_control
+  mark_liv: 'mac_control',
+
+  // ── screen / vision ──────────────────────────────────────────────────────────
+  get_screen_info: 'screenshots',
+  find_element: 'screenshots',
+
+  // ── code execution ───────────────────────────────────────────────────────────
+  open_interpreter: 'code_helper',
+  jsrepl_run: 'code_helper',
+
+  // ── system administration ────────────────────────────────────────────────────
+  mac_cleanup: 'admin_tools',
+  install_on_device: 'admin_tools',
+  setup_wizard: 'admin_tools',
+  delegate_agent: 'admin_tools',
+
+  // ── external messaging (server-configured channels) ──────────────────────────
+  discord_message: 'send_message',
+  send_slack_message: 'send_message',
+  send_teams_message: 'send_message',
+  send_whatsapp_message: 'send_message',
+
+  // ── GitHub (server token) ────────────────────────────────────────────────────
+  github_prs: 'github',
+  github_issues: 'github',
+
+  // ── clipboard / notes / contacts / vault ─────────────────────────────────────
+  get_clipboard: 'clipboard',
+  copy_to_clipboard: 'clipboard',
+  write_note: 'file_write',
+  apply_design_md: 'file_write',
+  contacts_by_phone: 'contacts',
+  vault_save: 'semantic_memory',
+
+  // ── security scanners (run scans/commands) ───────────────────────────────────
+  vigolium_scan: 'terminal',
+  vigolium_agent: 'terminal',
+
+  // ── productivity / info helpers ──────────────────────────────────────────────
+  set_goal: 'reminders',
+  list_goals: 'reminders',
+  web_search_deep: 'web_search',
+  list_design_md: 'chat',
+  design_resources: 'chat',
+  task_steps: 'chat',
 }
 
 export function permissionForTool(tool: string): string | undefined {
