@@ -2478,6 +2478,7 @@ async function screenMarketplace() {
       { name: T.cyan.bold('🔍  Open Source Discovery')   + T.muted(' — hidden gems & trending repos (opensourceprojects.dev)'), value: 'osp-dev' },
       { name: T.accent.bold('🧠  Hermes Agent')            + T.muted(' — self-improving AI agent by Nous Research'), value: 'hermes-agent' },
       { name: T.success.bold('🧠  Shared Memory')           + T.muted(' — claude-mem persistent context across sessions'), value: 'claude-mem' },
+      { name: T.cyan.bold('🗜️   rtk (Token Killer)')         + T.muted(' — compress tool output, 60-90% fewer tokens · Claude Code hook'), value: 'rtk' },
       { name: T.success.bold('🎓  Claude Agent Skills')   + T.muted(' — Anthropic, SkillsMP, Claude-Flow, scroll-world, UI/UX'), value: 'skills' },
       { name: T.brand.bold('🗂️   Claude Marketplaces')     + T.muted(' — skills, MCP servers, plugins directory'), value: 'claude-marketplaces' },
       { name: T.cyan.bold('⚡  PocketBase')               + T.muted(' — open source backend in 1 file'), value: 'pocketbase' },
@@ -2878,6 +2879,31 @@ async function screenMarketplace() {
     ));
     console.log();
     try { execSync('open https://app.strix.ai 2>/dev/null || xdg-open https://app.strix.ai 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    await pressEnter();
+  }
+
+  if (action === 'rtk') {
+    console.log();
+    console.log(boxen(
+      T.cyan.bold(' 🗜️  rtk — Rust Token Killer ') + '\n\n' +
+      T.white('CLI proxy that compresses noisy tool output before it reaches the model.\n') +
+      T.muted('60-90% fewer tokens on git, npm, cargo, docker, test runners, linters…\n') +
+      T.muted('Single Rust binary, zero dependencies, fully local. Apache-2.0.\n\n') +
+      T.success.bold('  Install:\n') +
+      T.cyan('  winget install rtk-ai.rtk        ') + T.dim('# Windows\n') +
+      T.cyan('  brew install rtk                 ') + T.dim('# macOS/Linux\n\n') +
+      T.success.bold('  Wire into Claude Code (global hook):\n') +
+      T.cyan('  rtk init -g\n') +
+      T.dim('  # installs a PreToolUse hook that auto-rewrites bash commands\n\n') +
+      T.success.bold('  Verify & view savings:\n') +
+      T.cyan('  rtk gain                         ') + T.dim('# token-savings dashboard\n') +
+      T.cyan('  rtk init --show                  ') + T.dim('# confirm hook is active\n\n') +
+      T.muted('  Works with Claude Code + 17 other agents (Cursor, Copilot, Cline…).\n\n') +
+      T.dim('  https://github.com/rtk-ai/rtk'),
+      { padding: 1, borderColor: '#22D3EE', borderStyle: 'round' }
+    ));
+    console.log();
+    try { execSync('open https://github.com/rtk-ai/rtk 2>/dev/null || xdg-open https://github.com/rtk-ai/rtk 2>/dev/null', { stdio: 'ignore' }); } catch {}
     await pressEnter();
   }
 
