@@ -54,8 +54,14 @@ Two agents work this repo **simultaneously** and coordinate through files in
 
 ## Starting each agent
 
+Fastest: **`scripts/start-agents.sh`** — sets up a separate Copilot worktree and
+launches both (tmux split if available, otherwise prints the two commands).
+`--setup-only` just prepares the worktree; `--no-loop` runs Copilot once.
+
+Manually:
 - **Claude Code:** `claude` then `/team start` (see `commands/team.md`).
-- **Copilot CLI:** `copilot` then paste `prompts/multi-agent-kickoff.md`.
+- **Copilot CLI:** `copilot` then paste `prompts/multi-agent-kickoff.md`
+  (pre-approve its tools with `/allow` so it doesn't stop to ask).
 
 Both load their MCP servers from `.mcp.json` (project tools + GitHub).
 
