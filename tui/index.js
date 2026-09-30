@@ -2624,10 +2624,13 @@ async function screenMarketplace() {
     if (item) {
       console.log();
       console.log(T.brand.bold(`  Installing: ${item.name}...`));
-      if (item.install_command) {
-        console.log(T.muted(`  Running: ${item.install_command}`));
+      const platformInstallCommand = (process.platform === 'win32' && item.install_command_windows)
+        ? item.install_command_windows
+        : item.install_command;
+      if (platformInstallCommand) {
+        console.log(T.muted(`  Running: ${platformInstallCommand}`));
         try {
-          execSync(item.install_command, { stdio: 'inherit', cwd: ROOT });
+          execSync(platformInstallCommand, { stdio: 'inherit', cwd: ROOT });
           console.log(T.success(`\n  ✅ ${item.name} installed successfully!`));
           item.installed = true;
           // Persist to registry.json (source of truth shared with the web UI).
@@ -2637,7 +2640,7 @@ async function screenMarketplace() {
           registry.removed = [...removedSet];
           writeFileSync(registryPath, JSON.stringify(registry, null, 2));
         } catch {
-          console.log(T.danger(`\n  ✖ Installation failed. Try manually: ${item.install_command}`));
+          console.log(T.danger(`\n  ✖ Installation failed. Try manually: ${platformInstallCommand}`));
         }
       } else if (item.url) {
         console.log(T.accent(`  Visit: ${item.url}`));
@@ -2680,8 +2683,11 @@ async function screenMarketplace() {
       } else if (item.install_command) {
         // Security tools: show the command for review rather than piping
         // catalog data straight into a shell. Copy/paste to run.
+        const platformInstallCommand = (process.platform === 'win32' && item.install_command_windows)
+          ? item.install_command_windows
+          : item.install_command;
         console.log(T.yellow('\n  Install command (review, then run in your shell):'));
-        console.log(T.cyan(`    ${item.install_command}`));
+        console.log(T.cyan(`    ${platformInstallCommand}`));
         const mark = await confirm({ message: 'Mark as installed?', default: false });
         if (mark) {
           item.installed = true;
