@@ -1,0 +1,305 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
+
+export const DEFAULT_BODY_LIMIT = 1024 * 1024
+export const VALID_ACTIONS = ['status', 'start', 'stop', 'say', 'add'] as const
+
+type AgentTeamActionName = (typeof VALID_ACTIONS)[number]
+
+interface AgentTeamRequestPayload {
+  action?: string
+  from?: string
+  sender?: string
+  to?: string
+  target?: string
+  message?: string
+  text?: string
+  title?: string
+  task?: string
+  name?: string
+  kind?: string
+  area?: string[] | string
+  agent?: string
+  assignee?: string
+  [key: string]: unknown
+}
+
+interface AgentTeamCommandResult {
+  ok: boolean
+  action: string
+  output: string
+  code: number | null
+}
+
+export function repoRootFromLib(): string {
+  return path.resolve(__dirname, '..', '..')
+}
+
+function realpathIfExists(target: string): string {
+  try {
+    return fs.realpathSync.native(target)
+  } catch {
+    return path.resolve(target)
+  }
+}
+
+export function resolveWorkspaceRoot(workspaceRoot = repoRootFromLib(), targetPath?: string): string {
+  const root = realpathIfExists(workspaceRoot)
+  const candidate = targetPath === undefined ? root : path.isAbsolute(targetPath) ? targetPath : path.resolve(root, targetPath)
+
+  let resolvedCandidate = candidate
+  try {
+    resolvedCandidate = fs.realpathSync.native(candidate)
+  } catch {
+    let cursor = candidate
+    let parent = path.dirname(cursor)
+    while (parent && parent !== path.dirname(parent)) {
+      try {
+        const realParent = fs.realpathSync.native(parent)
+        resolvedCandidate = path.join(realParent, path.relative(parent, cursor))
+        break
+      } catch {
+        if (parent === root || parent === path.dirname(parent)) break
+        cursor = parent
+        parent = path.dirname(parent)
+      }
+    }
+    if (!resolvedCandidate) resolvedCandidate = path.resolve(candidate)
+  }
+
+  const relative = path.relative(root, resolvedCandidate)
+  if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) {
+    return resolvedCandidate
+  }
+
+  throw new Error(`Workspace escape detected: ${resolvedCandidate} is outside ${root}`)
+}
+
+function readJsonFile<T>(filePath: string, fallback: T): T {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
+  } catch {
+    return fallback
+  }
+}
+
+function readMessages(stateDir: string) {
+  const file = path.join(stateDir, 'messages.jsonl')
+  if (!fs.existsSync(file)) return []
+  const text = fs.readFileSync(file, 'utf8')
+  const entries: Array<Record<string, unknown>> = []
+  for (const line of text.split('\n').filter(Boolean)) {
+    try {
+      entries.push(JSON.parse(line) as Record<string, unknown>)
+    } catch {
+      // ignore malformed/partial lines
+    }
+  }
+  return entries
+}
+
+function isProcessRunning(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function normalizeAreaValue(value: string[] | string | undefined): string[] {
+  if (Array.isArray(value)) return value.map(entry => String(entry).trim()).filter(Boolean)
+  if (typeof value === 'string') return value.split(',').map(entry => entry.trim()).filter(Boolean)
+  return []
+}
+
+export function normalizeAgentTeamAction(input: AgentTeamRequestPayload = {}): { action: string; [key: string]: unknown } {
+  const source = input && typeof input === 'object' ? { ...input } : {}
+  const actionName = String(source.action ?? '').trim().toLowerCase()
+  const action = actionName === 'add_task' ? 'add' : actionName
+
+  if (action === 'status' || action === 'start' || action === 'stop') {
+    return { action, ...source }
+  }
+
+  if (action === 'say') {
+    const from = String(source.from ?? source.sender ?? 'boss').trim() || 'boss'
+    const to = String(source.to ?? source.target ?? 'all').trim() || 'all'
+    const message = String(source.message ?? source.text ?? '').trim()
+    if (!message) {
+      throw new Error('Agent team say requires a message value')
+    }
+    return { action: 'say', from, to, message }
+  }
+
+  if (action === 'add') {
+    const title = String(source.title ?? source.task ?? source.name ?? '').trim()
+    if (!title) {
+      throw new Error('Agent team add requires a title')
+    }
+    const kind = String(source.kind ?? 'feature').trim() || 'feature'
+    const area = normalizeAreaValue(source.area as string[] | string | undefined)
+    const agent = String(source.agent ?? source.assignee ?? 'any').trim() || 'any'
+    const from = String(source.from ?? source.sender ?? 'human').trim() || 'human'
+    return {
+      action: 'add',
+      title,
+      kind,
+      area,
+      agent,
+      from,
+    }
+  }
+
+  if (!action) {
+    throw new Error('Agent team action is required')
+  }
+
+  if (VALID_ACTIONS.includes(action as AgentTeamActionName)) {
+    return { action, ...source }
+  }
+
+  throw new Error(`Unsupported agent team action: "${action}"`)
+}
+
+function buildAgentTeamCliArgs(action: string, params: AgentTeamRequestPayload = {}): string[] {
+  const normalized = normalizeAgentTeamAction({ action, ...params })
+  switch (normalized.action) {
+    case 'status':
+      return ['status']
+    case 'start':
+      return ['start']
+    case 'stop':
+      return ['stop']
+    case 'say':
+      return ['say', '--from', String(normalized.from), '--to', String(normalized.to), String(normalized.message)]
+    case 'add': {
+      const args = ['add', String(normalized.title), '--kind', String(normalized.kind)]
+      const area = Array.isArray(normalized.area) ? normalized.area : []
+      if (area.length) args.push('--area', area.join(','))
+      if (normalized.agent) args.push('--agent', String(normalized.agent))
+      if (normalized.from) args.push('--from', String(normalized.from))
+      return args
+    }
+    default:
+      return [String(normalized.action)]
+  }
+}
+
+export function getStateDirectory(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): string {
+  const root = resolveWorkspaceRoot(workspaceRoot)
+  const stateDir = stateDirOverride && String(stateDirOverride).trim() ? stateDirOverride : path.join(root, '.agent-sync', 'state')
+  return resolveWorkspaceRoot(root, stateDir)
+}
+
+export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): { snapshot: { health: number | null; running: boolean; agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; cooldownUntil: string | null }>; tasks: Array<{ id: string | null; title: string; kind: string; status: string; owner: string | null }>; messages: Array<Record<string, unknown>>; phase: number } } {
+  const root = resolveWorkspaceRoot(workspaceRoot)
+  const stateDir = getStateDirectory(root, stateDirOverride)
+  const status = readJsonFile<{ health?: number | null; pid?: number; phase?: number; agents?: Record<string, Record<string, unknown>> } | null>(path.join(stateDir, 'status.json'), null)
+  const board = readJsonFile<{ phase?: number; tasks?: Array<Record<string, unknown>> }>(path.join(stateDir, 'board.json'), { phase: 1, tasks: [] })
+  const teamConfig = readJsonFile<{ agents?: Record<string, { provider?: string }> }>(path.join(root, '.agent-sync', 'team.json'), {})
+
+  const agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; cooldownUntil: string | null }> = {}
+  for (const [agentId, agentStatus] of Object.entries(status?.agents ?? {})) {
+    const info = (agentStatus && typeof agentStatus === 'object' ? agentStatus : {}) as Record<string, unknown>
+    agents[agentId] = {
+      provider: teamConfig?.agents?.[agentId]?.provider ?? (typeof info.provider === 'string' ? info.provider : null),
+      state: typeof info.state === 'string' ? info.state : 'unknown',
+      task: typeof info.task === 'string' ? info.task : null,
+      model: typeof info.model === 'string' ? info.model : null,
+      cooldownUntil: typeof info.cooldownUntil === 'string' ? info.cooldownUntil : null,
+    }
+  }
+
+  const tasks = Array.isArray(board.tasks) ? board.tasks.map(task => ({
+    id: typeof task.id === 'string' ? task.id : null,
+    title: typeof task.title === 'string' ? task.title : '',
+    kind: typeof task.kind === 'string' ? task.kind : 'feature',
+    status: typeof task.status === 'string' ? task.status : 'todo',
+    owner: typeof task.owner === 'string' ? task.owner : (typeof task.agent === 'string' ? task.agent : null),
+  })) : []
+
+  return {
+    snapshot: {
+      health: status?.health ?? null,
+      running: Boolean(status && status.pid && isProcessRunning(status.pid)),
+      agents,
+      tasks,
+      messages: readMessages(stateDir),
+      phase: Number(board.phase ?? status?.phase ?? 1) || 1,
+    },
+  }
+}
+
+export async function readRequestJsonWithLimit(request: { body?: ReadableStream<Uint8Array> | null }, limit = DEFAULT_BODY_LIMIT): Promise<Record<string, unknown>> {
+  if (!request || !request.body) return {}
+  const reader = request.body.getReader ? request.body.getReader() : null
+  if (!reader) return {}
+
+  const chunks: Uint8Array[] = []
+  let total = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    const bytes = value instanceof Uint8Array ? value : new Uint8Array(value)
+    total += bytes.byteLength
+    if (total > limit) {
+      await reader.cancel()
+      throw new Error(`Request body exceeds the ${limit} byte limit`)
+    }
+    chunks.push(bytes)
+  }
+
+  if (!chunks.length) return {}
+  const merged = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  const text = new TextDecoder().decode(merged)
+  if (!text.trim()) return {}
+
+  try {
+    const parsed = JSON.parse(text)
+    if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') return {}
+    return parsed as Record<string, unknown>
+  } catch {
+    throw new Error('Request body must be valid JSON')
+  }
+}
+
+export function runAgentTeamCommand(action: string, params: AgentTeamRequestPayload = {}, options: { workspaceRoot?: string; stateDirOverride?: string; env?: NodeJS.ProcessEnv; runner?: typeof spawnSync } = {}): AgentTeamCommandResult {
+  const workspaceRoot = resolveWorkspaceRoot(options.workspaceRoot || repoRootFromLib())
+  const env = { ...process.env, ...(options.env || {}) }
+  const stateDir = getStateDirectory(workspaceRoot, env.GF_AGENT_STATE || options.stateDirOverride)
+  env.GF_AGENT_STATE = stateDir
+
+  try {
+    const args = buildAgentTeamCliArgs(action, params)
+    const result = (options.runner || spawnSync)(process.execPath, [path.resolve(workspaceRoot, 'scripts', 'agents', 'team.mjs'), ...args], {
+      cwd: workspaceRoot,
+      env,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const output = `${result.stdout || ''}${result.stderr || ''}`.trim()
+    return {
+      ok: result.status === 0,
+      action: normalizeAgentTeamAction({ action, ...params }).action,
+      output: output || (result.status === 0 ? 'Command completed.' : 'Agent-team command failed.'),
+      code: result.status ?? null,
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      action: normalizeAgentTeamAction({ action, ...params }).action,
+      output: `Agent-team command failed: ${error instanceof Error ? error.message : String(error)}`,
+      code: null,
+    }
+  }
+}
