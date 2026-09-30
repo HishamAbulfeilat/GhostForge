@@ -56,6 +56,7 @@ GhostForge JARVIS is a desktop + web app that turns GitHub Copilot into a full A
 - **Persistent Daemon** — JARVIS stays running when window closes
 - **Self-Update** — JARVIS updates his own codebase
 - **Cross-Platform** — macOS, Windows, Linux, Android
+- **Agent Teams** — Run, monitor, and stop isolated multi-agent workflows with reusable team templates ([guide](docs/AGENT-TEAMS.md))
 
 ## Quick Start
 
@@ -97,6 +98,11 @@ GhostForge/
 ├── tui/             # Terminal UI
 └── .github/         # CI/CD workflows
 ```
+
+## Documentation
+
+- [Agent teams](docs/AGENT-TEAMS.md) — setup, lifecycle controls, templates,
+  provider/model routing, permissions, and local-runtime limitations
 
 ## Tech Stack
 
