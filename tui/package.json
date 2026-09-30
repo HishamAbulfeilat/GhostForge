@@ -3,7 +3,7 @@
   "version": "4.4.0",
   "author": "Hisham Abulfeilat",
   "license": "MIT",
-  "description": "GhostForge \u2014 Operator-grade dev tools, forged in the shadows.",
+  "description": "GhostForge — Operator-grade dev tools, forged in the shadows.",
   "main": "index.js",
   "type": "module",
   "bin": {
@@ -24,7 +24,10 @@
     "cli-table3": "^0.6.3",
     "figlet": "^1.7.0",
     "inquirer": "^9.2.12",
-    "ora": "^8.0.1"
+    "lodash": "^4.18.1",
+    "marked": "^5.1.2",
+    "ora": "^8.0.1",
+    "xml2js": "^0.6.2"
   },
   "engines": {
     "node": ">=18.0.0"
