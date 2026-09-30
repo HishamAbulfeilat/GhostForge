@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "tsc && electron .",
     "build": "tsc",
+    "test": "tsc && node --test test/*.test.mjs",
     "generate-icons": "node scripts/generate-icons.js",
     "build:mac": "node scripts/generate-icons.js && tsc && electron-builder --mac dmg --x64 --publish never && electron-builder --mac dmg --arm64 --publish never && electron-builder --mac zip --publish never",
     "build:win": "node scripts/generate-icons.js && tsc && electron-builder --win nsis --x64 --publish never && electron-builder --win portable --x64 --publish never",
