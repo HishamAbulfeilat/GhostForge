@@ -32,6 +32,11 @@ jobs:
             web-ui/package-lock.json
             electron-app/package-lock.json
 
+      # Dependency-free root smoke test: TUI syntax, marketplace catalog +
+      # registry validity, unique ids, required fields. Fails the job on error.
+      - name: Root smoke test (marketplace + TUI)
+        run: npm test
+
       - name: Install dependencies
         working-directory: web-ui
         run: npm ci
