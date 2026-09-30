@@ -58,10 +58,19 @@ Fastest: **`scripts/start-agents.sh`** — sets up a separate Copilot worktree a
 launches both (tmux split if available, otherwise prints the two commands).
 `--setup-only` just prepares the worktree; `--no-loop` runs Copilot once.
 
+**One provider unavailable (e.g. Claude hit its usage/token limit)?** Use
+**`scripts/start-agents-interactive.sh`** instead — same setup, but it asks
+which agent(s) to run: both, Claude Code only, or Copilot CLI only
+(`--mode both|claude|copilot` to skip the prompt). Solo mode uses
+`prompts/copilot-solo-kickoff.md` / `prompts/claude-solo-kickoff.md`, which let
+the lone agent claim tasks tagged for the missing one (noting it in
+`MESSAGES.md` so nothing gets redone when the other agent comes back).
+
 Manually:
 - **Claude Code:** `claude` then `/team start` (see `commands/team.md`).
 - **Copilot CLI:** `copilot` then paste `prompts/multi-agent-kickoff.md`
-  (pre-approve its tools with `/allow` so it doesn't stop to ask).
+  (pre-approve its tools with `/allow` so it doesn't stop to ask). Running
+  Copilot alone? Paste `prompts/copilot-solo-kickoff.md` instead.
 
 Both load their MCP servers from `.mcp.json` (project tools + GitHub).
 
