@@ -1,13 +1,13 @@
 {
   "version": "1.0.0",
-  "updated": "2026-07-21",
+  "updated": "2026-09-30",
   "items": [
     {
       "id": "react-doctor-skill",
       "name": "React Doctor Skill",
       "type": "skill",
       "category": "Quality",
-      "description": "React codebase health scanner — scores 0-100 across security, performance, correctness, a11y, bundle, architecture",
+      "description": "React codebase health scanner \u2014 scores 0-100 across security, performance, correctness, a11y, bundle, architecture",
       "source": "ghostforge-official",
       "install_command": "npx react-doctor@latest install --yes",
       "tags": [
@@ -159,7 +159,7 @@
       "name": "DESIGN.md Templates",
       "type": "tool",
       "category": "Design",
-      "description": "74 AI-ready design system templates (Stripe, Apple, Vercel, Notion, Tesla…). Drop DESIGN.md in project for consistent AI-generated UI.",
+      "description": "74 AI-ready design system templates (Stripe, Apple, Vercel, Notion, Tesla\u2026). Drop DESIGN.md in project for consistent AI-generated UI.",
       "source": "VoltAgent/awesome-design-md",
       "tags": [
         "design",
@@ -174,7 +174,7 @@
       "name": "Design Resources Browser",
       "type": "tool",
       "category": "Design",
-      "description": "Curated design tools: color palettes, icons, typography, stock photos, prototyping — gztchan/awesome-design.",
+      "description": "Curated design tools: color palettes, icons, typography, stock photos, prototyping \u2014 gztchan/awesome-design.",
       "source": "gztchan/awesome-design",
       "tags": [
         "design",
@@ -384,7 +384,7 @@
       "name": "PWA Device Installer",
       "type": "tool",
       "category": "Deployment",
-      "description": "Install GhostForge as PWA on any device — iOS, Android, Mac, Windows, Linux.",
+      "description": "Install GhostForge as PWA on any device \u2014 iOS, Android, Mac, Windows, Linux.",
       "source": "GhostForge/pwa",
       "tags": [
         "pwa",
@@ -419,6 +419,173 @@
         "owasp",
         "audit",
         "secrets"
+      ]
+    },
+    {
+      "id": "allhackingtools",
+      "name": "AllHackingTools",
+      "type": "tool",
+      "category": "Security",
+      "description": "Menu-driven pentest toolkit collection (mishakorzik/AllHackingTools). Pointer only \u2014 review upstream before running. AUTHORIZED SECURITY TESTING & EDUCATION ONLY.",
+      "source": "mishakorzik/AllHackingTools",
+      "url": "https://github.com/mishakorzik/AllHackingTools",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "pentest",
+        "recon",
+        "education"
+      ]
+    },
+    {
+      "id": "nmap",
+      "name": "Nmap",
+      "type": "tool",
+      "category": "Security",
+      "description": "Network discovery and port/service scanning. Standard in authorized network assessments. Scan only systems you own or are authorized to test.",
+      "source": "nmap/nmap",
+      "url": "https://nmap.org",
+      "install_command": "brew install nmap 2>/dev/null || sudo apt-get install -y nmap",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "network",
+        "recon",
+        "scanner"
+      ]
+    },
+    {
+      "id": "owasp-zap",
+      "name": "OWASP ZAP",
+      "type": "tool",
+      "category": "Security",
+      "description": "OWASP web application security scanner (DAST). For testing web apps you own or are authorized to assess.",
+      "source": "zaproxy/zaproxy",
+      "url": "https://www.zaproxy.org",
+      "install_command": "brew install --cask zap 2>/dev/null || echo 'See https://www.zaproxy.org/download/'",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "owasp",
+        "web",
+        "dast",
+        "scanner"
+      ]
+    },
+    {
+      "id": "sqlmap",
+      "name": "sqlmap",
+      "type": "tool",
+      "category": "Security",
+      "description": "SQL injection detection and testing. Use only against applications you own or have written authorization to test.",
+      "source": "sqlmapproject/sqlmap",
+      "url": "https://sqlmap.org",
+      "install_command": "brew install sqlmap 2>/dev/null || pipx install sqlmap || pip3 install sqlmap",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "web",
+        "sqli",
+        "testing"
+      ]
+    },
+    {
+      "id": "nikto",
+      "name": "Nikto",
+      "type": "tool",
+      "category": "Security",
+      "description": "Web server misconfiguration and known-vuln scanner. Authorized testing only.",
+      "source": "sullo/nikto",
+      "url": "https://github.com/sullo/nikto",
+      "install_command": "brew install nikto 2>/dev/null || sudo apt-get install -y nikto",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "web",
+        "scanner"
+      ]
+    },
+    {
+      "id": "ffuf",
+      "name": "ffuf",
+      "type": "tool",
+      "category": "Security",
+      "description": "Fast web content/parameter fuzzer for authorized web assessments.",
+      "source": "ffuf/ffuf",
+      "url": "https://github.com/ffuf/ffuf",
+      "install_command": "brew install ffuf 2>/dev/null || go install github.com/ffuf/ffuf/v2@latest",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "web",
+        "fuzzer",
+        "recon"
+      ]
+    },
+    {
+      "id": "amass",
+      "name": "OWASP Amass",
+      "type": "tool",
+      "category": "Security",
+      "description": "Attack-surface mapping and subdomain enumeration (OSINT). For scoping assets you are authorized to assess.",
+      "source": "owasp-amass/amass",
+      "url": "https://github.com/owasp-amass/amass",
+      "install_command": "brew install amass 2>/dev/null || go install -v github.com/owasp-amass/amass/v4/...@master",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "osint",
+        "recon",
+        "subdomain"
+      ]
+    },
+    {
+      "id": "trivy",
+      "name": "Trivy",
+      "type": "tool",
+      "category": "Security",
+      "description": "Defensive scanner for container images, filesystems, and IaC \u2014 finds CVEs, misconfigs, and secrets.",
+      "source": "aquasecurity/trivy",
+      "url": "https://github.com/aquasecurity/trivy",
+      "install_command": "brew install trivy 2>/dev/null || sudo apt-get install -y trivy",
+      "tags": [
+        "security",
+        "defensive",
+        "containers",
+        "cve",
+        "iac"
+      ]
+    },
+    {
+      "id": "semgrep",
+      "name": "Semgrep",
+      "type": "tool",
+      "category": "Security",
+      "description": "Defensive static analysis (SAST) for finding bugs and vulnerabilities in your own source code.",
+      "source": "semgrep/semgrep",
+      "url": "https://semgrep.dev",
+      "install_command": "brew install semgrep 2>/dev/null || pipx install semgrep || pip3 install semgrep",
+      "tags": [
+        "security",
+        "defensive",
+        "sast",
+        "code"
+      ]
+    },
+    {
+      "id": "trufflehog",
+      "name": "TruffleHog",
+      "type": "tool",
+      "category": "Security",
+      "description": "Defensive secret scanner \u2014 finds leaked credentials and keys in your repos and history.",
+      "source": "trufflesecurity/trufflehog",
+      "url": "https://github.com/trufflesecurity/trufflehog",
+      "install_command": "brew install trufflehog 2>/dev/null || curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin",
+      "tags": [
+        "security",
+        "defensive",
+        "secrets",
+        "git"
       ]
     }
   ]
