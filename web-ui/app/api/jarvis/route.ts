@@ -128,7 +128,7 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   office:      '- office_document { action: "generate", type?: "memo"|"minutes"|"report"|"cover"|"contract", title?, subject?, body?, to?, from?, ... } | - office_document { action: "list" } | - office_document { action: "read", file }',
   career:      '- career { tool: "cv"|"track"|"gap"|"prep"|"linkedin", action, company?, role?, topic?, cv?, jd? } | - job_hunter { action: "search"|"status"|"list", terms? }',
   hardware:    '- hardware_monitor { report_type? } | - get_system_info',
-  n8n:         '- n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? }',
+  n8n:         '- n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? } | - workflow { action: "list"|"create"|"status"|"advance", name?, goal?, id?, stepId?, status? } (GhostForge multi-step project workflows: create/track/advance steps; see the Workflows page)',
   design:      '- apply_design_md { site } | - list_design_md | - design_resources { category? }',
   security:    '- vigolium_scan { target, strategy? } | - vigolium_agent { target, mode? } | - terminal_command { command }',
   email:       '- email_list { query?, from?, subject?, isUnread?, maxResults? } | - email_send { to, subject, body } | - email_read { messageId } | - email_reply { messageId, body } | - email_search { query } | - email_unread_count | - email_mark_read { messageId } | - email_star { messageId } | - email_delete { messageId }',
@@ -859,6 +859,34 @@ end tell`
       const { autopilot } = await jh.getProfile(username)
       const auto = autopilot.enabled ? ` Autopilot is on (every ${autopilot.intervalHours}h, up to ${autopilot.dailyLimit} a day).` : ' Autopilot is off.'
       return `${ready.length} applications waiting for your approval, ${needs.length} need you to finish, ${applied.length} submitted.${auto} Open the Jobs page to review.`
+    }
+
+    case 'workflow': {
+      const username = currentUser?.username
+      if (!username) return 'Sign in to use workflows.'
+      const wf = await import('@/lib/workflows/store')
+      const action = String(params.action || 'list')
+      if (action === 'create') {
+        const created = await wf.createWorkflow(username, { name: String(params.name || 'New workflow'), goal: String(params.goal || '') })
+        return `Created workflow "${created.name}" (id ${created.id}). Open the Workflows page to add steps, or tell me the steps to add.`
+      }
+      if (action === 'advance' && params.id && params.stepId) {
+        const status = (['running', 'done', 'failed', 'pending'] as const).includes(params.status as 'done') ? params.status as 'done' : 'done'
+        const updated = await wf.updateStep(username, String(params.id), String(params.stepId), { status }, `JARVIS marked ${status}`)
+        if (!updated) return 'That workflow or step was not found.'
+        const p = wf.progress(updated)
+        return `Marked step ${status}. "${updated.name}" is now ${p.pct}% done (${p.done}/${p.total}).`
+      }
+      if (action === 'status' && params.id) {
+        const one = await wf.getWorkflow(username, String(params.id))
+        if (!one) return 'Workflow not found.'
+        const p = wf.progress(one)
+        const ready = wf.readySteps(one).map(s => s.title)
+        return `"${one.name}" — ${p.pct}% (${p.done}/${p.total}, ${one.status}). ${ready.length ? 'Ready to run now: ' + ready.join(', ') : 'No unblocked steps.'}`
+      }
+      const all = await wf.listWorkflows(username)
+      if (!all.length) return 'No workflows yet. Say "create a workflow called <name>" or open the Workflows page.'
+      return all.slice(0, 8).map(w => { const p = wf.progress(w); return `${w.name} (${p.pct}%, ${w.status})` }).join('; ')
     }
 
     case 'career': {

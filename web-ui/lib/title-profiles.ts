@@ -155,6 +155,7 @@ export const PAGE_ACCESS: PageAccess[] = [
   { path: '/files',       label: 'Files',       icon: '🗂️', permission: 'file_read', nav: true },
   { path: '/features',    label: 'Features',    icon: '⚡', permission: 'chat', nav: true },
   { path: '/orchestrate', label: 'Orchestrate', icon: '🧠', permission: 'code_helper', nav: true },
+  { path: '/workflows',   label: 'Workflows',   icon: '🗺️', permission: 'workflows', nav: true },
   { path: '/automation',  label: 'Automation',  icon: '🔁', permission: 'n8n' },
   { path: '/mac-control', label: 'Control',     icon: '🕹️', permission: 'mac_control' },
   { path: '/remote',      label: 'Remote',      icon: '📡', permission: 'remote' },

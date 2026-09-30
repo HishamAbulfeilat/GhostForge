@@ -149,6 +149,11 @@ export async function prepareJob(username: string, id: string, generate?: Genera
   generate ??= await userGenerator(username)
   const job = await getJob(username, id)
   if (!job) throw new Error('Job not found')
+  // Never re-prepare a job that is mid-submit, already submitted, or dismissed —
+  // that would flip it back to "ready" and allow a duplicate application.
+  if (!['found', 'ready', 'failed', 'needs_user'].includes(job.status)) {
+    throw new Error(`This job is "${job.status}" — it can't be prepared`)
+  }
   const profile = await getProfile(username)
   if (!profile.cv) throw new Error('Upload your CV first')
 
@@ -178,7 +183,18 @@ export async function approveJob(
   await updateJob(username, id, { status: 'submitting' }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
   void auditLog({ level: 'info', event: 'job_application_approved', params: { username, jobId: id, company: job.company, title: job.title, ats: job.ats, by } })
 
-  const result = await applyToJob(job, profile, username, { headless: opts.headless })
+  // If applyToJob throws (e.g. no browser installed, or the process dies), the
+  // job must not stay "submitting" forever — reset it to "failed" so it can be
+  // retried by the user or autopilot.
+  let result
+  try {
+    result = await applyToJob(job, profile, username, { headless: opts.headless })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    const failed = await updateJob(username, id, { status: 'failed' }, `Application could not run: ${msg.slice(0, 200)}`)
+    void auditLog({ level: 'warn', event: 'job_application_error', params: { username, jobId: id, error: msg.slice(0, 200), by } })
+    return { job: failed!, message: msg, missing: [] }
+  }
   const updated = await updateJob(username, id, { status: result.status }, result.message)
   void auditLog({ level: 'info', event: 'job_application_result', params: { username, jobId: id, status: result.status, filled: result.filled.length, missing: result.missing.length } })
   return { job: updated!, message: result.message, missing: result.missing }
