@@ -1,13 +1,28 @@
 import { execFile } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
-import { resolve } from 'path';
+import { dirname, isAbsolute, relative, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { promisify } from 'util';
 import * as z from 'zod/v4';
 
 const execFileAsync = promisify(execFile);
+const defaultAllowedRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-export function resolveProjectPath(projectPath) {
-  return resolve(projectPath || '.');
+export function resolveProjectPath(projectPath, allowedRoot = defaultAllowedRoot) {
+  const normalizedRoot = resolve(allowedRoot);
+  const candidatePath = resolve(normalizedRoot, projectPath || '.');
+  const relativePath = relative(normalizedRoot, candidatePath);
+  const escapesRoot =
+    relativePath === '..' ||
+    relativePath.startsWith('../') ||
+    relativePath.startsWith('..\\') ||
+    isAbsolute(relativePath);
+
+  if (escapesRoot) {
+    throw new Error(`Project path "${projectPath || '.'}" escapes the allowed workspace root "${normalizedRoot}".`);
+  }
+
+  return candidatePath;
 }
 
 export async function runNpmAudit(projectPath) {
@@ -75,7 +90,7 @@ function asToolResult(payload) {
   };
 }
 
-export function registerHealthTool(server) {
+export function registerHealthTool(server, context = {}) {
   server.tool(
     'health_check',
     'Run npm audit, verify package.json, and return a lightweight project health summary.',
@@ -83,7 +98,7 @@ export function registerHealthTool(server) {
       projectPath: z.string().default('.').describe('Project directory to inspect')
     },
     async ({ projectPath }) => {
-      const resolvedPath = resolveProjectPath(projectPath);
+      const resolvedPath = resolveProjectPath(projectPath, context.repoRoot ?? defaultAllowedRoot);
       const packageInfo = getPackageInfo(resolvedPath);
 
       if (!packageInfo.exists) {
