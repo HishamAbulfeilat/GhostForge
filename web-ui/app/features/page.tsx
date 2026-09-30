@@ -189,6 +189,15 @@ export default function FeaturesPage() {
           <span className="text-sm font-bold tracking-tight text-white">👻 GhostForge</span>
           <span className="text-[10px] font-mono text-gray-600 hidden sm:block">FEATURES</span>
           <div className="ms-auto flex items-center gap-2">
+            <Link href="/api-docs" className="rounded border border-sky-800/50 bg-sky-950/30 px-2 py-1 text-xs text-sky-300 hover:bg-sky-900/40 transition">
+              📖 Docs
+            </Link>
+            <Link href="/api-types" className="rounded border border-violet-800/50 bg-violet-950/30 px-2 py-1 text-xs text-violet-300 hover:bg-violet-900/40 transition">
+              🧩 Types
+            </Link>
+            <Link href="/mock-api" className="rounded border border-amber-800/50 bg-amber-950/30 px-2 py-1 text-xs text-amber-300 hover:bg-amber-900/40 transition">
+              🔌 Mocks
+            </Link>
             <Link href="/terminal" className="rounded border border-emerald-800/50 bg-emerald-950/30 px-2 py-1 text-xs text-emerald-300 hover:bg-emerald-900/40 transition">
               💻 Terminal
             </Link>
