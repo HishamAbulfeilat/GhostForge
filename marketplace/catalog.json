@@ -353,20 +353,6 @@
       ]
     },
     {
-      "id": "security-audit-agent",
-      "name": "Security Audit Agent",
-      "type": "agent",
-      "category": "Security",
-      "description": "OWASP dep scan, secret detection, Vigolium scan, full audit logs.",
-      "source": "GhostForge/security",
-      "tags": [
-        "security",
-        "owasp",
-        "audit",
-        "secrets"
-      ]
-    },
-    {
       "id": "tasteskill-integration",
       "name": "TasteSkill Dev Skills",
       "type": "tool",
@@ -823,6 +809,22 @@
         "javascript",
         "typescript",
         "linter"
+      ]
+    },
+    {
+      "id": "ghostforge-security-scan",
+      "name": "Security Scan Skill",
+      "type": "skill",
+      "category": "Security",
+      "description": "Defensive audit pipeline: secret scanning, dependency CVEs, SAST, SBOM, and image vulns via Gitleaks/OSV/Semgrep/Trivy/Syft/Grype. Authorized use only.",
+      "source": "ghostforge-official",
+      "file": ".claude/skills/security-scan/SKILL.md",
+      "installed": true,
+      "tags": [
+        "security",
+        "defensive",
+        "audit",
+        "skill"
       ]
     }
   ]

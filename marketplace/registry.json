@@ -21,7 +21,6 @@
     "tasteskill-integration",
     "free-llm-apis",
     "security-audit",
-    "security-audit-agent",
     "copilot-commit-message"
   ],
   "custom_agents": [],
