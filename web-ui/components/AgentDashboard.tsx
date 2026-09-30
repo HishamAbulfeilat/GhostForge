@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, useId, isValidElement, cloneElement } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -200,7 +200,7 @@ function StatusBadge({ status }: { status: AgentStatus }) {
   const c = STATUS_CONFIG[status]
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-[10px] font-bold tracking-wider border transition-all duration-300"
+      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-[10px] font-bold tracking-wider border transition-colors duration-300"
       style={{ color: c.color, background: c.bg, borderColor: `${c.color}33` }}
     >
       <span className="h-1.5 w-1.5 rounded-full" style={{
@@ -317,7 +317,7 @@ function IssueQueuePanel({ issues }: { issues: AgentIssue[] }) {
                     <span>{Math.round(progress)}%</span>
                   </div>
                   <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
-                    <div className="h-full rounded-full transition-all duration-500"
+                    <div className="h-full rounded-full transition-[width] duration-500"
                       style={{ width: `${progress}%`, background: sc.color }} />
                   </div>
                 </div>
@@ -388,7 +388,7 @@ function ActiveTaskPanel({ task }: { task: ActiveTask | null }) {
           ))}
         </div>
         <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
-          <div className="h-full rounded-full transition-all duration-500"
+          <div className="h-full rounded-full transition-[width] duration-500"
             style={{ width: `${progress}%`, background: '#3b82f6' }} />
         </div>
       </div>
@@ -532,11 +532,11 @@ function SettingsPanel({ config: initialConfig }: { config: AgentConfig }) {
       <Section title="REPOSITORY">
         <Field label="Repository URL">
           <input type="text" value={config.repoUrl} onChange={e => update('repoUrl', e.target.value)}
-            className={inputCls} style={inputStyle} placeholder="https://github.com/org/repo" />
+            className={inputCls} style={inputStyle} placeholder="https://github.com/org/repo" aria-label="Repository URL" />
         </Field>
         <Field label="GitHub Token">
           <input type="password" value={config.githubToken} onChange={e => update('githubToken', e.target.value)}
-            className={inputCls} style={inputStyle} placeholder="ghp_xxxxxxxxxxxx" />
+            className={inputCls} style={inputStyle} placeholder="ghp_xxxxxxxxxxxx" aria-label="GitHub token" />
         </Field>
       </Section>
 
@@ -544,7 +544,7 @@ function SettingsPanel({ config: initialConfig }: { config: AgentConfig }) {
       <Section title="AI MODEL">
         <Field label="Ollama URL">
           <input type="text" value={config.ollamaUrl} onChange={e => update('ollamaUrl', e.target.value)}
-            className={inputCls} style={inputStyle} placeholder="http://localhost:11434" />
+            className={inputCls} style={inputStyle} placeholder="http://localhost:11434" aria-label="Ollama URL" />
         </Field>
         <Field label="Model">
           <select value={config.model} onChange={e => update('model', e.target.value)}
@@ -578,7 +578,7 @@ function SettingsPanel({ config: initialConfig }: { config: AgentConfig }) {
         <ToggleField label="Dry-run mode" checked={config.dryRun} onChange={v => update('dryRun', v)} />
         <Field label="Branch prefix">
           <input type="text" value={config.branchPrefix} onChange={e => update('branchPrefix', e.target.value)}
-            className={inputCls} style={inputStyle} placeholder="auto/" />
+            className={inputCls} style={inputStyle} placeholder="auto/" aria-label="Branch prefix" />
         </Field>
         <Field label={`Max concurrent issues: ${config.maxConcurrentIssues}`}>
           <input type="range" min={1} max={5} value={config.maxConcurrentIssues}
@@ -592,23 +592,23 @@ function SettingsPanel({ config: initialConfig }: { config: AgentConfig }) {
       <Section title="LABELS TO MONITOR">
         <div className="flex flex-wrap gap-1.5">
           {config.labelsToMonitor.map(l => (
-            <span key={l}
+            <button key={l} type="button"
               className="inline-flex items-center gap-1 rounded px-2 py-1 text-[9px] font-mono font-bold cursor-pointer transition hover:opacity-70"
               style={{ color: labelColor(l), background: `${labelColor(l)}18`, border: `1px solid ${labelColor(l)}22` }}
               onClick={() => update('labelsToMonitor', config.labelsToMonitor.filter(x => x !== l))}>
               {l} ✕
-            </span>
+            </button>
           ))}
           {['bug', 'enhancement', 'feature', 'ui', 'performance', 'i18n', 'documentation', 'tests']
             .filter(l => !config.labelsToMonitor.includes(l))
             .slice(0, 3)
             .map(l => (
-              <span key={l}
+              <button key={l} type="button"
                 className="inline-flex items-center gap-1 rounded px-2 py-1 text-[9px] font-mono cursor-pointer transition border border-dashed hover:opacity-70"
                 style={{ color: '#52525b', borderColor: 'rgba(255,255,255,0.1)' }}
                 onClick={() => update('labelsToMonitor', [...config.labelsToMonitor, l])}>
                 + {l}
-              </span>
+              </button>
             ))}
         </div>
       </Section>
@@ -659,10 +659,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const id = useId()
+  const control = isValidElement(children)
+    ? cloneElement(children as React.ReactElement<{ id?: string }>, { id })
+    : children
   return (
     <div>
-      <label className="block text-[9px] font-mono mb-1" style={{ color: '#71717a' }}>{label}</label>
-      {children}
+      <label htmlFor={id} className="block text-[9px] font-mono mb-1" style={{ color: '#71717a' }}>{label}</label>
+      {control}
     </div>
   )
 }
@@ -671,10 +675,10 @@ function ToggleField({ label, checked, onChange }: { label: string; checked: boo
   return (
     <div className="flex items-center justify-between py-1">
       <span className="text-[10px] font-mono" style={{ color: '#a1a1aa' }}>{label}</span>
-      <button type="button" onClick={() => onChange(!checked)}
+      <button type="button" aria-label={label} onClick={() => onChange(!checked)}
         className="relative w-9 h-5 rounded-full transition-colors"
         style={{ background: checked ? '#3b82f6' : 'rgba(255,255,255,0.12)' }}>
-        <span className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform shadow"
+        <span className="absolute top-0.5 start-0.5 w-4 h-4 rounded-full bg-white transition-transform shadow"
           style={{ transform: checked ? 'translateX(16px)' : 'translateX(0)' }} />
       </button>
     </div>
@@ -771,7 +775,7 @@ export default function AgentDashboard({ agentState, onStart, onStop, onPause, e
           <div className="text-end min-w-[80px]">
             <div className="text-[8px] tracking-widest mb-0.5" style={{ color: '#52525b' }}>PROGRESS</div>
             <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
-              <div className="h-full rounded-full transition-all duration-500"
+              <div className="h-full rounded-full transition-[width] duration-500"
                 style={{ width: `${progressPct}%`, background: '#3b82f6' }} />
             </div>
             <div className="text-[8px] mt-0.5" style={{ color: '#71717a' }}>{completedIssues}/{totalIssues}</div>
@@ -785,6 +789,7 @@ export default function AgentDashboard({ agentState, onStart, onStop, onPause, e
         <span className="text-[9px]" style={{ color: '#52525b' }}>PROCESS ISSUE #</span>
         <input type="number" value={processIssueInput}
           onChange={e => setProcessIssueInput(e.target.value)}
+          aria-label="Issue number to process"
           className="w-16 rounded px-2 py-1 text-[10px] font-mono bg-black/40 border outline-none"
           style={{ borderColor: 'rgba(255,255,255,0.1)', color: '#e4e4e7' }}
           placeholder="0" min={0} />

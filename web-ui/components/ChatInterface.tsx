@@ -340,6 +340,7 @@ export function ChatInterface() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search messages…"
+            aria-label="Search messages"
             className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-1.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-600"
           />
           {searchQuery.trim() && (() => {
@@ -386,6 +387,7 @@ export function ChatInterface() {
         <div className="flex gap-2">
           {hasVoice && (
             <button type="button"
+              aria-label={listening ? 'Stop voice input' : 'Start voice input'}
               onClick={toggleVoice}
               title={listening ? 'Stop listening' : 'Voice input'}
               className={`rounded-2xl px-3 py-3 text-sm transition ${listening ? 'animate-pulse bg-red-600 text-white' : 'border border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'}`}
@@ -396,6 +398,7 @@ export function ChatInterface() {
           <input
             type="text"
             placeholder={listening ? 'Listening...' : 'Ask GhostForge anything...'}
+            aria-label="Message GhostForge"
             value={input}
             onChange={event => setInput(event.target.value)}
             onKeyDown={event => {
@@ -407,6 +410,7 @@ export function ChatInterface() {
             className={`flex-1 rounded-2xl border bg-gray-900 px-4 py-3 text-sm text-white placeholder-gray-500 outline-none transition focus:border-sky-500 ${listening ? 'border-red-600' : 'border-gray-700'}`}
           />
           <button type="button"
+            aria-label="Send message"
             onClick={() => void sendMessage()}
             disabled={loading || !input.trim()}
             className="rounded-2xl bg-sky-600 px-4 py-3 text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-gray-700"

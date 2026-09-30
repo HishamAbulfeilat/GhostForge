@@ -152,10 +152,12 @@ export const PAGE_ACCESS: PageAccess[] = [
   { path: '/jobs',        label: 'Jobs',        icon: '🎯', permission: 'job_hunter', nav: true },
   { path: '/terminal',    label: 'Terminal',    icon: '🖥️', permission: 'terminal', nav: true },
   { path: '/dashboard',   label: 'Dashboard',   icon: '📊', permission: 'system_info', nav: true },
+  { path: '/agents',      label: 'Agents',       icon: '🤝', permission: 'admin_tools', nav: true },
   { path: '/files',       label: 'Files',       icon: '🗂️', permission: 'file_read', nav: true },
   { path: '/features',    label: 'Features',    icon: '⚡', permission: 'chat', nav: true },
   { path: '/orchestrate', label: 'Orchestrate', icon: '🧠', permission: 'code_helper', nav: true },
-  { path: '/workflows',   label: 'Workflows',   icon: '🗺️', permission: 'workflows', nav: true },
+  // 'workflows' isn't a real permission key — the catalog calls this 'n8n' (see permissions.ts)
+  { path: '/workflows',   label: 'Workflows',   icon: '🗺️', permission: 'n8n', nav: true },
   { path: '/automation',  label: 'Automation',  icon: '🔁', permission: 'n8n' },
   { path: '/mac-control', label: 'Control',     icon: '🕹️', permission: 'mac_control' },
   { path: '/remote',      label: 'Remote',      icon: '📡', permission: 'remote' },

@@ -202,6 +202,7 @@ function ClaudeTab() {
         <input
           type="search"
           placeholder="Search Claude skills, plugins, MCP servers, tools…"
+          aria-label="Search Claude skills, plugins, MCP servers, and tools"
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-white/20"
@@ -248,7 +249,7 @@ function ClaudeTab() {
                   {cmd && (
                     <button type="button" onClick={() => copy(s.id, cmd)}
                       title="Copy install command"
-                      className="rounded border border-white/[0.08] bg-black/30 px-2 py-1 text-left font-mono text-[10px] text-gray-400 hover:border-white/20 truncate">
+                      className="rounded border border-white/[0.08] bg-black/30 px-2 py-1 text-start font-mono text-[10px] text-gray-400 hover:border-white/20 truncate">
                       {copied === s.id ? '✓ copied' : `$ ${cmd}`}
                     </button>
                   )}
@@ -338,6 +339,7 @@ function CommandsTab() {
         <input
           type="search"
           placeholder="Search plugins, agents, templates…"
+          aria-label="Search plugins, agents, and templates"
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-white/20"
@@ -471,12 +473,14 @@ function HuggingFaceTab() {
           <input
             type="search"
             placeholder="Search HuggingFace models…"
+            aria-label="Search HuggingFace models"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="flex-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-white/20"
           />
           <select
             value={sort}
+            aria-label="Sort HuggingFace models"
             onChange={e => setSort(e.target.value)}
             className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1.5 text-xs text-gray-400 outline-none focus:border-white/20 appearance-none cursor-pointer"
           >
@@ -564,6 +568,7 @@ function AwesomeLLMTab() {
         <input
           type="search"
           placeholder="Search awesome LLM apps…"
+          aria-label="Search awesome LLM apps"
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-white/20"

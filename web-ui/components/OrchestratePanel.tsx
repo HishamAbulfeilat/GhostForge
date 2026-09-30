@@ -144,12 +144,14 @@ export default function OrchestratePanel({ onSendToJarvis }: Props) {
                   <input
                     value={subtask.label}
                     onChange={event => updateSubtask(subtask.id, { label: event.target.value })}
+                    aria-label="Subtask label"
                     className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-cyan-500/50"
                     placeholder="Security review"
                   />
                   <input
                     value={subtask.prompt}
                     onChange={event => updateSubtask(subtask.id, { prompt: event.target.value })}
+                    aria-label="Subtask prompt"
                     className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-cyan-500/50"
                     placeholder="Inspect auth token storage, middleware checks, and route guards."
                   />

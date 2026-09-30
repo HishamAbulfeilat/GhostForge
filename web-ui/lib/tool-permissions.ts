@@ -22,7 +22,8 @@ export const TOOL_PERMISSION: Record<string, string> = {
   office_document: 'documents',
   career: 'career',
   job_hunter: 'job_hunter',
-  workflow: 'workflows',
+  // 'workflows' isn't a real permission key — the catalog calls this 'n8n' (see permissions.ts)
+  workflow: 'n8n',
   read_text_on_screen: 'file_read',
 
   // ── messaging ────────────────────────────────────────────────────────────────
@@ -153,6 +154,9 @@ export const TOOL_PERMISSION: Record<string, string> = {
   list_design_md: 'chat',
   design_resources: 'chat',
   task_steps: 'chat',
+
+  // ── team orchestration ───────────────────────────────────────────────────────
+  agent_team: 'admin_tools',
 }
 
 export function permissionForTool(tool: string): string | undefined {

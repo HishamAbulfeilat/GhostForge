@@ -76,7 +76,7 @@ export default function PWAInstallBanner() {
   }
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 flex items-center gap-3 rounded-xl border border-zinc-600 bg-zinc-800 p-4 shadow-2xl md:left-auto md:right-4 md:w-80">
+    <div className="fixed bottom-4 start-4 end-4 z-50 flex items-center gap-3 rounded-xl border border-zinc-600 bg-zinc-800 p-4 shadow-2xl md:start-auto md:end-4 md:w-80">
       <div className="text-2xl">⚡</div>
       <div className="flex-1">
         <p className="text-sm font-semibold text-white">{bannerCopy.title}</p>

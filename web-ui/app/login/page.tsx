@@ -70,6 +70,7 @@ function LoginForm() {
             <input
               type="text"
               placeholder="Username"
+              aria-label="Username"
               autoComplete="username"
               value={username}
               onChange={e => setUsername(e.target.value)}
@@ -79,6 +80,7 @@ function LoginForm() {
             <input
               type="password"
               placeholder="Password"
+              aria-label="Password"
               autoComplete="current-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
@@ -90,6 +92,7 @@ function LoginForm() {
           <input
             type="password"
             placeholder="Enter PIN"
+            aria-label="PIN"
             value={pin}
             onChange={e => setPin(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && void handleLogin()}

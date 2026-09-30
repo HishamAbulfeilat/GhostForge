@@ -1,0 +1,9 @@
+{
+  "name": "trio",
+  "description": "Balanced three-agent team with implementation, QA, and security coverage.",
+  "agents": {
+    "copilot": true,
+    "copilot-qa": true,
+    "copilot-security": true
+  }
+}

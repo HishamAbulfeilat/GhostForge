@@ -24,7 +24,19 @@ Plus the bridge's own intelligence layer: `ai_memory`, `ai_agents`,
 ```
 
 Auth: requests carry a token from `~/.ghostforge/bridge/token` (or
-`MARKL_BRIDGE_TOKEN`). Endpoints live under `/api/mark-l/*`.
+`MARKL_BRIDGE_TOKEN`). Endpoints live under `/api/mark-l/*`, `/api/mark-liv/*`,
+and `/api/openjarvis/*`.
+
+### OpenJarvis endpoints
+
+OpenJarvis ships as the `jarvis` CLI (not a pip-importable package), so the
+bridge shells out to it with a fixed argv (never `shell=True`):
+
+| Endpoint | Method | Notes |
+|----------|--------|-------|
+| `/api/openjarvis/health` | GET | `{ installed, binary }` — whether `jarvis` is on PATH |
+| `/api/openjarvis/doctor` | GET | Runs `jarvis doctor`, returns its output |
+| `/api/openjarvis/ask` | POST | `{ prompt, timeout_s? }` → `{ response }`; 503 if not installed |
 
 ## Licensing
 

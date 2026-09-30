@@ -432,6 +432,7 @@
       "source": "nmap/nmap",
       "url": "https://nmap.org",
       "install_command": "brew install nmap 2>/dev/null || sudo apt-get install -y nmap",
+      "install_command_windows": "winget install --id Insecure.Nmap -e",
       "authorized_use_only": true,
       "tags": [
         "security",
@@ -534,6 +535,7 @@
       "source": "aquasecurity/trivy",
       "url": "https://github.com/aquasecurity/trivy",
       "install_command": "brew install trivy 2>/dev/null || sudo apt-get install -y trivy",
+      "install_command_windows": "winget install --id AquaSecurity.Trivy -e",
       "tags": [
         "security",
         "defensive",
@@ -678,6 +680,7 @@
       "source": "gitleaks/gitleaks",
       "url": "https://github.com/gitleaks/gitleaks",
       "install_command": "brew install gitleaks 2>/dev/null || go install github.com/gitleaks/gitleaks/v8@latest",
+      "install_command_windows": "winget install --id Gitleaks.Gitleaks -e",
       "tags": [
         "security",
         "defensive",
@@ -694,6 +697,7 @@
       "source": "google/osv-scanner",
       "url": "https://github.com/google/osv-scanner",
       "install_command": "brew install osv-scanner 2>/dev/null || go install github.com/google/osv-scanner/cmd/osv-scanner@latest",
+      "install_command_windows": "winget install --id Google.OSVScanner -e",
       "tags": [
         "security",
         "defensive",
@@ -742,6 +746,7 @@
       "source": "nektos/act",
       "url": "https://github.com/nektos/act",
       "install_command": "brew install act 2>/dev/null || curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash",
+      "install_command_windows": "winget install --id nektos.act -e",
       "tags": [
         "devops",
         "ci",
@@ -758,6 +763,7 @@
       "source": "jesseduffield/lazygit",
       "url": "https://github.com/jesseduffield/lazygit",
       "install_command": "brew install lazygit 2>/dev/null || sudo apt-get install -y lazygit",
+      "install_command_windows": "winget install --id JesseDuffield.lazygit -e",
       "tags": [
         "git",
         "tui",
@@ -773,6 +779,7 @@
       "source": "derailed/k9s",
       "url": "https://github.com/derailed/k9s",
       "install_command": "brew install k9s 2>/dev/null || curl -sS https://webi.sh/k9s | sh",
+      "install_command_windows": "winget install --id Derailed.k9s -e",
       "tags": [
         "devops",
         "kubernetes",

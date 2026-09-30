@@ -7,6 +7,7 @@ import { isOwner } from '@/lib/users'
 import { speakerContext, toSpeaker, type Speaker } from '@/lib/speaker'
 import { PRIVILEGED_PERMISSIONS, hasStableAuthSecret, reportUnauthorizedAccess } from '@/lib/intrusion'
 import { permissionForTool } from '@/lib/tool-permissions'
+import { AGENT_TEAM_ACTIONS, validateAgentTeamAction, runAgentTeamCommand } from '@/lib/agent-team'
 import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import { writeFile, unlink, readdir, stat, rm, appendFile } from 'fs/promises'
@@ -119,7 +120,7 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   models:      '- llmfit_recommend { task? } | - list_local_models | - install_model { model, runner? } | - open_url { url }',
   remote:      '- take_screenshot { filename? } | - describe_screen | - terminal_command { command } | - open_url { url } | - browser_control { action, url?, text? }',
   travel:      '- flight_finder { from, to, date? } | - web_search { query, mode? } | - open_url { url } | - get_weather { city }',
-  general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - browser_control { action, url?, text? } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value } | - youtube_control { action, query?, url?, region? } | - game_manager { action, game_name? } | - clipboard_analyze { action, text? } | - browser_automate { action, url?, selector?, text? } | - file_processor { action, file_path?, question?, output_format? } | - hardware_monitor { report_type? } | - system_control { action, value? } | - setup_wizard { action, step_id?, config? } | - n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? } | - mark_liv { action: "status"|"run", id? } (Mark-LIV engine registry — status lists all 20 actions, run executes one by id)',
+  general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - browser_control { action, url?, text? } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value } | - youtube_control { action, query?, url?, region? } | - game_manager { action, game_name? } | - clipboard_analyze { action, text? } | - browser_automate { action, url?, selector?, text? } | - file_processor { action, file_path?, question?, output_format? } | - hardware_monitor { report_type? } | - system_control { action, value? } | - setup_wizard { action, step_id?, config? } | - n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? } | - agent_team { action: "start"|"stop"|"status"|"say"|"add_task", from?, to?, message?, title?, kind?, area? } | - mark_liv { action: "status"|"run", id? } (Mark-LIV engine registry — status lists all 20 actions, run executes one by id)',
   youtube:     '- youtube_control { action, query?, url?, region? }',
   games:       '- game_manager { action, game_name? }',
   clipboard:   '- clipboard_analyze { action, text? }',
@@ -2247,6 +2248,20 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
         return '' // silent — never announce vault saves to user
       } catch {
         return ''  // fail silently
+      }
+    }
+
+    case 'agent_team': {
+      const action = String(params.action || params.command || '').trim().toLowerCase()
+      if (!AGENT_TEAM_ACTIONS.includes(action)) {
+        return `Unsupported agent_team action: "${action || 'unknown'}". Allowed: ${AGENT_TEAM_ACTIONS.join(', ')}`
+      }
+      try {
+        const validated = validateAgentTeamAction(action, params)
+        const result = runAgentTeamCommand(validated.action, validated.params)
+        return result.ok ? result.output : `Agent-team ${validated.action} failed: ${result.output}`
+      } catch (error) {
+        return `Invalid agent_team action: ${(error as Error).message}`
       }
     }
 

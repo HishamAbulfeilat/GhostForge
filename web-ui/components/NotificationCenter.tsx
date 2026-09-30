@@ -120,10 +120,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       {children}
 
       {/* Toast container */}
-      <div id="gf-toast-container" className="fixed bottom-4 right-4 z-[9998] flex flex-col gap-2 items-end" />
+      <div id="gf-toast-container" className="fixed bottom-4 end-4 z-[9998] flex flex-col gap-2 items-end" />
 
       {/* Bell button */}
-      <div className="fixed top-3 right-3 z-[9997]" ref={panelRef}>
+      <div className="fixed top-3 end-3 z-[9997]" ref={panelRef}>
         <button type="button"
           onClick={() => { setOpen(o => !o); if (!open) markAllRead() }}
           className="relative flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-gray-900/80 text-white/60 backdrop-blur-sm hover:border-white/20 hover:text-white transition-colors"
@@ -131,7 +131,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         >
           🔔
           {unread > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
+            <span className="absolute -end-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
               {unread > 9 ? '9+' : unread}
             </span>
           )}
@@ -139,7 +139,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
         {/* Panel */}
         {open && (
-          <div className="absolute right-0 top-11 w-80 overflow-hidden rounded-2xl border border-white/10 bg-gray-900/95 shadow-2xl backdrop-blur-xl">
+          <div className="absolute end-0 top-11 w-80 overflow-hidden rounded-2xl border border-white/10 bg-gray-900/95 shadow-2xl backdrop-blur-xl">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
               <p className="text-sm font-semibold text-white">Notifications</p>
               <button onClick={clear} className="text-[11px] text-white/40 hover:text-white transition-colors">Clear all</button>
@@ -159,7 +159,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
                           {new Date(n.ts).toLocaleTimeString()}
                         </p>
                       </div>
-                      <button onClick={() => dismiss(n.id)} className="ms-1 text-white/20 hover:text-white/60 transition-colors">✕</button>
+                      <button type="button" aria-label={`Dismiss ${n.title}`} onClick={() => dismiss(n.id)} className="ms-1 text-white/20 hover:text-white/60 transition-colors">✕</button>
                     </div>
                   </div>
                 ))

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  // Files knip flags as "unused" because they're referenced only via a
+  // runtime string path (not a static import) or a bundler-specific
+  // resolution order knip can't infer from the TypeScript project alone.
+  "ignore": [
+    // Registered via `navigator.serviceWorker.register('/sw.js')` in
+    // components/PWAInstallBanner.tsx — a string path, not an import.
+    "public/sw.js",
+    // Two files share the basename `quick-actions` on purpose: the
+    // Node test runner (test/quick-actions.test.js) resolves plain
+    // `require('../lib/quick-actions')` to the `.js` file (terminal
+    // quick commands), while Next's webpack/TS resolution prefers the
+    // `.ts` file for `@/lib/quick-actions` imports in the app (JARVIS
+    // voice UI quick actions). Both are live, just for different
+    // consumers/runtimes.
+    "lib/quick-actions.ts"
+  ]
+}
