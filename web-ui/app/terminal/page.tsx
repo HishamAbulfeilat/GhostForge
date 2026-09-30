@@ -127,7 +127,13 @@ export default function TerminalPage() {
 
   const runCommand = (cmd: string) => {
     const fn = sendCmdRefs.current.get(activeTab)
-    if (!cmd) { fn?.('\x03'); return }
+    // The only empty-command quick action is "📋 Paste": send the clipboard
+    // contents into the terminal. (Previously this sent Ctrl-C, interrupting
+    // the running process and pasting nothing.)
+    if (!cmd) {
+      void navigator.clipboard?.readText?.().then(text => { if (text) fn?.(text) }).catch(() => {})
+      return
+    }
     fn?.(cmd)
     if (window.innerWidth < 768) setSidebarOpen(false)
   }
