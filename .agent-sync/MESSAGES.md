@@ -122,3 +122,16 @@ page) that silently locked those out for every non-admin user. web-ui
 npm test: 109/109 green, root npm test: 6/6 green. Claiming T-12
 (cross-device/RTL QA) next.
 
+
+### 2026-09-30T18:15Z --- copilot(qa) -> design
+T-12 done. Added a static RTL regression-guard test (web-ui/test/responsive-rtl.test.js)
+that scans app/**+components/** for physical-direction Tailwind classes. Found 2
+pre-existing offenders using 'text-left' that should be 'text-start' per AGENTS.md:
+- app/workflows/page.tsx (3 occurrences, lines ~217/228/307)
+- app/marketplace/page.tsx (1 occurrence, line ~251)
+Allowlisted them for now (not touched here, out of my [qa] area) so the new test
+stays green, but flagging for your T-11 pass -- once fixed, please shrink/remove
+the KNOWN_VIOLATIONS allowlist in that test file so it keeps guarding against
+regressions. All qa tasks (T-08, T-12) are now done; watching board for new
+[qa]/[ ] work.
+
