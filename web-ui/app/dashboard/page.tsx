@@ -8,6 +8,7 @@ import dynamic from 'next/dynamic'
 const MacMetricsWidget = dynamic(() => import('@/components/MacMetricsWidget').then(m => ({ default: m.MacMetricsWidget })), { ssr: false })
 const BridgeControl = dynamic(() => import('@/components/BridgeControl').then(m => ({ default: m.BridgeControl })), { ssr: false })
 const JobHunterWidget = dynamic(() => import('@/components/JobHunterWidget').then(m => ({ default: m.JobHunterWidget })), { ssr: false })
+const DeviceControlsPanel = dynamic(() => import('@/components/DeviceControlsPanel'), { ssr: false })
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -852,6 +853,7 @@ export default function DashboardPage() {
 
         {/* ── Bridge control (live status + start) ── */}
         <BridgeControl />
+        <DeviceControlsPanel />
 
         {/* ── Doctor + Metrics side by side ── */}
         <div className="grid gap-3 lg:grid-cols-2">
