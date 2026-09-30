@@ -14,8 +14,8 @@ Tag `[claude]` / `[copilot]` restricts an owner; `[ ]` = anyone.
 | T-03 | [claude] | Marketplace: verify every catalog `install_command` works cross-platform; fix any macOS-only ones | `marketplace/`, `tui/` | – | todo | run `npm test` after |
 | T-04 | [ ] | Add `web-ui` ESLint config (PR quality check reports "no eslint config") | `web-ui/` | copilot | done | `eslint.config.mjs` already present and working (verified via `npx eslint`) — closing as already resolved |
 | T-05 | [ ] | Knip: resolve the 10 unused-file warnings from PR quality check | `web-ui/` | copilot | done | Deleted 8 dead, never-imported components; added `web-ui/knip.jsonc` ignoring 2 legit false positives (`public/sw.js` string-path SW registration, `lib/quick-actions.ts` intentional dual .js/.ts resolution split). `npx knip` now reports 0 unused files. |
-| T-06 | [ ] | Tests: add root unit tests under `tests/*.test.js` so `scripts/test.js` runs them | `tests/` | copilot | in-progress | node:test |
-| T-07 | [ ] | Docs: refresh `README.md` feature list + bridge section to match current code | root | – | todo | Mark-LV + OpenJarvis + marketplace |
+| T-06 | [ ] | Tests: add root unit tests under `tests/*.test.js` so `scripts/test.js` runs them | `tests/` | copilot | done | Added `tests/marketplace.test.js` (5 node:test cases covering the effective-installed-set formula); `scripts/test.js` now discovers + runs `tests/*.test.js` as a 6th smoke-test check |
+| T-07 | [ ] | Docs: refresh `README.md` feature list + bridge section to match current code | root | copilot | in-progress | Mark-LV + OpenJarvis + marketplace |
 
 ## Human notes
 
