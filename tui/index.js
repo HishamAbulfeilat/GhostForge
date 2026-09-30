@@ -2468,6 +2468,16 @@ async function screenMarketplace() {
     try { registry = JSON.parse(readFileSync(registryPath, 'utf8')); } catch {}
   }
 
+  // registry.json is the single source of truth for install state (shared with
+  // the web UI). Seed it from any catalog items shipped as installed, minus any
+  // the user explicitly removed, then reflect that onto each item for display.
+  const removedSet = new Set(registry.removed || []);
+  const installedSet = new Set((registry.installed || []).filter(id => !removedSet.has(id)));
+  for (const item of catalog.items) {
+    if (item.installed && !removedSet.has(item.id)) installedSet.add(item.id);
+    item.installed = installedSet.has(item.id);
+  }
+
   const action = await select({
     message: T.white.bold('Marketplace:'),
     choices: [
@@ -2621,7 +2631,12 @@ async function screenMarketplace() {
           execSync(item.install_command, { stdio: 'inherit', cwd: ROOT });
           console.log(T.success(`\n  ✅ ${item.name} installed successfully!`));
           item.installed = true;
-          writeFileSync(catalogPath, JSON.stringify(catalog, null, 2));
+          // Persist to registry.json (source of truth shared with the web UI).
+          installedSet.add(item.id);
+          removedSet.delete(item.id);
+          registry.installed = [...installedSet];
+          registry.removed = [...removedSet];
+          writeFileSync(registryPath, JSON.stringify(registry, null, 2));
         } catch {
           console.log(T.danger(`\n  ✖ Installation failed. Try manually: ${item.install_command}`));
         }
