@@ -826,6 +826,42 @@
         "audit",
         "skill"
       ]
+    },
+    {
+      "id": "openjarvis",
+      "name": "OpenJarvis",
+      "type": "agent",
+      "category": "AI Models",
+      "description": "Local-first personal AI agent framework by Stanford (Hazy Research / Scaling Intelligence). Runs on-device with Ollama; cloud only when needed. 'Personal AI, On Personal Devices.' Apache-2.0.",
+      "source": "open-jarvis/OpenJarvis",
+      "url": "https://github.com/open-jarvis/OpenJarvis",
+      "install_command": "curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash",
+      "tags": [
+        "ai",
+        "local",
+        "agent",
+        "ollama",
+        "privacy",
+        "framework"
+      ]
+    },
+    {
+      "id": "mark-l",
+      "name": "Mark-L",
+      "type": "agent",
+      "category": "AI Models",
+      "description": "Cross-platform real-time voice AI assistant (FatihMakes/Mark-L) \u2014 hears, sees, understands, and controls your computer via the Gemini Live API. Integrated in GhostForge as mark-l-bridge.",
+      "source": "FatihMakes/Mark-L",
+      "url": "https://github.com/FatihMakes/Mark-L",
+      "file": "mark-l-bridge/server.py",
+      "installed": true,
+      "tags": [
+        "ai",
+        "voice",
+        "assistant",
+        "gemini",
+        "cross-platform"
+      ]
     }
   ]
 }
