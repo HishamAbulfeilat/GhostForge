@@ -5,6 +5,10 @@
   "agents": {
     "claude":  { "provider": "claude",  "enabled": false, "worktree": "../gf-claude", "branch": "agent/claude/work", "strengths": ["plan", "architecture", "security", "review", "refactor", "test", "bugfix"] },
     "copilot": { "provider": "copilot", "enabled": true,  "worktree": "../gf-boss-copilot", "branch": "agent/copilot/boss", "strengths": ["feature", "bugfix", "test", "docs", "chore", "security", "refactor"] },
+    "copilot-qa": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-copilot-qa", "branch": "agent/copilot/boss-qa", "strengths": ["test", "bugfix", "chore"] },
+    "copilot-security": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-copilot-security", "branch": "agent/copilot/boss-security", "strengths": ["security", "bugfix", "test"] },
+    "copilot-perf": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-copilot-perf", "branch": "agent/copilot/boss-perf", "strengths": ["refactor", "bugfix", "feature"] },
+    "copilot-design": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-copilot-design", "branch": "agent/copilot/boss-design", "strengths": ["feature", "refactor", "docs"] },
     "codex":   { "provider": "codex",   "enabled": false, "worktree": "../gf-codex",   "branch": "agent/codex/work",   "strengths": ["feature", "bugfix", "test"] },
     "gemini":  { "provider": "gemini",  "enabled": false, "worktree": "../gf-gemini",  "branch": "agent/gemini/work",  "strengths": ["docs", "feature", "chore"] }
   },
