@@ -1,10 +1,10 @@
 {
   "$comment": "Agent team config — read by scripts/agents/boss.mjs. Paths are relative to the repo root. Models: a tier table per provider (deep/balanced/fast); 'auto' lets the provider choose. Task kind → tier lives in scripts/agents/lib/models.mjs.",
-  "boss": { "provider": "claude", "model": "opus", "review": true },
+  "boss": { "provider": "copilot", "model": "auto", "review": true },
   "integration": { "branch": "agent/integration", "worktree": "../gf-integration", "base": "main" },
   "agents": {
-    "claude":  { "provider": "claude",  "enabled": true,  "worktree": "../gf-claude",  "branch": "agent/claude/work",  "strengths": ["plan", "architecture", "security", "review", "refactor", "test", "bugfix"] },
-    "copilot": { "provider": "copilot", "enabled": true,  "worktree": "../gf-copilot", "branch": "agent/copilot/work", "strengths": ["feature", "bugfix", "test", "docs", "chore"] },
+    "claude":  { "provider": "claude",  "enabled": false, "worktree": "../gf-claude", "branch": "agent/claude/work", "strengths": ["plan", "architecture", "security", "review", "refactor", "test", "bugfix"] },
+    "copilot": { "provider": "copilot", "enabled": true,  "worktree": "../gf-boss-copilot", "branch": "agent/copilot/boss", "strengths": ["feature", "bugfix", "test", "docs", "chore", "security", "refactor"] },
     "codex":   { "provider": "codex",   "enabled": false, "worktree": "../gf-codex",   "branch": "agent/codex/work",   "strengths": ["feature", "bugfix", "test"] },
     "gemini":  { "provider": "gemini",  "enabled": false, "worktree": "../gf-gemini",  "branch": "agent/gemini/work",  "strengths": ["docs", "feature", "chore"] }
   },
