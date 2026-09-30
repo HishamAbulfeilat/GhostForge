@@ -3,6 +3,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 export const DEFAULT_BODY_LIMIT = 1024 * 1024
+export const AGENT_TEAM_COMMAND_TIMEOUT_MS = 15_000
 export const VALID_ACTIONS = ['status', 'start', 'stop', 'say', 'add'] as const
 
 type AgentTeamActionName = (typeof VALID_ACTIONS)[number]
@@ -313,12 +314,27 @@ export function runAgentTeamCommand(action: string, params: AgentTeamRequestPayl
       env,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: AGENT_TEAM_COMMAND_TIMEOUT_MS,
     })
     const output = `${result.stdout || ''}${result.stderr || ''}`.trim()
+
+    if (result.error) {
+      const failure = result.error.message || 'Unknown child_process error'
+      const timedOut = /timed out|ETIMEDOUT/i.test(failure)
+      return {
+        ok: false,
+        action: normalizeAgentTeamAction({ action, ...params }).action,
+        output: timedOut
+          ? `Agent-team command timed out after ${AGENT_TEAM_COMMAND_TIMEOUT_MS}ms: ${failure}`
+          : `Agent-team command failed: ${failure}`,
+        code: null,
+      }
+    }
+
     return {
       ok: result.status === 0,
       action: normalizeAgentTeamAction({ action, ...params }).action,
-      output: output || (result.status === 0 ? 'Command completed.' : 'Agent-team command failed.'),
+      output: output || (result.status === 0 ? 'Command completed.' : `Agent-team command failed with exit code ${result.status ?? 'unknown'}.`),
       code: result.status ?? null,
     }
   } catch (error) {
