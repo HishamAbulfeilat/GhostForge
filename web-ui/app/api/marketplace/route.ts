@@ -40,7 +40,8 @@ const REGISTRY_PATH = path.join(MARKETPLACE_DIR, 'registry.json')
 
 interface CatalogItem {
   id: string; name: string; type: string; category: string; description: string
-  source?: string; tags?: string[]; install_command?: string; installed?: boolean
+  source?: string; tags?: string[]; install_command?: string; install_command_windows?: string
+  installed?: boolean
 }
 
 interface Source {
