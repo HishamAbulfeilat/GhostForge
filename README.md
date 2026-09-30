@@ -49,6 +49,8 @@ GhostForge JARVIS is a desktop + web app that turns GitHub Copilot into a full A
 - **Email** — Gmail, Outlook, IMAP
 - **Calendar** — Google Calendar, Outlook
 - **AI Studio** — Manage your Google AI Studio apps
+- **AI Bridge (Mark-LV + OpenJarvis)** — One FastAPI service (`mark-l-bridge/`, `:8765`) unifying real-time Gemini Live voice, screen/webcam vision, and computer control (Mark-LV) with a local-first, Ollama-backed agent runtime (OpenJarvis, opt-in)
+- **Marketplace** — Browse, install, and track agents, skills, and tools via `/marketplace`; see `marketplace/README.md`
 
 ### Platform
 - **Persistent Daemon** — JARVIS stays running when window closes
@@ -79,11 +81,9 @@ node tui/index.js
 
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl+K` | Command palette |
-| `Ctrl+M` | Memory panel |
-| `Ctrl+A` | Agent panel |
-| `Ctrl+/` | Model selector |
-| `Ctrl+Shift+V` | Voice input |
+| `Ctrl/Cmd+K` | Command palette |
+| `Ctrl+Alt+V` | Push-to-talk (JARVIS voice) |
+| `Ctrl/Cmd+S` | Save file (Files editor) |
 
 ## Architecture
 
@@ -91,7 +91,9 @@ node tui/index.js
 GhostForge/
 ├── web-ui/          # Next.js 15 + Tailwind CSS
 ├── electron-app/    # Electron desktop app
-├── mark-l-bridge/   # Python AI bridge (FastAPI)
+├── mark-l-bridge/   # Python AI bridge (FastAPI) — Mark-LV + OpenJarvis
+├── marketplace/     # Agent/skill/tool catalog + install registry
+├── mcp/             # GhostForge's own MCP server
 ├── tui/             # Terminal UI
 └── .github/         # CI/CD workflows
 ```
@@ -100,7 +102,7 @@ GhostForge/
 
 **Frontend:** React 18, Next.js 15, TypeScript, Tailwind CSS  
 **Desktop:** Electron 28, Capacitor (Android)  
-**AI:** Ollama, Gemini, Voicebox, mem0, crewAI  
+**AI:** Mark-LV (Gemini Live voice + vision), OpenJarvis (local agent runtime), Ollama, Voicebox, mem0, crewAI  
 **Backend:** FastAPI, n8n, HuggingFace Hub
 
 ## Contributing
