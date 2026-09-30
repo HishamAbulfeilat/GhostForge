@@ -27,6 +27,15 @@ Use this Space as the shared system context for GhostForge developers.
 - **Data Viz Agent** — say: `act as data engineer`
 - **Architect Agent** — say: `act as architect`
 - **Ticket Checker Agent** — say: `act as ticket checker`
+- **Orchestrator Agent** — say: `act as orchestrator` (coordinates the Claude Code ⇄ Copilot CLI multi-agent workflow)
+
+## Multi-agent workflow (work alongside Claude Code)
+
+Copilot CLI and Claude Code work this repo at the same time and coordinate
+through git-tracked files. Kickoff prompt: `prompts/multi-agent-kickoff.md`.
+Protocol: `docs/MULTI-AGENT-WORKFLOW.md`. Shared board: `.agent-sync/BOARD.md`;
+chat: `.agent-sync/MESSAGES.md`. Claim a task by pushing the board row first,
+then work only that task's file area. Golden rules: `AGENTS.md`.
 
 ## GhostForge tech stack summary
 

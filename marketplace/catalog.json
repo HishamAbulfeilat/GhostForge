@@ -862,6 +862,22 @@
         "avatar",
         "cross-platform"
       ]
+    },
+    {
+      "id": "ghostforge-orchestrator",
+      "name": "Orchestrator Agent",
+      "type": "agent",
+      "category": "Architecture",
+      "description": "Coordinates the Claude Code + Copilot CLI multi-agent workflow: grooms the shared board, assigns by strength, reviews, unblocks. See docs/MULTI-AGENT-WORKFLOW.md.",
+      "source": "ghostforge-official",
+      "file": "agents/orchestrator.md",
+      "installed": true,
+      "tags": [
+        "agent",
+        "orchestration",
+        "multi-agent",
+        "workflow"
+      ]
     }
   ]
 }
