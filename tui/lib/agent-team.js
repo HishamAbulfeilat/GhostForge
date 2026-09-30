@@ -8,7 +8,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const TEAM_SCRIPT = resolve(ROOT, 'scripts', 'agents', 'team.mjs');
 const BOSS_SCRIPT = resolve(ROOT, 'scripts', 'agents', 'boss.mjs');
 
-export const TEAM_COMMANDS = Object.freeze(['status', 'inbox', 'say', 'add', 'stop']);
+export const TEAM_COMMANDS = Object.freeze(['start', 'status', 'inbox', 'say', 'add', 'stop']);
 
 export function runTeamCommand(command, args = [], {
   cwd = ROOT,

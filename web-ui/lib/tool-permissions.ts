@@ -154,6 +154,9 @@ export const TOOL_PERMISSION: Record<string, string> = {
   list_design_md: 'chat',
   design_resources: 'chat',
   task_steps: 'chat',
+
+  // ── team orchestration ───────────────────────────────────────────────────────
+  agent_team: 'admin_tools',
 }
 
 export function permissionForTool(tool: string): string | undefined {

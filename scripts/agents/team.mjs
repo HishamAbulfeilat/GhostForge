@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 // Agent-team CLI — how agents (and humans) talk to the boss and to each other.
 //
-//   node scripts/agents/team.mjs status                       board, agents, health
+//   node scripts/agents/team.mjs start                       launch the boss and begin the team loop
+//   node scripts/agents/team.mjs status                      board, agents, health
 //   node scripts/agents/team.mjs say --from claude --to copilot "text"
-//   node scripts/agents/team.mjs inbox --for copilot          recent messages
+//   node scripts/agents/team.mjs inbox --for copilot         recent messages
 //   node scripts/agents/team.mjs done  T-004 --agent claude "summary"
 //   node scripts/agents/team.mjs block T-004 --agent claude "reason"
 //   node scripts/agents/team.mjs add "title" [--kind k] [--area a,b] [--agent any] [--from human]
-//   node scripts/agents/team.mjs stop                         boss stops after in-flight tasks
+//   node scripts/agents/team.mjs stop                        boss stops after in-flight tasks
 //
 // Works from any worktree: state lives in the main repo (found via git).
 
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { stateDir, loadBoard, readMessages, say, writeResult, readJSON } from './lib/bus.mjs'
@@ -63,6 +64,19 @@ function main() {
   const dir = stateDir(mainRoot())
 
   switch (cmd) {
+    case 'start': {
+      const boss = path.join(mainRoot(), 'scripts', 'agents', 'boss.mjs')
+      if (!fs.existsSync(boss)) throw new Error('Agent team boss launcher was not found at scripts/agents/boss.mjs')
+      const child = spawn(process.execPath, [boss, 'start'], {
+        cwd: mainRoot(),
+        stdio: 'ignore',
+        detached: true,
+        windowsHide: true,
+      })
+      child.unref?.()
+      console.log('boss start requested')
+      break
+    }
     case 'status':
       process.stdout.write(fmtStatus(dir))
       break
@@ -97,7 +111,7 @@ function main() {
       console.log('boss will stop after in-flight tasks finish')
       break
     default:
-      console.log('commands: status | say | inbox | done | block | add | stop   (see the header of scripts/agents/team.mjs)')
+      console.log('commands: start | status | say | inbox | done | block | add | stop   (see the header of scripts/agents/team.mjs)')
   }
 }
 
