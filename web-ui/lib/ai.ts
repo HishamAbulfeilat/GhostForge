@@ -4,7 +4,7 @@ import { generateText, type ModelMessage, type LanguageModel } from 'ai'
 import { totalmem } from 'os'
 import { buildLocalRuntimeOrder } from './local-runtime'
 import {
-  FREE_CATALOG, PROVIDERS, getCustomModel, getProviderKey, getSavedSelection, isProviderId, omniRouteBaseURL,
+  FREE_CATALOG, PROVIDERS, getCustomModel, getOmniRouteKey, getProviderKey, getSavedSelection, isProviderId, omniRouteBaseURL,
   type ProviderId,
 } from './providers'
 
@@ -43,14 +43,11 @@ export interface ModelEntry {
   generate?: (opts: GenerateOpts) => Promise<string>
 }
 
-/** OmniRoute accepts any bearer unless its dashboard requires a key (OMNIROUTE_API_KEY) */
-function omniRouteAuth(): string {
-  return `Bearer ${process.env.OMNIROUTE_API_KEY || 'omniroute'}`
-}
-
-/** Build an OmniRoute LanguageModel — no API key required */
+/** Build an OmniRoute LanguageModel; local gateways do not need a placeholder key. */
 export function makeOmniRouteModel(modelId = 'auto'): LanguageModel {
-  const omni = createOpenAI({ baseURL: omniRouteBaseURL(), apiKey: process.env.OMNIROUTE_API_KEY || 'omniroute' })
+  const apiKey = getOmniRouteKey()
+  // An explicit empty key prevents the SDK from falling back to OPENAI_API_KEY.
+  const omni = createOpenAI({ baseURL: omniRouteBaseURL(), apiKey: apiKey ?? '' })
   return omni.chat(modelId)
 }
 
@@ -204,7 +201,7 @@ export async function generateOpenAICompatible(
 }
 
 export function generateWithOmniRoute(modelId: string, opts: GenerateOpts): Promise<string> {
-  return generateOpenAICompatible('OmniRoute', omniRouteBaseURL(), process.env.OMNIROUTE_API_KEY || 'omniroute', modelId, opts)
+  return generateOpenAICompatible('OmniRoute', omniRouteBaseURL(), getOmniRouteKey(), modelId, opts)
 }
 
 /** OmniRoute chain entry: custom generate fixes the SDK streaming-parse incompatibility */
@@ -377,7 +374,11 @@ export async function isOmniRouteUp(omniUrl?: string): Promise<boolean> {
   if (inFlight) return inFlight
   const probe = (async () => {
     try {
-      const res = await fetch(`${url}/models`, { headers: { Authorization: omniRouteAuth() }, signal: AbortSignal.timeout(1200) })
+      const apiKey = getOmniRouteKey()
+      const res = await fetch(`${url}/models`, {
+        ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+        signal: AbortSignal.timeout(1200),
+      })
       // Any answer means the gateway is running: /v1/models can require a key
       // (401) even when chat completions do not
       const up = res.status < 500
