@@ -2692,8 +2692,7 @@ async function screenMarketplace() {
         }
       }
       if (item.url) {
-        console.log(T.accent(`\n  Upstream: ${item.url}`));
-        crossPlatformOpen(item.url);
+        console.log(T.accent(`\n  Upstream (open to review): ${item.url}`));
       }
       console.log();
     }
