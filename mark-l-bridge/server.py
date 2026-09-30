@@ -8,13 +8,17 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import logging
 import os
 import secrets
 import shutil
 import subprocess
 import sys
+import time
+import uuid
 from contextlib import asynccontextmanager, contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -710,6 +714,69 @@ class UnifiedChainRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Pydantic request models — web-only contracts exposed to JARVIS
+# ---------------------------------------------------------------------------
+
+
+class CollabMessageRequest(BaseModel):
+    id: str = Field(..., min_length=8, max_length=64)
+    role: str = Field(..., min_length=1, max_length=32)
+    content: str = Field(..., min_length=1, max_length=10_000)
+
+
+class JobActionRequest(BaseModel):
+    action: str = Field(..., min_length=1, max_length=32)
+    user_id: str = "default"
+    id: Optional[str] = None
+    terms: list[str] = Field(default_factory=list)
+    auto_prepare: int = Field(default=3, ge=0, le=5)
+
+
+class WorkflowStepRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    id: Optional[str] = None
+    kind: str = "manual"
+    ref: str = ""
+    deps: list[str] = Field(default_factory=list)
+    status: str = "pending"
+    notes: str = ""
+
+
+class WorkflowRequest(BaseModel):
+    user_id: str = "default"
+    id: Optional[str] = None
+    name: Optional[str] = None
+    goal: Optional[str] = None
+    status: Optional[str] = None
+    steps: Optional[list[WorkflowStepRequest]] = None
+    step_id: Optional[str] = None
+    step: Optional[dict[str, Any]] = None
+    log: Optional[str] = None
+
+
+class WebhookRequest(BaseModel):
+    source: str = "generic"
+    event: str = "unknown"
+    body: dict[str, Any] = Field(default_factory=dict)
+    config: Optional[list[dict[str, Any]]] = None
+
+
+class DeviceRequest(BaseModel):
+    user_id: str = "default"
+    id: str = Field(..., min_length=1, max_length=128)
+    name: str = ""
+    platform: str = ""
+    browser: str = ""
+    model: str = ""
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReleaseRequest(BaseModel):
+    action: str = "status"
+    kind: str = "patch"
+
+
+# ---------------------------------------------------------------------------
 # Response helpers
 # ---------------------------------------------------------------------------
 
@@ -767,6 +834,90 @@ def _run_openjarvis_cli(*args: str, timeout_s: int = 60) -> str:
             f"jarvis {' '.join(args)} exited {proc.returncode}: {proc.stderr.strip()}"
         )
     return proc.stdout.strip()
+
+
+# ---------------------------------------------------------------------------
+# Web-only feature contracts
+#
+# These deliberately use the same small JSON stores as the web application,
+# but remain independent of Next.js so JARVIS and the desktop bridge can use
+# them when the web UI is not running.
+# ---------------------------------------------------------------------------
+
+_BRIDGE_DATA_DIR = Path.home() / ".ghostforge" / "bridge"
+_COLLAB_SESSIONS: dict[str, dict[str, Any]] = {}
+
+
+def _safe_user(value: str) -> str:
+    user = str(value or "default").strip().lower()
+    if not user or len(user) > 64 or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789._-" for c in user):
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    return user
+
+
+def _store_path(name: str, user_id: str = "default") -> Path:
+    return _BRIDGE_DATA_DIR / name / f"{_safe_user(user_id)}.json"
+
+
+def _read_store(name: str, user_id: str = "default", default: Any = None) -> Any:
+    path = _store_path(name, user_id)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def _write_store(name: str, user_id: str, value: Any) -> None:
+    path = _store_path(name, user_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{secrets.token_hex(4)}.tmp")
+    tmp.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _new_id(prefix: str = "") -> str:
+    return f"{prefix}{uuid.uuid4().hex[:12]}"
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _workflow_progress(workflow: dict[str, Any]) -> dict[str, int]:
+    steps = workflow.get("steps") or []
+    done = sum(1 for step in steps if step.get("status") in ("done", "skipped"))
+    return {"done": done, "total": len(steps), "pct": round(done / len(steps) * 100) if steps else 0}
+
+
+def _workflow_step(value: WorkflowStepRequest | dict[str, Any]) -> dict[str, Any]:
+    data = value.model_dump() if isinstance(value, WorkflowStepRequest) else value
+    return {
+        "id": str(data.get("id") or _new_id("step-")),
+        "title": str(data.get("title") or "Untitled step")[:200],
+        "kind": data.get("kind") if data.get("kind") in ("agent", "skill", "command", "manual") else "manual",
+        "ref": str(data.get("ref") or "")[:2000],
+        "deps": [str(item) for item in data.get("deps", [])][:100],
+        "status": data.get("status") if data.get("status") in ("pending", "running", "done", "failed", "blocked", "skipped") else "pending",
+        "notes": str(data.get("notes") or "")[:4000],
+        "log": list(data.get("log") or [])[-50:],
+    }
+
+
+def _release_status() -> dict[str, Any]:
+    package = Path(__file__).resolve().parent.parent / "package.json"
+    version = "0.0.0"
+    try:
+        version = str(json.loads(package.read_text(encoding="utf-8")).get("version", version))
+    except (OSError, ValueError):
+        pass
+    try:
+        tag = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=package.parent, capture_output=True, text=True, timeout=10, check=False,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        tag = ""
+    return {"version": version, "lastTag": tag or None}
 
 
 # ---------------------------------------------------------------------------
@@ -1439,6 +1590,212 @@ def openjarvis_ask(req: OpenJarvisAskRequest):
     except Exception:
         logger.exception("openjarvis ask failed")
         raise _err("openjarvis ask failed: internal error")
+
+
+# ---------------------------------------------------------------------------
+# Collaboration
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/jarvis/collab", dependencies=[Depends(require_token)])
+def collab_get(id: Optional[str] = None):
+    """Create a session when no id is supplied, matching the web contract."""
+    if not id:
+        session_id = _new_id()
+        _COLLAB_SESSIONS[session_id] = {"messages": [], "createdAt": time.time(), "participants": 1}
+        return {"id": session_id, "shareUrl": f"/jarvis?session={session_id}"}
+    if id not in _COLLAB_SESSIONS:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session = _COLLAB_SESSIONS[id]
+    session["participants"] += 1
+    return {"id": id, "messages": session["messages"], "participants": session["participants"]}
+
+
+@app.post("/api/jarvis/collab", dependencies=[Depends(require_token)])
+def collab_post(req: CollabMessageRequest):
+    if req.role not in ("user", "assistant"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+    session = _COLLAB_SESSIONS.get(req.id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session["messages"].append({"role": req.role, "content": req.content, "ts": int(time.time() * 1000)})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Jobs (bridge-safe action contract; heavy search/apply work remains in web UI)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/jobs", dependencies=[Depends(require_token)])
+def jobs_get(user_id: str = "default"):
+    jobs = _read_store("jobs", user_id, [])
+    return {"jobs": jobs, "ready": {"hasCv": False, "missing": []}, "autopilot": {"enabled": False, "submittedToday": 0}}
+
+
+@app.post("/api/jobs", dependencies=[Depends(require_token)])
+def jobs_post(req: JobActionRequest):
+    user_id = _safe_user(req.user_id)
+    jobs = _read_store("jobs", user_id, [])
+    if req.action == "search":
+        result = {"terms": [str(term)[:120] for term in req.terms[:5]], "found": 0, "matched": 0, "added": 0, "prepared": 0}
+        return {"result": result}
+    if req.action in ("prepare", "approve", "dismiss"):
+        job = next((item for item in jobs if item.get("id") == req.id), None)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        job["status"] = {"prepare": "ready", "approve": "submitted", "dismiss": "dismissed"}[req.action]
+        _write_store("jobs", user_id, jobs)
+        return {"job": job}
+    if req.action == "autopilot":
+        return {"report": {"found": 0, "prepared": 0, "submitted": 0, "needsUser": 0, "failed": 0}}
+    raise HTTPException(status_code=400, detail="Unknown action")
+
+
+# ---------------------------------------------------------------------------
+# Workflows
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/workflows", dependencies=[Depends(require_token)])
+def workflows_get(user_id: str = "default", id: Optional[str] = None):
+    workflows = _read_store("workflows", user_id, [])
+    if id:
+        workflow = next((item for item in workflows if item.get("id") == id), None)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        return {"workflow": workflow, "progress": _workflow_progress(workflow), "ready": []}
+    return {"workflows": [{**item, "progress": _workflow_progress(item)} for item in workflows]}
+
+
+@app.post("/api/workflows", dependencies=[Depends(require_token)])
+def workflows_create(req: WorkflowRequest):
+    if not req.name or not req.name.strip():
+        raise HTTPException(status_code=400, detail="A workflow name is required")
+    user_id = _safe_user(req.user_id)
+    now = _iso_now()
+    workflow = {
+        "id": _new_id("wf-"), "name": req.name[:200], "goal": (req.goal or "")[:4000],
+        "status": "draft", "steps": [_workflow_step(step) for step in (req.steps or [])[:100]],
+        "createdAt": now, "updatedAt": now,
+    }
+    workflows = _read_store("workflows", user_id, [])
+    workflows.append(workflow)
+    _write_store("workflows", user_id, workflows)
+    return {"workflow": workflow}
+
+
+@app.put("/api/workflows", dependencies=[Depends(require_token)])
+def workflows_update(req: WorkflowRequest):
+    if not req.id:
+        raise HTTPException(status_code=400, detail="Workflow id required")
+    user_id = _safe_user(req.user_id)
+    workflows = _read_store("workflows", user_id, [])
+    workflow = next((item for item in workflows if item.get("id") == req.id), None)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if req.step_id and req.step is not None:
+        step = next((item for item in workflow["steps"] if item.get("id") == req.step_id), None)
+        if not step:
+            raise HTTPException(status_code=404, detail="Workflow or step not found")
+        step.update({key: value for key, value in req.step.items() if key in ("status", "notes", "title", "ref")})
+        if req.log:
+            step.setdefault("log", []).append({"msg": req.log})
+    else:
+        if req.name is not None:
+            workflow["name"] = req.name[:200]
+        if req.goal is not None:
+            workflow["goal"] = req.goal[:4000]
+        # Omitted status means preserve the current status, never reset to draft.
+        if req.status is not None:
+            workflow["status"] = req.status
+        if req.steps is not None:
+            workflow["steps"] = [_workflow_step(step) for step in req.steps[:100]]
+    workflow["updatedAt"] = _iso_now()
+    _write_store("workflows", user_id, workflows)
+    return {"workflow": workflow, "progress": _workflow_progress(workflow)}
+
+
+@app.delete("/api/workflows", dependencies=[Depends(require_token)])
+def workflows_delete(user_id: str = "default", id: Optional[str] = None):
+    if not id:
+        raise HTTPException(status_code=400, detail="Workflow id required")
+    workflows = _read_store("workflows", user_id, [])
+    next_workflows = [item for item in workflows if item.get("id") != id]
+    _write_store("workflows", user_id, next_workflows)
+    return {"ok": len(next_workflows) != len(workflows)}
+
+
+# ---------------------------------------------------------------------------
+# Webhooks, devices, and release status/actions
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/webhook", dependencies=[Depends(require_token)])
+def webhook_get(log: int = 0):
+    if log == 1:
+        return _read_store("webhook-log", "default", [])
+    return _read_store("webhooks", "default", [])
+
+
+@app.post("/api/webhook", dependencies=[Depends(require_token)])
+def webhook_post(req: WebhookRequest):
+    if req.config is not None:
+        _write_store("webhooks", "default", req.config)
+        return {"ok": True}
+    log = _read_store("webhook-log", "default", [])
+    log.insert(0, {"source": req.source[:80], "event": req.event[:80], "body": req.body, "receivedAt": _iso_now()})
+    _write_store("webhook-log", "default", log[:200])
+    return {"ok": True, "event": req.event, "prompted": True}
+
+
+@app.delete("/api/webhook", dependencies=[Depends(require_token)])
+def webhook_delete():
+    _write_store("webhook-log", "default", [])
+    return {"ok": True}
+
+
+@app.get("/api/devices", dependencies=[Depends(require_token)])
+def devices_get(user_id: str = "default"):
+    return {"devices": _read_store("devices", user_id, []), "user": _safe_user(user_id)}
+
+
+@app.post("/api/devices", dependencies=[Depends(require_token)])
+def devices_post(req: DeviceRequest):
+    user_id = _safe_user(req.user_id)
+    devices = _read_store("devices", user_id, [])
+    device = req.model_dump()
+    device.pop("user_id", None)
+    device["updatedAt"] = _iso_now()
+    devices = [item for item in devices if item.get("id") != req.id] + [device]
+    _write_store("devices", user_id, devices)
+    return {"device": device, "devices": devices}
+
+
+@app.delete("/api/devices", dependencies=[Depends(require_token)])
+def devices_delete(user_id: str = "default", id: Optional[str] = None):
+    if not id:
+        raise HTTPException(status_code=400, detail="Missing device id")
+    devices = _read_store("devices", user_id, [])
+    next_devices = [item for item in devices if item.get("id") != id]
+    _write_store("devices", user_id, next_devices)
+    if len(next_devices) == len(devices):
+        raise HTTPException(status_code=404, detail="Device not found")
+    return {"ok": True}
+
+
+@app.get("/api/release", dependencies=[Depends(require_token)])
+def release_get():
+    return _release_status()
+
+
+@app.post("/api/release", dependencies=[Depends(require_token)])
+def release_post(req: ReleaseRequest):
+    if req.action not in ("status", "prepare", "notes"):
+        raise HTTPException(status_code=400, detail="Unknown release action")
+    if req.action == "prepare" and req.kind not in ("patch", "minor", "major"):
+        raise HTTPException(status_code=400, detail="Invalid release kind")
+    return {"action": req.action, **_release_status(), "kind": req.kind}
 
 
 # ---------------------------------------------------------------------------
