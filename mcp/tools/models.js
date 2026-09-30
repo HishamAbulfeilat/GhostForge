@@ -2,13 +2,29 @@ import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import * as z from 'zod/v4';
 
+// Keep model tools usable in a fresh checkout. The generated cache is optional
+// (and may not exist until the model sync command has been run).
+const BUNDLED_MODEL_CACHE = {
+  syncedAt: null,
+  models: [
+    { id: 'claude-opus-4.8', family: 'claude', tier: 'deep', thinking: true, bestFor: 'Security, architecture, deep analysis, system design' },
+    { id: 'claude-sonnet-4.6', family: 'claude', tier: 'balanced', thinking: true, bestFor: 'Features, testing, refactoring, and reliable code generation' },
+    { id: 'gpt-5.3-codex', family: 'gpt-5', tier: 'balanced', thinking: false, bestFor: 'SQL, APIs, structured output, and deployments' },
+    { id: 'gpt-5-mini', family: 'gpt-5', tier: 'fast', thinking: false, bestFor: 'Commit messages, lint, formatting, and quick tasks' }
+  ]
+};
+
 export function readModelCache(repoRoot) {
   const cachePath = resolve(repoRoot, '.ghostforge-models.json');
   if (!existsSync(cachePath)) {
-    throw new Error('Model cache .ghostforge-models.json not found. Run node scripts/sync-models.js first.');
+    return BUNDLED_MODEL_CACHE;
   }
 
-  return JSON.parse(readFileSync(cachePath, 'utf8'));
+  const cache = JSON.parse(readFileSync(cachePath, 'utf8'));
+  if (!Array.isArray(cache.models)) {
+    throw new Error('Model cache is invalid: expected a models array.');
+  }
+  return cache;
 }
 
 export function selectBestModel(models, taskType) {
