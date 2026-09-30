@@ -38,7 +38,7 @@ function LoginForm() {
       if (res.ok) {
         // Auto-register this browser/device under the signed-in user
         import('@/lib/client-device').then(m => m.reportDevice()).catch(() => {})
-        const from = searchParams.get('from') ?? '/dashboard'
+        const from = searchParams.get('next') ?? searchParams.get('from') ?? '/dashboard'
         const safeFrom = from.startsWith('/') && !from.startsWith('//') && !from.includes('\\')
           ? from
           : '/dashboard'

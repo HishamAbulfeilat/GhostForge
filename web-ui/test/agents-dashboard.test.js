@@ -5,6 +5,8 @@ const path = require('node:path')
 
 const page = fs.readFileSync(path.join(__dirname, '..', 'app', 'agents', 'page.tsx'), 'utf8')
 const navbar = fs.readFileSync(path.join(__dirname, '..', 'components', 'Navbar.tsx'), 'utf8')
+const accessGuard = fs.readFileSync(path.join(__dirname, '..', 'components', 'AccessGuard.tsx'), 'utf8')
+const loginPage = fs.readFileSync(path.join(__dirname, '..', 'app', 'login', 'page.tsx'), 'utf8')
 
 test('agents page uses the documented snapshot fields and endpoint', () => {
   for (const field of ['health', 'running', 'agents', 'tasks', 'messages', 'phase', 'provider', 'state', 'model', 'task']) {
@@ -50,4 +52,14 @@ test('agents page keeps provider values, rendered messages, and refresh/error fe
   assert.match(page, /Unable to load agent team\./)
   assert.match(page, /Enter a message before sending\./)
   assert.match(page, /Enter a task title before adding it\./)
+})
+
+test('agents page redirects unauthenticated users and explains admin_tools access only to signed-in users', () => {
+  assert.match(page, /fetch\('\/api\/auth\/me'\)/)
+  assert.match(page, /authResponse\.status === 401/)
+  assert.match(page, /router\.replace\('\/login\?next=\/agents'\)/)
+  assert.match(page, /user\.role === 'admin' \|\| user\.permissions\?\.includes\('admin_tools'\)/)
+  assert.match(page, /Your account is signed in, but it needs the admin_tools permission to access Agent Teams/)
+  assert.match(accessGuard, /pathname !== '\/agents'/)
+  assert.match(loginPage, /searchParams\.get\('next'\) \?\? searchParams\.get\('from'\)/)
 })
