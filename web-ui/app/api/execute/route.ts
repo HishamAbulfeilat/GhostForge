@@ -26,6 +26,8 @@ const GHOSTFORGE_SCRIPT_MAP = [
   ['git-hooks-setup', 'git-hooks-setup.sh'],
   ['component-gen', 'component-gen.sh'],
   ['api-docs', 'api-docs.sh'],
+  ['api-types', 'api-types.sh'],
+  ['api-mock', 'api-mock.sh'],
   ['docker-gen', 'docker-gen.sh'],
   ['schema-viz', 'schema-viz.sh'],
   ['marketplace', 'marketplace.sh'],
