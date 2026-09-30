@@ -15,6 +15,11 @@
 #   scripts/start-agents-interactive.sh --mode copilot   # Copilot CLI only
 #   scripts/start-agents-interactive.sh --setup-only     # just create the worktree + checks
 #   scripts/start-agents-interactive.sh --no-loop        # run the solo/loop agent once
+#   scripts/start-agents-interactive.sh --no-ecc         # skip the default pinned ECC context setup
+#
+# Optional ECC setup for Claude workflows:
+#   claude /plugin marketplace add https://github.com/affaan-m/ECC
+#   claude /plugin install ecc@ecc
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,16 +28,23 @@ COPILOT_BRANCH="agent/copilot/main"
 KICKOFF_BOTH="$REPO_ROOT/prompts/multi-agent-kickoff.md"
 KICKOFF_COPILOT_SOLO="$REPO_ROOT/prompts/copilot-solo-kickoff.md"
 KICKOFF_CLAUDE_SOLO="$REPO_ROOT/prompts/claude-solo-kickoff.md"
+# --allow-all-tools is required by `copilot -p` (non-interactive mode); deny
+# the handful of destructive git/gh actions the workflow doesn't need the
+# agent to run itself (main is branch-protected anyway, but belt + suspenders).
+COPILOT_FLAGS="--allow-all-tools --deny-tool 'shell(git push --force*)' --deny-tool 'shell(git push origin main)' --deny-tool 'shell(git push origin main:*)' --deny-tool 'shell(gh pr merge)'"
 
 MODE=""
 SETUP_ONLY=0
 LOOP=1
+INSTALL_ECC=1
 for arg in "$@"; do
   case "$arg" in
     --mode=*)     MODE="${arg#*=}" ;;
     --mode)       shift_next=1 ;;
     --setup-only) SETUP_ONLY=1 ;;
     --no-loop)    LOOP=0 ;;
+    --install-ecc) INSTALL_ECC=1 ;;
+    --no-ecc)     INSTALL_ECC=0 ;;
     -h|--help)    grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     both|claude|copilot) MODE="$arg" ;;
     *) if [ "${shift_next:-0}" = 1 ]; then MODE="$arg"; shift_next=0; else echo "unknown option: $arg" >&2; exit 2; fi ;;
@@ -48,6 +60,11 @@ command -v git >/dev/null || { warn "git not found"; exit 1; }
 
 HAVE_CLAUDE=1; command -v claude  >/dev/null || { HAVE_CLAUDE=0; warn "claude (Claude Code) not found — install: npm i -g @anthropic-ai/claude-code"; }
 HAVE_COPILOT=1; command -v copilot >/dev/null || { HAVE_COPILOT=0; warn "copilot (GitHub Copilot CLI) not found — install: npm i -g @github/copilot"; }
+
+if [ "$INSTALL_ECC" = 1 ]; then
+  info "Preparing pinned ECC task context…"
+  node "$REPO_ROOT/scripts/agents/ecc-setup.mjs"
+fi
 
 # ── Ask which agent(s) to run, unless --mode was passed ─────────────────────
 if [ -z "$MODE" ]; then
@@ -108,21 +125,21 @@ case "$MODE" in
   both)
     CLAUDE_CMD="cd '$REPO_ROOT' && claude '/team start'"
     if [ "$LOOP" = 1 ]; then
-      COPILOT_CMD="cd '$COPILOT_WORKTREE' && while :; do copilot -p \"\$(cat '$KICKOFF_BOTH')\"; sleep 5; done"
+      COPILOT_CMD="cd '$COPILOT_WORKTREE' && while :; do copilot -p \"\$(cat '$KICKOFF_BOTH')\" $COPILOT_FLAGS; sleep 5; done"
     else
-      COPILOT_CMD="cd '$COPILOT_WORKTREE' && copilot -p \"\$(cat '$KICKOFF_BOTH')\""
+      COPILOT_CMD="cd '$COPILOT_WORKTREE' && copilot -p \"\$(cat '$KICKOFF_BOTH')\" $COPILOT_FLAGS"
     fi
     ;;
   claude)
     # Solo framing is passed as the kickoff prompt so Claude knows Copilot
     # isn't running and it's free to pick up [copilot]-tagged tasks too.
-    CLAUDE_CMD="cd '$REPO_ROOT' && claude -p \"\$(cat '$KICKOFF_CLAUDE_SOLO')\""
+    CLAUDE_CMD="cd '$REPO_ROOT' && claude -p \"\$(cat '$KICKOFF_CLAUDE_SOLO')\" --permission-mode bypassPermissions --disallowedTools 'Bash(git push:*)' 'Bash(gh pr merge:*)' 'Bash(git rebase:*)'"
     ;;
   copilot)
     if [ "$LOOP" = 1 ]; then
-      COPILOT_CMD="cd '$COPILOT_WORKTREE' && while :; do copilot -p \"\$(cat '$KICKOFF_COPILOT_SOLO')\"; sleep 5; done"
+      COPILOT_CMD="cd '$COPILOT_WORKTREE' && while :; do copilot -p \"\$(cat '$KICKOFF_COPILOT_SOLO')\" $COPILOT_FLAGS; sleep 5; done"
     else
-      COPILOT_CMD="cd '$COPILOT_WORKTREE' && copilot -p \"\$(cat '$KICKOFF_COPILOT_SOLO')\""
+      COPILOT_CMD="cd '$COPILOT_WORKTREE' && copilot -p \"\$(cat '$KICKOFF_COPILOT_SOLO')\" $COPILOT_FLAGS"
     fi
     ;;
 esac

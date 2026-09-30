@@ -31,6 +31,7 @@ import { stateDir, loadBoard, saveBoard, addTask, areasOverlap, say, readMessage
 import { routeModel, classifyTask } from './lib/models.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
 import { healthScore } from './health.mjs'
+import { buildECCContext, clearECCContext, ensureECC, loadECCConfig, stageECCContext } from './lib/ecc.mjs'
 
 const IS_WIN = process.platform === 'win32'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -124,6 +125,8 @@ class Boss {
     this.base = this.cfg.integration.base
     this.agents = Object.entries(this.cfg.agents).filter(([, a]) => a.enabled)
     this.template = fs.readFileSync(path.join(ROOT, 'prompts', 'agent-worker.md'), 'utf8')
+    this.ecc = loadECCConfig(ROOT)
+    this.eccCache = null
     this.state = Object.fromEntries(this.agents.map(([id]) => [id, { state: 'idle', task: null, model: null, cooldownUntil: null }]))
     this.merges = 0
     this.lastHealth = null // last quick health on integration — the regression baseline
@@ -183,6 +186,9 @@ class Boss {
   }
 
   setup() {
+    const ecc = ensureECC(this.ecc, this.dir, { offline: process.env.GF_ECC_OFFLINE === '1' })
+    this.eccCache = ecc.cache
+    if (ecc.enabled) this.log(`ECC ready: ${ecc.ref} (${ecc.cache})`)
     gitTry(ROOT, 'fetch', 'origin', this.base)
     this.ensureWorktree(this.intWt, this.intBranch, `origin/${this.base}`)
     for (const [, a] of this.agents) this.ensureWorktree(path.resolve(ROOT, a.worktree), a.branch, this.intBranch)
@@ -277,21 +283,36 @@ class Boss {
       Object.assign(st, { state: 'working', task: task.id, model: route.model, since: new Date().toISOString() })
 
       const taskFile = path.join(this.dir, 'tasks', `${task.id}-${agentId}.md`)
-      fs.writeFileSync(taskFile, fill(this.template, {
+      const taskText = fill(this.template, {
         AGENT: agentId, BRANCH: a.branch, TASK_ID: task.id, KIND: route.kind, TITLE: task.title,
         AREA: task.area.length ? task.area.map(p => `\`${p}\``).join(', ') : '(whole repo)',
         NOTES: task.notes || '—', ATTEMPT: String((task.attempts ?? 0) + 1), MAX_ATTEMPTS: String(this.cfg.maxAttempts),
         FAILURE: task.lastFailure ? `## The previous attempt was rejected\n\n\`\`\`\n${task.lastFailure}\n\`\`\`\n\nFix the cause this time.` : '',
         OTHERS: this.othersText(this.board(), agentId), INBOX: this.inboxText(agentId),
+      })
+      fs.writeFileSync(taskFile, taskText)
+      const localTaskFile = path.join(wt, '.agent-sync', 'state', 'current-task.md')
+      fs.mkdirSync(path.dirname(localTaskFile), { recursive: true })
+      fs.writeFileSync(localTaskFile, taskText)
+      const eccFile = stageECCContext(wt, buildECCContext(this.ecc, this.eccCache, {
+        kind: route.kind,
+        mode: 'work',
+        area: task.area,
       }))
       this.log(`${agentId} ← ${task.id} [${route.kind} → ${route.model}] ${task.title}`)
 
-      const run = await this.runAgent({
-        provider: a.provider, model: route.model, mode: 'work', cwd: wt,
-        prompt: `Read the file ${taskFile.replace(/\\/g, '/')} and follow its instructions exactly. Work in the current directory.`,
-        logFile: path.join(this.dir, 'logs', `${agentId}.log`),
-        env: { GF_AGENT: agentId }, timeoutMs: this.cfg.taskTimeoutMinutes * 60_000,
-      })
+      let run
+      try {
+        run = await this.runAgent({
+          provider: a.provider, model: route.model, mode: 'work', cwd: wt,
+          prompt: 'Read .agent-sync/state/current-task.md and .agent-sync/state/ecc-context.md, then follow the task instructions exactly. Repository rules override supplementary ECC guidance. Work in the current directory.',
+          logFile: path.join(this.dir, 'logs', `${agentId}.log`),
+          env: { GF_AGENT: agentId }, timeoutMs: this.cfg.taskTimeoutMinutes * 60_000,
+        })
+      } finally {
+        fs.rmSync(localTaskFile, { force: true })
+        clearECCContext(eccFile)
+      }
 
       // Keep work the agent forgot to commit.
       if (git(wt, 'status', '--porcelain')) {
@@ -337,12 +358,20 @@ class Boss {
     }
   }
 
-  async readonlyRun(file, logName, timeoutMs) {
-    return this.runAgent({
-      provider: this.cfg.boss.provider, model: this.cfg.boss.model, mode: 'readonly', cwd: this.intWt,
-      prompt: `Read the file ${file.replace(/\\/g, '/')} and follow its instructions exactly.`,
-      logFile: path.join(this.dir, 'logs', logName), timeoutMs,
-    })
+  async readonlyRun(file, logName, timeoutMs, mode = 'review') {
+    const localFile = path.join(this.intWt, '.agent-review.md')
+    fs.copyFileSync(file, localFile)
+    const eccFile = stageECCContext(this.intWt, buildECCContext(this.ecc, this.eccCache, { mode }))
+    try {
+      return await this.runAgent({
+        provider: this.cfg.boss.provider, model: this.cfg.boss.model, mode: 'readonly', cwd: this.intWt,
+        prompt: 'Read .agent-review.md and .agent-sync/state/ecc-context.md, then follow the review instructions exactly. Repository rules override supplementary ECC guidance.',
+        logFile: path.join(this.dir, 'logs', logName), timeoutMs,
+      })
+    } finally {
+      fs.rmSync(localFile, { force: true })
+      clearECCContext(eccFile)
+    }
   }
 
   async review(task, agentId, base, head) {
@@ -416,9 +445,10 @@ class Boss {
       '(one agent, under an hour), independently verifiable, and own a narrow file area; give different tasks disjoint areas',
       'so agents can work in parallel. If the phase goal is genuinely achieved, set "phaseComplete": true (tasks may be empty).',
       '',
-      'End with one line of JSON only: {"phaseComplete": false, "tasks": [{"title": "…", "kind": "feature|bugfix|test|refactor|docs|security|chore", "area": ["path/"], "agent": "any|claude|copilot", "notes": "…"}]}',
+      `Assign "agent" as "any" unless a specific enabled worker is clearly required. If you assign one, use only an enabled worker ID: ${this.agents.map(([id]) => id).join(', ')}.`,
+      'End with one line of JSON only: {"phaseComplete": false, "tasks": [{"title": "…", "kind": "feature|bugfix|test|refactor|docs|security|chore", "area": ["path/"], "agent": "any|<enabled-worker-id>", "notes": "…"}]}',
     ].join('\n'))
-    const run = await this.readonlyRun(file, 'boss-plan.log', 30 * 60_000)
+    const run = await this.readonlyRun(file, 'boss-plan.log', 30 * 60_000, 'planning')
     return lastJSON(run.output)
   }
 
@@ -447,8 +477,13 @@ class Boss {
       } else if (p?.phaseComplete) {
         fresh.phase = Math.max(fresh.phase, 3)
       }
+      const enabledIds = new Set(this.agents.map(([id]) => id))
       for (const t of p?.tasks ?? []) {
-        if (t?.title) addTask(fresh, { title: t.title, kind: t.kind || classifyTask(t.title), area: Array.isArray(t.area) ? t.area : [], agent: t.agent || 'any', notes: t.notes })
+        if (t?.title) {
+          const requestedAgent = String(t.agent || 'any')
+          const agent = requestedAgent === 'any' || enabledIds.has(requestedAgent) ? requestedAgent : 'any'
+          addTask(fresh, { title: t.title, kind: t.kind || classifyTask(t.title), area: Array.isArray(t.area) ? t.area : [], agent, notes: t.notes })
+        }
       }
       saveBoard(this.dir, fresh)
       this.say('all', `Health ${report.score}/100. Planned ${(p?.tasks ?? []).length} new task(s) for phase ${fresh.phase}.`)

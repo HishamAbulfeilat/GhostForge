@@ -1,0 +1,23 @@
+{
+  "$comment": "Pinned ECC context used by the GhostForge boss. The cache is runtime-only under .agent-sync/state/ecc; no third-party repository is vendored.",
+  "enabled": true,
+  "repository": "https://github.com/affaan-m/ECC.git",
+  "ref": "v2.2.2",
+  "maxContextBytes": 48000,
+  "coreSkills": [
+    "everything-claude-code",
+    "coding-standards",
+    "verification-loop"
+  ],
+  "taskSkills": {
+    "feature": ["tdd-workflow", "frontend-patterns", "backend-patterns"],
+    "bugfix": ["tdd-workflow"],
+    "test": ["tdd-workflow", "e2e-testing"],
+    "security": ["security-review"],
+    "refactor": ["tdd-workflow"],
+    "docs": ["documentation-lookup"],
+    "chore": []
+  },
+  "reviewSkills": ["security-review", "verification-loop"],
+  "planningSkills": ["strategic-compact", "verification-loop"]
+}
