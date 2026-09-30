@@ -37,12 +37,10 @@ function normalizeMessages(value: unknown): DisplayMessage[] {
     if (typeof record.text !== 'string' || !record.text.trim()) return []
 
     const rawTimestamp = record.ts
-    let timestamp = 'Unknown time'
     let datetime: string | undefined
     if (typeof rawTimestamp === 'string' || typeof rawTimestamp === 'number') {
       const date = new Date(rawTimestamp)
       if (!Number.isNaN(date.getTime())) {
-        timestamp = date.toLocaleString()
         datetime = date.toISOString()
       }
     }
@@ -50,7 +48,7 @@ function normalizeMessages(value: unknown): DisplayMessage[] {
     return [{
       from: typeof record.from === 'string' && record.from.trim() ? record.from : 'Unknown sender',
       to: typeof record.to === 'string' && record.to.trim() ? record.to : 'Unknown recipient',
-      timestamp,
+      timestamp: 'Unknown time',
       datetime,
       text: record.text.trim(),
     }]
@@ -125,6 +123,7 @@ export default function AgentsPage() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ error: boolean; text: string } | null>(null)
+  const [displayMessages, setDisplayMessages] = useState<DisplayMessage[]>([])
   const [message, setMessage] = useState('')
   const [recipient, setRecipient] = useState('all')
   const [title, setTitle] = useState('')
@@ -144,6 +143,16 @@ export default function AgentsPage() {
   }, [router])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    const nextMessages = normalizeMessages(snapshot?.messages)
+    setDisplayMessages(nextMessages.map(message => {
+      if (!message.datetime) return message
+      const date = new Date(message.datetime)
+      if (Number.isNaN(date.getTime())) return message
+      return { ...message, timestamp: date.toLocaleString() }
+    }))
+  }, [snapshot?.messages])
 
   const run = async (name: string, payload: Record<string, unknown>) => {
     setBusy(name)
@@ -176,8 +185,6 @@ export default function AgentsPage() {
     await run('add', { action: 'add', title: title.trim(), kind, agent: 'any' })
     setTitle('')
   }
-
-  const displayMessages = normalizeMessages(snapshot?.messages)
 
   return (
     <main className="min-h-[calc(100dvh-64px)] bg-gf-bg px-4 py-6 font-plex text-gf-ink lg:px-8">
