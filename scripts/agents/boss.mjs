@@ -224,8 +224,8 @@ class Boss {
 
   // ── Running an agent CLI ──
 
-  runAgent({ provider, model, mode, prompt, cwd, logFile, env = {}, timeoutMs }) {
-    const { cmd, args } = commandFor(provider, { prompt, model, mode })
+  runAgent({ provider, model, mode, prompt, cwd, logFile, env = {}, config = {}, timeoutMs }) {
+    const { cmd, args, env: providerEnv = {} } = commandFor(provider, { prompt, model, mode, config })
     return new Promise(resolve => {
       const out = fs.createWriteStream(logFile, { flags: 'a' })
       out.write(`\n=== ${new Date().toISOString()} ${cmd} [${model}] (${mode}) in ${cwd}\n`)
@@ -233,7 +233,7 @@ class Boss {
       let timedOut = false
       const child = spawn(cmd, IS_WIN ? args.map(winQuote) : args, {
         cwd, shell: IS_WIN, stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, GF_AGENT_STATE: this.dir, ...env },
+        env: { ...process.env, GF_AGENT_STATE: this.dir, ...providerEnv, ...env },
       })
       const onData = d => { const s = d.toString(); out.write(s); buf = (buf + s).slice(-40_000) }
       child.stdout.on('data', onData)
@@ -298,6 +298,7 @@ class Boss {
         provider: a.provider, model: route.model, mode: 'work', cwd: wt,
         prompt: `Read the file .agent-sync/state/tasks/${task.id}-${agentId}.md and follow its instructions exactly. Work in the current directory.`,
         logFile: path.join(this.dir, 'logs', `${agentId}.log`),
+        config: a.config ?? a.providerConfig ?? {},
         env: { GF_AGENT: agentId }, timeoutMs: this.cfg.taskTimeoutMinutes * 60_000,
       })
 
@@ -349,7 +350,7 @@ class Boss {
     return this.runAgent({
       provider: this.cfg.boss.provider, model: this.cfg.boss.model, mode: 'readonly', cwd: this.intWt,
       prompt: `Read the file .agent-sync/state/${path.relative(path.join(this.intWt, '.agent-sync', 'state'), file).replace(/\\/g, '/')} and follow its instructions exactly.`,
-      logFile: path.join(this.dir, 'logs', logName), timeoutMs,
+      logFile: path.join(this.dir, 'logs', logName), config: this.cfg.boss.config ?? this.cfg.boss.providerConfig ?? {}, timeoutMs,
     })
   }
 
