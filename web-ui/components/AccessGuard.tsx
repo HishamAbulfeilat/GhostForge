@@ -49,7 +49,7 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
 
   const open = OPEN_PATHS.includes(pathname)
   const needsSetup = Boolean(user && !user.setupComplete && !open)
-  const denied = Boolean(user && !open && !canAccessPage(user, pathname))
+  const denied = Boolean(user && !open && pathname !== '/agents' && !canAccessPage(user, pathname))
 
   useEffect(() => {
     if (!loaded || !user) return
