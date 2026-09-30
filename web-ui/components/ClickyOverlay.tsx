@@ -178,7 +178,7 @@ export default function ClickyOverlay({ target, point, highlight, duration = 500
         {/* Label */}
         {label && (
           <div
-            className="absolute left-5 top-5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium text-white shadow-lg"
+            className="absolute start-5 top-5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium text-white shadow-lg"
             style={{
               background: 'rgba(15, 23, 42, 0.92)',
               backdropFilter: 'blur(8px)',

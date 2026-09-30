@@ -587,7 +587,9 @@ function DoctorWidget() {
 
   return (
     <div className={`rounded-lg border bg-[#080d18] ${borderColor}`}>
-      <div className="flex items-center gap-3 px-4 py-3 cursor-pointer" onClick={() => setExpanded(e => !e)}>
+      <div className="flex items-center gap-3 px-4 py-3 cursor-pointer" role="button" tabIndex={0}
+        onClick={() => setExpanded(e => !e)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(ex => !ex) } }}>
         <div className="flex items-center gap-2 flex-1">
           <span className="text-sm">🩺</span>
           <span className="text-xs font-bold uppercase tracking-widest text-gray-400">Doctor</span>

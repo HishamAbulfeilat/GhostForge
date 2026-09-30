@@ -214,7 +214,7 @@ export default function WorkflowsPage() {
               <p className="text-sm text-gf-muted">No workflows yet. Start from a template:</p>
               {TEMPLATES.map(t => (
                 <button key={t.name} type="button" onClick={() => void createFromTemplate(t)}
-                  className="rounded-xl border border-gf-line2 bg-gf-bar p-3 text-left hover:border-gf-accent">
+                  className="rounded-xl border border-gf-line2 bg-gf-bar p-3 text-start hover:border-gf-accent">
                   <div className="font-display text-sm font-semibold">{t.name}</div>
                   <div className="text-xs text-gf-muted">{t.goal}</div>
                 </button>
@@ -225,7 +225,7 @@ export default function WorkflowsPage() {
               const pct = w.progress?.pct ?? 0
               return (
                 <button key={w.id} type="button" onClick={() => { setSelectedId(w.id); setMode('view'); setSelectedStep('') }}
-                  className={`w-full rounded-xl border p-3 text-left transition ${selectedId === w.id ? 'border-gf-accent bg-gf-accent-soft/40' : 'border-gf-line bg-gf-surface hover:border-gf-line2'}`}>
+                  className={`w-full rounded-xl border p-3 text-start transition ${selectedId === w.id ? 'border-gf-accent bg-gf-accent-soft/40' : 'border-gf-line bg-gf-surface hover:border-gf-line2'}`}>
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-display text-sm font-semibold truncate">{w.name}</span>
                     <span className="font-mono text-[11px] text-gf-muted shrink-0">{w.progress?.done ?? 0}/{w.progress?.total ?? 0}</span>
@@ -304,7 +304,7 @@ function WorkflowMap({ workflow, selectedStep, onSelectStep }: { workflow: Workf
           const p = pos.get(s.id)!; const eff = effectiveStatus(s, byId); const st = STEP_STATUS[eff]
           return (
             <button key={s.id} type="button" onClick={() => onSelectStep(s.id)}
-              className={`absolute rounded-xl border px-3 text-left transition ${selectedStep === s.id ? 'ring-2 ring-gf-accent' : ''}`}
+              className={`absolute rounded-xl border px-3 text-start transition ${selectedStep === s.id ? 'ring-2 ring-gf-accent' : ''}`}
               style={{ left: p.x, top: p.y, width: NODE_W, height: NODE_H, borderColor: st.stroke, backgroundColor: st.fill }}>
               <div className="flex items-center gap-1.5">
                 <span>{KIND[s.kind].icon}</span>
@@ -396,12 +396,12 @@ function WorkflowEditor({ workflow, onSave, onCancel, onDelete }: {
         {steps.map(s => (
           <div key={s.id} className="flex flex-col gap-2 rounded-xl border border-gf-line bg-gf-bar p-3">
             <div className="grid gap-2 sm:grid-cols-[1fr_130px]">
-              <input value={s.title} placeholder="Step title" onChange={e => updateStepField(s.id, { title: e.target.value })} className={inputCls} />
-              <select value={s.kind} onChange={e => updateStepField(s.id, { kind: e.target.value as StepKind })} className={inputCls}>
+              <input value={s.title} placeholder="Step title" aria-label="Step title" onChange={e => updateStepField(s.id, { title: e.target.value })} className={inputCls} />
+              <select value={s.kind} aria-label="Step type" onChange={e => updateStepField(s.id, { kind: e.target.value as StepKind })} className={inputCls}>
                 <option value="agent">🤖 agent</option><option value="skill">⚡ skill</option><option value="command">🖥️ command</option><option value="manual">✋ manual</option>
               </select>
             </div>
-            <input value={s.ref} onChange={e => updateStepField(s.id, { ref: e.target.value })} className={inputCls}
+            <input value={s.ref} onChange={e => updateStepField(s.id, { ref: e.target.value })} aria-label="Step reference or instruction" className={inputCls}
               placeholder={s.kind === 'agent' ? 'e.g. ecc:code-reviewer' : s.kind === 'skill' ? 'e.g. superpowers:brainstorming' : s.kind === 'command' ? 'e.g. npm test' : 'What must a human do?'} />
             {steps.length > 1 && (
               <div className="flex flex-wrap items-center gap-1.5">

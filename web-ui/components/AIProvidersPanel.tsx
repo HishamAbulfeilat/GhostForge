@@ -61,7 +61,7 @@ function ModelList({ models, provider, active, disabled, onSelect }: {
     <div className="space-y-2">
       {models.length > 8 && (
         <div className="flex flex-wrap items-center gap-2">
-          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter models…" className={`min-w-[160px] flex-1 ${input}`} />
+          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter models…" aria-label="Filter models" className={`min-w-[160px] flex-1 ${input}`} />
           {freeCount > 0 && freeCount < models.length && (
             <label className="flex items-center gap-1 text-[11px] text-gray-400">
               <input type="checkbox" checked={freeOnly} onChange={e => setFreeOnly(e.target.checked)} /> free only
@@ -244,10 +244,10 @@ function CustomModels({ models, active, canEdit, onSelect, onChanged }: {
       })}
       {canEdit && (
         <div className="grid gap-2 sm:grid-cols-2">
-          <input className={input} placeholder="Name (e.g. LM Studio Qwen)" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-          <input className={input} placeholder="Base URL (e.g. http://localhost:1234/v1)" value={form.baseURL} onChange={e => setForm({ ...form, baseURL: e.target.value })} />
-          <input className={input} placeholder="Model id (e.g. qwen2.5-7b-instruct)" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
-          <input className={`${input} font-mono`} type="password" autoComplete="off" placeholder="API key (optional)" value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} />
+          <input className={input} placeholder="Name (e.g. LM Studio Qwen)" aria-label="Custom model name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+          <input className={input} placeholder="Base URL (e.g. http://localhost:1234/v1)" aria-label="Custom model base URL" value={form.baseURL} onChange={e => setForm({ ...form, baseURL: e.target.value })} />
+          <input className={input} placeholder="Model id (e.g. qwen2.5-7b-instruct)" aria-label="Custom model ID" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
+          <input className={`${input} font-mono`} type="password" autoComplete="off" placeholder="API key (optional)" aria-label="Custom model API key" value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} />
           <label className="flex items-center gap-2 text-[11px] text-gray-400">
             <input type="checkbox" checked={form.free} onChange={e => setForm({ ...form, free: e.target.checked })} /> free to use
           </label>
@@ -318,7 +318,7 @@ export default function AIProvidersPanel() {
   return (
     <div className="space-y-3">
       {toast && (
-        <div className="fixed right-4 top-4 z-50 max-w-sm rounded-lg border border-emerald-700/50 bg-emerald-950/90 px-4 py-2 text-sm text-emerald-300 shadow-lg backdrop-blur">{toast}</div>
+        <div className="fixed end-4 top-4 z-50 max-w-sm rounded-lg border border-emerald-700/50 bg-emerald-950/90 px-4 py-2 text-sm text-emerald-300 shadow-lg backdrop-blur">{toast}</div>
       )}
 
       <div className="rounded-lg border border-emerald-800/40 bg-emerald-950/20 p-4">
