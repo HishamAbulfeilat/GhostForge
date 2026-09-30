@@ -52,6 +52,9 @@ test('agents page keeps provider values, rendered messages, and refresh/error fe
   assert.match(page, /Unable to load agent team\./)
   assert.match(page, /Enter a message before sending\./)
   assert.match(page, /Enter a task title before adding it\./)
+  assert.doesNotMatch(page, /function normalizeMessages[\s\S]{0,500}toLocaleString\(/)
+  assert.match(page, /useEffect\(\(\) => \{[\s\S]*date\.toLocaleString\(/)
+  assert.doesNotMatch(page, /Math\.random|Date\.now\s*\(/)
 })
 
 test('agents page redirects unauthenticated users and explains admin_tools access only to signed-in users', () => {
