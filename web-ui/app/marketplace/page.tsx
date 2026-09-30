@@ -43,6 +43,8 @@ const TYPE_ICONS: Record<string, string> = {
 const CATEGORY_ICONS: Record<string, string> = {
   Quality: '✅', Security: '🔒', Git: '⚙️', Frontend: '🎨',
   Accessibility: '♿', 'AI Models': '🧠', Database: '🗄️', Architecture: '🏛️',
+  DevOps: '🐳', Code: '💻', Search: '🔍', Learning: '🎓', Deployment: '🚀',
+  Design: '🎨', 'Mac Control': '🖥️', 'Project Management': '🗂️',
 }
 
 const HF_SORT_OPTIONS = [
