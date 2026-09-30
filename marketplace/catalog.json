@@ -1,13 +1,13 @@
 {
   "version": "1.0.0",
-  "updated": "2026-07-21",
+  "updated": "2026-09-30",
   "items": [
     {
       "id": "react-doctor-skill",
       "name": "React Doctor Skill",
       "type": "skill",
       "category": "Quality",
-      "description": "React codebase health scanner — scores 0-100 across security, performance, correctness, a11y, bundle, architecture",
+      "description": "React codebase health scanner \u2014 scores 0-100 across security, performance, correctness, a11y, bundle, architecture",
       "source": "ghostforge-official",
       "install_command": "npx react-doctor@latest install --yes",
       "tags": [
@@ -159,7 +159,7 @@
       "name": "DESIGN.md Templates",
       "type": "tool",
       "category": "Design",
-      "description": "74 AI-ready design system templates (Stripe, Apple, Vercel, Notion, Tesla…). Drop DESIGN.md in project for consistent AI-generated UI.",
+      "description": "74 AI-ready design system templates (Stripe, Apple, Vercel, Notion, Tesla\u2026). Drop DESIGN.md in project for consistent AI-generated UI.",
       "source": "VoltAgent/awesome-design-md",
       "tags": [
         "design",
@@ -174,7 +174,7 @@
       "name": "Design Resources Browser",
       "type": "tool",
       "category": "Design",
-      "description": "Curated design tools: color palettes, icons, typography, stock photos, prototyping — gztchan/awesome-design.",
+      "description": "Curated design tools: color palettes, icons, typography, stock photos, prototyping \u2014 gztchan/awesome-design.",
       "source": "gztchan/awesome-design",
       "tags": [
         "design",
@@ -353,20 +353,6 @@
       ]
     },
     {
-      "id": "security-audit-agent",
-      "name": "Security Audit Agent",
-      "type": "agent",
-      "category": "Security",
-      "description": "OWASP dep scan, secret detection, Vigolium scan, full audit logs.",
-      "source": "GhostForge/security",
-      "tags": [
-        "security",
-        "owasp",
-        "audit",
-        "secrets"
-      ]
-    },
-    {
       "id": "tasteskill-integration",
       "name": "TasteSkill Dev Skills",
       "type": "tool",
@@ -384,7 +370,7 @@
       "name": "PWA Device Installer",
       "type": "tool",
       "category": "Deployment",
-      "description": "Install GhostForge as PWA on any device — iOS, Android, Mac, Windows, Linux.",
+      "description": "Install GhostForge as PWA on any device \u2014 iOS, Android, Mac, Windows, Linux.",
       "source": "GhostForge/pwa",
       "tags": [
         "pwa",
@@ -419,6 +405,426 @@
         "owasp",
         "audit",
         "secrets"
+      ]
+    },
+    {
+      "id": "allhackingtools",
+      "name": "AllHackingTools",
+      "type": "tool",
+      "category": "Security",
+      "description": "Menu-driven pentest toolkit collection (mishakorzik/AllHackingTools). Pointer only \u2014 review upstream before running. AUTHORIZED SECURITY TESTING & EDUCATION ONLY.",
+      "source": "mishakorzik/AllHackingTools",
+      "url": "https://github.com/mishakorzik/AllHackingTools",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "pentest",
+        "recon",
+        "education"
+      ]
+    },
+    {
+      "id": "nmap",
+      "name": "Nmap",
+      "type": "tool",
+      "category": "Security",
+      "description": "Network discovery and port/service scanning. Standard in authorized network assessments. Scan only systems you own or are authorized to test.",
+      "source": "nmap/nmap",
+      "url": "https://nmap.org",
+      "install_command": "brew install nmap 2>/dev/null || sudo apt-get install -y nmap",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "network",
+        "recon",
+        "scanner"
+      ]
+    },
+    {
+      "id": "owasp-zap",
+      "name": "OWASP ZAP",
+      "type": "tool",
+      "category": "Security",
+      "description": "OWASP web application security scanner (DAST). For testing web apps you own or are authorized to assess.",
+      "source": "zaproxy/zaproxy",
+      "url": "https://www.zaproxy.org",
+      "install_command": "brew install --cask zap 2>/dev/null || echo 'See https://www.zaproxy.org/download/'",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "owasp",
+        "web",
+        "dast",
+        "scanner"
+      ]
+    },
+    {
+      "id": "sqlmap",
+      "name": "sqlmap",
+      "type": "tool",
+      "category": "Security",
+      "description": "SQL injection detection and testing. Use only against applications you own or have written authorization to test.",
+      "source": "sqlmapproject/sqlmap",
+      "url": "https://sqlmap.org",
+      "install_command": "brew install sqlmap 2>/dev/null || pipx install sqlmap || pip3 install sqlmap",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "web",
+        "sqli",
+        "testing"
+      ]
+    },
+    {
+      "id": "nikto",
+      "name": "Nikto",
+      "type": "tool",
+      "category": "Security",
+      "description": "Web server misconfiguration and known-vuln scanner. Authorized testing only.",
+      "source": "sullo/nikto",
+      "url": "https://github.com/sullo/nikto",
+      "install_command": "brew install nikto 2>/dev/null || sudo apt-get install -y nikto",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "web",
+        "scanner"
+      ]
+    },
+    {
+      "id": "ffuf",
+      "name": "ffuf",
+      "type": "tool",
+      "category": "Security",
+      "description": "Fast web content/parameter fuzzer for authorized web assessments.",
+      "source": "ffuf/ffuf",
+      "url": "https://github.com/ffuf/ffuf",
+      "install_command": "brew install ffuf 2>/dev/null || go install github.com/ffuf/ffuf/v2@latest",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "web",
+        "fuzzer",
+        "recon"
+      ]
+    },
+    {
+      "id": "amass",
+      "name": "OWASP Amass",
+      "type": "tool",
+      "category": "Security",
+      "description": "Attack-surface mapping and subdomain enumeration (OSINT). For scoping assets you are authorized to assess.",
+      "source": "owasp-amass/amass",
+      "url": "https://github.com/owasp-amass/amass",
+      "install_command": "brew install amass 2>/dev/null || go install -v github.com/owasp-amass/amass/v4/...@master",
+      "authorized_use_only": true,
+      "tags": [
+        "security",
+        "osint",
+        "recon",
+        "subdomain"
+      ]
+    },
+    {
+      "id": "trivy",
+      "name": "Trivy",
+      "type": "tool",
+      "category": "Security",
+      "description": "Defensive scanner for container images, filesystems, and IaC \u2014 finds CVEs, misconfigs, and secrets.",
+      "source": "aquasecurity/trivy",
+      "url": "https://github.com/aquasecurity/trivy",
+      "install_command": "brew install trivy 2>/dev/null || sudo apt-get install -y trivy",
+      "tags": [
+        "security",
+        "defensive",
+        "containers",
+        "cve",
+        "iac"
+      ]
+    },
+    {
+      "id": "semgrep",
+      "name": "Semgrep",
+      "type": "tool",
+      "category": "Security",
+      "description": "Defensive static analysis (SAST) for finding bugs and vulnerabilities in your own source code.",
+      "source": "semgrep/semgrep",
+      "url": "https://semgrep.dev",
+      "install_command": "brew install semgrep 2>/dev/null || pipx install semgrep || pip3 install semgrep",
+      "tags": [
+        "security",
+        "defensive",
+        "sast",
+        "code"
+      ]
+    },
+    {
+      "id": "trufflehog",
+      "name": "TruffleHog",
+      "type": "tool",
+      "category": "Security",
+      "description": "Defensive secret scanner \u2014 finds leaked credentials and keys in your repos and history.",
+      "source": "trufflesecurity/trufflehog",
+      "url": "https://github.com/trufflesecurity/trufflehog",
+      "install_command": "brew install trufflehog 2>/dev/null || curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin",
+      "tags": [
+        "security",
+        "defensive",
+        "secrets",
+        "git"
+      ]
+    },
+    {
+      "id": "aider",
+      "name": "Aider",
+      "type": "agent",
+      "category": "AI Models",
+      "description": "AI pair programming in your terminal \u2014 edits code across files, auto-commits with git. Works with Claude, GPT, local models.",
+      "source": "Aider-AI/aider",
+      "url": "https://github.com/Aider-AI/aider",
+      "install_command": "python3 -m pip install aider-install && aider-install",
+      "tags": [
+        "ai",
+        "coding",
+        "cli",
+        "git"
+      ]
+    },
+    {
+      "id": "openhands",
+      "name": "OpenHands",
+      "type": "agent",
+      "category": "AI Models",
+      "description": "Autonomous AI software-development agent (formerly OpenDevin) \u2014 writes code, runs commands, browses the web to complete tasks.",
+      "source": "All-Hands-AI/OpenHands",
+      "url": "https://github.com/All-Hands-AI/OpenHands",
+      "install_command": "python3 -m pip install openhands-ai",
+      "tags": [
+        "ai",
+        "agent",
+        "autonomous",
+        "dev"
+      ]
+    },
+    {
+      "id": "cline",
+      "name": "Cline",
+      "type": "agent",
+      "category": "AI Models",
+      "description": "Autonomous coding agent for VS Code \u2014 plans, edits, runs, and reviews with your approval at each step.",
+      "source": "cline/cline",
+      "url": "https://github.com/cline/cline",
+      "install_command": "code --install-extension saoudrizwan.claude-dev",
+      "tags": [
+        "ai",
+        "agent",
+        "vscode",
+        "coding"
+      ]
+    },
+    {
+      "id": "continue-dev",
+      "name": "Continue",
+      "type": "tool",
+      "category": "AI Models",
+      "description": "Open-source AI code assistant for VS Code & JetBrains \u2014 autocomplete, chat, and custom agents with any model.",
+      "source": "continuedev/continue",
+      "url": "https://github.com/continuedev/continue",
+      "install_command": "code --install-extension Continue.continue",
+      "tags": [
+        "ai",
+        "autocomplete",
+        "ide"
+      ]
+    },
+    {
+      "id": "litellm",
+      "name": "LiteLLM",
+      "type": "tool",
+      "category": "AI Models",
+      "description": "Call 100+ LLM APIs (OpenAI, Anthropic, Groq, Ollama\u2026) in one unified format, with a proxy, spend tracking, and fallbacks.",
+      "source": "BerriAI/litellm",
+      "url": "https://github.com/BerriAI/litellm",
+      "install_command": "python3 -m pip install 'litellm[proxy]'",
+      "tags": [
+        "ai",
+        "llm",
+        "proxy",
+        "gateway"
+      ]
+    },
+    {
+      "id": "localai",
+      "name": "LocalAI",
+      "type": "tool",
+      "category": "AI Models",
+      "description": "Self-hosted, OpenAI-compatible API for running LLMs, image, and audio models locally on consumer hardware \u2014 no GPU required.",
+      "source": "mudler/LocalAI",
+      "url": "https://github.com/mudler/LocalAI",
+      "install_command": "curl https://localai.io/install.sh | sh",
+      "tags": [
+        "ai",
+        "local",
+        "self-hosted",
+        "privacy"
+      ]
+    },
+    {
+      "id": "gitleaks",
+      "name": "Gitleaks",
+      "type": "tool",
+      "category": "Security",
+      "description": "Defensive secret scanner \u2014 detects hardcoded passwords, API keys, and tokens in git repos and history.",
+      "source": "gitleaks/gitleaks",
+      "url": "https://github.com/gitleaks/gitleaks",
+      "install_command": "brew install gitleaks 2>/dev/null || go install github.com/gitleaks/gitleaks/v8@latest",
+      "tags": [
+        "security",
+        "defensive",
+        "secrets",
+        "git"
+      ]
+    },
+    {
+      "id": "osv-scanner",
+      "name": "OSV-Scanner",
+      "type": "tool",
+      "category": "Security",
+      "description": "Google's dependency vulnerability scanner \u2014 checks your lockfiles against the OSV database of known CVEs.",
+      "source": "google/osv-scanner",
+      "url": "https://github.com/google/osv-scanner",
+      "install_command": "brew install osv-scanner 2>/dev/null || go install github.com/google/osv-scanner/cmd/osv-scanner@latest",
+      "tags": [
+        "security",
+        "defensive",
+        "dependencies",
+        "cve"
+      ]
+    },
+    {
+      "id": "syft",
+      "name": "Syft (SBOM)",
+      "type": "tool",
+      "category": "Security",
+      "description": "Generate a Software Bill of Materials (SBOM) from container images and filesystems. Pairs with Grype for vuln scanning.",
+      "source": "anchore/syft",
+      "url": "https://github.com/anchore/syft",
+      "install_command": "brew install syft 2>/dev/null || curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin",
+      "tags": [
+        "security",
+        "defensive",
+        "sbom",
+        "supply-chain"
+      ]
+    },
+    {
+      "id": "grype",
+      "name": "Grype",
+      "type": "tool",
+      "category": "Security",
+      "description": "Vulnerability scanner for container images and filesystems \u2014 fast CVE detection from SBOMs or images.",
+      "source": "anchore/grype",
+      "url": "https://github.com/anchore/grype",
+      "install_command": "brew install grype 2>/dev/null || curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin",
+      "tags": [
+        "security",
+        "defensive",
+        "cve",
+        "containers"
+      ]
+    },
+    {
+      "id": "act",
+      "name": "act (local GitHub Actions)",
+      "type": "tool",
+      "category": "DevOps",
+      "description": "Run your GitHub Actions workflows locally in Docker to debug CI without pushing commits.",
+      "source": "nektos/act",
+      "url": "https://github.com/nektos/act",
+      "install_command": "brew install act 2>/dev/null || curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash",
+      "tags": [
+        "devops",
+        "ci",
+        "github-actions",
+        "docker"
+      ]
+    },
+    {
+      "id": "lazygit",
+      "name": "lazygit",
+      "type": "tool",
+      "category": "Git",
+      "description": "Blazing-fast terminal UI for git \u2014 stage, commit, branch, rebase, and resolve conflicts without leaving the terminal.",
+      "source": "jesseduffield/lazygit",
+      "url": "https://github.com/jesseduffield/lazygit",
+      "install_command": "brew install lazygit 2>/dev/null || sudo apt-get install -y lazygit",
+      "tags": [
+        "git",
+        "tui",
+        "productivity"
+      ]
+    },
+    {
+      "id": "k9s",
+      "name": "k9s",
+      "type": "tool",
+      "category": "DevOps",
+      "description": "Terminal UI to manage and observe Kubernetes clusters \u2014 navigate resources, view logs, and debug pods interactively.",
+      "source": "derailed/k9s",
+      "url": "https://github.com/derailed/k9s",
+      "install_command": "brew install k9s 2>/dev/null || curl -sS https://webi.sh/k9s | sh",
+      "tags": [
+        "devops",
+        "kubernetes",
+        "tui"
+      ]
+    },
+    {
+      "id": "ruff",
+      "name": "Ruff",
+      "type": "tool",
+      "category": "Quality",
+      "description": "Extremely fast Python linter and formatter (Rust-based) \u2014 replaces flake8, isort, black, and more in one tool.",
+      "source": "astral-sh/ruff",
+      "url": "https://github.com/astral-sh/ruff",
+      "install_command": "python3 -m pip install ruff",
+      "tags": [
+        "quality",
+        "python",
+        "linter",
+        "formatter"
+      ]
+    },
+    {
+      "id": "biome",
+      "name": "Biome",
+      "type": "tool",
+      "category": "Quality",
+      "description": "Fast Rust-based formatter and linter for JS/TS/JSON \u2014 a single-tool alternative to ESLint + Prettier.",
+      "source": "biomejs/biome",
+      "url": "https://github.com/biomejs/biome",
+      "install_command": "npm install -D --save-exact @biomejs/biome",
+      "tags": [
+        "quality",
+        "javascript",
+        "typescript",
+        "linter"
+      ]
+    },
+    {
+      "id": "ghostforge-security-scan",
+      "name": "Security Scan Skill",
+      "type": "skill",
+      "category": "Security",
+      "description": "Defensive audit pipeline: secret scanning, dependency CVEs, SAST, SBOM, and image vulns via Gitleaks/OSV/Semgrep/Trivy/Syft/Grype. Authorized use only.",
+      "source": "ghostforge-official",
+      "file": ".claude/skills/security-scan/SKILL.md",
+      "installed": true,
+      "tags": [
+        "security",
+        "defensive",
+        "audit",
+        "skill"
       ]
     }
   ]

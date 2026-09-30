@@ -2461,11 +2461,19 @@ async function screenMarketplace() {
   let catalog = { items: [] };
   let registry = { installed: [], custom_agents: [], custom_models: [] };
 
-  if (existsSync(catalogPath)) {
-    try { catalog = JSON.parse(readFileSync(catalogPath, 'utf8')); } catch {}
-  }
-  if (existsSync(registryPath)) {
-    try { registry = JSON.parse(readFileSync(registryPath, 'utf8')); } catch {}
+  // Read directly and handle a missing/invalid file via catch — avoids the
+  // check-then-use (TOCTOU) race an existsSync guard would introduce.
+  try { catalog = JSON.parse(readFileSync(catalogPath, 'utf8')); } catch {}
+  try { registry = JSON.parse(readFileSync(registryPath, 'utf8')); } catch {}
+
+  // registry.json is the single source of truth for install state (shared with
+  // the web UI). Seed it from any catalog items shipped as installed, minus any
+  // the user explicitly removed, then reflect that onto each item for display.
+  const removedSet = new Set(registry.removed || []);
+  const installedSet = new Set((registry.installed || []).filter(id => !removedSet.has(id)));
+  for (const item of catalog.items) {
+    if (item.installed && !removedSet.has(item.id)) installedSet.add(item.id);
+    item.installed = installedSet.has(item.id);
   }
 
   const action = await select({
@@ -2486,6 +2494,7 @@ async function screenMarketplace() {
       { name: T.red.bold('🔐  Strix')                     + T.muted(' — autonomous AI penetration testing'), value: 'strix' },
       { name: T.red.bold('🛡️   HackingTool')               + T.muted(' — 185+ pentesting tools · recon, web, AD, cloud, mobile'), value: 'hackingtool' },
       { name: T.red.bold('🔍  Security Scanner')            + T.muted(' — scan project for vulns, secrets, XSS, OWASP Top-10'), value: 'pentest' },
+      { name: T.cyan.bold('🧰  Security & DevOps Tools')     + T.muted(' — curated OSS: nmap, semgrep, trivy, gitleaks, act, k9s…'), value: 'sec-devops' },
       { name: T.red.bold('🏚️  Tech Debt Scanner')          + T.muted(' — TODOs, complexity, deprecated APIs, debt score'), value: 'tech-debt' },
       { name: T.success.bold('🏥  Codebase Health Score')   + T.muted(' — A-F grade across debt, coverage, bundle, lighthouse, a11y'), value: 'health-score' },
       { name: T.accent.bold('🐳  Docker Generator')         + T.muted(' — Dockerfile + compose templates for app deployment'), value: 'docker-gen' },
@@ -2621,7 +2630,12 @@ async function screenMarketplace() {
           execSync(item.install_command, { stdio: 'inherit', cwd: ROOT });
           console.log(T.success(`\n  ✅ ${item.name} installed successfully!`));
           item.installed = true;
-          writeFileSync(catalogPath, JSON.stringify(catalog, null, 2));
+          // Persist to registry.json (source of truth shared with the web UI).
+          installedSet.add(item.id);
+          removedSet.delete(item.id);
+          registry.installed = [...installedSet];
+          registry.removed = [...removedSet];
+          writeFileSync(registryPath, JSON.stringify(registry, null, 2));
         } catch {
           console.log(T.danger(`\n  ✖ Installation failed. Try manually: ${item.install_command}`));
         }
@@ -2633,6 +2647,56 @@ async function screenMarketplace() {
       }
       await pressEnter();
     }
+  }
+
+  if (action === 'sec-devops') {
+    const pool = catalog.items.filter(i => i.category === 'Security' || i.category === 'DevOps');
+    console.log();
+    console.log(boxen(
+      T.cyan.bold(' 🧰  Security & DevOps Tools ') + '\n\n' +
+      T.white('Curated open-source scanners and CLIs.\n') +
+      T.yellow('  ⚠  Security tools are for AUTHORIZED testing on systems you own\n' +
+               '     or have written permission to assess.'),
+      { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
+    ));
+    const pick = await select({
+      message: T.white.bold('Choose a tool:'),
+      choices: [
+        ...pool.map(i => ({
+          name: `${i.installed ? T.success('✅') : T.muted('  ')} ${T.white.bold(i.name)} ${T.muted('[' + i.category + ']')} — ${T.dim((i.description || '').substring(0, 44))}`,
+          value: i.id,
+        })),
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 16,
+    });
+    if (pick !== '__back__') {
+      const item = pool.find(i => i.id === pick);
+      console.log();
+      console.log(T.accent.bold(`  ${item.name}`) + T.muted(`  ${item.url || item.source || ''}`));
+      console.log(T.dim(`  ${item.description}`));
+      if (item.installed) {
+        console.log(T.success('\n  ✅ Already installed.'));
+      } else if (item.install_command) {
+        // Security tools: show the command for review rather than piping
+        // catalog data straight into a shell. Copy/paste to run.
+        console.log(T.yellow('\n  Install command (review, then run in your shell):'));
+        console.log(T.cyan(`    ${item.install_command}`));
+        const mark = await confirm({ message: 'Mark as installed?', default: false });
+        if (mark) {
+          item.installed = true;
+          installedSet.add(item.id); removedSet.delete(item.id);
+          registry.installed = [...installedSet]; registry.removed = [...removedSet];
+          writeFileSync(registryPath, JSON.stringify(registry, null, 2));
+          console.log(T.success(`  ✅ Marked ${item.name} as installed.`));
+        }
+      }
+      if (item.url) {
+        console.log(T.accent(`\n  Upstream (open to review): ${item.url}`));
+      }
+      console.log();
+    }
+    await pressEnter();
   }
 
   if (action === 'aitmpl') {
