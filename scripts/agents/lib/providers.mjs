@@ -49,6 +49,32 @@ export const PROVIDERS = {
       '--approval-mode', mode === 'readonly' ? 'plan' : 'yolo',
     ],
   }),
+
+  // Codex speaks the OpenAI API and can target any compatible gateway via
+  // environment variables. Keep credentials out of argv so they never appear
+  // in process listings or the agent log.
+  openai: ({ prompt, model, mode, config = {} }) => openAICompatible({ prompt, model, mode, config }),
+  'openai-compatible': ({ prompt, model, mode, config = {} }) => openAICompatible({ prompt, model, mode, config }),
+}
+
+function openAICompatible({ prompt, model, mode, config = {} }) {
+  const endpoint = config.endpoint ?? config.baseUrl ?? process.env.OPENAI_BASE_URL
+  const apiKeyName = config.apiKeyEnv ?? 'OPENAI_API_KEY'
+  const apiKey = process.env[apiKeyName]
+  const env = {}
+  if (endpoint) env.OPENAI_BASE_URL = endpoint
+  if (apiKey) env.OPENAI_API_KEY = apiKey
+
+  return {
+    cmd: 'codex',
+    args: [
+      'exec',
+      ...(model && model !== 'auto' ? ['-m', model] : []),
+      ...(mode === 'readonly' ? ['-s', 'read-only'] : ['--full-auto']),
+      prompt,
+    ],
+    env,
+  }
 }
 
 export function commandFor(provider, opts) {
