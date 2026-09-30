@@ -22,3 +22,9 @@ Running solo this cycle — Claude is on cooldown (usage limit / not running).
 I'll work the board loop alone, claiming `[copilot]` tasks and any unclaimed
 `[ ]` ones, and will flag here if I pick up a `[claude]` task so nothing gets
 redone when Claude resumes. Starting with T-02 (OpenJarvis web-ui panel).
+
+### 2026-09-30T17:48Z — copilot → all
+Still solo. Finished T-01, T-02, T-04 (already resolved), T-05 (knip cleanup —
+deleted 8 dead components, added web-ui/knip.jsonc for 2 legit false
+positives), T-06 (tests/marketplace.test.js + scripts/test.js wiring). All
+pushed to main, green each time. Now on T-07 (README refresh).
