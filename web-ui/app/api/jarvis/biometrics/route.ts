@@ -37,6 +37,42 @@ async function ensureDir() {
   if (!existsSync(BIOMETRIC_DIR)) await mkdir(BIOMETRIC_DIR, { recursive: true })
 }
 
+// Owner identity is configured via env vars, never hardcoded in source, so
+// PII (name/DOB) isn't committed to git history. OWNER_DOB accepts an
+// ISO date (YYYY-MM-DD); extra accepted phrasings are derived from it.
+function getOwnerIdentity(): { ownerNames: string[]; ownerDob: string[] } {
+  const fullName = (process.env.OWNER_FULL_NAME || '').trim().toLowerCase()
+  const ownerNames = fullName
+    ? Array.from(new Set([fullName, ...fullName.split(/\s+/)])).filter(Boolean)
+    : []
+
+  const dob = (process.env.OWNER_DOB || '').trim()
+  const ownerDob: string[] = []
+  const isoMatch = dob.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch
+    const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+    const monthName = monthNames[Number(month) - 1]
+    const dayNum = String(Number(day))
+    ownerDob.push(
+      dob,
+      `${year}/${month}/${day}`,
+      `${month}/${day}/${year}`,
+      `${day}/${month}/${year}`,
+      monthName ? `${monthName} ${dayNum} ${year}` : '',
+      monthName ? `${dayNum} ${monthName} ${year}` : '',
+    )
+  } else if (dob) {
+    ownerDob.push(dob.toLowerCase())
+  }
+
+  return { ownerNames, ownerDob: ownerDob.filter(Boolean).map(s => s.toLowerCase()) }
+}
+
+function ownerDisplayName(): string {
+  return (process.env.OWNER_FULL_NAME || '').trim() || 'owner'
+}
+
 // ── Voice embedding via Resemblyzer Python script ─────────────────────────────
 
 const RESEMBLYZER_ENROLL = `
@@ -159,7 +195,7 @@ export async function POST(req: NextRequest) {
         await execAsync(`python3 "${scriptPath}" "${tmpWav}" "${PROFILE_FILE}"`, { timeout: 30000 })
         await unlink(tmpWav).catch(() => {})
         await unlink(scriptPath).catch(() => {})
-        const meta: BiometricMeta = { enrolled: true, method: 'resemblyzer', enrolledAt: new Date().toISOString(), ownerName: 'Hisham Abulfeilat' }
+        const meta: BiometricMeta = { enrolled: true, method: 'resemblyzer', enrolledAt: new Date().toISOString(), ownerName: ownerDisplayName() }
         await writeFile(META_FILE, JSON.stringify(meta, null, 2))
         void auditLog({ level: 'info', event: 'voice_profile_enrolled', result: 'resemblyzer' })
         return NextResponse.json({ success: true, message: 'Voice profile enrolled (Resemblyzer)', method: 'resemblyzer' })
@@ -172,7 +208,7 @@ export async function POST(req: NextRequest) {
 
     // Raw audio fallback — save audio bytes directly
     await writeFile(AUDIO_PROFILE_FILE, audioBuffer)
-    const meta: BiometricMeta = { enrolled: true, method: 'raw-audio', enrolledAt: new Date().toISOString(), ownerName: 'Hisham Abulfeilat' }
+    const meta: BiometricMeta = { enrolled: true, method: 'raw-audio', enrolledAt: new Date().toISOString(), ownerName: ownerDisplayName() }
     await writeFile(META_FILE, JSON.stringify(meta, null, 2))
     void auditLog({ level: 'info', event: 'voice_profile_enrolled', result: 'raw-audio' })
     return NextResponse.json({ success: true, message: 'Voice profile saved (audio reference mode — install resemblyzer for biometric matching)', method: 'raw-audio' })
@@ -217,8 +253,16 @@ export async function POST(req: NextRequest) {
   }
 
   // ── AI identity challenge endpoint ───────────────────────────────────────
+  // Owner PII (name / DOB) must never be hardcoded in source — it's read from
+  // env vars (OWNER_FULL_NAME, OWNER_DOB) so it isn't committed to git history.
   if (action === 'identity-challenge') {
     const { answer, question } = body as unknown as { action: string; answer?: string; question?: string }
+
+    const { ownerNames, ownerDob } = getOwnerIdentity()
+    if (!ownerNames.length && !ownerDob.length) {
+      return NextResponse.json({ verified: false, reason: 'not_configured', message: 'Identity challenge is not configured (set OWNER_FULL_NAME / OWNER_DOB).' }, { status: 503 })
+    }
+
     if (!answer) {
       // Return a challenge question
       const questions = [
@@ -229,16 +273,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ challengeQuestion: questions[Math.floor(Math.random() * questions.length)] })
     }
 
-    // Verify answer against known owner identity
+    // Verify answer against the configured owner identity
     const ans = answer.toLowerCase().trim()
-    const ownerNames = ['hisham', 'abulfeilat', 'hisham abulfeilat']
-    const ownerDob   = ['REDACTED']
     const mentionedQ = (question || '').toLowerCase()
 
     let verified = false
-    if (mentionedQ.includes('date of birth') || mentionedQ.includes('born') || ans.includes('REDACTED')) {
-      verified = ownerDob.some(d => ans.includes(d.replace(/-/g, '/')) || ans.includes(d))
-    } else if (mentionedQ.includes('name') || ans.includes('hisham') || ans.includes('abulfeilat')) {
+    if (mentionedQ.includes('date of birth') || mentionedQ.includes('born') || /\b(19|20)\d{2}\b/.test(ans)) {
+      verified = ownerDob.some(d => ans.includes(d))
+    } else if (mentionedQ.includes('name') || ownerNames.some(n => ans.includes(n))) {
       verified = ownerNames.some(n => ans.includes(n))
     } else {
       // Check both
@@ -246,7 +288,7 @@ export async function POST(req: NextRequest) {
     }
 
     void auditLog({ level: verified ? 'info' : 'security', event: verified ? 'identity_verified' : 'identity_failed', risk: verified ? 0 : 90 })
-    return NextResponse.json({ verified, message: verified ? 'Identity confirmed. Welcome, Hisham.' : 'Identity could not be verified. Access denied.' })
+    return NextResponse.json({ verified, message: verified ? 'Identity confirmed.' : 'Identity could not be verified. Access denied.' })
   }
 
   if (action === 'update-typing-profile') {
