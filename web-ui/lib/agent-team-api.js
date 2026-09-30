@@ -3,6 +3,7 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
 const DEFAULT_BODY_LIMIT = 1024 * 1024
+const AGENT_TEAM_COMMAND_TIMEOUT_MS = 15_000
 const VALID_ACTIONS = Object.freeze(['status', 'start', 'stop', 'say', 'add'])
 const TEAM_SCRIPT = path.resolve(__dirname, '..', '..', 'scripts', 'agents', 'team.mjs')
 
@@ -261,12 +262,27 @@ function runAgentTeamCommand(action, params = {}, options = {}) {
       env,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: AGENT_TEAM_COMMAND_TIMEOUT_MS,
     })
     const output = `${result.stdout || ''}${result.stderr || ''}`.trim()
+
+    if (result.error) {
+      const failure = result.error.message || 'Unknown child_process error'
+      const timedOut = /timed out|ETIMEDOUT/i.test(failure)
+      return {
+        ok: false,
+        action: normalizeAgentTeamAction({ action, ...params }).action,
+        output: timedOut
+          ? `Agent-team command timed out after ${AGENT_TEAM_COMMAND_TIMEOUT_MS}ms: ${failure}`
+          : `Agent-team command failed: ${failure}`,
+        code: null,
+      }
+    }
+
     return {
       ok: result.status === 0,
       action: normalizeAgentTeamAction({ action, ...params }).action,
-      output: output || (result.status === 0 ? 'Command completed.' : 'Agent-team command failed.'),
+      output: output || (result.status === 0 ? 'Command completed.' : `Agent-team command failed with exit code ${result.status ?? 'unknown'}.`),
       code: result.status ?? null,
     }
   } catch (error) {
@@ -281,6 +297,7 @@ function runAgentTeamCommand(action, params = {}, options = {}) {
 
 module.exports = {
   DEFAULT_BODY_LIMIT,
+  AGENT_TEAM_COMMAND_TIMEOUT_MS,
   VALID_ACTIONS,
   repoRootFromLib,
   resolveWorkspaceRoot,
