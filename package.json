@@ -10,6 +10,7 @@
     "agents:start": "node scripts/agents/boss.mjs start",
     "agents:status": "node scripts/agents/team.mjs status",
     "agents:stop": "node scripts/agents/team.mjs stop",
+    "agents:watchdog": "node scripts/agents/watchdog.mjs",
     "test:agents": "node --test scripts/agents/*.test.mjs"
   },
   "dependencies": {

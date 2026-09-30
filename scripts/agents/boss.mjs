@@ -36,13 +36,14 @@ import { buildECCContext, clearECCContext, ensureECC, loadECCConfig, stageECCCon
 const IS_WIN = process.platform === 'win32'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
-const PHASE_GOALS = {
+export const PHASE_GOALS = {
   1: 'Make GhostForge fully working and polished: every feature in web-ui, TUI, Electron, the Python bridge, MCP server, marketplace and Job Hunter works end to end; every JARVIS tool works and is covered by tests; fix bugs, add missing tests, remove dead code, improve UX and accessibility.',
   2: 'Productize the agent team so GhostForge users can run it themselves: start/stop/monitor multi-agent teams and workflows from the web UI, TUI and JARVIS; support multiple providers (Claude Code, Copilot CLI, Codex, Gemini, any OpenAI-compatible endpoint) with task-based model routing (auto by default); reusable team/workflow templates; docs.',
   3: 'Continuous improvement: performance, security hardening, accessibility, test coverage, developer experience, and new capabilities for JARVIS.',
+  4: 'Production-perfect on every surface: every GhostForge feature works end to end and is reachable from the web UI, the TUI, the terminal CLI and JARVIS (feature parity — record gaps in docs/FEATURE-MATRIX.md and close them); the Electron desktop app builds and runs on Windows, macOS and Linux and the Android (Capacitor) app builds, with CI proving it; security hardened (fix every real finding from CodeQL, npm audit, secret/dependency scanners and security reviews); the Agentic OS dashboard (/agents) shows each agent\'s progress, the todo/in-progress/review/done/blocked board, messages, health and history; accessible, RTL-safe, polished UI. Keep going until every check is green, then keep improving.',
 }
 
-const SEEDS = {
+export const SEEDS = {
   1: [
     { title: 'Deeper OpenJarvis bridge: expose /api/openjarvis/* endpoints in mark-l-bridge/server.py with a graceful stub when the package is not installed', kind: 'feature', area: ['mark-l-bridge'] },
     { title: 'Marketplace: verify every catalog install_command works cross-platform (Windows/macOS/Linux); fix macOS-only ones', kind: 'bugfix', area: ['marketplace'] },
@@ -59,6 +60,14 @@ const SEEDS = {
     { title: 'Multi-provider agents: add an OpenAI-compatible provider adapter (any base URL/key/model) plus tests for every adapter in scripts/agents/lib/providers.mjs', kind: 'feature', area: ['scripts/agents/lib'] },
     { title: 'Reusable team templates: .agent-sync/templates/*.json (pair, trio, reviewer-heavy) selectable by boss.mjs --template', kind: 'feature', area: ['.agent-sync/templates', 'scripts/agents/boss.mjs'] },
     { title: 'Docs: user guide for running agent teams from GhostForge (docs/AGENT-TEAMS.md) and link it from README', kind: 'docs', area: ['docs/AGENT-TEAMS.md'] },
+  ],
+  4: [
+    { title: 'Feature-parity audit: write docs/FEATURE-MATRIX.md listing every GhostForge feature and whether it is reachable from web UI, TUI, terminal CLI and JARVIS; end with the concrete gaps as a checklist', kind: 'docs', area: ['docs/FEATURE-MATRIX.md'] },
+    { title: 'Agentic OS dashboard: add a kanban board (todo/in-progress/review/done/blocked) with per-agent progress, current task, model/provider, elapsed time and recent history to /agents, backed by the existing /api/agents snapshot', kind: 'feature', area: ['web-ui/app/agents', 'web-ui/components/agents'] },
+    { title: 'Electron cross-platform: make electron-app build and pass a headless launch smoke test on Windows, macOS and Linux, and add a CI matrix job that proves it', kind: 'bugfix', area: ['electron-app', '.github/workflows/electron-build.yml'] },
+    { title: 'Android: make the Capacitor Android app build in CI (debug APK artifact) and document how to run it', kind: 'bugfix', area: ['android', 'capacitor.config.ts', '.github/workflows/android-build.yml'] },
+    { title: 'Security sweep: run npm audit (root, web-ui, electron-app, tui), gitleaks and semgrep where available; fix every high/critical finding that is real, and record accepted risks in knowledge/decisions.md', kind: 'security', area: ['package-lock.json', 'web-ui/package-lock.json', 'electron-app/package-lock.json', 'tui/package-lock.json', 'knowledge/decisions.md'] },
+    { title: 'Terminal CLI parity: a `ghostforge` bin exposing marketplace, agent-team, workflow and job-hunter commands (reusing existing libs), with --help and tests', kind: 'feature', area: ['bin', 'cli'] },
   ],
 }
 
@@ -190,21 +199,21 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const tail = (s = '', n = 3000) => (s.length > n ? '…' + s.slice(-n) : s)
 
 function git(cwd, ...args) {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).trim()
 }
 
 function gitTry(cwd, ...args) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8' })
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true })
   return { ok: r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim() }
 }
 
 function sh(cmd, args, cwd, timeout = 15 * 60_000) {
-  const r = spawnSync(cmd, IS_WIN ? args.map(winQuote) : args, { cwd, encoding: 'utf8', shell: IS_WIN, timeout })
+  const r = spawnSync(cmd, IS_WIN ? args.map(winQuote) : args, { cwd, encoding: 'utf8', shell: IS_WIN, timeout, windowsHide: true })
   return { ok: r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim() }
 }
 
 function killTree(child) {
-  if (IS_WIN) spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'])
+  if (IS_WIN) spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
   else child.kill('SIGTERM')
 }
 
@@ -267,7 +276,50 @@ class Boss {
     writeJSON(path.join(this.dir, 'status.json'), {
       ts: new Date().toISOString(), pid: process.pid, phase: this.board().phase,
       health: this.lastHealth?.score ?? null, merges: this.merges, pr: this.prUrl, agents: this.state,
+      boss: { provider: this.cfg.boss.provider, fallback: this.cfg.boss.fallback ?? null, cooldownUntil: this.bossCooldownUntil ?? null },
     })
+    if (Date.now() - (this.handoffAt ?? 0) > 2 * 60_000) {
+      this.handoffAt = Date.now()
+      try { this.updateHandoff() } catch (e) { this.log(`handoff update failed: ${e.message}`) }
+    }
+  }
+
+  /** Rewrite the live block of docs/SESSION-HANDOFF.md so any new session or provider can pick up. */
+  updateHandoff() {
+    const file = path.join(ROOT, 'docs', 'SESSION-HANDOFF.md')
+    if (!fs.existsSync(file)) return
+    const doc = fs.readFileSync(file, 'utf8')
+    const START = '<!-- LIVE-STATUS:START -->'
+    const END = '<!-- LIVE-STATUS:END -->'
+    const a = doc.indexOf(START)
+    const b = doc.indexOf(END)
+    if (a < 0 || b < a) return
+    const board = this.board()
+    const by = s => board.tasks.filter(t => t.status === s)
+    const line = t => `- ${t.id} [${t.kind}] ${t.title}${t.owner ? ` — ${t.owner}` : ''}`
+    const counts = ['todo', 'in-progress', 'review', 'done', 'blocked'].map(s => `${s} ${by(s).length}`).join(' · ')
+    const agents = Object.entries(this.state).map(([id, st]) =>
+      `- **${id}** (${this.cfg.agents[id]?.provider}): ${st.state}${st.task ? ` on ${st.task}` : ''}${st.cooldownUntil ? ` — cooling down until ${st.cooldownUntil}` : ''}`)
+    const msgs = readMessages(this.dir, { limit: 8 }).map(m => `- ${m.ts.slice(0, 16)} ${m.from} → ${m.to}: ${tail(m.text, 220).replace(/\n/g, ' ')}`)
+    const block = [
+      START,
+      `_Auto-updated by the boss (pid ${process.pid}) at ${new Date().toISOString()}._`,
+      '',
+      `**Phase ${board.phase}:** ${PHASE_GOALS[board.phase] ?? PHASE_GOALS[3]}`,
+      '',
+      `**Health:** ${this.lastHealth?.score ?? '?'}/100 · **merges this run:** ${this.merges} · **PR:** ${this.prUrl ?? 'none yet'} · **boss:** ${this.cfg.boss.provider}${this.cfg.boss.fallback ? ` (fallback ${this.cfg.boss.fallback})` : ''}${this.bossCooldownUntil ? `, primary cooling until ${this.bossCooldownUntil}` : ''}`,
+      '',
+      `**Board:** ${counts}`,
+      '',
+      '**Agents**', ...agents,
+      '', '**In progress / review**', ...([...by('in-progress'), ...by('review')].map(line)), '',
+      '**Next up (todo)**', ...by('todo').slice(0, 12).map(line), '',
+      '**Blocked (needs a human or a fresh approach)**', ...by('blocked').map(t => `${line(t)}: ${tail(t.lastFailure ?? '', 200).replace(/\n/g, ' ')}`), '',
+      '**Recently done**', ...by('done').slice(-12).map(line), '',
+      '**Latest messages**', ...msgs,
+      END,
+    ].join('\n')
+    fs.writeFileSync(file, doc.slice(0, a) + block + doc.slice(b + END.length))
   }
 
   // ── Worktrees & deps ──
@@ -338,7 +390,7 @@ class Boss {
       let buf = ''
       let timedOut = false
       const child = spawn(cmd, IS_WIN ? args.map(winQuote) : args, {
-        cwd, shell: IS_WIN, stdio: ['ignore', 'pipe', 'pipe'],
+        cwd, shell: IS_WIN, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
         env: { ...process.env, GF_AGENT_STATE: this.dir, ...providerEnv, ...env },
       })
       const onData = d => { const s = d.toString(); out.write(s); buf = (buf + s).slice(-40_000) }
@@ -465,12 +517,25 @@ class Boss {
   async readonlyRun(file, logName, timeoutMs, mode = 'review') {
     const rel = path.relative(path.join(this.intWt, '.agent-sync', 'state'), file).replace(/\\/g, '/')
     const eccFile = stageECCContext(this.intWt, buildECCContext(this.ecc, this.eccCache, { mode }))
+    const boss = this.cfg.boss
+    const opts = {
+      mode: 'readonly', cwd: this.intWt,
+      prompt: `Read the file .agent-sync/state/${rel} and .agent-sync/state/ecc-context.md, then follow its instructions exactly. Repository rules override supplementary ECC guidance.`,
+      logFile: path.join(this.dir, 'logs', logName), timeoutMs,
+    }
     try {
-      return await this.runAgent({
-        provider: this.cfg.boss.provider, model: this.cfg.boss.model, mode: 'readonly', cwd: this.intWt,
-        prompt: `Read the file .agent-sync/state/${rel} and .agent-sync/state/ecc-context.md, then follow its instructions exactly. Repository rules override supplementary ECC guidance.`,
-        logFile: path.join(this.dir, 'logs', logName), config: this.cfg.boss.config ?? this.cfg.boss.providerConfig ?? {}, timeoutMs,
-      })
+      // The primary boss (e.g. Claude) may be out of quota; after a failure, skip
+      // it for cooldownMinutes and let the fallback (e.g. Copilot) boss instead.
+      const primaryCooling = this.bossCooldownUntil && Date.parse(this.bossCooldownUntil) > Date.now()
+      if (!primaryCooling || !boss.fallback) {
+        const run = await this.runAgent({ ...opts, provider: boss.provider, model: boss.model, config: boss.config ?? boss.providerConfig ?? {} })
+        if (!boss.fallback || (run.code === 0 && lastJSON(run.output))) return run
+        if (run.code !== 0 || RATE_LIMIT_RE.test(run.output)) {
+          this.bossCooldownUntil = new Date(Date.now() + this.cfg.cooldownMinutes * 60_000).toISOString()
+        }
+        this.log(`boss ${boss.provider} gave no usable verdict (exit ${run.code}) — falling back to ${boss.fallback}`)
+      }
+      return await this.runAgent({ ...opts, provider: boss.fallback, model: boss.fallbackModel ?? 'auto', config: boss.fallbackConfig ?? {} })
     } finally {
       clearECCContext(eccFile)
     }

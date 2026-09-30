@@ -1,65 +1,96 @@
-# Session Handoff — 2026-09-30
+# GhostForge — Session Handoff (read this first)
 
-Read this first when picking up GhostForge on another machine or in a new agent
-session. It records what the cloud session did, the repo's current state, and
-what's next. (Durable architecture decisions live in `knowledge/decisions.md`;
-day-to-day agent rules in `AGENTS.md` / `CLAUDE.md`.)
+**Any AI, any provider, any new session: this is the one file that tells you
+what is going on.** The top half is written by humans/lead agents; the
+`LIVE STATUS` block at the bottom is rewritten automatically by the boss every
+couple of minutes while the agent team runs.
 
-## What shipped this session (all merged to `main`)
+## Mission
 
-**PR #6 — marketplace fixes, OSS + security tools, docs & CI**
-- Fixed marketplace install-state divergence: `marketplace/registry.json` is now
-  the single source of truth (with a `removed[]` list); the TUI and web API
-  compute the installed set identically. No more writing state into `catalog.json`.
-- Added ~25 open-source tools to the catalog (AI agents, defensive security
-  scanners, dual-use recon tools framed authorized-use-only, DevOps/Quality
-  tools) + `AllHackingTools` as a review-first pointer.
-- Added the `.claude/skills/security-scan` defensive-audit skill + a TUI
-  "Security & DevOps Tools" submenu.
-- Added `CLAUDE.md`, ADR-004/005 in `knowledge/decisions.md`, and a
-  dependency-free root `npm test` (`scripts/test.js`) wired into CI.
-- Resolved the CodeQL findings the changes surfaced (command-injection sinks,
-  a TOCTOU race).
+Make GhostForge production-perfect: every feature works end to end and is
+reachable from the **web UI, TUI, terminal CLI and JARVIS**; the Electron app
+runs on **Windows, macOS and Linux** and the **Android** app builds; security
+is hardened; the **Agentic OS dashboard** (`/agents`) shows every agent's
+progress. Keep going until every check is green, then keep improving.
 
-**PR #7 — unify the bridge on Mark-LV (latest) + OpenJarvis**
-- Refreshed `vendor/mark-liv` to the current `FatihMakes/Mark-LV` release.
-  **Mark-L is retired; Mark-LV is the kept engine** (CC BY-NC 4.0, LICENSE intact).
-- Folded **OpenJarvis** (`open-jarvis/OpenJarvis`, Apache-2.0) into the one
-  bridge as an **opt-in dependency** (not vendored — its repo ships a 73 MB
-  Ollama binary + ~2,000 files).
-- Catalog: Mark-L → Mark-LV + an OpenJarvis entry. Added `mark-l-bridge/README.md`;
-  updated `CLAUDE.md`.
-- Fixed a pre-existing flaky MCP stdio test (`web-ui/test/mcp-server.test.js`)
-  that waited a fixed timeout — now waits for the response deterministically.
+## How the work runs (autonomous agent team)
 
-## Current repo state
+- **Boss** — `scripts/agents/boss.mjs` (Node, detached). The only writer of the
+  board and the only one that merges/pushes. Loop: assign tasks → worker
+  commits in its own worktree → boss **reviews** (read-only model run) →
+  merges into `agent/integration` → health check (rolls back regressions) →
+  every 5 merges pushes `agent/integration` and updates **one PR to `main`**
+  (never auto-merges). When the board is empty it runs the full health score;
+  failing checks become tasks, and at 100/100 it plans the next tasks toward
+  the current phase goal (phase 4 = the mission above).
+- **Boss model** — `claude` / `opus`, **fallback `copilot`**: when Claude is out
+  of quota the boss cools Claude down and reviews/plans with Copilot, then
+  retries Claude later. (`.agent-sync/team.json` → `boss`.)
+- **Workers** — `claude` (worktree `../gf-claude`) plus five Copilot CLI
+  workers: `copilot-tui`, `copilot-desktop`, `copilot-web`,
+  `copilot-integration`, `copilot-quality` (`../gf-boss-*`). A rate-limited
+  worker cools down 20 min and its task goes back to the queue, so Copilot
+  keeps going when Claude hits its limit and vice versa.
+- **Skills for workers** — ECC v2.2.2 (pinned, `.agent-sync/ecc.json`) is
+  staged per task into `.agent-sync/state/ecc-context.md` for every worker
+  (Copilot included). The Claude worker also loads the native Claude plugins
+  on this machine (ECC, oh-my-claudecode, superpowers).
+- **Watchdog** — `scripts/agents/watchdog.mjs`, run every 5 min by the Windows
+  scheduled task **"GhostForge Boss Watchdog"**; restarts the boss if it died.
+  An explicit `team.mjs stop` (STOP file) is respected.
 
-- `main` is at the PR #7 merge; both PRs green through CI (CodeQL, Security
-  regression tests, quality gate, npm audit, SBOM, dependency review).
-- The single bridge = `mark-l-bridge/` (FastAPI `:8765`) wrapping
-  `vendor/mark-liv` + opt-in OpenJarvis. Wired into web-ui, electron, TUI.
-- Root `npm test` = `scripts/test.js` (TUI syntax + marketplace JSON validity).
+## Operate it
 
-## Environment gotchas (cloud session)
+| Want to… | Command |
+|---|---|
+| See status | `npm run agents:status` · dashboard `http://localhost:3000/agents` (admin login) |
+| Add a task | `node scripts/agents/team.mjs add "title" --area path/` |
+| Message the team / boss | `node scripts/agents/team.mjs say boss "…"` |
+| Stop (stays stopped) | `npm run agents:stop` |
+| Start / resume | `npm run agents:watchdog` (starts the boss if down) |
+| Remove the scheduler | `node scripts/agents/watchdog.mjs --uninstall` |
+| Logs | `.agent-sync/state/boss.log`, `.agent-sync/state/logs/<agent>.log` |
+| Board / messages (raw) | `.agent-sync/state/board.json`, `.agent-sync/state/messages.jsonl` |
 
-- **Branch deletion is blocked** by org egress policy (HTTP 403). Stale branches
-  `mark-l`, `openjarvis`, `ultimate`, and the merged `ccr-b8ed7f0d-f7pgml` must
-  be deleted by a human (`git push origin --delete …` or the GitHub UI).
-- The outdated `mark-l`/`openjarvis`/`ultimate` branches (2026-08-03 base, 37
-  commits behind, huge stale vendored trees) were deliberately **not** merged.
+## Taking over as a new lead (Claude, Copilot, or any other model)
 
-## Next up (see `.agent-sync/BOARD.md` for the live list)
+1. `git status` on `feat/agent-boss` in `GhostForge-public`; read `AGENTS.md`.
+2. Read the LIVE STATUS block below and `.agent-sync/state/boss.log` tail.
+3. Review what merged since you last looked:
+   `git log --oneline feat/agent-boss..agent/integration`.
+4. Unblock **blocked** tasks (they failed 3 attempts): fix directly, or re-queue
+   with better notes via `team.mjs add`.
+5. Don't run a second boss — `boss.pid` is a lock; the watchdog restarts it.
 
-1. **T-01** Deeper OpenJarvis wiring: `/api/openjarvis/*` endpoints in the bridge.
-2. **T-02** Web UI OpenJarvis panel + client.
-3. **T-03** Verify catalog install commands cross-platform.
-4. **T-04/05** web-ui ESLint config + resolve knip unused-file warnings.
-5. **T-06** Root unit tests. **T-07** README refresh.
+## Branches
 
-## How to continue (multi-agent, Claude Code + Copilot CLI)
+- `main` — protected; changes arrive only via the agent-team PR.
+- `feat/agent-boss` — this checkout; agent framework + everything integrated so far.
+- `agent/integration` — the boss's merge branch (worktree `../gf-integration`), PR → `main`.
+- `agent/<provider>/…` — per-worker branches, reset onto integration before each task.
 
-1. `git pull` on `main`.
-2. Read `AGENTS.md`, then `docs/MULTI-AGENT-WORKFLOW.md`.
-3. Start Claude Code: `claude` → `/team start`.
-4. Start Copilot CLI: `copilot` → paste `prompts/multi-agent-kickoff.md`.
-5. Both coordinate through `.agent-sync/BOARD.md` + `MESSAGES.md`.
+## History
+
+- **2026-09-30** — PRs #6–#10 merged (marketplace source of truth, Mark-LV +
+  OpenJarvis bridge, Job Hunter autopilot, workflows engine). Built the
+  boss/worker framework; Copilot ran it: 76 commits (agent-team API +
+  `/agents` dashboard, TUI/JARVIS agent-team controls, templates,
+  OpenAI-compatible provider, security fixes, Playwright/TUI/Electron tests).
+- **2026-10-01 ~01:30** — Claude took over as boss: merged `agent/integration`
+  into `feat/agent-boss` (ECC context layer + hardened prompt staging), added
+  phase 4 (the mission), Claude boss with Copilot fallback, Claude worker,
+  watchdog + scheduled task, and this auto-updated handoff.
+
+## Environment gotchas
+
+- Windows host, no tmux; Git Bash + PowerShell. Node v23 (odd release — some
+  native modules have no prebuilds, e.g. the `omc` CLI's better-sqlite3).
+- `gh` must be logged in as **HishamAbulfeilat** (a second account,
+  `habulfeilat_ejadasa`, caused 403 push failures before 2026-10-01).
+- Worker worktrees live next to the repo: `C:\Users\User\Desktop\gf-*`.
+
+## LIVE STATUS
+
+<!-- LIVE-STATUS:START -->
+_Not written yet — the boss fills this in within a couple of minutes of starting._
+<!-- LIVE-STATUS:END -->

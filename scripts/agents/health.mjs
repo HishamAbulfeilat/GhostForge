@@ -19,14 +19,14 @@ function run(cmd, args, cwd, timeoutMs = 10 * 60_000) {
   const t0 = Date.now()
   // npm/npx are .cmd shims on Windows and need a shell (args are fixed literals);
   // absolute paths like process.execPath must not go through it (spaces).
-  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout: timeoutMs, shell: IS_WIN && !path.isAbsolute(cmd), env: { ...process.env, CI: '1', FORCE_COLOR: '0' } })
+  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout: timeoutMs, shell: IS_WIN && !path.isAbsolute(cmd), env: { ...process.env, CI: '1', FORCE_COLOR: '0' }, windowsHide: true })
   const output = `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? String(r.error) : ''}`
   return { ok: r.status === 0, output: output.trim().split('\n').slice(-40).join('\n'), ms: Date.now() - t0 }
 }
 
 function pythonCmd() {
   for (const c of IS_WIN ? ['python', 'py'] : ['python3', 'python']) {
-    if (spawnSync(c, ['--version'], { shell: IS_WIN }).status === 0) return c
+    if (spawnSync(c, ['--version'], { shell: IS_WIN, windowsHide: true }).status === 0) return c
   }
   return null
 }
