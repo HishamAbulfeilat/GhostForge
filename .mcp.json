@@ -1,0 +1,26 @@
+{
+  "$comment": "MCP servers for Claude Code on this repo. Copilot CLI reads its own config (.vscode/mcp.json or ~/.copilot) — see mcp/README.md. Tokens come from the shell env; nothing secret is stored here.",
+  "mcpServers": {
+    "ghostforge": {
+      "command": "node",
+      "args": ["mcp/index.js"],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "$note": "Project tools: health_check, get_tickets, fix_ticket, list_models, get_best_model, security_scan, list_snippets, get_snippet."
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "$note": "PRs, issues, checks, code search. Needs a PAT in GITHUB_TOKEN."
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "$note": "Scoped to the repo root."
+    }
+  }
+}
