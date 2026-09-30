@@ -62,5 +62,4 @@ MCP_HTTP_PORT=8787 npm run start
 - `MCP_HTTP_PORT` — optional local health/debug endpoint
 
 Model tools work immediately in a fresh checkout using a small bundled model
-catalog. If `.ghostforge-models.json` is present, it is used instead; run the
-model sync command when a current catalog is needed.
+catalog. If `.ghostforge-models.json` is present, it is used instead.

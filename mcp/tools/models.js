@@ -3,7 +3,7 @@ import { resolve } from 'path';
 import * as z from 'zod/v4';
 
 // Keep model tools usable in a fresh checkout. The generated cache is optional
-// (and may not exist until the model sync command has been run).
+// (and may not exist until a generated model catalog is provided).
 const BUNDLED_MODEL_CACHE = {
   syncedAt: null,
   models: [
