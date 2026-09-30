@@ -9,6 +9,7 @@ import ClickyOverlay from '@/components/ClickyOverlay'
 import { usePlatform, detectLanguage, getSpeechLang, platformLabel } from '@/lib/platform'
 
 const MarkLPanel = dynamic(() => import('@/components/MarkLPanel'), { ssr: false })
+const OpenJarvisPanel = dynamic(() => import('@/components/OpenJarvisPanel'), { ssr: false })
 const AgentDashboard = dynamic(() => import('@/components/AgentDashboard'), { ssr: false })
 import { collectRecognitionTranscript, findWakePhrase } from '@/lib/voice-runtime'
 import { JARVIS_QUICK_ACTIONS } from '@/lib/quick-actions'
@@ -3168,6 +3169,11 @@ export default function JarvisPage() {
                 <p className="mt-2 text-[8px] leading-snug" style={{ color: `${mc.ring}55` }}>
                   ⚙ = needs bridge / desktop engine (scripts/mark-liv.sh start)
                 </p>
+              </div>
+
+              {/* OpenJarvis — local-first agent framework (opt-in, Apache-2.0) */}
+              <div className="mt-4 border-t pt-3" style={{ borderColor: `${mc.ring}22` }}>
+                <OpenJarvisPanel ringColor={mc.ring} />
               </div>
             </div>
           )}
