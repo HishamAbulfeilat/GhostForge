@@ -177,16 +177,30 @@ function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverri
   const status = readJsonFile(path.join(stateDir, 'status.json'), null)
   const board = readJsonFile(path.join(stateDir, 'board.json'), { phase: 1, tasks: [] })
   const teamConfig = readJsonFile(path.join(root, '.agent-sync', 'team.json'), {})
+  const configuredAgents = teamConfig && typeof teamConfig.agents === 'object' && !Array.isArray(teamConfig.agents)
+    ? teamConfig.agents
+    : {}
+  const reportedAgents = status && typeof status.agents === 'object' && !Array.isArray(status.agents)
+    ? status.agents
+    : {}
+  const agentIds = new Set([...Object.keys(configuredAgents), ...Object.keys(reportedAgents)])
   const agents = {}
 
-  for (const [agentId, agentStatus] of Object.entries(status?.agents ?? {})) {
-    const info = agentStatus && typeof agentStatus === 'object' ? agentStatus : {}
+  for (const agentId of agentIds) {
+    const config = configuredAgents[agentId] && typeof configuredAgents[agentId] === 'object'
+      ? configuredAgents[agentId]
+      : {}
+    const info = reportedAgents[agentId] && typeof reportedAgents[agentId] === 'object'
+      ? reportedAgents[agentId]
+      : {}
+    const configuredProvider = typeof config.provider === 'string' ? config.provider.trim() : ''
+    const reportedProvider = typeof info.provider === 'string' ? info.provider.trim() : ''
     agents[agentId] = {
-      provider: teamConfig?.agents?.[agentId]?.provider ?? info.provider ?? null,
-      state: info.state ?? 'unknown',
-      task: info.task ?? null,
-      model: info.model ?? null,
-      cooldownUntil: info.cooldownUntil ?? null,
+      provider: configuredProvider || reportedProvider || null,
+      state: typeof info.state === 'string' && info.state.trim() ? info.state.trim() : 'unknown',
+      task: typeof info.task === 'string' && info.task.trim() ? info.task.trim() : null,
+      model: typeof info.model === 'string' && info.model.trim() ? info.model.trim() : null,
+      cooldownUntil: typeof info.cooldownUntil === 'string' && info.cooldownUntil.trim() ? info.cooldownUntil.trim() : null,
     }
   }
 
