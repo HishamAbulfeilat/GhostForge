@@ -2461,12 +2461,10 @@ async function screenMarketplace() {
   let catalog = { items: [] };
   let registry = { installed: [], custom_agents: [], custom_models: [] };
 
-  if (existsSync(catalogPath)) {
-    try { catalog = JSON.parse(readFileSync(catalogPath, 'utf8')); } catch {}
-  }
-  if (existsSync(registryPath)) {
-    try { registry = JSON.parse(readFileSync(registryPath, 'utf8')); } catch {}
-  }
+  // Read directly and handle a missing/invalid file via catch — avoids the
+  // check-then-use (TOCTOU) race an existsSync guard would introduce.
+  try { catalog = JSON.parse(readFileSync(catalogPath, 'utf8')); } catch {}
+  try { registry = JSON.parse(readFileSync(registryPath, 'utf8')); } catch {}
 
   // registry.json is the single source of truth for install state (shared with
   // the web UI). Seed it from any catalog items shipped as installed, minus any
