@@ -58,3 +58,10 @@ test('template selection applies only to a cloned config', () => {
   assert.equal(trio.agents['copilot-perf'].enabled, false)
   assert.equal(trio.template.name, 'trio')
 })
+
+test('a template never invents agents team.json does not define (they would have no worktree)', () => {
+  const cfg = applyTemplateConfig({ agents: { claude: { enabled: true, worktree: '../gf-claude' } } }, 'pair')
+  assert.equal('copilot' in cfg.agents, false)
+  assert.equal('copilot-qa' in cfg.agents, false)
+  assert.equal(parseArgs(['start']).template, null, 'no --template → team.json roster as-is')
+})

@@ -138,8 +138,8 @@ export function applyTemplateConfig(config, name = DEFAULT_TEMPLATE) {
 
   if (selected.size) {
     for (const agentId of [...selected]) {
-      if (!base.agents[agentId]) base.agents[agentId] = { enabled: true }
-      else base.agents[agentId].enabled = true
+      // An agent team.json doesn't define has no worktree/provider to run — skip it.
+      if (base.agents[agentId]) base.agents[agentId].enabled = true
     }
   }
 
@@ -151,7 +151,7 @@ export function applyTemplateConfig(config, name = DEFAULT_TEMPLATE) {
 
 export function parseArgs(argv = []) {
   let command = 'start'
-  let template = DEFAULT_TEMPLATE
+  let template = null // null → use team.json's enabled agents as-is
   const extras = []
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -230,11 +230,11 @@ export function stagePrompt(worktree, category, name, content) {
 }
 
 class Boss {
-  constructor(templateName = DEFAULT_TEMPLATE) {
+  constructor(templateName = null) {
     const baseCfg = readJSON(path.join(ROOT, '.agent-sync', 'team.json'), null)
     if (!baseCfg) throw new Error('Missing .agent-sync/team.json')
-    this.templateName = resolveTemplateName(templateName)
-    this.cfg = applyTemplateConfig(baseCfg, this.templateName)
+    this.templateName = templateName ? resolveTemplateName(templateName) : null
+    this.cfg = this.templateName ? applyTemplateConfig(baseCfg, this.templateName) : baseCfg
     this.dir = stateDir(ROOT)
     for (const d of ['tasks', 'logs', 'reviews']) fs.mkdirSync(path.join(this.dir, d), { recursive: true })
     this.intBranch = this.cfg.integration.branch
