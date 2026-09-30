@@ -2496,6 +2496,7 @@ async function screenMarketplace() {
       { name: T.red.bold('🔐  Strix')                     + T.muted(' — autonomous AI penetration testing'), value: 'strix' },
       { name: T.red.bold('🛡️   HackingTool')               + T.muted(' — 185+ pentesting tools · recon, web, AD, cloud, mobile'), value: 'hackingtool' },
       { name: T.red.bold('🔍  Security Scanner')            + T.muted(' — scan project for vulns, secrets, XSS, OWASP Top-10'), value: 'pentest' },
+      { name: T.cyan.bold('🧰  Security & DevOps Tools')     + T.muted(' — curated OSS: nmap, semgrep, trivy, gitleaks, act, k9s…'), value: 'sec-devops' },
       { name: T.red.bold('🏚️  Tech Debt Scanner')          + T.muted(' — TODOs, complexity, deprecated APIs, debt score'), value: 'tech-debt' },
       { name: T.success.bold('🏥  Codebase Health Score')   + T.muted(' — A-F grade across debt, coverage, bundle, lighthouse, a11y'), value: 'health-score' },
       { name: T.accent.bold('🐳  Docker Generator')         + T.muted(' — Dockerfile + compose templates for app deployment'), value: 'docker-gen' },
@@ -2648,6 +2649,57 @@ async function screenMarketplace() {
       }
       await pressEnter();
     }
+  }
+
+  if (action === 'sec-devops') {
+    const pool = catalog.items.filter(i => i.category === 'Security' || i.category === 'DevOps');
+    console.log();
+    console.log(boxen(
+      T.cyan.bold(' 🧰  Security & DevOps Tools ') + '\n\n' +
+      T.white('Curated open-source scanners and CLIs.\n') +
+      T.yellow('  ⚠  Security tools are for AUTHORIZED testing on systems you own\n' +
+               '     or have written permission to assess.'),
+      { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
+    ));
+    const pick = await select({
+      message: T.white.bold('Choose a tool:'),
+      choices: [
+        ...pool.map(i => ({
+          name: `${i.installed ? T.success('✅') : T.muted('  ')} ${T.white.bold(i.name)} ${T.muted('[' + i.category + ']')} — ${T.dim((i.description || '').substring(0, 44))}`,
+          value: i.id,
+        })),
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+      pageSize: 16,
+    });
+    if (pick !== '__back__') {
+      const item = pool.find(i => i.id === pick);
+      console.log();
+      console.log(T.accent.bold(`  ${item.name}`) + T.muted(`  ${item.url || item.source || ''}`));
+      console.log(T.dim(`  ${item.description}`));
+      if (item.installed) {
+        console.log(T.success('\n  ✅ Already installed.'));
+      } else if (item.install_command) {
+        const go = await confirm({ message: `Run: ${item.install_command} ?`, default: false });
+        if (go) {
+          try {
+            execSync(item.install_command, { stdio: 'inherit', cwd: ROOT });
+            console.log(T.success(`\n  ✅ ${item.name} installed!`));
+            item.installed = true;
+            installedSet.add(item.id); removedSet.delete(item.id);
+            registry.installed = [...installedSet]; registry.removed = [...removedSet];
+            writeFileSync(registryPath, JSON.stringify(registry, null, 2));
+          } catch {
+            console.log(T.danger(`\n  ✖ Install failed. Try manually: ${item.install_command}`));
+          }
+        }
+      } else if (item.url) {
+        console.log(T.accent(`\n  Review upstream: ${item.url}`));
+        crossPlatformOpen(item.url);
+      }
+      console.log();
+    }
+    await pressEnter();
   }
 
   if (action === 'aitmpl') {
