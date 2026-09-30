@@ -11,6 +11,7 @@ const config: Config = {
           line: '#262B38', line2: '#334155', ink: '#E7E9EE', muted: '#9CA3AF',
           accent: '#38BDF8', 'accent-soft': '#0C2A3A', 'accent-ink': '#BAE6FD',
           ok: '#6EE7B7', 'ok-soft': '#052E1F', warn: '#FCD34D', 'warn-soft': '#2B2107',
+          danger: '#FCA5A5', 'danger-soft': '#450A0A', violet: '#C4B5FD', 'violet-soft': '#2E1065',
         },
       },
       fontFamily: {

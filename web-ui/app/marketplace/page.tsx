@@ -26,7 +26,21 @@ interface AwesomeApp {
   url: string
 }
 
-type Tab = 'commands' | 'huggingface' | 'awesome'
+type Tab = 'claude' | 'commands' | 'huggingface' | 'awesome'
+
+interface Source {
+  id: string
+  name: string
+  type: string
+  description: string
+  url?: string
+  docs?: string
+  install_command?: string
+  install_alt?: string
+  install_claude_code?: string
+  verify_command?: string
+  categories?: string[]
+}
 
 const TYPE_COLORS: Record<string, string> = {
   skill:        'bg-violet-900/60 text-violet-300 border-violet-700',
@@ -68,8 +82,7 @@ const AWESOME_CATEGORY_ICONS: Record<string, string> = {
 }
 
 export default function MarketplacePage() {
-  const router = useRouter()
-  const [activeTab, setActiveTab] = useState<Tab>('commands')
+  const [activeTab, setActiveTab] = useState<Tab>('claude')
 
   return (
     <div className="min-h-[100dvh] bg-[#030712]" style={{ backgroundImage: 'radial-gradient(ellipse 80% 40% at 50% -5%, #0a1a2e50, transparent)' }}>
@@ -92,6 +105,7 @@ export default function MarketplacePage() {
         {/* Tabs */}
         <div className="flex gap-0.5 px-4 pt-1">
           {([
+            { key: 'claude' as Tab, label: 'Claude Marketplace', icon: '🧩' },
             { key: 'commands' as Tab, label: 'Commands', icon: '⚡' },
             { key: 'huggingface' as Tab, label: 'HuggingFace', icon: '🤗' },
             { key: 'awesome' as Tab, label: 'Awesome LLM Apps', icon: '🏆' },
@@ -112,10 +126,155 @@ export default function MarketplacePage() {
         </div>
       </header>
 
+      {activeTab === 'claude' && <ClaudeTab />}
       {activeTab === 'commands' && <CommandsTab />}
       {activeTab === 'huggingface' && <HuggingFaceTab />}
       {activeTab === 'awesome' && <AwesomeLLMTab />}
     </div>
+  )
+}
+
+/* ─────────────────────── Claude Marketplace Tab ─────────────────────── */
+
+function ClaudeTab() {
+  const router = useRouter()
+  const [sources, setSources] = useState<Source[]>([])
+  const [installed, setInstalled] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('all')
+  const [copied, setCopied] = useState<string | null>(null)
+  const [actionId, setActionId] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/marketplace')
+      if (res.status === 401) { router.push('/login'); return }
+      const data = await res.json() as { sources: Source[]; installed: string[] }
+      setSources(data.sources ?? [])
+      setInstalled(new Set(data.installed ?? []))
+    } catch { /* keep empty */ }
+    setLoading(false)
+  }, [router])
+
+  useEffect(() => { void load() }, [load])
+
+  const toggle = useCallback(async (id: string, isInstalled: boolean) => {
+    setActionId(id)
+    try {
+      const res = await fetch('/api/marketplace', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: isInstalled ? 'remove' : 'install', id }),
+      })
+      const data = await res.json() as { installed?: string[] }
+      if (data.installed) setInstalled(new Set(data.installed))
+    } catch { /* ignore */ }
+    setActionId(null)
+  }, [])
+
+  const copy = useCallback((id: string, cmd: string) => {
+    void navigator.clipboard?.writeText(cmd).then(() => {
+      setCopied(id)
+      setTimeout(() => setCopied(c => (c === id ? null : c)), 1500)
+    }).catch(() => {})
+  }, [])
+
+  const categories = useMemo(
+    () => [...new Set(sources.flatMap(s => s.categories ?? []))].sort(),
+    [sources],
+  )
+
+  const filtered = sources.filter(s => {
+    if (category !== 'all' && !(s.categories ?? []).includes(category)) return false
+    if (search) {
+      const q = search.toLowerCase()
+      if (!s.name.toLowerCase().includes(q) && !s.description.toLowerCase().includes(q) &&
+          !(s.categories ?? []).some(c => c.toLowerCase().includes(q))) return false
+    }
+    return true
+  })
+
+  return (
+    <>
+      <div className="space-y-2 px-4 py-3">
+        <input
+          type="search"
+          placeholder="Search Claude skills, plugins, MCP servers, tools…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-white/20"
+        />
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
+          {['all', ...categories].map(c => (
+            <button key={c} type="button" onClick={() => setCategory(c)}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${category === c ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+              {c === 'all' ? 'All' : c}
+            </button>
+          ))}
+        </div>
+        <span className="text-[10px] text-gray-600">{filtered.length} of {sources.length} entries</span>
+      </div>
+
+      <main className="px-4 pb-8 max-w-6xl mx-auto">
+        {loading ? (
+          <div className="flex h-40 items-center justify-center">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-transparent border-t-fuchsia-400" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <p className="py-12 text-center text-sm text-gray-600">No entries match your search.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {filtered.map(s => {
+              const isInstalled = installed.has(s.id)
+              const isBusy = actionId === s.id
+              const cmd = s.install_claude_code || s.install_command || ''
+              return (
+                <div key={s.id}
+                  className={`flex flex-col gap-2 rounded-lg border p-3 transition ${isInstalled ? 'border-emerald-800/40 bg-emerald-950/10' : 'border-white/[0.06] bg-[#080d18] hover:border-white/[0.12]'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-gray-100 leading-tight">{s.name}</p>
+                    {isInstalled && <span className="shrink-0 text-[10px] text-emerald-500">✓ installed</span>}
+                  </div>
+                  <p className="text-[11px] text-gray-500 leading-snug line-clamp-4">{s.description}</p>
+                  {s.categories && s.categories.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {s.categories.slice(0, 4).map(c => (
+                        <span key={c} className="rounded bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-gray-600">#{c}</span>
+                      ))}
+                    </div>
+                  )}
+                  {cmd && (
+                    <button type="button" onClick={() => copy(s.id, cmd)}
+                      title="Copy install command"
+                      className="rounded border border-white/[0.08] bg-black/30 px-2 py-1 text-left font-mono text-[10px] text-gray-400 hover:border-white/20 truncate">
+                      {copied === s.id ? '✓ copied' : `$ ${cmd}`}
+                    </button>
+                  )}
+                  <div className="mt-auto flex gap-1.5">
+                    <button type="button" onClick={() => toggle(s.id, isInstalled)} disabled={isBusy}
+                      className={`flex-1 rounded border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                        isInstalled
+                          ? 'border-red-800/50 bg-red-950/30 text-red-400 hover:bg-red-900/40'
+                          : 'border-sky-800/50 bg-sky-950/30 text-sky-300 hover:bg-sky-900/40'
+                      }`}>
+                      {isBusy ? '…' : isInstalled ? 'Mark not installed' : 'Mark installed'}
+                    </button>
+                    {s.url && (
+                      <a href={s.url} target="_blank" rel="noopener noreferrer"
+                        className="rounded border border-white/[0.08] px-3 py-1.5 text-center text-xs font-medium text-gray-400 hover:border-white/20 hover:text-white">
+                        Open ↗
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </main>
+    </>
   )
 }
 

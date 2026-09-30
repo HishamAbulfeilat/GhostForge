@@ -49,14 +49,19 @@ export function submittedToday(ap: AutopilotSettings, now = Date.now()): number 
   return ap.submittedByDay?.[dayKey(now)] ?? 0
 }
 
-async function record(username: string, ap: AutopilotSettings, now: number, result: string, submitted = 0) {
+async function record(username: string, now: number, result: string, submitted = 0) {
   const today = dayKey(now)
-  const byDay = { ...(ap.submittedByDay || {}) }
+  // Re-read the CURRENT settings rather than an at-start snapshot, and patch only
+  // the run-result fields. Otherwise a run that started minutes ago would write a
+  // stale `enabled`/`dailyLimit` back over a change the user just made (e.g. they
+  // turned autopilot off mid-run). saveProfile merges onto the fresh profile.
+  const current = await getProfile(username)
+  const byDay = { ...(current.autopilot.submittedByDay || {}) }
   if (submitted) byDay[today] = (byDay[today] || 0) + submitted
   // Keep two weeks of history
   const keep = Object.keys(byDay).sort().slice(-14)
   await saveProfile(username, {
-    autopilot: { ...ap, lastRunAt: new Date(now).toISOString(), lastResult: result, submittedByDay: Object.fromEntries(keep.map(k => [k, byDay[k]])) },
+    autopilot: { lastRunAt: new Date(now).toISOString(), lastResult: result, submittedByDay: Object.fromEntries(keep.map(k => [k, byDay[k]])) },
   })
 }
 
@@ -78,12 +83,12 @@ export async function runAutopilot(
   const missing = missingApplicantFields(profile)
   if (missing.length) {
     const reason = `Waiting for your ${missing.join(', ')}`
-    await record(username, ap, now, reason)
+    await record(username, now, reason)
     return { ran: false, reason }
   }
   if (!profile.preferences.titles.length) {
     const reason = 'Add at least one target role'
-    await record(username, ap, now, reason)
+    await record(username, now, reason)
     return { ran: false, reason }
   }
 
@@ -91,6 +96,18 @@ export async function runAutopilot(
   const approve = opts.approve ?? approveJob
   const remaining = Math.max(0, ap.dailyLimit - submittedToday(ap, now))
 
+  try {
+    return await runPass()
+  } catch (e) {
+    // A thrown search/prepare/approve must still be recorded, or lastRunAt never
+    // advances and the scheduler retries every 10 minutes forever.
+    const reason = `Autopilot run failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 150)}`
+    await record(username, now, reason)
+    void auditLog({ level: 'warn', event: 'job_autopilot_error', params: { username, error: reason } })
+    return { ran: false, reason }
+  }
+
+  async function runPass(): Promise<AutopilotReport> {
   const search = await runSearch(username, { autoPrepare: Math.min(5, remaining + 2), generate })
 
   const eligible = (j: { fit: string; score: number; ats: string }) =>
@@ -110,11 +127,13 @@ export async function runAutopilot(
   }
 
   let submitted = 0, needsUser = 0, failed = 0
+  let queueLen = 0
   if (remaining > 0) {
     const queue = (await listJobs(username))
       .filter(j => j.status === 'ready' && eligible(j))
       .sort((a, b) => b.score - a.score)
       .slice(0, remaining)
+    queueLen = queue.length
     for (const j of queue) {
       try {
         const r = await approve(username, j.id, { headless: true, by: 'autopilot' })
@@ -127,15 +146,22 @@ export async function runAutopilot(
     }
   }
 
+  // Explain the common "autopilot ran but applied to nothing" case: the no-key
+  // sources (Remotive/RemoteOK/etc.) aren't auto-submittable, so without company
+  // boards there is nothing eligible.
+  const hint = remaining > 0 && queueLen === 0 && submitted === 0
+    ? ' No auto-submittable matches (Lever/Greenhouse/Ashby) — add company boards under Preferences → Companies to widen autopilot.'
+    : ''
   const result = remaining === 0
     ? `Daily limit reached (${ap.dailyLimit}). Found ${search.found}, prepared ${prepared}.`
-    : `Found ${search.found}, ${search.matched} in your locations. Prepared ${prepared}, submitted ${submitted}${needsUser ? `, ${needsUser} need you` : ''}${failed ? `, ${failed} failed` : ''}.`
-  await record(username, ap, now, result, submitted)
+    : `Found ${search.found}, ${search.matched} in your locations. Prepared ${prepared}, submitted ${submitted}${needsUser ? `, ${needsUser} need you` : ''}${failed ? `, ${failed} failed` : ''}.${hint}`
+  await record(username, now, result, submitted)
   void auditLog({ level: 'info', event: 'job_autopilot_run', params: { username, found: search.found, matched: search.matched, prepared, submitted, needsUser, failed } })
 
   return {
     ran: true, found: search.found, matched: search.matched, prepared, submitted, needsUser, failed,
     remainingToday: Math.max(0, remaining - submitted),
+  }
   }
 }
 
