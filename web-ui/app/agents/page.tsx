@@ -15,15 +15,54 @@ type Snapshot = {
   running: boolean
   agents: Record<string, Agent>
   tasks: Task[]
-  messages: Array<{ ts?: string; from?: string; to?: string; text?: string }>
+  messages: Array<Record<string, unknown>>
   phase: number
+}
+
+type DisplayMessage = {
+  from: string
+  to: string
+  timestamp: string
+  datetime: string | undefined
+  text: string
+}
+
+function normalizeMessages(value: unknown): DisplayMessage[] {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return []
+    const record = entry as Record<string, unknown>
+    if (typeof record.text !== 'string' || !record.text.trim()) return []
+
+    const rawTimestamp = record.ts
+    let timestamp = 'Unknown time'
+    let datetime: string | undefined
+    if (typeof rawTimestamp === 'string' || typeof rawTimestamp === 'number') {
+      const date = new Date(rawTimestamp)
+      if (!Number.isNaN(date.getTime())) {
+        timestamp = date.toLocaleString()
+        datetime = date.toISOString()
+      }
+    }
+
+    return [{
+      from: typeof record.from === 'string' && record.from.trim() ? record.from : 'Unknown sender',
+      to: typeof record.to === 'string' && record.to.trim() ? record.to : 'Unknown recipient',
+      timestamp,
+      datetime,
+      text: record.text.trim(),
+    }]
+  })
 }
 
 async function request<T>(init?: RequestInit): Promise<T> {
   const response = await fetch('/api/agents', init)
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(typeof data?.error === 'string' ? data.error : `Request failed (${response.status})`)
-  return data as T
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    throw new Error(typeof data?.error === 'string' ? data.error : `Request failed (${response.status})`)
+  }
+  return response.json() as Promise<T>
 }
 
 const action = (payload: Record<string, unknown>): RequestInit => ({
@@ -95,6 +134,8 @@ export default function AgentsPage() {
     setTitle('')
   }
 
+  const displayMessages = normalizeMessages(snapshot?.messages)
+
   return (
     <main className="min-h-[calc(100dvh-64px)] bg-gf-bg px-4 py-6 font-plex text-gf-ink lg:px-8">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -147,6 +188,23 @@ export default function AgentsPage() {
                   <div className="flex flex-col gap-2 sm:flex-row"><label className="sr-only" htmlFor="agent-task">Task title</label><input id="agent-task" value={title} onChange={event => setTitle(event.target.value)} placeholder="Add a task…" className="min-h-10 min-w-0 flex-1 rounded-lg border border-gf-line2 bg-gf-bar px-3 text-sm outline-none focus:border-gf-accent" /><select aria-label="Task kind" value={kind} onChange={event => setKind(event.target.value)} className="min-h-10 rounded-lg border border-gf-line2 bg-gf-bar px-2 text-sm">{['feature', 'bugfix', 'security', 'performance', 'refactor', 'test', 'docs', 'chore'].map(value => <option key={value} value={value}>{value}</option>)}</select><button type="button" disabled={busy !== null} onClick={() => void addTask()} className="min-h-10 rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent disabled:opacity-50">Add</button></div>
                 </div>
               </div>
+            </section>
+
+            <section aria-labelledby="messages-heading">
+              <h2 id="messages-heading" className="mb-3 font-display text-lg font-semibold">Messages</h2>
+              {displayMessages.length ? (
+                <ol className="flex flex-col gap-2">
+                  {displayMessages.map(teamMessage => (
+                    <li key={`${teamMessage.timestamp}-${teamMessage.from}-${teamMessage.to}-${teamMessage.text}`} className="rounded-xl border border-gf-line bg-gf-surface p-3">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-gf-muted">
+                        <span className="min-w-0 truncate"><span className="font-semibold text-gf-ink">{teamMessage.from}</span> <span aria-hidden="true">→</span> <span className="font-semibold text-gf-ink">{teamMessage.to}</span></span>
+                        <time dateTime={teamMessage.datetime}>{teamMessage.timestamp}</time>
+                      </div>
+                      <p className="mt-2 break-words text-sm text-gf-ink">{teamMessage.text}</p>
+                    </li>
+                  ))}
+                </ol>
+              ) : <p className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">No team messages yet.</p>}
             </section>
           </>
         )}
