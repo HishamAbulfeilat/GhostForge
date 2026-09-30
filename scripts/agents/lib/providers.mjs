@@ -15,7 +15,7 @@ export const PROVIDERS = {
       ...(model && model !== 'auto' ? ['--model', model] : []),
       ...(mode === 'readonly'
         ? ['--permission-mode', 'plan']
-        : ['--permission-mode', 'bypassPermissions', '--disallowedTools', 'Bash(git push:*)', 'Bash(gh pr merge:*)', 'Bash(git rebase:*)']),
+        : ['--permission-mode', 'bypassPermissions', '--disallowedTools', 'Bash(git push:*)', 'Bash(gh pr merge:*)']),
     ],
   }),
 
@@ -27,7 +27,7 @@ export const PROVIDERS = {
       '--no-color',
       ...(mode === 'readonly'
         ? ['--allow-tool', 'read', '--deny-tool', 'write', '--deny-tool', 'shell']
-        : ['--allow-all-tools', '--deny-tool', 'shell(git push)', '--deny-tool', 'shell(gh pr merge)', '--deny-tool', 'shell(git rebase)']),
+        : ['--allow-all-tools', '--deny-tool', 'shell(git push)', '--deny-tool', 'shell(gh pr merge)']),
     ],
   }),
 

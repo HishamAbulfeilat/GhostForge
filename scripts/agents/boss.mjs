@@ -113,6 +113,14 @@ function fill(template, vars) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '')
 }
 
+/** Stage a runtime prompt in the checkout that will execute it. */
+export function stagePrompt(worktree, category, name, content) {
+  const file = path.join(worktree, '.agent-sync', 'state', category, name)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, content)
+  return file
+}
+
 class Boss {
   constructor() {
     this.cfg = readJSON(path.join(ROOT, '.agent-sync', 'team.json'), null)
@@ -276,19 +284,19 @@ class Boss {
       const route = routeModel(a.provider, task, this.cfg.models)
       Object.assign(st, { state: 'working', task: task.id, model: route.model, since: new Date().toISOString() })
 
-      const taskFile = path.join(this.dir, 'tasks', `${task.id}-${agentId}.md`)
-      fs.writeFileSync(taskFile, fill(this.template, {
+      const taskContent = fill(this.template, {
         AGENT: agentId, BRANCH: a.branch, TASK_ID: task.id, KIND: route.kind, TITLE: task.title,
         AREA: task.area.length ? task.area.map(p => `\`${p}\``).join(', ') : '(whole repo)',
         NOTES: task.notes || '—', ATTEMPT: String((task.attempts ?? 0) + 1), MAX_ATTEMPTS: String(this.cfg.maxAttempts),
         FAILURE: task.lastFailure ? `## The previous attempt was rejected\n\n\`\`\`\n${task.lastFailure}\n\`\`\`\n\nFix the cause this time.` : '',
         OTHERS: this.othersText(this.board(), agentId), INBOX: this.inboxText(agentId),
-      }))
+      })
+      stagePrompt(wt, 'tasks', `${task.id}-${agentId}.md`, taskContent)
       this.log(`${agentId} ← ${task.id} [${route.kind} → ${route.model}] ${task.title}`)
 
       const run = await this.runAgent({
         provider: a.provider, model: route.model, mode: 'work', cwd: wt,
-        prompt: `Read the file ${taskFile.replace(/\\/g, '/')} and follow its instructions exactly. Work in the current directory.`,
+        prompt: `Read the file .agent-sync/state/tasks/${task.id}-${agentId}.md and follow its instructions exactly. Work in the current directory.`,
         logFile: path.join(this.dir, 'logs', `${agentId}.log`),
         env: { GF_AGENT: agentId }, timeoutMs: this.cfg.taskTimeoutMinutes * 60_000,
       })
@@ -340,7 +348,7 @@ class Boss {
   async readonlyRun(file, logName, timeoutMs) {
     return this.runAgent({
       provider: this.cfg.boss.provider, model: this.cfg.boss.model, mode: 'readonly', cwd: this.intWt,
-      prompt: `Read the file ${file.replace(/\\/g, '/')} and follow its instructions exactly.`,
+      prompt: `Read the file .agent-sync/state/${path.relative(path.join(this.intWt, '.agent-sync', 'state'), file).replace(/\\/g, '/')} and follow its instructions exactly.`,
       logFile: path.join(this.dir, 'logs', logName), timeoutMs,
     })
   }
@@ -349,15 +357,15 @@ class Boss {
     if (!this.cfg.boss.review) return { approve: true }
     const stat = git(ROOT, 'diff', '--stat', `${base}..${head}`)
     const diff = git(ROOT, 'diff', `${base}..${head}`)
-    const file = path.join(this.dir, 'reviews', `${task.id}.md`)
-    fs.writeFileSync(file, [
+    const content = [
       'You are the lead reviewer ("boss") of an autonomous agent team on the GhostForge repo.',
       `Review ${agentId}'s change for task ${task.id}: **${task.title}** (area: ${task.area.join(', ') || 'whole repo'}).`,
       'Approve unless it is wrong, incomplete, unsafe, breaks the rules in AGENTS.md, or edits files far outside its area.',
       'Do not nitpick style. Read surrounding code in this checkout if you need context. Do not modify anything.',
       '', '## Diff stat', '```', stat, '```', '', '## Diff', '```diff', diff.slice(0, 80_000), '```', '',
       'Reply with your reasoning, then a final line of JSON only: {"approve": true|false, "issues": ["…"]}',
-    ].join('\n'))
+    ].join('\n')
+    const file = stagePrompt(this.intWt, 'reviews', `${task.id}.md`, content)
     const run = await this.readonlyRun(file, 'boss-review.log', 20 * 60_000)
     const verdict = lastJSON(run.output)
     if (!verdict || typeof verdict.approve !== 'boolean') {
@@ -406,8 +414,7 @@ class Boss {
     const done = board.tasks.filter(t => t.status === 'done').slice(-40).map(t => `- ${t.id} ${t.title}`).join('\n') || '(none yet)'
     const blocked = board.tasks.filter(t => t.status === 'blocked').map(t => `- ${t.id} ${t.title}: ${tail(t.lastFailure ?? '', 200)}`).join('\n') || '(none)'
     const toBoss = readMessages(this.dir, { to: 'boss', limit: 20 }).filter(m => m.from !== 'boss').map(m => `- ${m.from}: ${m.text}`).join('\n') || '(none)'
-    const file = path.join(this.dir, 'reviews', `plan-phase${board.phase}.md`)
-    fs.writeFileSync(file, [
+    const content = [
       `You are the lead ("boss") of an autonomous agent team (${this.agents.map(([id]) => id).join(', ')}) improving the GhostForge repo.`,
       `Phase ${board.phase} goal: ${PHASE_GOALS[board.phase] ?? PHASE_GOALS[3]}`,
       `Health score: ${report.score}/100 (all checks pass).`,
@@ -417,7 +424,8 @@ class Boss {
       'so agents can work in parallel. If the phase goal is genuinely achieved, set "phaseComplete": true (tasks may be empty).',
       '',
       'End with one line of JSON only: {"phaseComplete": false, "tasks": [{"title": "…", "kind": "feature|bugfix|test|refactor|docs|security|chore", "area": ["path/"], "agent": "any|claude|copilot", "notes": "…"}]}',
-    ].join('\n'))
+    ].join('\n')
+    const file = stagePrompt(this.intWt, 'reviews', `plan-phase${board.phase}.md`, content)
     const run = await this.readonlyRun(file, 'boss-plan.log', 30 * 60_000)
     return lastJSON(run.output)
   }
