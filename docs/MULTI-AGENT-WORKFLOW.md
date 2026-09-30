@@ -101,6 +101,15 @@ loop:
 - **Copilot CLI:** a shell wrapper, e.g.
   `while :; do copilot -p "$(cat prompts/multi-agent-kickoff.md)"; sleep 5; done`.
 
+### Running with only one agent
+
+If one provider is unavailable — most commonly Claude Code hitting its
+usage/token limit — don't stop the team, run solo: `scripts/start-agents-interactive.sh`
+asks which agent(s) to start (`--mode both|claude|copilot` to skip the prompt).
+Solo mode uses `prompts/copilot-solo-kickoff.md` or `prompts/claude-solo-kickoff.md`,
+which let the lone agent claim tasks tagged for the missing one and note that in
+`MESSAGES.md` so the other agent doesn't redo them once it's back.
+
 ## Guardrails
 
 - One agent, one task in-progress at a time (claim before work).
