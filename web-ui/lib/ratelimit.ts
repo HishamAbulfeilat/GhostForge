@@ -10,14 +10,16 @@ interface RateWindow {
 
 const store = new Map<string, RateWindow>()
 
-// Cleanup old entries every 5 minutes
-setInterval(() => {
+// Cleanup old entries every 5 minutes. unref() so this timer never keeps the
+// Node process (or the `node --test` runner) alive on its own.
+const cleanupInterval = setInterval(() => {
   const now = Date.now()
   for (const [key, window] of store.entries()) {
     window.timestamps = window.timestamps.filter(t => now - t < 60_000)
     if (window.timestamps.length === 0) store.delete(key)
   }
 }, 5 * 60_000)
+cleanupInterval.unref?.()
 
 export interface RateLimitResult {
   allowed: boolean
