@@ -22,6 +22,7 @@ import { applyEffectiveMarketplaceState } from './lib/marketplace-state.js';
 import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP } from './lib/platform-utils.js';
 import { askGFAI } from './lib/gfai-client.js';
 import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
+import { runTeamCommand, startAgentTeam } from './lib/agent-team.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -39,6 +40,69 @@ const cliArgs = process.argv.slice(2);
 if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
   console.log(VERSION);
   process.exit(0);
+}
+
+async function screenAgentTeam() {
+  while (true) {
+    sectionHeader('Agent Team', 'Control the local boss and coordinate workers');
+    const action = await select({
+      message: 'Agent-team action:',
+      choices: [
+        { name: '📊  Status — board, agents, health', value: 'status' },
+        { name: '▶️   Start boss — launch the local orchestrator', value: 'start' },
+        { name: '⏹️   Stop boss — finish in-flight work, then stop', value: 'stop' },
+        { name: '💬  Messages — view inbox or send a message', value: 'messages' },
+        { name: '➕  Add task — queue work for the boss', value: 'add' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (action === '__back__') return;
+
+    let result;
+    if (action === 'start') {
+      result = startAgentTeam();
+    } else if (action === 'status' || action === 'stop') {
+      result = runTeamCommand(action);
+    } else if (action === 'messages') {
+      const messageAction = await select({
+        message: 'Message action:',
+        choices: [
+          { name: '📥  Inbox — recent team messages', value: 'inbox' },
+          { name: '📤  Send — message an agent or the boss', value: 'send' },
+          { name: T.muted('← Back'), value: '__back__' },
+        ],
+      });
+      if (messageAction === '__back__') continue;
+      if (messageAction === 'inbox') {
+        result = runTeamCommand('inbox', ['--for', 'copilot-web', '--limit', '30']);
+      } else {
+        const to = await input({ message: 'Recipient (agent, all, or boss):', default: 'all' });
+        const text = await input({ message: 'Message:' });
+        if (!to.trim() || !text.trim()) {
+          result = { ok: false, output: 'Recipient and message are required.' };
+        } else {
+          result = runTeamCommand('say', ['--from', 'copilot-web', '--to', to.trim(), text.trim()]);
+        }
+      }
+    } else if (action === 'add') {
+      const title = await input({ message: 'Task title:' });
+      if (!title.trim()) {
+        result = { ok: false, output: 'Task title is required.' };
+      } else {
+        const kind = await input({ message: 'Kind:', default: 'feature' });
+        const area = await input({ message: 'Areas (comma-separated):', default: 'tui' });
+        result = runTeamCommand('add', [
+          title.trim(),
+          '--kind', kind.trim() || 'feature',
+          '--area', area.trim() || 'tui',
+          '--from', 'copilot-web',
+        ]);
+      }
+    }
+
+    console.log(result.ok ? T.success(`\n  ✔  ${result.output}`) : T.warning(`\n  ⚠  ${result.output}`));
+    await pressEnter();
+  }
 }
 
 if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
@@ -384,6 +448,7 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '📜  /changelog-view',           'browse CHANGELOG', 'changelog-view'),
       menuChoice(T.accent.bold,  '⚡  Run a Command',             'search or browse slash commands by category', 'commands'),
       menuChoice(T.success.bold, '🤖  Switch Agent / Role',       'activate a specialized AI agent', 'agents'),
+      menuChoice(T.success.bold, '👥  Agent Team',                'status, boss controls, messages, and tasks', 'agent-team'),
       menuChoice(T.warning.bold, '📚  Browse Instructions',       'view knowledge base / docs', 'instructions'),
       menuChoice(T.accent.bold,  '📋  Snippet Library',           'browse & copy ready-made code snippets', 'snippets'),
       menuChoice(T.white.bold,   '🔍  Bundle Analyzer',           'size, heavy deps, lazy-loading tips', 'bundle'),
@@ -6591,6 +6656,7 @@ async function main() {
         case 'changelog-view': await screenChangelogViewer(); break;
         case 'commands':     await screenCommands(); break;
         case 'agents':       await screenAgents(); break;
+        case 'agent-team':   await screenAgentTeam(); break;
         case 'instructions': await screenInstructions(); break;
         case 'tickets':      await screenTickets(); break;
         case 'security':     await screenSecurity(); break;
