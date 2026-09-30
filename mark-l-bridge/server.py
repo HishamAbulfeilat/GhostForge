@@ -11,6 +11,8 @@ import hmac
 import logging
 import os
 import secrets
+import shutil
+import subprocess
 import sys
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -352,6 +354,16 @@ try:
 except Exception as e:
     _stub("ai_unified", e)
     _HAS_AI_UNIFIED = False
+
+# --- OpenJarvis (opt-in, Apache-2.0) -----------------------------------------
+# OpenJarvis (https://github.com/open-jarvis/OpenJarvis) ships as a `jarvis`
+# CLI + local agent runtime rather than an importable pip package, so the
+# bridge shells out to the CLI when it is present on PATH. Not vendored; see
+# marketplace/catalog.json ("openjarvis") for the installer.
+_OPENJARVIS_BIN = shutil.which("jarvis")
+_HAS_OPENJARVIS = _OPENJARVIS_BIN is not None
+if not _HAS_OPENJARVIS:
+    _stub("openjarvis", FileNotFoundError("`jarvis` CLI not found on PATH"))
 
 # ---------------------------------------------------------------------------
 # FastAPI app
@@ -738,6 +750,25 @@ def _require_module(name: str, available: bool):
         raise _err(f"{name} is not installed or available", status=503)
 
 
+def _run_openjarvis_cli(*args: str, timeout_s: int = 60) -> str:
+    """Run the `jarvis` CLI with a fixed argv (never shell=True) and return
+    its stdout. Raises on a non-zero exit or missing binary."""
+    if not _OPENJARVIS_BIN:
+        raise RuntimeError("openjarvis CLI is not installed")
+    proc = subprocess.run(
+        [_OPENJARVIS_BIN, *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout_s,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"jarvis {' '.join(args)} exited {proc.returncode}: {proc.stderr.strip()}"
+        )
+    return proc.stdout.strip()
+
+
 # ---------------------------------------------------------------------------
 # Original Endpoints
 # ---------------------------------------------------------------------------
@@ -758,6 +789,7 @@ def health():
             "browser": _HAS_AI_BROWSER,
             "models": _HAS_AI_MODELS,
             "unified": _HAS_AI_UNIFIED,
+            "openjarvis": _HAS_OPENJARVIS,
         },
     }
 
@@ -1362,6 +1394,51 @@ def mark_liv_run(req: MarkLivRunRequest):
     except Exception as exc:
         logger.exception("mark-liv %s failed", req.name)
         return _ok({"tool": req.name, "result": f"{req.name} failed: {exc}", "error": True})
+
+
+# ---------------------------------------------------------------------------
+# OpenJarvis (opt-in local-first agent framework, Apache-2.0)
+#
+# Not vendored and not pip-importable — it ships as the `jarvis` CLI (see
+# marketplace/catalog.json "openjarvis" for the installer). The bridge shells
+# out to that CLI with a fixed argv list (never shell=True) so there is no
+# command-injection surface, and returns a clear 503 stub when it isn't
+# installed.
+# ---------------------------------------------------------------------------
+
+
+class OpenJarvisAskRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=4000)
+    timeout_s: int = Field(default=60, ge=1, le=300)
+
+
+@app.get("/api/openjarvis/health", dependencies=[Depends(require_token)])
+def openjarvis_health():
+    return _ok(
+        {
+            "installed": _HAS_OPENJARVIS,
+            "binary": _OPENJARVIS_BIN,
+        }
+    )
+
+
+@app.get("/api/openjarvis/doctor", dependencies=[Depends(require_token)])
+def openjarvis_doctor():
+    _require_module("openjarvis", _HAS_OPENJARVIS)
+    return _safe_call(_run_openjarvis_cli, "doctor", timeout_s=30)
+
+
+@app.post("/api/openjarvis/ask", dependencies=[Depends(require_token)])
+def openjarvis_ask(req: OpenJarvisAskRequest):
+    _require_module("openjarvis", _HAS_OPENJARVIS)
+    try:
+        response = _run_openjarvis_cli("ask", req.prompt, timeout_s=req.timeout_s)
+        return _ok({"response": response})
+    except subprocess.TimeoutExpired:
+        raise _err("openjarvis ask timed out", status=504)
+    except Exception:
+        logger.exception("openjarvis ask failed")
+        raise _err("openjarvis ask failed: internal error")
 
 
 # ---------------------------------------------------------------------------
