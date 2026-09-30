@@ -12,7 +12,7 @@ When VS Code starts an MCP server, Copilot can call its registered tools on dema
 - `get_tickets(provider, repo, owner)`
 - `fix_ticket(provider, repo, owner, issueNumber, projectPath?)`
 - `list_models(tier?)`
-- `get_best_model(taskType)`
+- `get_best_model(taskType = "auto", description?)` — `auto` classifies the description (security → deep, feature → balanced, docs/chores → fast, SQL → sql)
 - `security_scan(projectPath)`
 - `list_snippets()`
 - `get_snippet(name)`
