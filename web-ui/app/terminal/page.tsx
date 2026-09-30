@@ -56,9 +56,12 @@ function TabTerminal({ tabId, active, sendRefs, reconRefs, activateRefs, onStatu
   activateRefs: React.MutableRefObject<Map<string, () => void>>
   onStatusChange: (s: ConnStatus) => void
 }) {
-  const sendRef = useRef(makeMapRef(sendRefs, tabId))
-  const recoRef = useRef(makeMapRef(reconRefs, tabId))
-  const actRef  = useRef(makeMapRef(activateRefs, tabId))
+  const sendRef = useRef<ReturnType<typeof makeMapRef<(cmd: string) => void>> | null>(null)
+  if (sendRef.current === null) sendRef.current = makeMapRef(sendRefs, tabId)
+  const recoRef = useRef<ReturnType<typeof makeMapRef<() => void>> | null>(null)
+  if (recoRef.current === null) recoRef.current = makeMapRef(reconRefs, tabId)
+  const actRef  = useRef<ReturnType<typeof makeMapRef<() => void>> | null>(null)
+  if (actRef.current === null) actRef.current = makeMapRef(activateRefs, tabId)
 
   // When this tab becomes visible, re-fit + focus the terminal
   useEffect(() => {

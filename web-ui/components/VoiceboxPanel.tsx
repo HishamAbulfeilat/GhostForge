@@ -151,8 +151,15 @@ export default function VoiceboxPanel({ ringColor = '#1a6fff', onVoiceSelected }
         const blob = new Blob([result.audio], { type: 'audio/wav' })
         const url = URL.createObjectURL(blob)
         const audio = new Audio(url)
-        audio.onended = () => URL.revokeObjectURL(url)
-        await audio.play()
+        const revoke = () => URL.revokeObjectURL(url)
+        audio.onended = revoke
+        audio.onerror = revoke
+        try {
+          await audio.play()
+        } catch (playErr) {
+          revoke()
+          throw playErr
+        }
       } else {
         const res = await fetch('http://127.0.0.1:17493/generate', {
           method: 'POST',
@@ -164,8 +171,15 @@ export default function VoiceboxPanel({ ringColor = '#1a6fff', onVoiceSelected }
           const blob = await res.blob()
           const url = URL.createObjectURL(blob)
           const audio = new Audio(url)
-          audio.onended = () => URL.revokeObjectURL(url)
-          await audio.play()
+          const revoke = () => URL.revokeObjectURL(url)
+          audio.onended = revoke
+          audio.onerror = revoke
+          try {
+            await audio.play()
+          } catch (playErr) {
+            revoke()
+            throw playErr
+          }
         }
       }
     } catch { /* playback failed */ }
