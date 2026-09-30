@@ -248,7 +248,7 @@ export default function FeaturesPage() {
                     `}
                   >
                     {isRunning && (
-                      <div className="absolute right-2 top-2">
+                      <div className="absolute end-2 top-2">
                         <div className="h-3 w-3 animate-spin rounded-full border-2 border-transparent" style={{ borderTopColor: group.accent }} />
                       </div>
                     )}

@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-# Interactive launcher for the GhostForge multi-agent workflow. Asks which
-# agent(s) to run before starting anything — handy when one provider (e.g.
-# Claude Code) has hit its usage/token limit and you want to keep the team
-# moving with just the other one, instead of both.
-#
-# This is a copy of scripts/start-agents.sh with a mode picker in front of it;
-# see that script for the plain "always run both" version. Same protocol:
-# docs/MULTI-AGENT-WORKFLOW.md   Rules: AGENTS.md
+# Start the team with an explicit provider selection when one CLI is unavailable.
 #
 # Usage:
 #   scripts/start-agents-interactive.sh              # interactive picker
@@ -33,7 +26,7 @@ KICKOFF_CLAUDE_SOLO="$REPO_ROOT/prompts/claude-solo-kickoff.md"
 # agent to run itself (main is branch-protected anyway, but belt + suspenders).
 COPILOT_FLAGS="--allow-all-tools --deny-tool 'shell(git push --force*)' --deny-tool 'shell(git push origin main)' --deny-tool 'shell(git push origin main:*)' --deny-tool 'shell(gh pr merge)'"
 
-MODE=""
+MODE=
 SETUP_ONLY=0
 LOOP=1
 INSTALL_ECC=1
@@ -86,42 +79,38 @@ if [ -z "$MODE" ]; then
 fi
 
 case "$MODE" in
-  both|claude|copilot) ;;
-  *) warn "invalid --mode '$MODE' (expected both|claude|copilot)"; exit 2 ;;
+  ''|both|claude|copilot) ;;
+  *) echo "mode must be both, claude, or copilot" >&2; exit 2 ;;
 esac
 
-if [ "$MODE" = both ] || [ "$MODE" = claude ]; then
-  [ "$HAVE_CLAUDE" = 1 ] || { warn "Claude Code is required for mode '$MODE' but isn't installed."; exit 1; }
-fi
-if [ "$MODE" = both ] || [ "$MODE" = copilot ]; then
-  [ "$HAVE_COPILOT" = 1 ] || { warn "Copilot CLI is required for mode '$MODE' but isn't installed."; exit 1; }
-fi
-
-info "Mode: $MODE"
-
-# ── Sync main ────────────────────────────────────────────────────────────────
-info "Fetching latest main…"
-git -C "$REPO_ROOT" fetch origin main --quiet || warn "fetch failed (offline?) — continuing"
-
-# ── Copilot worktree (separate working dir avoids file collisions) ───────────
-if [ "$MODE" = both ] || [ "$MODE" = copilot ]; then
-  if [ ! -d "$COPILOT_WORKTREE" ]; then
-    info "Creating Copilot worktree at $COPILOT_WORKTREE (branch $COPILOT_BRANCH)…"
-    git -C "$REPO_ROOT" worktree add "$COPILOT_WORKTREE" -B "$COPILOT_BRANCH" origin/main >/dev/null
+if [ -z "$MODE" ]; then
+  if command -v claude >/dev/null && command -v copilot >/dev/null; then
+    MODE=both
+  elif command -v copilot >/dev/null; then
+    MODE=copilot
+  elif command -v claude >/dev/null; then
+    MODE=claude
   else
-    info "Copilot worktree already exists: $COPILOT_WORKTREE"
+    echo "Neither claude nor copilot is installed." >&2
+    exit 1
   fi
 fi
 
-if [ "$SETUP_ONLY" = 1 ]; then
-  info "Setup complete."
-  [ "$MODE" = both ] || [ "$MODE" = claude ] && info "Claude dir: $REPO_ROOT"
-  [ "$MODE" = both ] || [ "$MODE" = copilot ] && info "Copilot dir: $COPILOT_WORKTREE"
-  exit 0
+command -v git >/dev/null || { echo "git not found" >&2; exit 1; }
+git -C "$REPO_ROOT" fetch origin main --quiet || true
+
+if [ ! -d "$COPILOT_WORKTREE" ]; then
+  git -C "$REPO_ROOT" worktree add "$COPILOT_WORKTREE" -B "$COPILOT_BRANCH" origin/main >/dev/null
 fi
 
-# ── Build the command(s) for the chosen mode ─────────────────────────────────
+[ "$SETUP_ONLY" = 1 ] && exit 0
+
+CLAUDE_CMD="cd '$REPO_ROOT' && claude '/team start'"
+COPILOT_CMD="cd '$COPILOT_WORKTREE' && copilot -p \"\$(cat '$KICKOFF')\""
+
 case "$MODE" in
+  claude) exec bash -lc "$CLAUDE_CMD" ;;
+  copilot) exec bash -lc "$COPILOT_CMD" ;;
   both)
     CLAUDE_CMD="cd '$REPO_ROOT' && claude '/team start'"
     if [ "$LOOP" = 1 ]; then
@@ -141,36 +130,6 @@ case "$MODE" in
     else
       COPILOT_CMD="cd '$COPILOT_WORKTREE' && copilot -p \"\$(cat '$KICKOFF_COPILOT_SOLO')\" $COPILOT_FLAGS"
     fi
+    printf '\nTerminal 1: %s\nTerminal 2: %s\n' "$CLAUDE_CMD" "$COPILOT_CMD"
     ;;
 esac
-
-# ── Launch: tmux split for "both", else run/print the single command ────────
-if [ "$MODE" = both ]; then
-  if command -v tmux >/dev/null && [ -z "${TMUX:-}" ]; then
-    info "Launching both agents in a tmux session 'gf-agents' (Ctrl-b then arrows to switch, Ctrl-b d to detach)…"
-    tmux new-session -d -s gf-agents -n agents "$CLAUDE_CMD"
-    tmux split-window -h -t gf-agents "$COPILOT_CMD"
-    tmux select-layout -t gf-agents even-horizontal
-    exec tmux attach -t gf-agents
-  else
-    cat <<EOF
-
-  tmux not available (or already inside tmux). Start the agents in two terminals:
-
-  ── Terminal 1 — Claude Code ──────────────────────────────────────────────
-    $CLAUDE_CMD
-
-  ── Terminal 2 — GitHub Copilot CLI ───────────────────────────────────────
-    $COPILOT_CMD
-
-  They coordinate through .agent-sync/BOARD.md + MESSAGES.md.
-  Tip: pre-approve Copilot's tools (copilot → /allow) so it doesn't stop to ask.
-EOF
-  fi
-elif [ "$MODE" = claude ]; then
-  info "Starting Claude Code solo…"
-  eval "$CLAUDE_CMD"
-else
-  info "Starting Copilot CLI solo…"
-  eval "$COPILOT_CMD"
-fi

@@ -56,9 +56,12 @@ function TabTerminal({ tabId, active, sendRefs, reconRefs, activateRefs, onStatu
   activateRefs: React.MutableRefObject<Map<string, () => void>>
   onStatusChange: (s: ConnStatus) => void
 }) {
-  const sendRef = useRef(makeMapRef(sendRefs, tabId))
-  const recoRef = useRef(makeMapRef(reconRefs, tabId))
-  const actRef  = useRef(makeMapRef(activateRefs, tabId))
+  const sendRef = useRef<ReturnType<typeof makeMapRef<(cmd: string) => void>> | null>(null)
+  if (sendRef.current === null) sendRef.current = makeMapRef(sendRefs, tabId)
+  const recoRef = useRef<ReturnType<typeof makeMapRef<() => void>> | null>(null)
+  if (recoRef.current === null) recoRef.current = makeMapRef(reconRefs, tabId)
+  const actRef  = useRef<ReturnType<typeof makeMapRef<() => void>> | null>(null)
+  if (actRef.current === null) actRef.current = makeMapRef(activateRefs, tabId)
 
   // When this tab becomes visible, re-fit + focus the terminal
   useEffect(() => {
@@ -196,27 +199,33 @@ export default function TerminalPage() {
         {tabs.map(tab => {
           const s = STATUS_CONFIG[tab.status]
           return (
-            <div
-              key={tab.id}
-              className={`group flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition cursor-pointer select-none ${
-                tab.id === activeTab
-                  ? 'bg-gray-800 text-white'
-                  : 'text-gray-500 hover:bg-gray-900 hover:text-gray-300'
-              }`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${s.dot}`} />
-              <span className="font-mono whitespace-nowrap">{tab.name}</span>
+            <div key={tab.id} className="group flex items-center gap-1">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab.id === activeTab}
+                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition select-none ${
+                  tab.id === activeTab
+                    ? 'bg-gray-800 text-white'
+                    : 'text-gray-500 hover:bg-gray-900 hover:text-gray-300'
+                }`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${s.dot}`} />
+                <span className="font-mono whitespace-nowrap">{tab.name}</span>
+              </button>
               {tabs.length > 1 && (
                 <button type="button"
-                  onClick={e => { e.stopPropagation(); closeTab(tab.id) }}
-                  className="ms-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-red-400 transition"
+                  aria-label={`Close ${tab.name}`}
+                  onClick={() => closeTab(tab.id)}
+                  className="rounded opacity-0 group-hover:opacity-100 hover:text-red-400 transition"
                 >✕</button>
               )}
             </div>
           )
         })}
         <button type="button"
+          aria-label="New terminal"
           onClick={addTab}
           className="ms-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-600 hover:bg-gray-800 hover:text-white transition"
           title="New terminal"
@@ -228,8 +237,10 @@ export default function TerminalPage() {
 
         {/* Overlay backdrop on mobile */}
         {sidebarOpen && (
-          <div
+          <button
+            type="button"
             className="absolute inset-0 z-10 bg-black/60 md:hidden"
+            aria-label="Close sidebar"
             onClick={() => setSidebarOpen(false)}
           />
         )}
@@ -240,14 +251,14 @@ export default function TerminalPage() {
             absolute md:relative z-20 md:z-auto
             flex flex-col h-full
             w-64 md:w-52 shrink-0
-            overflow-y-auto border-r border-gray-800 bg-[#0a0a0f] p-2 gap-3
+            overflow-y-auto border-e border-gray-800 bg-[#0a0a0f] p-2 gap-3
             transition-transform duration-200
             ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:hidden'}
           `}
         >
           <div className="flex items-center justify-between mb-1 md:hidden">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Quick Commands</p>
-            <button type="button" onClick={() => setSidebarOpen(false)} className="rounded p-1 text-gray-500 hover:text-white transition">✕</button>
+            <button type="button" aria-label="Close sidebar" onClick={() => setSidebarOpen(false)} className="rounded p-1 text-gray-500 hover:text-white transition">✕</button>
           </div>
           <p className="hidden md:block px-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Quick Commands</p>
 

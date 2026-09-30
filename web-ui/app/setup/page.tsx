@@ -79,7 +79,7 @@ export default function SetupPage() {
   return (
     <div className="min-h-[calc(100dvh-64px)] bg-gf-bg font-plex text-gf-ink">
       <div className="mx-auto grid max-w-6xl lg:grid-cols-2">
-        <section className="flex flex-col gap-8 border-gf-line px-6 py-10 sm:px-12 lg:border-r lg:py-16">
+        <section className="flex flex-col gap-8 border-gf-line px-6 py-10 sm:px-12 lg:border-e lg:py-16">
           <ol className="flex items-center gap-2 text-sm text-gf-muted" aria-label="Setup steps">
             <li className="flex items-center gap-2 text-gf-ink">
               <span className="grid h-7 w-7 place-items-center rounded-full bg-gf-accent font-bold text-gf-bg">1</span> About you

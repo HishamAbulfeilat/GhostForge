@@ -3,10 +3,11 @@ import { spawn, ChildProcess } from 'child_process';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { net } from 'electron';
+import { getBridgeAuthHeaders, getHealthEndpoint } from './bridge-auth';
 
 const BRIDGE_PORT = 8765;
 const BRIDGE_URL = `http://localhost:${BRIDGE_PORT}`;
-const HEALTH_ENDPOINT = `${BRIDGE_URL}/api/mark-l/health`;
+const HEALTH_ENDPOINT = getHealthEndpoint(BRIDGE_URL, 'mark-l');
 const MAX_LOG_LINES = 1000;
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY = 2000;
@@ -67,7 +68,10 @@ class BridgeManager extends EventEmitter {
 
   async isPortAvailable(port: number): Promise<boolean> {
     return new Promise((resolve) => {
-      const req = net.request({ url: `http://localhost:${port}/api/mark-l/health` });
+      const req = net.request({
+        url: getHealthEndpoint(`http://localhost:${port}`, 'mark-l'),
+        headers: getBridgeAuthHeaders(),
+      });
       req.on('response', () => resolve(false));
       req.on('error', () => resolve(true));
       req.on('abort', () => resolve(true));
@@ -173,7 +177,10 @@ class BridgeManager extends EventEmitter {
     const start = Date.now();
     const attempt = () => {
       if (Date.now() - start > timeout || this.status === 'error' || this.status === 'stopped') return;
-      const req = net.request({ url: HEALTH_ENDPOINT });
+      const req = net.request({
+        url: HEALTH_ENDPOINT,
+        headers: getBridgeAuthHeaders(),
+      });
       req.on('response', (res) => {
         if (res.statusCode === 200) {
           this.appendLog('[bridge-manager] Health check passed — bridge is running.');

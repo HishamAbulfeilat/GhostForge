@@ -1,0 +1,11 @@
+{
+  "name": "reviewer-heavy",
+  "description": "Reviewer-heavy team for broader validation, safety checks, and quality review.",
+  "agents": {
+    "copilot": true,
+    "copilot-qa": true,
+    "copilot-security": true,
+    "copilot-perf": true,
+    "copilot-design": true
+  }
+}

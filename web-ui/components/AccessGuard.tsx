@@ -9,7 +9,7 @@
  * The navbar reads the same context to hide links. This is a UX layer only —
  * the APIs behind each page enforce the same permissions server-side.
  */
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { allowedPages, canAccessPage, type AccessSubject } from '@/lib/title-profiles'
 
@@ -57,8 +57,10 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
     else if (denied) router.replace(allowedPages(user).find(p => p.path !== '/setup')?.path || '/jarvis')
   }, [loaded, user, needsSetup, denied, router])
 
+  const accessValue = useMemo(() => ({ user, loaded }), [user, loaded])
+
   return (
-    <AccessContext.Provider value={{ user, loaded }}>
+    <AccessContext.Provider value={accessValue}>
       {needsSetup || denied ? (
         <div className="grid min-h-dvh place-items-center bg-gf-bg font-plex text-sm text-gf-muted" role="status">
           {needsSetup ? 'Taking you to setup…' : 'You don’t have access to this page.'}

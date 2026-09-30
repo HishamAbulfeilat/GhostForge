@@ -123,7 +123,7 @@ export default function FilesPage() {
       <div className="flex shrink-0 items-center gap-3 border-b border-white/[0.06] bg-gray-950/95 px-4 py-2.5 backdrop-blur">
         <span className="text-lg">🗂️</span>
         <div className="flex flex-1 items-center gap-1 text-xs text-white/50 overflow-x-auto scrollbar-none min-w-0">
-          <button onClick={goBack} disabled={history.length <= 1} className="shrink-0 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white disabled:opacity-30 transition">←</button>
+          <button type="button" aria-label="Go back" onClick={goBack} disabled={history.length <= 1} className="shrink-0 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white disabled:opacity-30 transition">←</button>
           <span className="shrink-0 text-white/20">/</span>
           {parts.map((part, i) => {
             const cumulativePath = '/' + parts.slice(0, i + 1).join('/')
@@ -157,7 +157,7 @@ export default function FilesPage() {
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
         {/* File tree */}
-        <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-white/[0.06] bg-gray-950/40">
+        <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-e border-white/[0.06] bg-gray-950/40">
           <div className="sticky top-0 border-b border-white/[0.04] bg-gray-950/80 px-3 py-2 backdrop-blur">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-white/25">Files</p>
           </div>
@@ -175,7 +175,7 @@ export default function FilesPage() {
               onClick={() => item.isDir ? navigate(item.path) : openFileHandler(item.path)}
               className={`group flex items-center gap-2 px-3 py-2 text-start text-xs transition-all ${
                 openFile?.path === item.path
-                  ? 'bg-sky-950/60 text-sky-300 border-r-2 border-sky-500'
+                  ? 'bg-sky-950/60 text-sky-300 border-e-2 border-sky-500'
                   : 'text-white/55 hover:bg-white/[0.04] hover:text-white/90'
               }`}
             >

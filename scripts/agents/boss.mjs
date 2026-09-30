@@ -62,6 +62,104 @@ const SEEDS = {
   ],
 }
 
+export const DEFAULT_TEMPLATE = 'pair'
+const TEMPLATE_DIR = path.join(ROOT, '.agent-sync', 'templates')
+const TEMPLATE_ALIASES = {
+  default: 'pair',
+  duo: 'pair',
+  pair: 'pair',
+  trio: 'trio',
+  'reviewer-heavy': 'reviewer-heavy',
+  'reviewer-heavy-team': 'reviewer-heavy',
+  'reviewerheavy': 'reviewer-heavy',
+  'reviewer_heavy': 'reviewer-heavy',
+}
+
+export function listTemplateNames() {
+  if (!fs.existsSync(TEMPLATE_DIR)) return ['pair', 'trio', 'reviewer-heavy']
+  const items = fs.readdirSync(TEMPLATE_DIR)
+    .filter(f => f.endsWith('.json'))
+    .map(f => path.basename(f, '.json'))
+    .map(name => normalizeTemplateName(name))
+    .filter((name, index, arr) => arr.indexOf(name) === index)
+    .sort((a, b) => a.localeCompare(b))
+  return items.length ? items : ['pair', 'trio', 'reviewer-heavy']
+}
+
+export function normalizeTemplateName(name = DEFAULT_TEMPLATE) {
+  const raw = String(name ?? '').trim().toLowerCase().replace(/[\s_]+/g, '-')
+  if (!raw) return DEFAULT_TEMPLATE
+  return TEMPLATE_ALIASES[raw] ?? raw
+}
+
+export function resolveTemplateName(name = DEFAULT_TEMPLATE) {
+  const normalized = normalizeTemplateName(name)
+  const names = listTemplateNames()
+  if (names.includes(normalized)) return normalized
+  throw new Error(`Unknown agent team template "${name}". Available templates: ${names.join(', ')}`)
+}
+
+export function loadTemplate(name = DEFAULT_TEMPLATE) {
+  const templateName = resolveTemplateName(name)
+  const file = path.join(TEMPLATE_DIR, `${templateName}.json`)
+  const data = readJSON(file, null)
+  if (!data || typeof data !== 'object') throw new Error(`Template "${templateName}" is not a valid JSON object`)
+  return { ...data, name: templateName }
+}
+
+export function applyTemplateConfig(config, name = DEFAULT_TEMPLATE) {
+  const base = JSON.parse(JSON.stringify(config ?? {}))
+  const template = loadTemplate(name)
+  const rawAgents = template.agents
+  const selected = new Set()
+
+  if (Array.isArray(rawAgents)) {
+    for (const agent of rawAgents) selected.add(String(agent))
+  } else if (rawAgents && typeof rawAgents === 'object') {
+    for (const [agent, enabled] of Object.entries(rawAgents)) {
+      if (enabled === true || enabled === 'true' || enabled === 1) selected.add(agent)
+    }
+  }
+
+  base.agents = { ...(base.agents ?? {}) }
+  for (const [agentId, agentCfg] of Object.entries(base.agents)) {
+    const isEnabled = selected.size ? selected.has(agentId) : Boolean(agentCfg?.enabled)
+    base.agents[agentId] = { ...agentCfg, enabled: isEnabled }
+  }
+
+  if (selected.size) {
+    for (const agentId of [...selected]) {
+      if (!base.agents[agentId]) base.agents[agentId] = { enabled: true }
+      else base.agents[agentId].enabled = true
+    }
+  }
+
+  return {
+    ...base,
+    template: { name: template.name, description: template.description ?? '' },
+  }
+}
+
+export function parseArgs(argv = []) {
+  let command = 'start'
+  let template = DEFAULT_TEMPLATE
+  const extras = []
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--template') {
+      template = argv[++i] ?? DEFAULT_TEMPLATE
+    } else if (arg.startsWith('--template=')) {
+      template = arg.slice('--template='.length) || DEFAULT_TEMPLATE
+    } else if (arg === '--help' || arg === '-h') {
+      extras.push(arg)
+    } else if (!arg.startsWith('-')) {
+      if (!command || command === 'start') command = arg
+      else extras.push(arg)
+    }
+  }
+  return { command, template, extras }
+}
+
 // ── Pure helpers (unit-tested) ───────────────────────────────────────────────
 
 /** The last parseable JSON object in model output (models wrap JSON in prose/fences). */
@@ -114,10 +212,20 @@ function fill(template, vars) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '')
 }
 
+/** Stage a runtime prompt in the checkout that will execute it. */
+export function stagePrompt(worktree, category, name, content) {
+  const file = path.join(worktree, '.agent-sync', 'state', category, name)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, content)
+  return file
+}
+
 class Boss {
-  constructor() {
-    this.cfg = readJSON(path.join(ROOT, '.agent-sync', 'team.json'), null)
-    if (!this.cfg) throw new Error('Missing .agent-sync/team.json')
+  constructor(templateName = DEFAULT_TEMPLATE) {
+    const baseCfg = readJSON(path.join(ROOT, '.agent-sync', 'team.json'), null)
+    if (!baseCfg) throw new Error('Missing .agent-sync/team.json')
+    this.templateName = resolveTemplateName(templateName)
+    this.cfg = applyTemplateConfig(baseCfg, this.templateName)
     this.dir = stateDir(ROOT)
     for (const d of ['tasks', 'logs', 'reviews']) fs.mkdirSync(path.join(this.dir, d), { recursive: true })
     this.intBranch = this.cfg.integration.branch
@@ -222,8 +330,8 @@ class Boss {
 
   // ── Running an agent CLI ──
 
-  runAgent({ provider, model, mode, prompt, cwd, logFile, env = {}, timeoutMs }) {
-    const { cmd, args } = commandFor(provider, { prompt, model, mode })
+  runAgent({ provider, model, mode, prompt, cwd, logFile, env = {}, config = {}, timeoutMs }) {
+    const { cmd, args, env: providerEnv = {} } = commandFor(provider, { prompt, model, mode, config })
     return new Promise(resolve => {
       const out = fs.createWriteStream(logFile, { flags: 'a' })
       out.write(`\n=== ${new Date().toISOString()} ${cmd} [${model}] (${mode}) in ${cwd}\n`)
@@ -231,7 +339,7 @@ class Boss {
       let timedOut = false
       const child = spawn(cmd, IS_WIN ? args.map(winQuote) : args, {
         cwd, shell: IS_WIN, stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, GF_AGENT_STATE: this.dir, ...env },
+        env: { ...process.env, GF_AGENT_STATE: this.dir, ...providerEnv, ...env },
       })
       const onData = d => { const s = d.toString(); out.write(s); buf = (buf + s).slice(-40_000) }
       child.stdout.on('data', onData)
@@ -282,18 +390,14 @@ class Boss {
       const route = routeModel(a.provider, task, this.cfg.models)
       Object.assign(st, { state: 'working', task: task.id, model: route.model, since: new Date().toISOString() })
 
-      const taskFile = path.join(this.dir, 'tasks', `${task.id}-${agentId}.md`)
-      const taskText = fill(this.template, {
+      const taskContent = fill(this.template, {
         AGENT: agentId, BRANCH: a.branch, TASK_ID: task.id, KIND: route.kind, TITLE: task.title,
         AREA: task.area.length ? task.area.map(p => `\`${p}\``).join(', ') : '(whole repo)',
         NOTES: task.notes || '—', ATTEMPT: String((task.attempts ?? 0) + 1), MAX_ATTEMPTS: String(this.cfg.maxAttempts),
         FAILURE: task.lastFailure ? `## The previous attempt was rejected\n\n\`\`\`\n${task.lastFailure}\n\`\`\`\n\nFix the cause this time.` : '',
         OTHERS: this.othersText(this.board(), agentId), INBOX: this.inboxText(agentId),
       })
-      fs.writeFileSync(taskFile, taskText)
-      const localTaskFile = path.join(wt, '.agent-sync', 'state', 'current-task.md')
-      fs.mkdirSync(path.dirname(localTaskFile), { recursive: true })
-      fs.writeFileSync(localTaskFile, taskText)
+      stagePrompt(wt, 'tasks', `${task.id}-${agentId}.md`, taskContent)
       const eccFile = stageECCContext(wt, buildECCContext(this.ecc, this.eccCache, {
         kind: route.kind,
         mode: 'work',
@@ -305,12 +409,12 @@ class Boss {
       try {
         run = await this.runAgent({
           provider: a.provider, model: route.model, mode: 'work', cwd: wt,
-          prompt: 'Read .agent-sync/state/current-task.md and .agent-sync/state/ecc-context.md, then follow the task instructions exactly. Repository rules override supplementary ECC guidance. Work in the current directory.',
+          prompt: `Read the file .agent-sync/state/tasks/${task.id}-${agentId}.md and .agent-sync/state/ecc-context.md, then follow the task instructions exactly. Repository rules override supplementary ECC guidance. Work in the current directory.`,
           logFile: path.join(this.dir, 'logs', `${agentId}.log`),
+          config: a.config ?? a.providerConfig ?? {},
           env: { GF_AGENT: agentId }, timeoutMs: this.cfg.taskTimeoutMinutes * 60_000,
         })
       } finally {
-        fs.rmSync(localTaskFile, { force: true })
         clearECCContext(eccFile)
       }
 
@@ -359,17 +463,15 @@ class Boss {
   }
 
   async readonlyRun(file, logName, timeoutMs, mode = 'review') {
-    const localFile = path.join(this.intWt, '.agent-review.md')
-    fs.copyFileSync(file, localFile)
+    const rel = path.relative(path.join(this.intWt, '.agent-sync', 'state'), file).replace(/\\/g, '/')
     const eccFile = stageECCContext(this.intWt, buildECCContext(this.ecc, this.eccCache, { mode }))
     try {
       return await this.runAgent({
         provider: this.cfg.boss.provider, model: this.cfg.boss.model, mode: 'readonly', cwd: this.intWt,
-        prompt: 'Read .agent-review.md and .agent-sync/state/ecc-context.md, then follow the review instructions exactly. Repository rules override supplementary ECC guidance.',
-        logFile: path.join(this.dir, 'logs', logName), timeoutMs,
+        prompt: `Read the file .agent-sync/state/${rel} and .agent-sync/state/ecc-context.md, then follow its instructions exactly. Repository rules override supplementary ECC guidance.`,
+        logFile: path.join(this.dir, 'logs', logName), config: this.cfg.boss.config ?? this.cfg.boss.providerConfig ?? {}, timeoutMs,
       })
     } finally {
-      fs.rmSync(localFile, { force: true })
       clearECCContext(eccFile)
     }
   }
@@ -378,15 +480,15 @@ class Boss {
     if (!this.cfg.boss.review) return { approve: true }
     const stat = git(ROOT, 'diff', '--stat', `${base}..${head}`)
     const diff = git(ROOT, 'diff', `${base}..${head}`)
-    const file = path.join(this.dir, 'reviews', `${task.id}.md`)
-    fs.writeFileSync(file, [
+    const content = [
       'You are the lead reviewer ("boss") of an autonomous agent team on the GhostForge repo.',
       `Review ${agentId}'s change for task ${task.id}: **${task.title}** (area: ${task.area.join(', ') || 'whole repo'}).`,
       'Approve unless it is wrong, incomplete, unsafe, breaks the rules in AGENTS.md, or edits files far outside its area.',
       'Do not nitpick style. Read surrounding code in this checkout if you need context. Do not modify anything.',
       '', '## Diff stat', '```', stat, '```', '', '## Diff', '```diff', diff.slice(0, 80_000), '```', '',
       'Reply with your reasoning, then a final line of JSON only: {"approve": true|false, "issues": ["…"]}',
-    ].join('\n'))
+    ].join('\n')
+    const file = stagePrompt(this.intWt, 'reviews', `${task.id}.md`, content)
     const run = await this.readonlyRun(file, 'boss-review.log', 20 * 60_000)
     const verdict = lastJSON(run.output)
     if (!verdict || typeof verdict.approve !== 'boolean') {
@@ -435,8 +537,7 @@ class Boss {
     const done = board.tasks.filter(t => t.status === 'done').slice(-40).map(t => `- ${t.id} ${t.title}`).join('\n') || '(none yet)'
     const blocked = board.tasks.filter(t => t.status === 'blocked').map(t => `- ${t.id} ${t.title}: ${tail(t.lastFailure ?? '', 200)}`).join('\n') || '(none)'
     const toBoss = readMessages(this.dir, { to: 'boss', limit: 20 }).filter(m => m.from !== 'boss').map(m => `- ${m.from}: ${m.text}`).join('\n') || '(none)'
-    const file = path.join(this.dir, 'reviews', `plan-phase${board.phase}.md`)
-    fs.writeFileSync(file, [
+    const content = [
       `You are the lead ("boss") of an autonomous agent team (${this.agents.map(([id]) => id).join(', ')}) improving the GhostForge repo.`,
       `Phase ${board.phase} goal: ${PHASE_GOALS[board.phase] ?? PHASE_GOALS[3]}`,
       `Health score: ${report.score}/100 (all checks pass).`,
@@ -447,7 +548,8 @@ class Boss {
       '',
       `Assign "agent" as "any" unless a specific enabled worker is clearly required. If you assign one, use only an enabled worker ID: ${this.agents.map(([id]) => id).join(', ')}.`,
       'End with one line of JSON only: {"phaseComplete": false, "tasks": [{"title": "…", "kind": "feature|bugfix|test|refactor|docs|security|chore", "area": ["path/"], "agent": "any|<enabled-worker-id>", "notes": "…"}]}',
-    ].join('\n'))
+    ].join('\n')
+    const file = stagePrompt(this.intWt, 'reviews', `plan-phase${board.phase}.md`, content)
     const run = await this.readonlyRun(file, 'boss-plan.log', 30 * 60_000, 'planning')
     return lastJSON(run.output)
   }
@@ -576,8 +678,8 @@ class Boss {
     const board = this.board()
     for (const t of board.tasks) if (t.status === 'in-progress' || t.status === 'review') Object.assign(t, { status: 'todo', owner: null })
     saveBoard(this.dir, board)
-    this.log(`boss started — agents: ${this.agents.map(([id, a]) => `${id}(${a.provider})`).join(', ')}; integration ${this.intBranch} @ ${this.intWt}`)
-    this.say('all', `Boss online. Agents: ${this.agents.map(([id]) => id).join(', ')}. Phase ${board.phase}.`)
+    this.log(`boss started with template ${this.templateName} — agents: ${this.agents.map(([id, a]) => `${id}(${a.provider})`).join(', ')}; integration ${this.intBranch} @ ${this.intWt}`)
+    this.say('all', `Boss online. Template: ${this.templateName}. Agents: ${this.agents.map(([id]) => id).join(', ')}. Phase ${board.phase}.`)
 
     if (cmd === 'once') { await this.tick(); await Promise.all(this.running); return }
     process.on('SIGINT', () => {
@@ -596,5 +698,6 @@ class Boss {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  new Boss().start(process.argv[2] || 'start').catch(e => { console.error(`boss: ${e.stack ?? e}`); process.exit(1) })
+  const { command, template } = parseArgs(process.argv.slice(2))
+  new Boss(template).start(command).catch(e => { console.error(`boss: ${e.stack ?? e}`); process.exit(1) })
 }

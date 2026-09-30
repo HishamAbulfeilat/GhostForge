@@ -18,9 +18,11 @@ import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { filterMenuChoices, groupCommandChoices } from './lib/menu-search.js';
 import { readRecentCommands, rememberCommand } from './lib/recent-commands.js';
+import { applyEffectiveMarketplaceState } from './lib/marketplace-state.js';
 import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP } from './lib/platform-utils.js';
 import { askGFAI } from './lib/gfai-client.js';
 import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
+import { runTeamCommand, startAgentTeam } from './lib/agent-team.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -38,6 +40,69 @@ const cliArgs = process.argv.slice(2);
 if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
   console.log(VERSION);
   process.exit(0);
+}
+
+async function screenAgentTeam() {
+  while (true) {
+    sectionHeader('Agent Team', 'Control the local boss and coordinate workers');
+    const action = await select({
+      message: 'Agent-team action:',
+      choices: [
+        { name: '📊  Status — board, agents, health', value: 'status' },
+        { name: '▶️   Start boss — launch the local orchestrator', value: 'start' },
+        { name: '⏹️   Stop boss — finish in-flight work, then stop', value: 'stop' },
+        { name: '💬  Messages — view inbox or send a message', value: 'messages' },
+        { name: '➕  Add task — queue work for the boss', value: 'add' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (action === '__back__') return;
+
+    let result;
+    if (action === 'start') {
+      result = startAgentTeam();
+    } else if (action === 'status' || action === 'stop') {
+      result = runTeamCommand(action);
+    } else if (action === 'messages') {
+      const messageAction = await select({
+        message: 'Message action:',
+        choices: [
+          { name: '📥  Inbox — recent team messages', value: 'inbox' },
+          { name: '📤  Send — message an agent or the boss', value: 'send' },
+          { name: T.muted('← Back'), value: '__back__' },
+        ],
+      });
+      if (messageAction === '__back__') continue;
+      if (messageAction === 'inbox') {
+        result = runTeamCommand('inbox', ['--for', 'copilot-web', '--limit', '30']);
+      } else {
+        const to = await input({ message: 'Recipient (agent, all, or boss):', default: 'all' });
+        const text = await input({ message: 'Message:' });
+        if (!to.trim() || !text.trim()) {
+          result = { ok: false, output: 'Recipient and message are required.' };
+        } else {
+          result = runTeamCommand('say', ['--from', 'copilot-web', '--to', to.trim(), text.trim()]);
+        }
+      }
+    } else if (action === 'add') {
+      const title = await input({ message: 'Task title:' });
+      if (!title.trim()) {
+        result = { ok: false, output: 'Task title is required.' };
+      } else {
+        const kind = await input({ message: 'Kind:', default: 'feature' });
+        const area = await input({ message: 'Areas (comma-separated):', default: 'tui' });
+        result = runTeamCommand('add', [
+          title.trim(),
+          '--kind', kind.trim() || 'feature',
+          '--area', area.trim() || 'tui',
+          '--from', 'copilot-web',
+        ]);
+      }
+    }
+
+    console.log(result.ok ? T.success(`\n  ✔  ${result.output}`) : T.warning(`\n  ⚠  ${result.output}`));
+    await pressEnter();
+  }
 }
 
 if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
@@ -383,6 +448,7 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '📜  /changelog-view',           'browse CHANGELOG', 'changelog-view'),
       menuChoice(T.accent.bold,  '⚡  Run a Command',             'search or browse slash commands by category', 'commands'),
       menuChoice(T.success.bold, '🤖  Switch Agent / Role',       'activate a specialized AI agent', 'agents'),
+      menuChoice(T.success.bold, '👥  Agent Team',                'status, boss controls, messages, and tasks', 'agent-team'),
       menuChoice(T.warning.bold, '📚  Browse Instructions',       'view knowledge base / docs', 'instructions'),
       menuChoice(T.accent.bold,  '📋  Snippet Library',           'browse & copy ready-made code snippets', 'snippets'),
       menuChoice(T.white.bold,   '🔍  Bundle Analyzer',           'size, heavy deps, lazy-loading tips', 'bundle'),
@@ -2469,12 +2535,9 @@ async function screenMarketplace() {
   // registry.json is the single source of truth for install state (shared with
   // the web UI). Seed it from any catalog items shipped as installed, minus any
   // the user explicitly removed, then reflect that onto each item for display.
-  const removedSet = new Set(registry.removed || []);
-  const installedSet = new Set((registry.installed || []).filter(id => !removedSet.has(id)));
-  for (const item of catalog.items) {
-    if (item.installed && !removedSet.has(item.id)) installedSet.add(item.id);
-    item.installed = installedSet.has(item.id);
-  }
+  const { installedSet, catalog: effectiveCatalog } = applyEffectiveMarketplaceState(catalog, registry);
+  const removedSet = new Set((registry.removed || []).filter(Boolean));
+  catalog.items = effectiveCatalog.items;
 
   const action = await select({
     message: T.white.bold('Marketplace:'),
@@ -2624,10 +2687,13 @@ async function screenMarketplace() {
     if (item) {
       console.log();
       console.log(T.brand.bold(`  Installing: ${item.name}...`));
-      if (item.install_command) {
-        console.log(T.muted(`  Running: ${item.install_command}`));
+      const platformInstallCommand = (process.platform === 'win32' && item.install_command_windows)
+        ? item.install_command_windows
+        : item.install_command;
+      if (platformInstallCommand) {
+        console.log(T.muted(`  Running: ${platformInstallCommand}`));
         try {
-          execSync(item.install_command, { stdio: 'inherit', cwd: ROOT });
+          execSync(platformInstallCommand, { stdio: 'inherit', cwd: ROOT });
           console.log(T.success(`\n  ✅ ${item.name} installed successfully!`));
           item.installed = true;
           // Persist to registry.json (source of truth shared with the web UI).
@@ -2637,7 +2703,7 @@ async function screenMarketplace() {
           registry.removed = [...removedSet];
           writeFileSync(registryPath, JSON.stringify(registry, null, 2));
         } catch {
-          console.log(T.danger(`\n  ✖ Installation failed. Try manually: ${item.install_command}`));
+          console.log(T.danger(`\n  ✖ Installation failed. Try manually: ${platformInstallCommand}`));
         }
       } else if (item.url) {
         console.log(T.accent(`  Visit: ${item.url}`));
@@ -2680,8 +2746,11 @@ async function screenMarketplace() {
       } else if (item.install_command) {
         // Security tools: show the command for review rather than piping
         // catalog data straight into a shell. Copy/paste to run.
+        const platformInstallCommand = (process.platform === 'win32' && item.install_command_windows)
+          ? item.install_command_windows
+          : item.install_command;
         console.log(T.yellow('\n  Install command (review, then run in your shell):'));
-        console.log(T.cyan(`    ${item.install_command}`));
+        console.log(T.cyan(`    ${platformInstallCommand}`));
         const mark = await confirm({ message: 'Mark as installed?', default: false });
         if (mark) {
           item.installed = true;
@@ -6587,6 +6656,7 @@ async function main() {
         case 'changelog-view': await screenChangelogViewer(); break;
         case 'commands':     await screenCommands(); break;
         case 'agents':       await screenAgents(); break;
+        case 'agent-team':   await screenAgentTeam(); break;
         case 'instructions': await screenInstructions(); break;
         case 'tickets':      await screenTickets(); break;
         case 'security':     await screenSecurity(); break;

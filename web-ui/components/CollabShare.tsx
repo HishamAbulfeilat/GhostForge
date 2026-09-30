@@ -58,7 +58,7 @@ export default function CollabShare({ onJoinSession }: Props) {
             <button onClick={copyUrl} className="text-xs text-blue-400 transition-colors hover:text-blue-300">
               {copied ? '✓ Copied' : 'Copy'}
             </button>
-            <button onClick={() => setShareUrl('')} className="text-xs text-zinc-600 hover:text-zinc-400">✕</button>
+            <button type="button" aria-label="Clear shared session link" onClick={() => setShareUrl('')} className="text-xs text-zinc-600 hover:text-zinc-400">✕</button>
           </div>
         )}
       </div>

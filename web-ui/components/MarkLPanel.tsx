@@ -129,7 +129,7 @@ export default function MarkLPanel({ onRunAction, disabled = false, ringColor = 
                   title={active ? 'Mark as inactive' : 'Mark as active'}
                 >
                   <span
-                    className="absolute top-0.5 h-2 w-2 rounded-full bg-white transition-all"
+                    className="absolute top-0.5 h-2 w-2 rounded-full bg-white transition-[left]"
                     style={{ left: active ? '14px' : '2px' }}
                   />
                 </button>

@@ -7,7 +7,7 @@ import path from 'node:path'
 import { routeModel, classifyTask, KIND_TIER } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
-import { lastJSON, pickTask } from './boss.mjs'
+import { lastJSON, pickTask, stagePrompt } from './boss.mjs'
 import { scoreOf } from './health.mjs'
 
 test('classifyTask maps free text to task kinds', () => {
@@ -84,11 +84,29 @@ test('provider adapters deny pushes for workers and are read-only for the boss',
   const cop = commandFor('copilot', { prompt: 'p', model: 'auto', mode: 'work' })
   assert.deepEqual(cop.args.slice(0, 4), ['-p', 'p', '--model', 'auto'])
   assert.ok(cop.args.includes('shell(git push)'))
+  assert.ok(!cop.args.includes('shell(git rebase)'), 'workers may rebase their own branch before integration')
+  assert.ok(!work.args.includes('Bash(git rebase:*)'), 'workers may rebase their own branch before integration')
   assert.ok(!commandFor('codex', { prompt: 'p', model: 'auto', mode: 'work' }).args.includes('-m'), 'auto → provider default')
   assert.throws(() => commandFor('nope', {}), /Unknown provider/)
   assert.ok(RATE_LIMIT_RE.test('Error: 429 Too Many Requests'))
   assert.equal(winQuote('a b'), '"a b"')
   assert.equal(winQuote('--model'), '--model')
+})
+
+test('runtime prompts are staged inside the executing worktree', () => {
+  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-prompt-'))
+  const file = stagePrompt(worktree, 'tasks', 'T-001-copilot.md', 'task prompt')
+  assert.equal(file, path.join(worktree, '.agent-sync', 'state', 'tasks', 'T-001-copilot.md'))
+  assert.equal(fs.readFileSync(file, 'utf8'), 'task prompt')
+  fs.rmSync(worktree, { recursive: true, force: true })
+})
+
+test('team config exposes five independent Copilot workers', () => {
+  const config = JSON.parse(fs.readFileSync(new URL('../../.agent-sync/team.json', import.meta.url), 'utf8'))
+  const workers = Object.entries(config.agents).filter(([, agent]) => agent.enabled && agent.provider === 'copilot')
+  assert.equal(workers.length, 5)
+  assert.equal(new Set(workers.map(([, agent]) => agent.worktree)).size, 5)
+  assert.equal(new Set(workers.map(([, agent]) => agent.branch)).size, 5)
 })
 
 test('lastJSON finds the verdict line in model output', () => {

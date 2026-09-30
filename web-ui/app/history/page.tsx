@@ -16,18 +16,23 @@ interface HistorySession {
   messages: HistoryMessage[]
 }
 
+// Hoisted module-scope formatters: Intl.DateTimeFormat is expensive to
+// construct, so build each once and reuse it across calls/renders.
+const dateTimeFormatter = new Intl.DateTimeFormat('en', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+})
+const timeFormatter = new Intl.DateTimeFormat('en', {
+  hour: 'numeric',
+  minute: '2-digit',
+})
+
 function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat('en', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
+  return dateTimeFormatter.format(new Date(value))
 }
 
 function formatTime(value: number) {
-  return new Intl.DateTimeFormat('en', {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(value))
+  return timeFormatter.format(new Date(value))
 }
 
 export default function HistoryPage() {

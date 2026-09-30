@@ -6,6 +6,7 @@
  *   1. tui/index.js parses (syntax check)
  *   2. marketplace catalog + registry are valid JSON with unique item ids
  *   3. every catalog item has the required fields
+ *   4. node:test unit tests under tests/*.test.js pass
  *
  * The web-ui unit tests run in their own CI step (they need node_modules).
  * Exits non-zero on the first failure so it works in CI.
@@ -56,6 +57,17 @@ check('catalog item ids are unique', () => {
 check('every catalog item has id, name, type, category, description', () => {
   const bad = catalog.items.filter(i => !i.id || !i.name || !i.type || !i.category || !i.description);
   if (bad.length) throw new Error(`${bad.length} item(s) missing required fields`);
+});
+
+check('tests/*.test.js unit tests pass (node:test)', () => {
+  const testsDir = path.join(ROOT, 'tests');
+  const testFiles = fs.readdirSync(testsDir).filter(f => f.endsWith('.test.js'));
+  if (!testFiles.length) throw new Error('no tests/*.test.js files found');
+  execFileSync(
+    process.execPath,
+    ['--test', ...testFiles.map(f => path.join(testsDir, f))],
+    { cwd: ROOT, stdio: 'pipe' }
+  );
 });
 
 console.log();
