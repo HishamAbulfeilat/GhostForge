@@ -226,14 +226,14 @@ function ToastContainer({ toasts, onRemove }: { toasts: Toast[]; onRemove: (id: 
     success: '#00ff88',
   }
   return (
-    <div className="fixed top-14 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+    <div className="fixed top-14 end-4 z-50 flex flex-col gap-2 pointer-events-none">
       {toasts.map(t => (
         <div key={t.id}
           className="gfai-fade pointer-events-auto flex items-start gap-2 rounded-lg border px-3 py-2 font-mono text-[10px] max-w-xs"
           style={{ borderColor: `${colors[t.type]}66`, background: 'rgba(0,5,20,0.95)', color: colors[t.type], boxShadow: `0 0 12px ${colors[t.type]}22` }}>
           <span className="shrink-0 mt-0.5">{t.type === 'warn' ? '⚠' : t.type === 'error' ? '✗' : t.type === 'success' ? '✓' : 'ℹ'}</span>
           <span className="leading-relaxed" style={{ color: 'rgba(200,210,255,0.9)' }}>{t.msg}</span>
-          <button type="button" onClick={() => onRemove(t.id)}
+          <button type="button" aria-label="Dismiss notification" onClick={() => onRemove(t.id)}
             className="shrink-0 ms-1 opacity-40 hover:opacity-100 transition">✕</button>
         </div>
       ))}
@@ -714,11 +714,11 @@ function ClipboardPanel({ text, onAction, onClose }: { text: string; onAction: (
   ]
 
   return (
-    <div className="gfai-fade fixed top-20 right-4 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-xl border p-3 shadow-2xl"
+    <div className="gfai-fade fixed top-20 end-4 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-xl border p-3 shadow-2xl"
       style={{ borderColor: 'rgba(34,211,238,0.65)', background: 'rgba(2,12,22,0.96)', boxShadow: '0 0 28px rgba(34,211,238,0.12)' }}>
       <div className="mb-2 flex items-center justify-between gap-2 font-mono text-[10px]">
         <span className="tracking-[0.24em] text-cyan-300/80">CLIPBOARD INTELLIGENCE</span>
-        <button type="button" onClick={onClose} className="text-cyan-300/50 transition hover:text-cyan-200">✕</button>
+        <button type="button" aria-label="Close clipboard intelligence panel" onClick={onClose} className="text-cyan-300/50 transition hover:text-cyan-200">✕</button>
       </div>
       <p className="mb-3 max-h-24 overflow-y-auto whitespace-pre-wrap rounded-lg border border-cyan-400/10 bg-black/20 px-2.5 py-2 text-xs leading-relaxed text-slate-200">
         {text}
@@ -2659,7 +2659,7 @@ export default function JarvisPage() {
               <span style={{ color: '#00ff88' }}>COPILOT CLI MODE ACTIVE</span>
               <span className="text-blue-400/40">— messages route directly to <code className="text-green-400/70">gh copilot -p</code></span>
             </div>
-            <button type="button" onClick={() => { setCopilotMode(false); toast('info', 'Copilot CLI mode OFF') }}
+            <button type="button" aria-label="Exit Copilot CLI mode" onClick={() => { setCopilotMode(false); toast('info', 'Copilot CLI mode OFF') }}
               className="text-green-400/50 hover:text-green-300 transition">✕ EXIT</button>
           </div>
         )}
@@ -2680,7 +2680,7 @@ export default function JarvisPage() {
                   style={{ borderColor: '#ff6b3566', color: '#ff6b35', background: 'rgba(255,107,53,0.1)' }}>
                   GRANT PERMISSIONS
                 </button>
-                <button type="button" onClick={() => setShowPermissionBanner(false)}
+                <button type="button" aria-label="Dismiss permissions banner" onClick={() => setShowPermissionBanner(false)}
                   className="text-blue-400/40 hover:text-blue-300 transition">✕</button>
               </div>
             </div>
@@ -2773,6 +2773,7 @@ export default function JarvisPage() {
                   </div>
                   <button
                     type="button"
+                    aria-label="Toggle offline mode"
                     onClick={() => {
                       const next = !offlineMode
                       setOfflineMode(next)
@@ -2785,7 +2786,7 @@ export default function JarvisPage() {
                     }}
                     className={`relative h-6 w-12 rounded-full transition-colors ${offlineMode ? 'bg-emerald-600' : 'bg-zinc-700'}`}
                   >
-                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${offlineMode ? 'left-7' : 'left-1'}`} />
+                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${offlineMode ? 'start-7' : 'start-1'}`} />
                   </button>
                 </div>
               </div>
@@ -2815,10 +2816,11 @@ export default function JarvisPage() {
                   </div>
                   <button
                     type="button"
+                    aria-label="Toggle hotword detection"
                     onClick={() => void toggleWakeWord()}
                     className={`relative h-6 w-12 rounded-full transition-colors ${hotwordEnabled ? 'bg-blue-600' : 'bg-zinc-700'}`}
                   >
-                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${hotwordEnabled ? 'left-7' : 'left-1'}`} />
+                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${hotwordEnabled ? 'start-7' : 'start-1'}`} />
                   </button>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-4">
@@ -2828,6 +2830,7 @@ export default function JarvisPage() {
                   </div>
                   <button
                     type="button"
+                    aria-label="Toggle hands-free conversation"
                     onClick={() => {
                       const next = !handsFreeEnabled
                       setHandsFreeEnabled(next)
@@ -2837,7 +2840,7 @@ export default function JarvisPage() {
                     }}
                     className={`relative h-6 w-12 rounded-full transition-colors ${handsFreeEnabled ? 'bg-emerald-600' : 'bg-zinc-700'}`}
                   >
-                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${handsFreeEnabled ? 'left-7' : 'left-1'}`} />
+                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${handsFreeEnabled ? 'start-7' : 'start-1'}`} />
                   </button>
                 </div>
               </div>
@@ -2929,6 +2932,7 @@ export default function JarvisPage() {
                     value={n8nUrl}
                     onChange={e => { setN8nUrl(e.target.value); setN8nUrlTouched(true) }}
                     placeholder="http://localhost:5678"
+                    aria-label="n8n URL"
                     className="flex-1 rounded border px-2 py-1 font-mono text-[10px] bg-black/30 outline-none"
                     style={{ borderColor: `${mc.ring}44`, color: mc.ring }}
                   />
@@ -2997,6 +3001,7 @@ export default function JarvisPage() {
                           </code>
                           <button
                             type="button"
+                            aria-label={`Copy webhook URL for ${wf.name}`}
                             onClick={() => {
                               const url = `${n8nUrl}/webhook/ghostforge-${wf.id}`
                               navigator.clipboard.writeText(url).then(() => {
@@ -3028,11 +3033,13 @@ export default function JarvisPage() {
                     value={n8nNewName}
                     onChange={e => setN8nNewName(e.target.value)}
                     placeholder="Workflow name (required)"
+                    aria-label="Workflow name"
                     className="w-full rounded border px-2 py-1 font-mono text-[10px] bg-black/30 outline-none mb-1.5"
                     style={{ borderColor: `${mc.ring}33`, color: mc.ring }}
                   />
                   <select
                     value={n8nNewType}
+                    aria-label="Workflow template type"
                     onChange={e => setN8nNewType(e.target.value as typeof n8nNewType)}
                     className="w-full rounded border px-2 py-1 font-mono text-[10px] bg-black/30 outline-none mb-1.5"
                     style={{ borderColor: `${mc.ring}33`, color: mc.ring }}>
@@ -3046,6 +3053,7 @@ export default function JarvisPage() {
                     value={n8nNewDesc}
                     onChange={e => setN8nNewDesc(e.target.value)}
                     placeholder="Description (optional)"
+                    aria-label="Workflow description"
                     className="w-full rounded border px-2 py-1 font-mono text-[10px] bg-black/30 outline-none mb-1.5"
                     style={{ borderColor: `${mc.ring}33`, color: mc.ring }}
                   />
@@ -3150,11 +3158,11 @@ export default function JarvisPage() {
 
           {/* ── Mark-L Panel (overlay) ── */}
           {showMarkL && (
-            <div className="absolute inset-y-0 left-0 z-30 w-72 overflow-y-auto border-r p-3 gfai-fade gfai-scroll"
+            <div className="absolute inset-y-0 start-0 z-30 w-72 overflow-y-auto border-e p-3 gfai-fade gfai-scroll"
               style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.96)' }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="font-mono text-[10px] tracking-widest" style={{ color: mc.ring }}>⚡ MARK-L</span>
-                <button type="button" onClick={() => setShowMarkL(false)}
+                <button type="button" aria-label="Close Mark-L panel" onClick={() => setShowMarkL(false)}
                   className="text-blue-400/50 hover:text-blue-300 transition text-[10px]">✕</button>
               </div>
               <MarkLPanel
@@ -3198,7 +3206,7 @@ export default function JarvisPage() {
 
           {/* ── Agent Dashboard Panel (overlay) ── */}
           {showAgent && (
-            <div className="absolute inset-y-0 left-0 z-30 w-[min(640px,85vw)] overflow-y-auto border-r gfai-fade"
+            <div className="absolute inset-y-0 start-0 z-30 w-[min(640px,85vw)] overflow-y-auto border-e gfai-fade"
               style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.98)' }}>
               <div className="flex items-center justify-between px-4 py-2 border-b sticky top-0 z-10"
                 style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.98)' }}>
@@ -3246,7 +3254,7 @@ export default function JarvisPage() {
           )}
 
           {/* ── Left panel ── */}
-          <div className="hidden md:flex w-44 shrink-0 flex-col gap-3 border-r p-3 font-mono text-[10px]"
+          <div className="hidden md:flex w-44 shrink-0 flex-col gap-3 border-e p-3 font-mono text-[10px]"
             style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.6)' }}>
             <div>
               <p className="text-blue-400/40 tracking-widest mb-2">SYSTEMS</p>
@@ -3539,7 +3547,7 @@ export default function JarvisPage() {
           </div>
 
           {/* ── Right panel: quick commands ── */}
-          <div className="hidden lg:flex w-48 shrink-0 flex-col gap-1.5 border-l p-3"
+          <div className="hidden lg:flex w-48 shrink-0 flex-col gap-1.5 border-s p-3"
             style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.6)' }}>
             <p className="font-mono text-[10px] text-blue-400/40 tracking-widest mb-1">QUICK COMMANDS</p>
             <div className="flex-1 overflow-y-auto gfai-scroll space-y-1">

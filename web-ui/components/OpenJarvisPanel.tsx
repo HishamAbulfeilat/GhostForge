@@ -92,6 +92,7 @@ export default function OpenJarvisPanel({ ringColor = '#1a6fff' }: OpenJarvisPan
           onChange={e => setPrompt(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') void ask() }}
           placeholder="Ask OpenJarvis…"
+          aria-label="Ask OpenJarvis"
           disabled={!health?.installed || loading}
           className="flex-1 rounded border bg-transparent px-2 py-1 text-[10px] text-gray-200 placeholder-gray-600 focus:outline-none disabled:opacity-40"
           style={{ borderColor: `${ringColor}33` }}

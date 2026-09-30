@@ -139,6 +139,7 @@ export default function MacControlPage() {
                     onKeyDown={handleKey}
                     rows={3}
                     placeholder={'Open Teams and send a message to Rawzi saying "I\'ll be late"\nTip: Press ⌘Enter to run'}
+                    aria-label="Natural language command"
                     className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 placeholder-gray-600 resize-none focus:outline-none focus:border-violet-600 transition"
                   />
                   <div className="mt-2 flex items-center justify-between">
@@ -161,6 +162,7 @@ export default function MacControlPage() {
                     onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void run(undefined, script) } }}
                     rows={10}
                     placeholder={'tell application "Messages"\n  -- paste or edit AppleScript here\nend tell'}
+                    aria-label="AppleScript command"
                     spellCheck={false}
                     className="w-full rounded-lg border border-gray-700 bg-gray-950 px-3 py-2.5 font-mono text-xs text-emerald-300 placeholder-gray-700 resize-none focus:outline-none focus:border-violet-600 transition"
                   />

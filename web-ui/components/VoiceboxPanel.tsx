@@ -287,7 +287,7 @@ export default function VoiceboxPanel({ ringColor = '#1a6fff', onVoiceSelected }
         <>
           {/* Engine selector */}
           <div>
-            <label className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>TTS ENGINE</label>
+            <p className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>TTS ENGINE</p>
             <div className="flex flex-wrap gap-1.5">
               {(engines.length > 0 ? engines : [
                 { id: 'kokoro', name: 'Kokoro', description: 'Fast neural TTS' },
@@ -319,7 +319,7 @@ export default function VoiceboxPanel({ ringColor = '#1a6fff', onVoiceSelected }
 
           {/* Voice profile selector */}
           <div>
-            <label className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>VOICE PROFILE</label>
+            <p className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>VOICE PROFILE</p>
             <div className="flex flex-wrap gap-1.5">
               <button
                 type="button"
@@ -365,6 +365,7 @@ export default function VoiceboxPanel({ ringColor = '#1a6fff', onVoiceSelected }
                 value={cloneName}
                 onChange={e => setCloneName(e.target.value)}
                 placeholder="Profile name"
+                aria-label="Voice profile name"
                 className="flex-1 rounded border bg-black/40 px-2 py-1 font-mono outline-none"
                 style={{ borderColor: `${ringColor}44`, color: ringColor, fontSize: 10 }}
               />
@@ -436,6 +437,7 @@ export default function VoiceboxPanel({ ringColor = '#1a6fff', onVoiceSelected }
                   step={effect.step}
                   value={effects[effect.key]}
                   onChange={e => updateEffect(effect.key, parseFloat(e.target.value))}
+                  aria-label={`${effect.label} effect`}
                   className="w-full accent-current"
                   style={{ color: ringColor, height: 3 }}
                 />
@@ -445,7 +447,7 @@ export default function VoiceboxPanel({ ringColor = '#1a6fff', onVoiceSelected }
 
           {/* Language selector */}
           <div>
-            <label className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>LANGUAGE</label>
+            <p className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>LANGUAGE</p>
             <div className="flex flex-wrap gap-1.5">
               {LANGUAGES.map(lang => (
                 <button
@@ -468,7 +470,7 @@ export default function VoiceboxPanel({ ringColor = '#1a6fff', onVoiceSelected }
 
           {/* STT Model */}
           <div>
-            <label className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>STT MODEL (WHISPER)</label>
+            <p className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>STT MODEL (WHISPER)</p>
             <div className="flex gap-1.5">
               {WHISPER_MODELS.map(model => (
                 <button
@@ -492,13 +494,14 @@ export default function VoiceboxPanel({ ringColor = '#1a6fff', onVoiceSelected }
 
           {/* Test voice */}
           <div>
-            <label className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>TEST VOICE</label>
+            <p className="mb-1 block" style={{ fontSize: 9, color: `${ringColor}aa` }}>TEST VOICE</p>
             <div className="flex gap-1.5">
               <input
                 type="text"
                 value={testText}
                 onChange={e => setTestText(e.target.value)}
                 placeholder="Enter text to test..."
+                aria-label="Text to test voice"
                 className="flex-1 rounded border bg-black/40 px-2 py-1 font-mono outline-none"
                 style={{ borderColor: `${ringColor}44`, color: ringColor, fontSize: 10 }}
               />

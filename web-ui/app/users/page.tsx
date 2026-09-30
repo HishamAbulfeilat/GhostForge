@@ -212,10 +212,10 @@ export default function UsersPage() {
           <div className="mb-6 rounded-2xl border border-gray-800 bg-gray-900 p-5">
             <h3 className="mb-3 font-semibold text-white">New user</h3>
             <div className="grid gap-3 sm:grid-cols-2">
-              <input value={nuName} onChange={e => setNuName(e.target.value)} placeholder="Full name" className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 outline-none" />
-              <input value={nuUsername} onChange={e => setNuUsername(e.target.value)} placeholder="Username" className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 outline-none" />
-              <input value={nuPassword} onChange={e => setNuPassword(e.target.value)} placeholder="Password (min 8 characters)" type="password" className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 outline-none" />
-              <select value={nuRole} onChange={e => setNuRole(e.target.value as 'user' | 'admin')} className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white outline-none">
+              <input value={nuName} onChange={e => setNuName(e.target.value)} placeholder="Full name" aria-label="Full name" className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 outline-none" />
+              <input value={nuUsername} onChange={e => setNuUsername(e.target.value)} placeholder="Username" aria-label="Username" className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 outline-none" />
+              <input value={nuPassword} onChange={e => setNuPassword(e.target.value)} placeholder="Password (min 8 characters)" aria-label="Password" type="password" className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 outline-none" />
+              <select value={nuRole} onChange={e => setNuRole(e.target.value as 'user' | 'admin')} aria-label="User role" className="rounded-xl border border-gray-700 bg-gray-800 px-3 py-2 text-white outline-none">
                 <option value="user">User (limited)</option>
                 <option value="admin">Admin (full access)</option>
               </select>

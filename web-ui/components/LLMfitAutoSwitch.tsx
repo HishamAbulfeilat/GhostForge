@@ -114,7 +114,7 @@ export default function LLMfitAutoSwitch({ currentModel, enabled, onSwitch }: Pr
   if (!suggestion || !enabled) return null
 
   return (
-    <div className="fixed bottom-20 right-4 z-50 max-w-xs rounded-xl border border-yellow-500/50 bg-zinc-800 p-3 shadow-xl">
+    <div className="fixed bottom-20 end-4 z-50 max-w-xs rounded-xl border border-yellow-500/50 bg-zinc-800 p-3 shadow-xl">
       <div className="flex items-start gap-2">
         <span className="text-lg text-yellow-400">⚡</span>
         <div className="flex-1">

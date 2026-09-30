@@ -185,7 +185,7 @@ export default function ModelsPage() {
       }}
     >
       {toast && (
-        <div className="fixed right-4 top-4 z-50 rounded-lg border border-cyan-400/30 bg-cyan-950/90 px-4 py-2 text-sm text-cyan-100 shadow-lg shadow-cyan-900/20">
+        <div className="fixed end-4 top-4 z-50 rounded-lg border border-cyan-400/30 bg-cyan-950/90 px-4 py-2 text-sm text-cyan-100 shadow-lg shadow-cyan-900/20">
           {toast}
         </div>
       )}
@@ -253,6 +253,7 @@ export default function ModelsPage() {
               <p className="text-xs text-zinc-400">Automatically switch to a better model if performance degrades</p>
             </div>
             <button
+              aria-label="Toggle auto-switch"
               onClick={() => {
                 const next = !autoSwitch
                 setAutoSwitch(next)
@@ -261,7 +262,7 @@ export default function ModelsPage() {
               className={`relative h-6 w-12 rounded-full transition-colors ${autoSwitch ? 'bg-blue-600' : 'bg-zinc-700'}`}
               type="button"
             >
-              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${autoSwitch ? 'left-7' : 'left-1'}`} />
+              <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${autoSwitch ? 'start-7' : 'start-1'}`} />
             </button>
           </div>
         </section>
@@ -280,6 +281,7 @@ export default function ModelsPage() {
               onChange={e => setCustomModelInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !customInstalling) void installCustomModel() }}
               placeholder="e.g. qwen2.5-coder:7b"
+              aria-label="Custom model name"
               className="flex-1 min-w-0 rounded-lg border border-cyan-500/30 bg-cyan-950/20 px-3 py-2 font-mono text-sm text-cyan-100 placeholder-cyan-700 focus:border-cyan-400/60 focus:outline-none"
             />
             <button
@@ -368,7 +370,7 @@ export default function ModelsPage() {
                   className="relative rounded-lg border border-blue-500/20 bg-blue-950/10 p-4 transition hover:border-blue-400/35 hover:bg-blue-950/20"
                 >
                   {isRecommended && (
-                    <div className="absolute -top-3 left-4 rounded-full border border-cyan-400/30 bg-cyan-400/12 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.3em] text-cyan-200">
+                    <div className="absolute -top-3 start-4 rounded-full border border-cyan-400/30 bg-cyan-400/12 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.3em] text-cyan-200">
                       RECOMMENDED
                     </div>
                   )}

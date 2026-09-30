@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useId, useState } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 
@@ -48,6 +48,8 @@ function loadVoiceSettings(): VoiceSettingsData {
 export default function SettingsPage() {
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettingsData>(loadVoiceSettings)
   const [voiceSaved, setVoiceSaved] = useState(false)
+  const geminiApiKeyId = useId()
+  const volumeId = useId()
 
   const updateVoiceSetting = useCallback(<K extends keyof VoiceSettingsData>(key: K, value: VoiceSettingsData[K]) => {
     setVoiceSettings(prev => ({ ...prev, [key]: value }))
@@ -117,7 +119,7 @@ export default function SettingsPage() {
                 }}
               >
                 {voiceSettings.mode === mode.id && (
-                  <span className="absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full text-[9px] text-white font-bold"
+                  <span className="absolute end-2 top-2 flex h-4 w-4 items-center justify-center rounded-full text-[9px] text-white font-bold"
                     style={{ background: mode.color }}>✓</span>
                 )}
                 <span className="text-base">{mode.icon}</span>
@@ -134,20 +136,22 @@ export default function SettingsPage() {
             <div className="space-y-3 rounded-lg border border-blue-800/30 bg-blue-950/10 p-3">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-blue-400/60">Gemini Live Settings</p>
               <div>
-                <label className="mb-1 block text-[11px] text-gray-500">API Key</label>
+                <label htmlFor={geminiApiKeyId} className="mb-1 block text-[11px] text-gray-500">API Key</label>
                 <div className="flex gap-2">
                   <input
+                    id={geminiApiKeyId}
                     type="password"
                     value={voiceSettings.apiKey}
                     onChange={e => updateVoiceSetting('apiKey', e.target.value)}
                     placeholder="AIza..."
+                    aria-label="Gemini API key"
                     className="flex-1 rounded border border-white/10 bg-black/40 px-3 py-1.5 font-mono text-sm text-gray-200 outline-none focus:border-blue-500/50"
                   />
                 </div>
                 <p className="mt-1 text-[10px] text-gray-600">Get your key at aistudio.google.com — free tier available</p>
               </div>
               <div>
-                <label className="mb-1 block text-[11px] text-gray-500">Voice</label>
+                <p className="mb-1 block text-[11px] text-gray-500">Voice</p>
                 <div className="flex flex-wrap gap-1.5">
                   {GEMINI_VOICES.map(voice => (
                     <button key={voice} type="button" onClick={() => updateVoiceSetting('voiceName', voice)}
@@ -163,7 +167,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-[11px] text-gray-500">Model</label>
+                <p className="mb-1 block text-[11px] text-gray-500">Model</p>
                 <div className="flex flex-wrap gap-1.5">
                   {GEMINI_MODELS.map(model => (
                     <button key={model.id} type="button" onClick={() => updateVoiceSetting('model', model.id)}
@@ -209,19 +213,20 @@ export default function SettingsPage() {
           {/* Shared settings */}
           <div className="flex flex-wrap gap-4 items-end">
             <div className="flex-1 min-w-[180px]">
-              <label className="mb-1 block text-[11px] text-gray-500">Volume</label>
+              <label htmlFor={volumeId} className="mb-1 block text-[11px] text-gray-500">Volume</label>
               <div className="flex items-center gap-2">
-                <input type="range" min={0} max={1} step={0.05} value={voiceSettings.volume}
+                <input id={volumeId} type="range" min={0} max={1} step={0.05} value={voiceSettings.volume}
                   onChange={e => updateVoiceSetting('volume', parseFloat(e.target.value))}
+                  aria-label="Voice volume"
                   className="flex-1 accent-blue-500" />
                 <span className="text-[11px] font-mono text-gray-400 w-8 text-end">{Math.round(voiceSettings.volume * 100)}%</span>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-[11px] text-gray-500">Push-to-Talk</label>
-              <button type="button" onClick={() => updateVoiceSetting('pushToTalk', !voiceSettings.pushToTalk)}
+              <span className="text-[11px] text-gray-500">Push-to-Talk</span>
+              <button type="button" aria-label="Toggle push-to-talk" onClick={() => updateVoiceSetting('pushToTalk', !voiceSettings.pushToTalk)}
                 className={`relative h-5 w-10 rounded-full transition-colors ${voiceSettings.pushToTalk ? 'bg-emerald-600' : 'bg-zinc-700'}`}>
-                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${voiceSettings.pushToTalk ? 'left-5' : 'left-0.5'}`} />
+                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${voiceSettings.pushToTalk ? 'start-5' : 'start-0.5'}`} />
               </button>
             </div>
             <button type="button" onClick={saveVoiceSettings}
