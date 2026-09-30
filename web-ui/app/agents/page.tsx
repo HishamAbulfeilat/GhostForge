@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 type Agent = {
   provider: string | null
@@ -65,6 +66,45 @@ async function request<T>(init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+type DashboardResult = { status: 'denied' } | { status: 'loaded'; snapshot: Snapshot } | { status: 'redirecting' }
+type DashboardView = { snapshot: Snapshot | null; notice: { error: boolean; text: string } | null }
+
+async function loadDashboard(onUnauthenticated: () => void): Promise<DashboardResult> {
+  const authResponse = await fetch('/api/auth/me')
+  if (authResponse.status === 401) {
+    onUnauthenticated()
+    return { status: 'redirecting' }
+  }
+  if (!authResponse.ok) throw new Error(`Unable to verify access (${authResponse.status})`)
+
+  const authData = await authResponse.json() as {
+    user?: { role?: string; permissions?: string[] }
+    isAdmin?: boolean
+  }
+  const user = authData.user
+  if (!user) throw new Error('Unable to verify your account.')
+  if (!(authData.isAdmin || user.role === 'admin' || user.permissions?.includes('admin_tools'))) {
+    return { status: 'denied' }
+  }
+
+  const data = await request<{ snapshot: Snapshot }>()
+  return { status: 'loaded', snapshot: data.snapshot }
+}
+
+function dashboardView(result: DashboardResult): DashboardView {
+  if (result.status === 'loaded') return { snapshot: result.snapshot, notice: null }
+  if (result.status === 'denied') {
+    return {
+      snapshot: null,
+      notice: {
+        error: true,
+        text: 'Your account is signed in, but it needs the admin_tools permission to access Agent Teams.',
+      },
+    }
+  }
+  return { snapshot: null, notice: null }
+}
+
 const action = (payload: Record<string, unknown>): RequestInit => ({
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -80,6 +120,7 @@ const stateStyle: Record<string, string> = {
 }
 
 export default function AgentsPage() {
+  const router = useRouter()
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -91,14 +132,16 @@ export default function AgentsPage() {
 
   const load = useCallback(async () => {
     try {
-      const data = await request<{ snapshot: Snapshot }>()
-      setSnapshot(data.snapshot)
+      const result = await loadDashboard(() => router.replace('/login?next=/agents'))
+      const view = dashboardView(result)
+      setSnapshot(view.snapshot)
+      setNotice(view.notice)
     } catch (error) {
       setNotice({ error: true, text: error instanceof Error ? error.message : 'Unable to load agent team.' })
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [router])
 
   useEffect(() => { void load() }, [load])
 
