@@ -18,6 +18,7 @@ import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { filterMenuChoices, groupCommandChoices } from './lib/menu-search.js';
 import { readRecentCommands, rememberCommand } from './lib/recent-commands.js';
+import { applyEffectiveMarketplaceState } from './lib/marketplace-state.js';
 import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP } from './lib/platform-utils.js';
 import { askGFAI } from './lib/gfai-client.js';
 import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
@@ -2469,12 +2470,9 @@ async function screenMarketplace() {
   // registry.json is the single source of truth for install state (shared with
   // the web UI). Seed it from any catalog items shipped as installed, minus any
   // the user explicitly removed, then reflect that onto each item for display.
-  const removedSet = new Set(registry.removed || []);
-  const installedSet = new Set((registry.installed || []).filter(id => !removedSet.has(id)));
-  for (const item of catalog.items) {
-    if (item.installed && !removedSet.has(item.id)) installedSet.add(item.id);
-    item.installed = installedSet.has(item.id);
-  }
+  const { installedSet, catalog: effectiveCatalog } = applyEffectiveMarketplaceState(catalog, registry);
+  const removedSet = new Set((registry.removed || []).filter(Boolean));
+  catalog.items = effectiveCatalog.items;
 
   const action = await select({
     message: T.white.bold('Marketplace:'),
