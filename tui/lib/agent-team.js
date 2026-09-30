@@ -13,14 +13,21 @@ export const TEAM_COMMANDS = Object.freeze(['start', 'status', 'inbox', 'say', '
 export function runTeamCommand(command, args = [], {
   cwd = ROOT,
   runner = spawnSync,
+  teamScript = TEAM_SCRIPT,
 } = {}) {
   if (!TEAM_COMMANDS.includes(command)) {
     return { ok: false, output: `Unsupported team command: ${command}` };
   }
-  if (!existsSync(TEAM_SCRIPT)) {
+  if (!Array.isArray(args) || args.some(argument => typeof argument !== 'string')) {
+    return { ok: false, output: 'Invalid agent-team command arguments.' };
+  }
+  if (typeof cwd !== 'string' || typeof teamScript !== 'string' || typeof runner !== 'function') {
+    return { ok: false, output: 'Invalid agent-team command configuration.' };
+  }
+  if (!existsSync(teamScript)) {
     return { ok: false, output: 'Agent-team controls are unavailable: team.mjs was not found.' };
   }
-  const result = runner(process.execPath, [TEAM_SCRIPT, command, ...args], {
+  const result = runner(process.execPath, [teamScript, command, ...args], {
     cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -35,12 +42,16 @@ export function runTeamCommand(command, args = [], {
 export function startAgentTeam({
   cwd = ROOT,
   launcher = spawn,
+  bossScript = BOSS_SCRIPT,
 } = {}) {
-  if (!existsSync(BOSS_SCRIPT)) {
+  if (typeof cwd !== 'string' || typeof bossScript !== 'string' || typeof launcher !== 'function') {
+    return { ok: false, output: 'Invalid agent-team launcher configuration.' };
+  }
+  if (!existsSync(bossScript)) {
     return { ok: false, output: 'Agent-team controls are unavailable: boss.mjs was not found.' };
   }
   try {
-    const child = launcher(process.execPath, [BOSS_SCRIPT, 'start'], {
+    const child = launcher(process.execPath, [bossScript, 'start'], {
       cwd,
       detached: true,
       stdio: 'ignore',
