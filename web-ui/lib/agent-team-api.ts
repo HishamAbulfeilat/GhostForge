@@ -84,6 +84,18 @@ function readJsonFile<T>(filePath: string, fallback: T): T {
   }
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function normalizedString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  return normalized || null
+}
+
 function readMessages(stateDir: string) {
   const file = path.join(stateDir, 'messages.jsonl')
   if (!fs.existsSync(file)) return []
@@ -197,38 +209,53 @@ export function getStateDirectory(workspaceRoot = repoRootFromLib(), stateDirOve
 export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): { snapshot: { health: number | null; running: boolean; agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; cooldownUntil: string | null }>; tasks: Array<{ id: string | null; title: string; kind: string; status: string; owner: string | null }>; messages: Array<Record<string, unknown>>; phase: number } } {
   const root = resolveWorkspaceRoot(workspaceRoot)
   const stateDir = getStateDirectory(root, stateDirOverride)
-  const status = readJsonFile<{ health?: number | null; pid?: number; phase?: number; agents?: Record<string, Record<string, unknown>> } | null>(path.join(stateDir, 'status.json'), null)
-  const board = readJsonFile<{ phase?: number; tasks?: Array<Record<string, unknown>> }>(path.join(stateDir, 'board.json'), { phase: 1, tasks: [] })
-  const teamConfig = readJsonFile<{ agents?: Record<string, { provider?: string }> }>(path.join(root, '.agent-sync', 'team.json'), {})
+  const status = asRecord(readJsonFile<unknown>(path.join(stateDir, 'status.json'), null))
+  const board = asRecord(readJsonFile<unknown>(path.join(stateDir, 'board.json'), {}))
+  const teamConfig = asRecord(readJsonFile<unknown>(path.join(root, '.agent-sync', 'team.json'), {}))
+  const configuredAgents = asRecord(teamConfig.agents)
+  const reportedAgents = asRecord(status.agents)
+  const agentIds = new Set([...Object.keys(configuredAgents), ...Object.keys(reportedAgents)])
 
-  const agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; cooldownUntil: string | null }> = {}
-  for (const [agentId, agentStatus] of Object.entries(status?.agents ?? {})) {
-    const info = (agentStatus && typeof agentStatus === 'object' ? agentStatus : {}) as Record<string, unknown>
-    agents[agentId] = {
-      provider: teamConfig?.agents?.[agentId]?.provider ?? (typeof info.provider === 'string' ? info.provider : null),
-      state: typeof info.state === 'string' ? info.state : 'unknown',
-      task: typeof info.task === 'string' ? info.task : null,
-      model: typeof info.model === 'string' ? info.model : null,
-      cooldownUntil: typeof info.cooldownUntil === 'string' ? info.cooldownUntil : null,
+  const agents = Object.fromEntries([...agentIds].map(agentId => {
+    const config = asRecord(configuredAgents[agentId])
+    const info = asRecord(reportedAgents[agentId])
+    return [agentId, {
+      provider: normalizedString(config.provider) ?? normalizedString(info.provider),
+      state: normalizedString(info.state) ?? 'unknown',
+      task: normalizedString(info.task),
+      model: normalizedString(info.model),
+      cooldownUntil: normalizedString(info.cooldownUntil),
+    }]
+  }))
+
+  const tasks = Array.isArray(board.tasks) ? board.tasks.map(task => {
+    const info = asRecord(task)
+    const owner = normalizedString(info.owner) ?? normalizedString(info.agent)
+    return {
+      id: normalizedString(info.id),
+      title: typeof info.title === 'string' ? info.title : '',
+      kind: normalizedString(info.kind) ?? 'feature',
+      status: normalizedString(info.status) ?? 'todo',
+      owner,
     }
-  }
+  }) : []
 
-  const tasks = Array.isArray(board.tasks) ? board.tasks.map(task => ({
-    id: typeof task.id === 'string' ? task.id : null,
-    title: typeof task.title === 'string' ? task.title : '',
-    kind: typeof task.kind === 'string' ? task.kind : 'feature',
-    status: typeof task.status === 'string' ? task.status : 'todo',
-    owner: typeof task.owner === 'string' ? task.owner : (typeof task.agent === 'string' ? task.agent : null),
-  })) : []
+  const health = status.health
+  const validHealth = typeof health === 'number' && Number.isFinite(health) ? health : null
+  const pid = status.pid
+  const statusPhase = status.phase
+  const boardPhase = board.phase
+  const phaseValue = Number(boardPhase ?? statusPhase ?? 1)
+  const phase = Number.isFinite(phaseValue) && phaseValue > 0 ? phaseValue : 1
 
   return {
     snapshot: {
-      health: status?.health ?? null,
-      running: Boolean(status && status.pid && isProcessRunning(status.pid)),
+      health: validHealth,
+      running: isProcessRunning(typeof pid === 'number' ? pid : Number.NaN),
       agents,
       tasks,
       messages: readMessages(stateDir),
-      phase: Number(board.phase ?? status?.phase ?? 1) || 1,
+      phase,
     },
   }
 }
