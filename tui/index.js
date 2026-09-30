@@ -2680,21 +2680,21 @@ async function screenMarketplace() {
       if (item.installed) {
         console.log(T.success('\n  ✅ Already installed.'));
       } else if (item.install_command) {
-        const go = await confirm({ message: `Run: ${item.install_command} ?`, default: false });
-        if (go) {
-          try {
-            execSync(item.install_command, { stdio: 'inherit', cwd: ROOT });
-            console.log(T.success(`\n  ✅ ${item.name} installed!`));
-            item.installed = true;
-            installedSet.add(item.id); removedSet.delete(item.id);
-            registry.installed = [...installedSet]; registry.removed = [...removedSet];
-            writeFileSync(registryPath, JSON.stringify(registry, null, 2));
-          } catch {
-            console.log(T.danger(`\n  ✖ Install failed. Try manually: ${item.install_command}`));
-          }
+        // Security tools: show the command for review rather than piping
+        // catalog data straight into a shell. Copy/paste to run.
+        console.log(T.yellow('\n  Install command (review, then run in your shell):'));
+        console.log(T.cyan(`    ${item.install_command}`));
+        const mark = await confirm({ message: 'Mark as installed?', default: false });
+        if (mark) {
+          item.installed = true;
+          installedSet.add(item.id); removedSet.delete(item.id);
+          registry.installed = [...installedSet]; registry.removed = [...removedSet];
+          writeFileSync(registryPath, JSON.stringify(registry, null, 2));
+          console.log(T.success(`  ✅ Marked ${item.name} as installed.`));
         }
-      } else if (item.url) {
-        console.log(T.accent(`\n  Review upstream: ${item.url}`));
+      }
+      if (item.url) {
+        console.log(T.accent(`\n  Upstream: ${item.url}`));
         crossPlatformOpen(item.url);
       }
       console.log();

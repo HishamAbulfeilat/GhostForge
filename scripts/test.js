@@ -12,7 +12,7 @@
  */
 'use strict';
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -32,7 +32,8 @@ function check(label, fn) {
 console.log('GhostForge smoke test\n');
 
 check('tui/index.js parses', () => {
-  execSync('node --check tui/index.js', { cwd: ROOT, stdio: 'pipe' });
+  // execFileSync (no shell) avoids any command-string construction.
+  execFileSync(process.execPath, ['--check', 'tui/index.js'], { cwd: ROOT, stdio: 'pipe' });
 });
 
 let catalog;
@@ -64,7 +65,8 @@ const testFiles = fs.existsSync(testDir)
   : [];
 if (testFiles.length) {
   check(`node --test tests/ (${testFiles.length} file(s))`, () => {
-    execSync(`node --test ${testFiles.map(f => `tests/${f}`).join(' ')}`, { cwd: ROOT, stdio: 'pipe' });
+    // Pass files as argv (no shell) so filenames are never interpreted.
+    execFileSync(process.execPath, ['--test', ...testFiles.map(f => path.join('tests', f))], { cwd: ROOT, stdio: 'pipe' });
   });
 }
 
