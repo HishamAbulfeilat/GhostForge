@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: '/files',       icon: '🗂️', label: 'Files' },
   { href: '/features',    icon: '⚡', label: 'Features' },
   { href: '/orchestrate', icon: '🧠', label: 'Orchestrate' },
+  { href: '/workflows',   icon: '🗺️', label: 'Flows' },
   { href: '/users',       icon: '👥', label: 'Users' },
   { href: '/marketplace', icon: '🏪', label: 'Market' },
   { href: '/settings',    icon: '⚙️', label: 'Settings' },
@@ -46,10 +47,12 @@ export function Navbar() {
             <Link
               key={item.href}
               href={item.href}
+              aria-current={active ? 'page' : undefined}
+              title={item.label}
               className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all ${
                 active
                   ? 'bg-white/10 text-white shadow-sm'
-                  : 'text-white/40 hover:bg-white/5 hover:text-white/80'
+                  : 'text-white/60 hover:bg-white/5 hover:text-white'
               }`}
             >
               <span className="text-sm leading-none">{item.icon}</span>

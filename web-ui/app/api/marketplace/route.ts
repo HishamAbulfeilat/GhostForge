@@ -12,15 +12,49 @@ function readJSON<T>(filePath: string, fallback: T): T {
   }
 }
 
-const CATALOG_PATH = path.join(os.homedir(), 'GhostForge/marketplace/catalog.json')
-const REGISTRY_PATH = path.join(os.homedir(), 'GhostForge/marketplace/registry.json')
+/**
+ * Locate the repository's marketplace directory (catalog.json + sources.json).
+ * The web app is served from web-ui/, so walk up toward the repo root; fall back
+ * to ~/GhostForge/marketplace for installed deployments.
+ */
+function marketplaceDir(): string {
+  let probe = process.cwd()
+  for (let i = 0; i < 6; i++) {
+    const candidate = path.join(probe, 'marketplace')
+    if (fs.existsSync(path.join(candidate, 'catalog.json')) || fs.existsSync(path.join(candidate, 'sources.json'))) {
+      return candidate
+    }
+    const parent = path.dirname(probe)
+    if (parent === probe) break
+    probe = parent
+  }
+  return path.join(os.homedir(), 'GhostForge', 'marketplace')
+}
+
+// registry.json sits beside catalog.json — the same file the TUI reads
+// (ROOT/marketplace/registry.json), so both surfaces share install state (ADR-004).
+const MARKETPLACE_DIR = marketplaceDir()
+const CATALOG_PATH = path.join(MARKETPLACE_DIR, 'catalog.json')
+const SOURCES_PATH = path.join(MARKETPLACE_DIR, 'sources.json')
+const REGISTRY_PATH = path.join(MARKETPLACE_DIR, 'registry.json')
+
+interface CatalogItem {
+  id: string; name: string; type: string; category: string; description: string
+  source?: string; tags?: string[]; install_command?: string; installed?: boolean
+}
+
+interface Source {
+  id: string; name: string; type: string; description: string; url?: string
+  docs?: string; install_command?: string; install_alt?: string; install_claude_code?: string
+  verify_command?: string; categories?: string[]; trusted?: boolean; default?: boolean
+}
 
 export async function GET(req: NextRequest) {
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const catalog = readJSON<{ items: { id: string; installed?: boolean }[] }>(CATALOG_PATH, { items: [] })
+  const catalog = readJSON<{ items: CatalogItem[] }>(CATALOG_PATH, { items: [] })
   const registry = readJSON<{ installed: string[]; removed?: string[] }>(REGISTRY_PATH, { installed: [], removed: [] })
 
   // registry.json is the source of truth, seeded by any catalog items that
@@ -32,7 +66,12 @@ export async function GET(req: NextRequest) {
     if (item?.installed && item.id && !removed.has(item.id)) installed.add(item.id)
   }
 
-  return NextResponse.json({ items: catalog.items, installed: [...installed] })
+  // "Claude Marketplace" entries: every trusted external source (skills, plugins,
+  // MCP, tools, memory, optimizers).
+  const sourcesFile = readJSON<{ sources: Source[] }>(SOURCES_PATH, { sources: [] })
+  const sources = (sourcesFile.sources ?? []).filter(s => s.type !== 'local')
+
+  return NextResponse.json({ items: catalog.items ?? [], sources, installed: [...installed] })
 }
 
 export async function POST(req: NextRequest) {
@@ -46,7 +85,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-  const { action, id } = parsed as { action: string; id: string }
+  const { action, id } = parsed
   if (!id || (action !== 'install' && action !== 'remove')) {
     return NextResponse.json({ error: 'Invalid action or id' }, { status: 400 })
   }
@@ -70,6 +109,7 @@ export async function POST(req: NextRequest) {
   registry.installed = [...installed]
   registry.removed = [...removed]
   try {
+    fs.mkdirSync(path.dirname(REGISTRY_PATH), { recursive: true })
     fs.writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2))
   } catch {
     return NextResponse.json({ error: 'Cannot write registry' }, { status: 500 })

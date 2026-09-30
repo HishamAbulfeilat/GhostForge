@@ -5,10 +5,23 @@
  *   ~/.ghostforge/jobs/<username>/jobs.json      discovered jobs + application state
  *   ~/.ghostforge/jobs/<username>/cv/<file>      the original uploaded CV (used for uploads)
  */
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readFile, writeFile, rename } from 'fs/promises'
 import { homedir } from 'os'
 import { join, basename } from 'path'
 import { randomUUID } from 'crypto'
+
+/**
+ * Per-key async mutex. Read-modify-write of a user's JSON files must not
+ * interleave (autopilot runs for minutes while the UI polls/writes), or updates
+ * are lost. Callers serialize on the user's directory.
+ */
+const locks = new Map<string, Promise<unknown>>()
+function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = locks.get(key) ?? Promise.resolve()
+  const next = prev.then(fn, fn)
+  locks.set(key, next.catch(() => {}))
+  return next
+}
 
 export type RemotePreference = 'remote' | 'hybrid' | 'onsite' | 'any'
 export type Fit = 'High' | 'Medium' | 'Low' | 'Skip'
@@ -193,7 +206,11 @@ async function readJson<T>(path: string, fallback: T): Promise<T> {
 
 async function writeJson(path: string, data: unknown): Promise<void> {
   await mkdir(join(path, '..'), { recursive: true })
-  await writeFile(path, JSON.stringify(data, null, 2), 'utf8')
+  // Write to a temp file then rename: rename is atomic, so a concurrent reader
+  // never sees a half-written (truncated) file that would parse as empty.
+  const tmp = `${path}.${randomUUID().slice(0, 8)}.tmp`
+  await writeFile(tmp, JSON.stringify(data, null, 2), 'utf8')
+  await rename(tmp, path)
 }
 
 // ── profile ──────────────────────────────────────────────────────────────────
@@ -215,7 +232,11 @@ export async function getProfile(username: string): Promise<JobProfile> {
   }
 }
 
-export async function saveProfile(username: string, patch: Partial<Omit<JobProfile, 'updatedAt'>>): Promise<JobProfile> {
+export function saveProfile(
+  username: string,
+  patch: Partial<Omit<JobProfile, 'updatedAt' | 'autopilot'>> & { autopilot?: Partial<AutopilotSettings> },
+): Promise<JobProfile> {
+  return withLock(userDir(username), async () => {
   const current = await getProfile(username)
   const next: JobProfile = {
     ...current,
@@ -229,6 +250,7 @@ export async function saveProfile(username: string, patch: Partial<Omit<JobProfi
   }
   await writeJson(join(userDir(username), 'profile.json'), next)
   return next
+  })
 }
 
 /** Persist the original CV file so application forms can upload it */
@@ -256,10 +278,11 @@ export async function getJob(username: string, id: string): Promise<JobRecord | 
 }
 
 /** Merge newly found jobs, keeping state for ones we've already seen */
-export async function upsertJobs(
+export function upsertJobs(
   username: string,
   found: Array<Omit<JobRecord, 'id' | 'status' | 'log' | 'createdAt' | 'updatedAt'>>,
 ): Promise<{ added: number; jobs: JobRecord[] }> {
+  return withLock(userDir(username), async () => {
   const jobs = await listJobs(username)
   const byKey = new Map(jobs.map(j => [j.key, j]))
   const now = new Date().toISOString()
@@ -278,14 +301,16 @@ export async function upsertJobs(
   }
   await saveJobs(username, jobs)
   return { added, jobs }
+  })
 }
 
-export async function updateJob(
+export function updateJob(
   username: string,
   id: string,
   patch: Partial<JobRecord>,
   logMsg?: string,
 ): Promise<JobRecord | null> {
+  return withLock(userDir(username), async () => {
   const jobs = await listJobs(username)
   const job = jobs.find(j => j.id === id)
   if (!job) return null
@@ -294,4 +319,5 @@ export async function updateJob(
   if (logMsg) job.log = [...(job.log || []), { at: now, msg: logMsg }].slice(-50)
   await saveJobs(username, jobs)
   return job
+  })
 }
