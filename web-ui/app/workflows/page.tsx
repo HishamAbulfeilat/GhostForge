@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { WORKFLOW_TEMPLATES, type WorkflowTemplate, templateToWorkflow } from '@/lib/workflows/templates'
 
 // ── types (mirror lib/workflows/store) ───────────────────────────────────────
 type StepKind = 'agent' | 'skill' | 'command' | 'manual'
@@ -81,27 +82,6 @@ function layout(steps: WorkflowStep[]) {
   }
 }
 
-const TEMPLATES: Array<{ name: string; goal: string; steps: Array<{ title: string; kind: StepKind; ref: string; deps: number[] }> }> = [
-  {
-    name: 'Ship a feature', goal: 'Plan → build → test → review → deploy',
-    steps: [
-      { title: 'Plan & spec', kind: 'skill', ref: 'superpowers:brainstorming', deps: [] },
-      { title: 'Implement', kind: 'agent', ref: 'feature-dev:code-architect', deps: [0] },
-      { title: 'Write & run tests', kind: 'skill', ref: 'superpowers:test-driven-development', deps: [1] },
-      { title: 'Code review', kind: 'agent', ref: 'ecc:code-reviewer', deps: [2] },
-      { title: 'Deploy', kind: 'command', ref: 'npm run build && deploy', deps: [3] },
-    ],
-  },
-  {
-    name: 'Fix a bug', goal: 'Reproduce → fix → verify → review',
-    steps: [
-      { title: 'Reproduce as failing test', kind: 'skill', ref: 'superpowers:systematic-debugging', deps: [] },
-      { title: 'Fix to green', kind: 'agent', ref: 'ecc:build-error-resolver', deps: [0] },
-      { title: 'Review', kind: 'agent', ref: 'ecc:code-reviewer', deps: [1] },
-    ],
-  },
-]
-
 export default function WorkflowsPage() {
   const router = useRouter()
   const [workflows, setWorkflows] = useState<Workflow[]>([])
@@ -151,10 +131,10 @@ export default function WorkflowsPage() {
     } catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : String(e) }) }
   }
 
-  const createFromTemplate = async (t: typeof TEMPLATES[number]) => {
+  const createFromTemplate = async (template: WorkflowTemplate) => {
     try {
-      const steps = t.steps.map((s, i) => ({ id: `s${i}`, title: s.title, kind: s.kind, ref: s.ref, deps: s.deps.map(d => `s${d}`) }))
-      const d = await api<{ workflow: Workflow }>('/api/workflows', json('POST', { name: t.name, goal: t.goal, steps }))
+      const draft = templateToWorkflow(template)
+      const d = await api<{ workflow: Workflow }>('/api/workflows', json('POST', { name: template.name, goal: template.goal, steps: draft.steps }))
       await loadList(); setSelectedId(d.workflow.id); setNotice({ tone: 'info', text: `Created "${d.workflow.name}".` })
     } catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : String(e) }) }
   }
@@ -212,7 +192,7 @@ export default function WorkflowsPage() {
           ) : workflows.length === 0 ? (
             <div className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-5">
               <p className="text-sm text-gf-muted">No workflows yet. Start from a template:</p>
-              {TEMPLATES.map(t => (
+              {WORKFLOW_TEMPLATES.map(t => (
                 <button key={t.name} type="button" onClick={() => void createFromTemplate(t)}
                   className="rounded-xl border border-gf-line2 bg-gf-bar p-3 text-start hover:border-gf-accent">
                   <div className="font-display text-sm font-semibold">{t.name}</div>
