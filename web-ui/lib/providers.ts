@@ -119,6 +119,12 @@ export function getProviderKey(provider: ProviderId): string | undefined {
   return readStoredKeys()[env] || process.env[env] || undefined
 }
 
+/** OmniRoute is a local gateway by default; only send an auth header when configured. */
+export function getOmniRouteKey(): string | undefined {
+  const key = process.env.OMNIROUTE_API_KEY?.trim()
+  return key || undefined
+}
+
 /** Where a provider's key comes from — never the key itself */
 export function keySource(provider: ProviderId): 'none-needed' | 'env' | 'settings' | 'missing' {
   const env = PROVIDERS[provider].keyEnv
@@ -280,8 +286,9 @@ type OpenAIModelsResponse = { data?: Array<{ id: string; name?: string; pricing?
 async function listOmniRoute(): Promise<{ models: ProviderModel[]; error?: string }> {
   const autos = OMNIROUTE_AUTO_MODELS.map(m => ({ ...m, free: m.id !== 'auto/cheap' }))
   try {
+    const apiKey = getOmniRouteKey()
     const data = await fetchJSON<OpenAIModelsResponse>(`${omniRouteBaseURL()}/models`, {
-      Authorization: `Bearer ${process.env.OMNIROUTE_API_KEY || 'omniroute'}`,
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
     })
     const live = (data.data || [])
       .filter(m => m.id && !NON_CHAT.test(m.id))
