@@ -101,6 +101,31 @@ loop:
 - **Copilot CLI:** a shell wrapper, e.g.
   `while :; do copilot -p "$(cat prompts/multi-agent-kickoff.md)"; sleep 5; done`.
 
+## ECC workflow context
+
+The boss uses the pinned `.agent-sync/ecc.json` configuration to cache the
+official `affaan-m/ECC` release under ignored runtime state and stage a small,
+task-specific context bundle for every worker, review, and planning pass. This
+gives Copilot and other providers ECC's relevant TDD, verification, security,
+frontend, backend, and E2E guidance without vendoring hundreds of files or
+pretending unsupported hooks are active.
+
+```bash
+npm run agents:setup
+GF_ECC_OFFLINE=1 npm run agents:setup  # use the existing cache only
+```
+
+The setup rejects non-official ECC repository URLs and verifies the configured
+release tag. Update ECC by changing the pinned semantic version in
+`.agent-sync/ecc.json`, reviewing upstream release notes, and rerunning setup
+and `npm run test:agents`.
+
+Claude Code users may instead install the native `ecc@ecc` plugin for their
+personal Claude harness. Do not combine that native plugin with a full manual
+Claude install. The GhostForge boss context is provider-neutral and may safely
+coexist because it is temporary per-task context rather than a second plugin
+installation.
+
 ### Running with only one agent
 
 If one provider is unavailable — most commonly Claude Code hitting its

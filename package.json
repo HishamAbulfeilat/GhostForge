@@ -4,7 +4,13 @@
   "private": true,
   "scripts": {
     "postinstall": "node scripts/fix-node-pty-perms.js",
-    "test": "node scripts/test.js"
+    "test": "node scripts/test.js",
+    "agents:setup": "node scripts/agents/boss.mjs setup",
+    "ecc:setup": "node scripts/agents/ecc-setup.mjs",
+    "agents:start": "node scripts/agents/boss.mjs start",
+    "agents:status": "node scripts/agents/team.mjs status",
+    "agents:stop": "node scripts/agents/team.mjs stop",
+    "test:agents": "node --test scripts/agents/*.test.mjs"
   },
   "dependencies": {
     "node-pty": "^1.1.0",

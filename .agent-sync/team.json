@@ -4,7 +4,11 @@
   "integration": { "branch": "agent/integration", "worktree": "../gf-integration", "base": "main" },
   "agents": {
     "claude":  { "provider": "claude",  "enabled": false, "worktree": "../gf-claude", "branch": "agent/claude/work", "strengths": ["plan", "architecture", "security", "review", "refactor", "test", "bugfix"] },
-    "copilot": { "provider": "copilot", "enabled": true,  "worktree": "../gf-boss-copilot", "branch": "agent/copilot/boss", "strengths": ["feature", "bugfix", "test", "docs", "chore", "security", "refactor"] },
+    "copilot-tui": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-tui", "branch": "agent/copilot/boss-tui", "strengths": ["test", "bugfix", "feature"] },
+    "copilot-desktop": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-desktop", "branch": "agent/copilot/boss-desktop", "strengths": ["bugfix", "test", "feature"] },
+    "copilot-web": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-web", "branch": "agent/copilot/boss-web", "strengths": ["test", "feature", "bugfix", "refactor"] },
+    "copilot-integration": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-integration", "branch": "agent/copilot/boss-integration", "strengths": ["test", "security", "bugfix"] },
+    "copilot-quality": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-quality", "branch": "agent/copilot/boss-quality", "strengths": ["refactor", "security", "docs", "chore", "test"] },
     "codex":   { "provider": "codex",   "enabled": false, "worktree": "../gf-codex",   "branch": "agent/codex/work",   "strengths": ["feature", "bugfix", "test"] },
     "gemini":  { "provider": "gemini",  "enabled": false, "worktree": "../gf-gemini",  "branch": "agent/gemini/work",  "strengths": ["docs", "feature", "chore"] }
   },

@@ -5,7 +5,9 @@ in your own git worktree on branch `{{BRANCH}}`, which the boss has just reset
 to the latest integrated code — everything the other agents finished is
 already here.
 
-Read `AGENTS.md` first (golden rules), then do the task below.
+Read `AGENTS.md` first (golden rules), then read
+`.agent-sync/state/ecc-context.md` for the task-selected ECC workflow guidance.
+ECC is supplementary: this repository contract and the task below always win.
 
 ## Your task — {{TASK_ID}} ({{KIND}})
 
