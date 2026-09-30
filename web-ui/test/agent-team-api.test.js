@@ -31,14 +31,22 @@ test('say defaults are applied before validation', () => {
 test('GF_AGENT_STATE is honored when reading snapshots', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-agent-snapshot-'))
   const stateDir = path.join(root, 'custom-state')
+  fs.mkdirSync(path.join(root, '.agent-sync'), { recursive: true })
   fs.mkdirSync(stateDir, { recursive: true })
 
+  fs.writeFileSync(path.join(root, '.agent-sync', 'team.json'), JSON.stringify({
+    agents: {
+      copilot: { provider: 'configured-copilot' },
+      configuredOnly: { provider: 'configured-only' },
+    },
+  }))
   fs.writeFileSync(path.join(stateDir, 'status.json'), JSON.stringify({
     health: 82,
     pid: process.pid,
     phase: 7,
     agents: {
-      copilot: { state: 'working', task: 'T-001', model: 'gpt-4', cooldownUntil: '2024-01-01T00:00:00Z' },
+      copilot: { provider: 'reported-copilot', state: 'working', task: 'T-001', model: 'gpt-4', cooldownUntil: '2024-01-01T00:00:00Z' },
+      reportedOnly: { provider: 'reported-only', state: 'idle' },
     },
   }))
 
@@ -60,7 +68,10 @@ test('GF_AGENT_STATE is honored when reading snapshots', () => {
     const snapshot = readAgentTeamSnapshot(root)
     assert.equal(snapshot.snapshot.health, 82)
     assert.equal(snapshot.snapshot.phase, 7)
-    assert.equal(snapshot.snapshot.agents.copilot.provider, null)
+    assert.deepEqual(Object.keys(snapshot.snapshot.agents), ['copilot', 'configuredOnly', 'reportedOnly'])
+    assert.equal(snapshot.snapshot.agents.copilot.provider, 'configured-copilot')
+    assert.equal(snapshot.snapshot.agents.configuredOnly.provider, 'configured-only')
+    assert.equal(snapshot.snapshot.agents.reportedOnly.provider, 'reported-only')
     assert.equal(snapshot.snapshot.agents.copilot.state, 'working')
     assert.equal(snapshot.snapshot.messages[0].text, 'hello')
   } finally {
