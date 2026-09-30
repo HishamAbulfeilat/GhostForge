@@ -61,6 +61,104 @@ const SEEDS = {
   ],
 }
 
+export const DEFAULT_TEMPLATE = 'pair'
+const TEMPLATE_DIR = path.join(ROOT, '.agent-sync', 'templates')
+const TEMPLATE_ALIASES = {
+  default: 'pair',
+  duo: 'pair',
+  pair: 'pair',
+  trio: 'trio',
+  'reviewer-heavy': 'reviewer-heavy',
+  'reviewer-heavy-team': 'reviewer-heavy',
+  'reviewerheavy': 'reviewer-heavy',
+  'reviewer_heavy': 'reviewer-heavy',
+}
+
+export function listTemplateNames() {
+  if (!fs.existsSync(TEMPLATE_DIR)) return ['pair', 'trio', 'reviewer-heavy']
+  const items = fs.readdirSync(TEMPLATE_DIR)
+    .filter(f => f.endsWith('.json'))
+    .map(f => path.basename(f, '.json'))
+    .map(name => normalizeTemplateName(name))
+    .filter((name, index, arr) => arr.indexOf(name) === index)
+    .sort((a, b) => a.localeCompare(b))
+  return items.length ? items : ['pair', 'trio', 'reviewer-heavy']
+}
+
+export function normalizeTemplateName(name = DEFAULT_TEMPLATE) {
+  const raw = String(name ?? '').trim().toLowerCase().replace(/[\s_]+/g, '-')
+  if (!raw) return DEFAULT_TEMPLATE
+  return TEMPLATE_ALIASES[raw] ?? raw
+}
+
+export function resolveTemplateName(name = DEFAULT_TEMPLATE) {
+  const normalized = normalizeTemplateName(name)
+  const names = listTemplateNames()
+  if (names.includes(normalized)) return normalized
+  throw new Error(`Unknown agent team template "${name}". Available templates: ${names.join(', ')}`)
+}
+
+export function loadTemplate(name = DEFAULT_TEMPLATE) {
+  const templateName = resolveTemplateName(name)
+  const file = path.join(TEMPLATE_DIR, `${templateName}.json`)
+  const data = readJSON(file, null)
+  if (!data || typeof data !== 'object') throw new Error(`Template "${templateName}" is not a valid JSON object`)
+  return { ...data, name: templateName }
+}
+
+export function applyTemplateConfig(config, name = DEFAULT_TEMPLATE) {
+  const base = JSON.parse(JSON.stringify(config ?? {}))
+  const template = loadTemplate(name)
+  const rawAgents = template.agents
+  const selected = new Set()
+
+  if (Array.isArray(rawAgents)) {
+    for (const agent of rawAgents) selected.add(String(agent))
+  } else if (rawAgents && typeof rawAgents === 'object') {
+    for (const [agent, enabled] of Object.entries(rawAgents)) {
+      if (enabled === true || enabled === 'true' || enabled === 1) selected.add(agent)
+    }
+  }
+
+  base.agents = { ...(base.agents ?? {}) }
+  for (const [agentId, agentCfg] of Object.entries(base.agents)) {
+    const isEnabled = selected.size ? selected.has(agentId) : Boolean(agentCfg?.enabled)
+    base.agents[agentId] = { ...agentCfg, enabled: isEnabled }
+  }
+
+  if (selected.size) {
+    for (const agentId of [...selected]) {
+      if (!base.agents[agentId]) base.agents[agentId] = { enabled: true }
+      else base.agents[agentId].enabled = true
+    }
+  }
+
+  return {
+    ...base,
+    template: { name: template.name, description: template.description ?? '' },
+  }
+}
+
+export function parseArgs(argv = []) {
+  let command = 'start'
+  let template = DEFAULT_TEMPLATE
+  const extras = []
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]
+    if (arg === '--template') {
+      template = argv[++i] ?? DEFAULT_TEMPLATE
+    } else if (arg.startsWith('--template=')) {
+      template = arg.slice('--template='.length) || DEFAULT_TEMPLATE
+    } else if (arg === '--help' || arg === '-h') {
+      extras.push(arg)
+    } else if (!arg.startsWith('-')) {
+      if (!command || command === 'start') command = arg
+      else extras.push(arg)
+    }
+  }
+  return { command, template, extras }
+}
+
 // ── Pure helpers (unit-tested) ───────────────────────────────────────────────
 
 /** The last parseable JSON object in model output (models wrap JSON in prose/fences). */
@@ -122,9 +220,11 @@ export function stagePrompt(worktree, category, name, content) {
 }
 
 class Boss {
-  constructor() {
-    this.cfg = readJSON(path.join(ROOT, '.agent-sync', 'team.json'), null)
-    if (!this.cfg) throw new Error('Missing .agent-sync/team.json')
+  constructor(templateName = DEFAULT_TEMPLATE) {
+    const baseCfg = readJSON(path.join(ROOT, '.agent-sync', 'team.json'), null)
+    if (!baseCfg) throw new Error('Missing .agent-sync/team.json')
+    this.templateName = resolveTemplateName(templateName)
+    this.cfg = applyTemplateConfig(baseCfg, this.templateName)
     this.dir = stateDir(ROOT)
     for (const d of ['tasks', 'logs', 'reviews']) fs.mkdirSync(path.join(this.dir, d), { recursive: true })
     this.intBranch = this.cfg.integration.branch
@@ -550,8 +650,8 @@ class Boss {
     const board = this.board()
     for (const t of board.tasks) if (t.status === 'in-progress' || t.status === 'review') Object.assign(t, { status: 'todo', owner: null })
     saveBoard(this.dir, board)
-    this.log(`boss started — agents: ${this.agents.map(([id, a]) => `${id}(${a.provider})`).join(', ')}; integration ${this.intBranch} @ ${this.intWt}`)
-    this.say('all', `Boss online. Agents: ${this.agents.map(([id]) => id).join(', ')}. Phase ${board.phase}.`)
+    this.log(`boss started with template ${this.templateName} — agents: ${this.agents.map(([id, a]) => `${id}(${a.provider})`).join(', ')}; integration ${this.intBranch} @ ${this.intWt}`)
+    this.say('all', `Boss online. Template: ${this.templateName}. Agents: ${this.agents.map(([id]) => id).join(', ')}. Phase ${board.phase}.`)
 
     if (cmd === 'once') { await this.tick(); await Promise.all(this.running); return }
     process.on('SIGINT', () => {
@@ -570,5 +670,6 @@ class Boss {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  new Boss().start(process.argv[2] || 'start').catch(e => { console.error(`boss: ${e.stack ?? e}`); process.exit(1) })
+  const { command, template } = parseArgs(process.argv.slice(2))
+  new Boss(template).start(command).catch(e => { console.error(`boss: ${e.stack ?? e}`); process.exit(1) })
 }
