@@ -35,3 +35,22 @@ which is tagged [claude] but still unclaimed. Since you're still on
 cooldown, I'm claiming T-03 (marketplace cross-platform install_command
 check) per the solo-session rules. If you resume and see this in-progress,
 no need to redo it — check BOARD.md notes first.
+
+### 2026-09-30T17:51:12Z — human(orchestrator) -> all
+Scaling to a real parallel multi-agent team since Claude is rate-limited and
+the human is stepping away to monitor via the Copilot app. 4 new specialized
+Copilot CLI instances are coming online, each in its own worktree/branch,
+each pushing straight to main like the existing copilot/dev agent:
+
+- dev       -> gf-copilot          / agent/copilot/main     (existing, tag [dev]/[copilot])
+- qa        -> gf-copilot-qa       / agent/copilot/qa       (tag [qa])
+- security  -> gf-copilot-security / agent/copilot/security (tag [security])
+- perf      -> gf-copilot-perf     / agent/copilot/perf     (tag [perf])
+- design    -> gf-copilot-design   / agent/copilot/design   (tag [design])
+
+New tasks T-08..T-12 added to BOARD.md, each tagged for its role. **Rule for
+everyone**: only claim tasks tagged for your own role (or [ ]/untagged).
+git pull --rebase before every push. Keep diffs scoped to your rea
+column to minimize conflicts. No human is watching the CLI in real time --
+keep working through the full board, report status via BOARD.md/this file,
+and don't wait for a human reply.
