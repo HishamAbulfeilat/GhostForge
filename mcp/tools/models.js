@@ -1,6 +1,20 @@
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import * as z from 'zod/v4';
+import { classifyTask, KIND_TIER } from '../../scripts/agents/lib/models.mjs';
+
+// Tier (shared with the agent team's router) → this tool's task buckets.
+const TIER_TO_TASK = { deep: 'security', balanced: 'feature', fast: 'quick' };
+
+/**
+ * `auto`: classify a free-text task description and pick the matching bucket,
+ * so callers don't have to know the task type up front.
+ */
+export function resolveTaskType(taskType, description = '') {
+  if (taskType && taskType !== 'auto') return taskType;
+  if (/\b(sql|query|schema|etl|migration|database)\b/i.test(description)) return 'sql';
+  return TIER_TO_TASK[KIND_TIER[classifyTask(description)]] ?? 'feature';
+}
 
 export function readModelCache(repoRoot) {
   const cachePath = resolve(repoRoot, '.ghostforge-models.json');
@@ -68,16 +82,19 @@ export function registerModelTools(server, { repoRoot }) {
 
   server.tool(
     'get_best_model',
-    'Return the best recommended model for security, feature, sql, or quick tasks.',
+    'Return the best recommended model for a task. taskType "auto" (default) classifies `description` and picks for you; or pass security, feature, sql, or quick.',
     {
-      taskType: z.enum(['security', 'feature', 'sql', 'quick']).describe('Task type to optimize for')
+      taskType: z.enum(['auto', 'security', 'feature', 'sql', 'quick']).default('auto').describe('Task type to optimize for; "auto" infers it from description'),
+      description: z.string().optional().describe('What the task is — used when taskType is "auto"')
     },
-    async ({ taskType }) => {
+    async ({ taskType, description }) => {
       const cache = readModelCache(repoRoot);
-      const recommendation = selectBestModel(cache.models, taskType);
+      const resolved = resolveTaskType(taskType, description);
+      const recommendation = selectBestModel(cache.models, resolved);
 
       return asToolResult({
-        taskType,
+        taskType: resolved,
+        requested: taskType,
         recommendation: recommendation.model,
         effort: recommendation.effort,
         rationale: recommendation.model?.bestFor ?? 'Best available fallback model'
