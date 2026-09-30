@@ -832,7 +832,7 @@ function HardwareMetrics({ isMobile }: { isMobile: boolean }) {
             <span style={{ color: metric.color }}>{metric.sub}</span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-white/8">
-            <div className="h-full rounded-full transition-all duration-500" style={{ width: `${metric.pct}%`, background: metric.color }} />
+            <div className="h-full rounded-full transition-[width] duration-500" style={{ width: `${metric.pct}%`, background: metric.color }} />
           </div>
         </div>
       ))}
@@ -948,15 +948,18 @@ export default function JarvisPage() {
   const speakingRef         = useRef(false)  // prevents overlapping speak() calls
   const externalAudioRef   = useRef<HTMLAudioElement | null>(null)
   const externalAudioUrlRef = useRef<string | null>(null)
-  const lastActivityRef    = useRef(Date.now())
+  const lastActivityRef    = useRef<number | null>(null)
+  if (lastActivityRef.current === null) lastActivityRef.current = Date.now()
   const proactiveTriggeredRef = useRef(false)
   const proactiveTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null)
   const clipboardWatchRef  = useRef<ReturnType<typeof setInterval> | null>(null)
   const clipboardDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const clipboardPrimedRef = useRef(false)
   const lastClipboardRef   = useRef('')
-  const sessionIdRef       = useRef(`jarvis-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`)
-  const sessionStartedAtRef = useRef(new Date().toISOString())
+  const sessionIdRef       = useRef<string | null>(null)
+  if (sessionIdRef.current === null) sessionIdRef.current = `jarvis-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  const sessionStartedAtRef = useRef<string | null>(null)
+  if (sessionStartedAtRef.current === null) sessionStartedAtRef.current = new Date().toISOString()
   const messagesRef         = useRef<Message[]>([])
 
   useEffect(() => { hotwordEnabledRef.current = hotwordEnabled }, [hotwordEnabled])
@@ -997,8 +1000,8 @@ export default function JarvisPage() {
     if (snapshot.length === 0) return
 
     const payload: HistoryPayloadSession = {
-      id: sessionIdRef.current,
-      startedAt: sessionStartedAtRef.current,
+      id: sessionIdRef.current!,
+      startedAt: sessionStartedAtRef.current!,
       endedAt: new Date().toISOString(),
       messages: snapshot.map(message => ({
         role: message.role,
@@ -1414,7 +1417,7 @@ export default function JarvisPage() {
 
   useEffect(() => {
     const handleActivity = (event: Event) => {
-      if (event.type === 'mousemove' && Date.now() - lastActivityRef.current < 30_000) return
+      if (event.type === 'mousemove' && Date.now() - (lastActivityRef.current ?? 0) < 30_000) return
       markActivity()
     }
 
@@ -1548,7 +1551,12 @@ export default function JarvisPage() {
       }
       audio.onended = cleanup
       audio.onerror = cleanup
-      await audio.play()
+      try {
+        await audio.play()
+      } catch (playErr) {
+        cleanup()
+        throw playErr
+      }
       return { ok: true, usedEngine: actualEngine }
     } catch {
       ttsFailCountRef.current += 1
@@ -1615,7 +1623,12 @@ export default function JarvisPage() {
         }
         audio.onended = cleanup
         audio.onerror = cleanup
-        await audio.play()
+        try {
+          await audio.play()
+        } catch (playErr) {
+          cleanup()
+          throw playErr
+        }
         return true
       }
       const res = await fetch('http://127.0.0.1:17493/generate', {
@@ -1647,7 +1660,12 @@ export default function JarvisPage() {
       }
       audio.onended = cleanup
       audio.onerror = cleanup
-      await audio.play()
+      try {
+        await audio.play()
+      } catch (playErr) {
+        cleanup()
+        throw playErr
+      }
       return true
     } catch {
       return false
@@ -1679,7 +1697,7 @@ export default function JarvisPage() {
 
   useEffect(() => {
     proactiveTimerRef.current = setInterval(() => {
-      const silenceMs = Date.now() - lastActivityRef.current
+      const silenceMs = Date.now() - (lastActivityRef.current ?? 0)
       if (silenceMs < 15 * 60 * 1000) return
       if (proactiveTriggeredRef.current) return
       if (modeRef.current !== 'idle' || recognitionRef.current) return
@@ -3295,7 +3313,7 @@ export default function JarvisPage() {
                             {m.confidence}%
                           </span>
                           <span className="h-1 w-12 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
-                            <span className="h-full block rounded-full transition-all" style={{
+                            <span className="h-full block rounded-full transition-[width]" style={{
                               width: `${m.confidence}%`,
                               background: m.confidence >= 80 ? '#00ff88' : m.confidence >= 50 ? '#ffaa00' : '#ff4444',
                             }} />

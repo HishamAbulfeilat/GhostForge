@@ -200,7 +200,7 @@ function StatusBadge({ status }: { status: AgentStatus }) {
   const c = STATUS_CONFIG[status]
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-[10px] font-bold tracking-wider border transition-all duration-300"
+      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 font-mono text-[10px] font-bold tracking-wider border transition-colors duration-300"
       style={{ color: c.color, background: c.bg, borderColor: `${c.color}33` }}
     >
       <span className="h-1.5 w-1.5 rounded-full" style={{
@@ -317,7 +317,7 @@ function IssueQueuePanel({ issues }: { issues: AgentIssue[] }) {
                     <span>{Math.round(progress)}%</span>
                   </div>
                   <div className="h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
-                    <div className="h-full rounded-full transition-all duration-500"
+                    <div className="h-full rounded-full transition-[width] duration-500"
                       style={{ width: `${progress}%`, background: sc.color }} />
                   </div>
                 </div>
@@ -388,7 +388,7 @@ function ActiveTaskPanel({ task }: { task: ActiveTask | null }) {
           ))}
         </div>
         <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
-          <div className="h-full rounded-full transition-all duration-500"
+          <div className="h-full rounded-full transition-[width] duration-500"
             style={{ width: `${progress}%`, background: '#3b82f6' }} />
         </div>
       </div>
@@ -771,7 +771,7 @@ export default function AgentDashboard({ agentState, onStart, onStop, onPause, e
           <div className="text-end min-w-[80px]">
             <div className="text-[8px] tracking-widest mb-0.5" style={{ color: '#52525b' }}>PROGRESS</div>
             <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
-              <div className="h-full rounded-full transition-all duration-500"
+              <div className="h-full rounded-full transition-[width] duration-500"
                 style={{ width: `${progressPct}%`, background: '#3b82f6' }} />
             </div>
             <div className="text-[8px] mt-0.5" style={{ color: '#71717a' }}>{completedIssues}/{totalIssues}</div>
