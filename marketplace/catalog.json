@@ -846,20 +846,20 @@
       ]
     },
     {
-      "id": "mark-l",
-      "name": "Mark-L",
+      "id": "mark-lv",
+      "name": "Mark-LV",
       "type": "agent",
       "category": "AI Models",
-      "description": "Cross-platform real-time voice AI assistant (FatihMakes/Mark-L) \u2014 hears, sees, understands, and controls your computer via the Gemini Live API. Integrated in GhostForge as mark-l-bridge.",
-      "source": "FatihMakes/Mark-L",
-      "url": "https://github.com/FatihMakes/Mark-L",
-      "file": "mark-l-bridge/server.py",
-      "installed": true,
+      "description": "Latest cross-platform personal AI assistant (FatihMakes/Mark-LV) \u2014 real-time Gemini Live voice, screen+webcam vision, computer control, 'Hey Jarvis' wake word, persistent memory, plugins, and a holographic avatar HUD. Needs a free Gemini API key. License: CC BY-NC 4.0 (non-commercial).",
+      "source": "FatihMakes/Mark-LV",
+      "url": "https://github.com/FatihMakes/Mark-LV",
+      "install_command": "git clone https://github.com/FatihMakes/Mark-LV.git && cd Mark-LV && python setup.py",
       "tags": [
         "ai",
         "voice",
         "assistant",
         "gemini",
+        "avatar",
         "cross-platform"
       ]
     }
