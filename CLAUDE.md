@@ -11,7 +11,8 @@ surfaces share one repo:
 - `web-ui/` — Next.js 15 + Tailwind (App Router). The React app lives here, **not** at repo root.
 - `electron-app/` — Electron desktop app.
 - `tui/index.js` — terminal UI (single large file; `node --check` it after edits).
-- `mark-l-bridge/` — Python FastAPI bridge.
+- `mark-l-bridge/` — the single Python FastAPI bridge (`:8765`) behind JARVIS.
+  Unifies **Mark-LV** (vendored at `vendor/mark-liv`, [FatihMakes/Mark-LV](https://github.com/FatihMakes/Mark-LV), CC BY-NC 4.0) and opt-in **OpenJarvis** (Apache-2.0). See `mark-l-bridge/README.md`. Named for legacy wiring; "Mark-L" is retired in favour of Mark-LV.
 - `marketplace/` — catalog + registry for installable agents/skills/tools.
 - `agents/`, `commands/`, `.claude/skills/`, `instructions/`, `knowledge/`, `prompts/` — content.
 
