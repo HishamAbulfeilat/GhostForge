@@ -13,8 +13,8 @@ Tag `[claude]` / `[copilot]` restricts an owner; `[ ]` = anyone.
 | T-02 | [copilot] | Web UI: add an "OpenJarvis" panel + `web-ui/lib/openjarvis.ts` client hitting the new endpoints | `web-ui/` | copilot | done | lib client + `/api/openjarvis` proxy route + `OpenJarvisPanel.tsx` wired into `app/jarvis/page.tsx`; 67/67 web-ui tests pass |
 | T-03 | [claude] | Marketplace: verify every catalog `install_command` works cross-platform; fix any macOS-only ones | `marketplace/`, `tui/` | – | todo | run `npm test` after |
 | T-04 | [ ] | Add `web-ui` ESLint config (PR quality check reports "no eslint config") | `web-ui/` | copilot | done | `eslint.config.mjs` already present and working (verified via `npx eslint`) — closing as already resolved |
-| T-05 | [ ] | Knip: resolve the 10 unused-file warnings from PR quality check | `web-ui/` | copilot | in-progress | `cd web-ui && npx knip` |
-| T-06 | [ ] | Tests: add root unit tests under `tests/*.test.js` so `scripts/test.js` runs them | `tests/` | – | todo | node:test |
+| T-05 | [ ] | Knip: resolve the 10 unused-file warnings from PR quality check | `web-ui/` | copilot | done | Deleted 8 dead, never-imported components; added `web-ui/knip.jsonc` ignoring 2 legit false positives (`public/sw.js` string-path SW registration, `lib/quick-actions.ts` intentional dual .js/.ts resolution split). `npx knip` now reports 0 unused files. |
+| T-06 | [ ] | Tests: add root unit tests under `tests/*.test.js` so `scripts/test.js` runs them | `tests/` | copilot | in-progress | node:test |
 | T-07 | [ ] | Docs: refresh `README.md` feature list + bridge section to match current code | root | – | todo | Mark-LV + OpenJarvis + marketplace |
 
 ## Human notes
