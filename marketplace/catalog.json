@@ -826,6 +826,42 @@
         "audit",
         "skill"
       ]
+    },
+    {
+      "id": "openjarvis",
+      "name": "OpenJarvis",
+      "type": "agent",
+      "category": "AI Models",
+      "description": "Local-first personal AI agent framework by Stanford (Hazy Research / Scaling Intelligence). Runs on-device with Ollama; cloud only when needed. 'Personal AI, On Personal Devices.' Apache-2.0.",
+      "source": "open-jarvis/OpenJarvis",
+      "url": "https://github.com/open-jarvis/OpenJarvis",
+      "install_command": "curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash",
+      "tags": [
+        "ai",
+        "local",
+        "agent",
+        "ollama",
+        "privacy",
+        "framework"
+      ]
+    },
+    {
+      "id": "mark-lv",
+      "name": "Mark-LV",
+      "type": "agent",
+      "category": "AI Models",
+      "description": "Latest cross-platform personal AI assistant (FatihMakes/Mark-LV) \u2014 real-time Gemini Live voice, screen+webcam vision, computer control, 'Hey Jarvis' wake word, persistent memory, plugins, and a holographic avatar HUD. Needs a free Gemini API key. License: CC BY-NC 4.0 (non-commercial).",
+      "source": "FatihMakes/Mark-LV",
+      "url": "https://github.com/FatihMakes/Mark-LV",
+      "install_command": "git clone https://github.com/FatihMakes/Mark-LV.git && cd Mark-LV && python setup.py",
+      "tags": [
+        "ai",
+        "voice",
+        "assistant",
+        "gemini",
+        "avatar",
+        "cross-platform"
+      ]
     }
   ]
 }

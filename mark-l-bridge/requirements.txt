@@ -12,3 +12,12 @@ httpx
 # OCR (optional — used by read_text_on_screen). Install for local screen text.
 # paddleocr
 # paddlepaddle
+
+# ── OpenJarvis (local-first personal AI framework, Apache-2.0) ────────────────
+# Adds on-device agent primitives to the bridge so one bridge covers both the
+# Mark-LV assistant and OpenJarvis local agents. It brings a large dependency
+# tree (Ollama, models), so it is opt-in. Install the framework with its own
+# installer, then this package is importable by the bridge:
+#   curl -fsSL https://open-jarvis.github.io/OpenJarvis/install.sh | bash
+# or, for just the Python package:
+# OpenJarvis
