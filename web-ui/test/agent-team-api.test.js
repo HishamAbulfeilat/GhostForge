@@ -152,6 +152,7 @@ test('connector snapshots default to local-only and do not fabricate online runt
   assert.equal(snapshot.connectors[0].status === 'online', snapshot.connectors[0].online)
   assert.equal(snapshot.connectors[0].agents.some(agent => agent.id === 'ghostforge'), false)
   assert.equal(snapshot.connectors[0].tasks.some(task => task.id === 'T-local'), false)
+  assert.deepEqual(snapshot.connectors[0].sessions, [])
   assert.equal(snapshot.connectors[0].staleAfterMs, 30000)
   assert.equal(Array.isArray(snapshot.connectors[0].events), true)
 
@@ -171,6 +172,7 @@ test('connector snapshots default to local-only and do not fabricate online runt
     heartbeat: new Date().toISOString(),
     agents: [{ id: 'actual-remote-agent', provider: 'openai-compatible' }],
     tasks: [],
+    sessions: [{ id: 'remote-session' }],
     events: [{ ts: new Date().toISOString(), type: 'session.heartbeat', project: 'web-ui', device: 'desk-1' }],
   })
   t.after(() => { global.fetch = originalFetch })
@@ -183,6 +185,10 @@ test('connector snapshots default to local-only and do not fabricate online runt
   assert.equal(allowlisted.connectors[1].events[0].device, 'desk-1')
   assert.equal(allowlisted.connectors[1].error, null)
   assert.equal(allowlisted.connectors[1].agents[0].provider, 'openai-compatible')
+  assert.equal(allowlisted.connectors[1].sessions[0].id, 'remote-session')
+  assert.equal(allowlisted.connectors[1].sessions[0].source, 'cloud')
+  assert.equal(allowlisted.connectors[1].sessions[0].project, 'web-ui')
+  assert.equal(allowlisted.connectors[1].sessions[0].device, 'desk-1')
   assert.deepEqual(allowlisted.connectors[1].events[0], { ts: allowlisted.connectors[1].events[0].ts, type: 'session.heartbeat', source: 'cloud', project: 'web-ui', device: 'desk-1' })
 
   const rejected = await readConnectorSnapshot({
@@ -194,6 +200,7 @@ test('connector snapshots default to local-only and do not fabricate online runt
   assert.equal(rejected.connectors.at(-1).status, 'offline')
   assert.match(rejected.connectors.at(-1).error, /workspace root/i)
   assert.equal(rejected.connectors.at(-1).project, null)
+  assert.deepEqual(rejected.connectors.at(-1).sessions, [])
   assert.equal(normalizeSessionConnectorConfig({ id: 'device', headers: { Authorization: 'Bearer bad' } }).headers.Authorization, '[redacted]')
 })
 
@@ -241,6 +248,7 @@ test('TypeScript and JavaScript connector snapshot adapters stay behaviorally al
     heartbeat,
     agents: [{ id: 'remote-agent', state: 'idle' }],
     tasks: [{ id: 'T-remote', title: 'Remote task' }],
+    sessions: [{ id: 'remote-session', name: 'Remote session', secret: 'must-not-leak' }],
     events: [{ ts: heartbeat, type: 'heartbeat' }],
   })
   t.after(() => { global.fetch = previousFetch })
@@ -257,6 +265,7 @@ test('local connector reflects runtime state and reports dead processes offline'
   })
   const local = (await readConnectorSnapshot(null, root)).connectors[0]
   assert.equal(local.status, 'online')
+  assert.deepEqual(local.sessions, [])
   assert.deepEqual(local.agents, [{
     id: 'worker',
     state: 'working',
@@ -283,6 +292,91 @@ test('local connector reflects runtime state and reports dead processes offline'
   assert.equal(offline.status, 'offline')
   assert.equal(offline.online, false)
   assert.equal(offline.error, 'Runtime process is not running')
+  assert.deepEqual(offline.sessions, [])
+})
+
+test('remote connector sessions are bounded, sanitized, and scoped to connector identity', async t => {
+  const { root } = createConnectorWorkspace()
+  const heartbeat = new Date().toISOString()
+  const previousFetch = global.fetch
+  global.fetch = async () => mockJsonResponse({
+    heartbeat,
+    sessions: [
+      {
+        sessionId: 's-1',
+        name: 'Remote session',
+        status: 'active',
+        state: 'working',
+        agent: 'worker-1',
+        task: 'T-20',
+        createdAt: heartbeat,
+        updatedAt: 'invalid-date',
+        source: 'spoofed',
+        project: '../outside',
+        device: 'spoofed-device',
+        provider: 'spoofed-provider',
+        token: 'must-not-leak',
+        headers: { Authorization: 'must-not-leak' },
+      },
+      ...Array.from({ length: 105 }, (_, index) => ({
+        id: `s-${index + 2}`,
+        name: 'n'.repeat(520),
+        extra: 'must-not-leak',
+      })),
+      { name: 'missing id is omitted' },
+    ],
+  })
+  t.after(() => { global.fetch = previousFetch })
+
+  const connector = (await readConnectorSnapshot({
+    id: 'cloud-sessions',
+    source: 'cloud',
+    project: './web-ui',
+    device: 'desk-1',
+    provider: 'configured-provider',
+    allow: true,
+    url: 'https://cloud.example/snapshot',
+  }, root)).connectors[1]
+
+  assert.equal(connector.sessions.length, 100)
+  assert.deepEqual(connector.sessions[0], {
+    id: 's-1',
+    source: 'cloud',
+    project: 'web-ui',
+    device: 'desk-1',
+    provider: 'configured-provider',
+    name: 'Remote session',
+    status: 'active',
+    state: 'working',
+    agent: 'worker-1',
+    task: 'T-20',
+    createdAt: new Date(heartbeat).toISOString(),
+  })
+  assert.ok(connector.sessions.every(session => session.name.length <= 512))
+  const serialized = JSON.stringify(connector.sessions)
+  assert.equal(serialized.includes('must-not-leak'), false)
+  assert.equal(serialized.includes('spoofed'), false)
+  assert.equal(serialized.includes('../outside'), false)
+})
+
+test('remote connector rejects a non-array sessions field and returns an empty offline projection', async t => {
+  const { root } = createConnectorWorkspace()
+  const previousFetch = global.fetch
+  global.fetch = async () => mockJsonResponse({
+    heartbeat: new Date().toISOString(),
+    sessions: { id: 'not-an-array' },
+  })
+  t.after(() => { global.fetch = previousFetch })
+  const connector = (await readConnectorSnapshot({
+    id: 'invalid-sessions',
+    source: 'cloud',
+    allow: true,
+    url: 'https://cloud.example/snapshot',
+  }, root)).connectors[1]
+
+  assert.equal(connector.status, 'offline')
+  assert.equal(connector.error, 'Connector sessions must be an array')
+  assert.deepEqual(connector.sessions, [])
 })
 
 test('local connector bounds agent/task counts and all projected field/list sizes', async () => {
