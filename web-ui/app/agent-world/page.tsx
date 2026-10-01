@@ -16,7 +16,7 @@ import ForgeWorldScene from './ForgeWorldScene'
 
 type PageState =
   | { status: 'loading' }
-  | { status: 'loaded'; data: AgentWorldData; officeSessions: AgentWorldRecord[]; mode: string }
+  | { status: 'loaded'; data: AgentWorldData; officeSessions: AgentWorldRecord[]; mode: string; refreshError?: string }
   | { status: 'denied'; message: string }
   | { status: 'error'; message: string }
   | { status: 'redirecting' }
@@ -141,10 +141,14 @@ export default function AgentWorldPage() {
   const router = useRouter()
   const [state, setState] = useState<PageState>({ status: 'loading' })
   const [world, setWorld] = useState<AgentWorldView>('forge')
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   const changeWorld = useCallback((view: AgentWorldView) => setWorld(view), [])
   const load = useCallback(async () => {
-    setState({ status: 'loading' })
+    setState(current => current.status === 'loaded'
+      ? { ...current, refreshError: undefined }
+      : { status: 'loading' })
+    setIsRefreshing(true)
     try {
       const result = await loadAgentWorld(fetch, () => router.replace('/login?next=/agent-world'))
       if (result.status === 'loaded') {
@@ -160,10 +164,12 @@ export default function AgentWorldPage() {
         setState({ status: 'redirecting' })
       }
     } catch (error) {
-      setState({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Unable to load Agent World.',
-      })
+      const message = error instanceof Error ? error.message : 'Unable to load Agent World.'
+      setState(current => current.status === 'loaded'
+        ? { ...current, refreshError: message }
+        : { status: 'error', message })
+    } finally {
+      setIsRefreshing(false)
     }
   }, [router])
 
@@ -177,7 +183,7 @@ export default function AgentWorldPage() {
             <h1 className="font-display text-2xl font-bold tracking-tight">🌐 Agent World</h1>
             <p className="mt-1 text-sm text-gf-muted">Live operations from the available agent and connector snapshots.</p>
           </div>
-          <button type="button" onClick={() => void load()} disabled={state.status === 'loading'} className="min-h-10 rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent disabled:opacity-50">
+          <button type="button" onClick={() => void load()} disabled={state.status === 'loading' || isRefreshing} className="min-h-10 rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent disabled:opacity-50">
             Refresh
           </button>
         </header>
@@ -186,10 +192,10 @@ export default function AgentWorldPage() {
         {state.status === 'loading' && <p role="status" className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">Loading Agent World snapshot…</p>}
         {state.status === 'redirecting' && <p role="status" className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">Redirecting to sign in…</p>}
         {state.status === 'denied' && <p role="alert" className="rounded-xl border border-amber-900 bg-amber-950/60 p-4 text-sm text-amber-100">{state.message}</p>}
-        {state.status === 'error' && (
+        {(state.status === 'error' || (state.status === 'loaded' && state.refreshError)) && (
           <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-900 bg-red-950/60 p-4 text-sm text-red-100">
-            <p>{state.message}</p>
-            <button type="button" onClick={() => void load()} className="min-h-9 rounded-lg border border-red-700 px-3 font-semibold hover:bg-red-900/50">Retry</button>
+            <p>{state.status === 'error' ? state.message : state.refreshError}</p>
+            <button type="button" onClick={() => void load()} disabled={isRefreshing} className="min-h-9 rounded-lg border border-red-700 px-3 font-semibold hover:bg-red-900/50 disabled:opacity-50">Retry</button>
           </div>
         )}
         {state.status === 'loaded' && (

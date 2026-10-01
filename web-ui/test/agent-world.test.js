@@ -26,6 +26,133 @@ function response(status, body) {
   }
 }
 
+function createPageHarness(results) {
+  let activeHarness
+  const hooks = {
+    useState(initialValue) {
+      const harness = activeHarness
+      const index = harness.cursor++
+      if (!(index in harness.state)) harness.state[index] = initialValue
+      return [
+        harness.state[index],
+        value => {
+          harness.state[index] = typeof value === 'function'
+            ? value(harness.state[index])
+            : value
+        },
+      ]
+    },
+    useCallback(callback) {
+      return callback
+    },
+    useEffect(callback) {
+      activeHarness.effects.push(callback)
+    },
+  }
+  const jsxRuntime = {
+    Fragment: Symbol('Fragment'),
+    jsx: (type, props, key) => ({ type, props: props ?? {}, key }),
+    jsxs: (type, props, key) => ({ type, props: props ?? {}, key }),
+  }
+  function AgentOfficeMap() {}
+  function WorkflowDependencyGraph() {}
+  function AgentWorldSwitcher() {}
+  function ForgeWorldScene() {}
+  const localComponents = {
+    '../../components/agent-world/AgentOfficeMap': AgentOfficeMap,
+    '../../components/agent-world/WorkflowDependencyGraph': WorkflowDependencyGraph,
+    './AgentWorldSwitcher': AgentWorldSwitcher,
+    './ForgeWorldScene': ForgeWorldScene,
+  }
+  let resultIndex = 0
+  const mockedModel = {
+    collectAgentWorldData: snapshot => ({
+      agents: snapshot.agents ?? [],
+      tasks: snapshot.tasks ?? [],
+      events: snapshot.messages ?? [],
+      connectors: [],
+      sessions: [],
+      boss: snapshot.boss,
+    }),
+    loadAgentWorld: async () => {
+      const result = results[resultIndex++]
+      if (typeof result === 'function') return result()
+      return result
+    },
+    recordText: () => [],
+  }
+  const source = fs.readFileSync(pagePath, 'utf8')
+  const compiledPage = ts.transpileModule(source, {
+    compilerOptions: {
+      jsx: ts.JsxEmit.ReactJSX,
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020,
+    },
+  }).outputText
+  const pageModule = new Module(pagePath, module)
+  pageModule.filename = pagePath
+  pageModule.paths = Module._nodeModulePaths(path.dirname(pagePath))
+  const originalLoad = Module._load
+  Module._load = function (request, parent, isMain) {
+    if (request === 'react') return hooks
+    if (request === 'react/jsx-runtime') return jsxRuntime
+    if (request === 'next/navigation') return { useRouter: () => ({ replace() {} }) }
+    if (request === './agent-world-model') return mockedModel
+    if (localComponents[request]) return { __esModule: true, default: localComponents[request] }
+    return originalLoad.call(this, request, parent, isMain)
+  }
+  try {
+    pageModule._compile(compiledPage, pagePath)
+  } finally {
+    Module._load = originalLoad
+  }
+
+  const harness = { cursor: 0, effects: [], state: [] }
+  harness.render = () => {
+    harness.cursor = 0
+    activeHarness = harness
+    try {
+      return pageModule.exports.default()
+    } finally {
+      activeHarness = undefined
+    }
+  }
+  harness.mount = () => {
+    harness.render()
+    for (const effect of harness.effects) effect()
+  }
+  harness.flush = async () => {
+    await new Promise(resolve => setImmediate(resolve))
+    return harness.render()
+  }
+  return harness
+}
+
+function findElement(node, predicate) {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const match = findElement(child, predicate)
+      if (match) return match
+    }
+    return null
+  }
+  if (!node || typeof node !== 'object') return null
+  if (predicate(node)) return node
+  return findElement(node.props?.children, predicate)
+}
+
+function elementText(node) {
+  if (Array.isArray(node)) return node.map(elementText).join('')
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  return node && typeof node === 'object' ? elementText(node.props?.children) : ''
+}
+
+function clickButton(tree, label) {
+  const button = findElement(tree, node => node.type === 'button' && elementText(node) === label)
+  assert.ok(button, `Expected a ${label} button`)
+  button.props.onClick()
+}
+
 test('Agent World uses available snapshot data and does not synthesize empty sessions', () => {
   const snapshot = {
     agents: { worker: { state: 'working' } },
@@ -141,6 +268,47 @@ test('API errors and unreadable record values are surfaced without rendering obj
     /Snapshot unavailable/,
   )
   assert.deepEqual(recordText({ value: { nested: true }, state: 'offline' }, ['value', 'state']), ['state: offline'])
+})
+
+test('failed background refresh keeps the last snapshot visible and retry recovers', async () => {
+  const harness = createPageHarness([
+    { status: 'loaded', snapshot: { agents: ['copilot-before-refresh'] } },
+    () => { throw new Error('Refresh unavailable') },
+    { status: 'loaded', snapshot: { agents: ['copilot-after-retry'] } },
+  ])
+  harness.mount()
+  let tree = await harness.flush()
+  assert.deepEqual(findElement(tree, node => node.type.name === 'ForgeWorldScene').props.agents, ['copilot-before-refresh'])
+
+  clickButton(tree, 'Refresh')
+  tree = await harness.flush()
+  const alert = findElement(tree, node => node.props?.role === 'alert')
+  assert.ok(alert)
+  assert.match(elementText(alert), /Refresh unavailable/)
+  assert.deepEqual(findElement(tree, node => node.type.name === 'ForgeWorldScene').props.agents, ['copilot-before-refresh'])
+
+  clickButton(tree, 'Retry')
+  tree = await harness.flush()
+  assert.equal(findElement(tree, node => node.props?.role === 'alert'), null)
+  assert.deepEqual(findElement(tree, node => node.type.name === 'ForgeWorldScene').props.agents, ['copilot-after-retry'])
+})
+
+test('initial load failure shows an accessible error and retry loads the snapshot', async () => {
+  const harness = createPageHarness([
+    () => { throw new Error('Initial load unavailable') },
+    { status: 'loaded', snapshot: { agents: ['copilot-after-retry'] } },
+  ])
+  harness.mount()
+  let tree = await harness.flush()
+  const alert = findElement(tree, node => node.props?.role === 'alert')
+  assert.ok(alert)
+  assert.match(elementText(alert), /Initial load unavailable/)
+  assert.equal(findElement(tree, node => node.type.name === 'ForgeWorldScene'), null)
+
+  clickButton(tree, 'Retry')
+  tree = await harness.flush()
+  assert.equal(findElement(tree, node => node.props?.role === 'alert'), null)
+  assert.deepEqual(findElement(tree, node => node.type.name === 'ForgeWorldScene').props.agents, ['copilot-after-retry'])
 })
 
 test('Agent World includes responsive accessible empty, loading, and error states', () => {
