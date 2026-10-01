@@ -63,7 +63,6 @@ export function getHeadlessSwitches(): string[] {
     'headless',
     'disable-gpu',
     'disable-software-rasterizer',
-    'no-sandbox',
     'disable-dev-shm-usage',
     'disable-renderer-backgrounding',
   ];
