@@ -40,32 +40,33 @@ surface. The evidence column names the implementation that was checked.
 | Clipboard, desktop and app launching | ⚠️ | ✅ | ⚠️ | ✅ | `app/mac-control`, `screenMacControl`, `/api/mark-l/clipboard`, `/desktop`, `/open-app` |
 | Memory (CRUD, semantic search, import/export) | ✅ | ⚠️ | ✅ | ✅ | `app/jarvis`, `scripts/setup-memory.sh`, `/api/mark-l/memory/*` |
 | Proactive assistant, morning briefing and inbox | ✅ | ⚠️ | ✅ | ❌ | `app/api/jarvis/proactive`, `app/api/jarvis/morning`, `scripts/daily-digest.sh` |
-| Jarvis collaboration and sharing | ✅ | ❌ | ❌ | ❌ | `app/api/jarvis/collab`, `CollabShare` |
-| Job Hunter (search, profile, CV, GitHub) | ✅ | ⚠️ | ✅ | ❌ | `app/jobs`, `JobHunterWidget`, `scripts/job-hunter.mjs`/`scripts/jobs.sh` |
-| Workflow engine and workflow runs | ✅ | ⚠️ | ❌ | ❌ | `app/workflows`, `/api/workflows`; no dedicated `screenWorkflow` or `scripts/workflow` entry point |
+| Jarvis collaboration and sharing | ✅ | ❌ | ❌ | ✅ | `app/api/jarvis/collab`, `CollabShare`, bridge `/api/jarvis/collab` |
+| Job Hunter (search, profile, CV, GitHub) | ✅ | ⚠️ | ✅ | ⚠️ | `app/jobs`, `JobHunterWidget`, `scripts/job-hunter.mjs`/`scripts/jobs.sh`, bridge `/api/jobs` (limited actions; search/autopilot are stubs) |
+| Workflow engine and workflow runs | ✅ | ⚠️ | ❌ | ⚠️ | `app/workflows`, `/api/workflows`, bridge `/api/workflows` (persisted state/actions, no run executor); no dedicated `screenWorkflow` or CLI entry point |
 | n8n automation | ✅ | ⚠️ | ❌ | ❌ | `app/automation`, `electron-app/src/main/n8n-integration.ts` |
-| Webhooks and trigger automation | ✅ | ❌ | ❌ | ❌ | `app/automation`, `/api/webhook`; no webhook screen or CLI entry point |
+| Webhooks and trigger automation | ✅ | ❌ | ❌ | ✅ | `app/automation`, `/api/webhook`, bridge `/api/webhook`; no TUI screen or CLI entry point |
 | Orchestrated multi-agent work | ✅ | ⚠️ | ✅ | ✅ | `app/orchestrate`, `OrchestratePanel`, `/api/jarvis/orchestrate`, `/api/mark-l/agents` |
-| Remote setup and device management | ✅ | ✅ | ✅ | ❌ | `app/remote`, `app/api/remote/setup`, `screenDeviceInstall`, `scripts/setup-https.sh` |
-| Push notifications and device status | ⚠️ | ❌ | ⚠️ | ❌ | `app/api/push`, `app/api/devices`, `DeviceStatus` |
+| Remote setup and device management | ✅ | ✅ | ✅ | ⚠️ | `app/remote`, `app/api/remote/setup`, `screenDeviceInstall`, `scripts/setup-https.sh`, bridge `/api/devices` (registry only) |
+| Push notifications | ⚠️ | ✅ | ✅ | ❌ | `app/api/push`/service worker (no visible push-management page), `screenDeviceStatus`, `scripts/device-status.mjs push` |
+| Device status and registry | ✅ | ✅ | ✅ | ⚠️ | `DeviceStatus`, `app/api/devices`, `screenDeviceStatus`, `scripts/device-status.mjs status`, bridge `/api/devices` (registry, not live status) |
 | Models catalog, install and recommendations | ✅ | ✅ | ✅ | ✅ | `app/models`, `screenModelSelect`, `scripts/free-models.sh`, `/api/mark-l/models/*` |
 | LLMFit model matching and auto-switch | ✅ | ✅ | ✅ | ❌ | `app/models`, `LLMfitAutoSwitch`, `screenLLMFit`, `scripts/free-models.sh` |
 | Hugging Face model search | ✅ | ✅ | ⚠️ | ✅ | `app/marketplace`, `/api/huggingface`, `screenMarketplace`, bridge model search |
-| Awesome LLM apps catalog | ✅ | ✅ | ❌ | ❌ | `app/marketplace`, `screenMarketplace`, `/api/awesome-llm-apps` |
+| Awesome LLM apps catalog | ✅ | ✅ | ✅ | ❌ | `app/marketplace`, `screenMarketplace`, `/api/awesome-llm-apps`, `scripts/awesome-llm-apps.mjs` |
 | Marketplace catalog and install state | ✅ | ✅ | ✅ | ❌ | `app/marketplace`, `screenMarketplace`, `scripts/marketplace.sh` |
 | Custom model/API keys | ✅ | ⚠️ | ✅ | ⚠️ | `app/models`, `/api/models/custom`, `/api/models/keys`, bridge model install |
 | OpenJarvis health, doctor and ask | ✅ | ⚠️ | ✅ | ✅ | `OpenJarvisPanel`, `app/api/openjarvis`, `scripts/mark-liv.sh`, `/api/openjarvis/*` |
 | Mark-LV tools and tool runner | ⚠️ | ✅ | ✅ | ✅ | `MarkLPanel`, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-liv/tools` and `/run` |
 | Weather, flights and reminders | ⚠️ | ✅ | ✅ | ✅ | `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-l/weather`, `/flight-finder`, `/reminder` |
-| YouTube and game updater | ❌ | ✅ | ✅ | ✅ | `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-l/youtube`, `/game-updater` |
+| YouTube and game updater | ✅ | ✅ | ✅ | ✅ | `DeviceControlsPanel`, dashboard, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-l/youtube`, `/game-updater` |
 | Files/process control | ✅ | ✅ | ✅ | ✅ | `app/files`, `screenOpenProject`, `scripts/open-project.sh`, `/api/mark-l/file-process` |
 | Code helper and developer agent | ⚠️ | ✅ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/explain.sh`, `/api/mark-l/code-helper`, `/dev-agent` |
 | Security scan and pentest helpers | ⚠️ | ✅ | ✅ | ❌ | `app/features`, `screenSecurity`, `scripts/security-check.sh`/`scripts/pentest.sh` |
 | Doctor, health and diagnostics | ✅ | ✅ | ✅ | ✅ | `app/doctor`, `screenDoctor`/`screenHealth`, `scripts/doctor.sh`/`health-check.sh`, bridge `/health` |
 | Testing and coverage | ⚠️ | ✅ | ✅ | ❌ | `app/features`, `screenTest`, `scripts/test-all-features.sh`/`coverage.sh` |
 | Deploy and Azure tooling | ⚠️ | ✅ | ✅ | ❌ | `app/features`, `screenDeploy`, `scripts/deploy-azure.sh` |
-| Git hooks, upgrades and release tooling | ❌ | ✅ | ✅ | ❌ | `screenGitHooks`/`screenUpgrade`, `scripts/git-hooks.sh`/`upgrade.sh`/`release.sh` |
-| API docs/types/mock generation | ❌ | ✅ | ✅ | ❌ | `screenAPITypes`/`screenMockApi`, `scripts/api-docs.sh`/`api-types.sh`/`api-mock.sh` |
+| Git hooks, upgrades and release tooling | ❌ | ✅ | ✅ | ⚠️ | `screenGitHooks`/`screenUpgrade`, `scripts/git-hooks.sh`/`upgrade.sh`/`release.sh`, bridge `/api/release` (status/prepare/notes only) |
+| API docs/types/mock generation | ✅ | ✅ | ✅ | ❌ | `app/api-docs`, `app/api-types`, `app/mock-api`, `app/api/execute`, `screenAPITypes`/`screenMockApi`, `scripts/api-docs.sh`/`api-types.sh`/`api-mock.sh` |
 | i18n and RTL tooling | ⚠️ | ✅ | ✅ | ❌ | `app/layout.tsx`, `screenRTL`, `scripts/i18n.sh`/`rtl.sh` |
 | Snippets, changelog, README and onboarding | ❌ | ✅ | ✅ | ❌ | `screenSnippets`/`screenChangelogViewer`/`screenReadme`/`screenOnboardDev`, `scripts/snippet-manager.sh`/`changelog.sh`/`onboard-dev.sh` |
 | Tickets, Azure DevOps and estimates | ⚠️ | ✅ | ✅ | ❌ | `screenTickets`/`screenAdo`/`screenEstimate`, `scripts/ticket.sh`/`ado.sh`/`estimate.sh` |
@@ -75,28 +76,34 @@ surface. The evidence column names the implementation that was checked.
 | Bridge start/status and connection controls | ✅ | ✅ | ✅ | ✅ | `BridgeControl`, `screenHealth`, `scripts/bridge-server.js`, bridge `/api/mark-l/health` |
 | Electron desktop integrations | ❌ | ❌ | ✅ | ⚠️ | `electron-app/src/main/*`, `scripts/build-electron.sh`; bridge overlap is partial |
 | Android/iOS packaged app | ❌ | ❌ | ✅ | ❌ | `electron-app/android`, `electron-app/ios`, `scripts/build-android.sh`/`build-ios.sh` |
-| Design resources, Vigolium and open-source tools | ❌ | ✅ | ✅ | ❌ | `screenDesignResources`/`screenVigolium`/`screenOpenSourceTools`, `scripts/figma-tokens.sh` |
+| Design resources, Vigolium and open-source tools | ✅ | ✅ | ✅ | ❌ | `app/design-resources`, `app/vigolium`, `app/open-source-tools`, `screenDesignResources`/`screenVigolium`/`screenOpenSourceTools`, `scripts/figma-tokens.sh` |
 
 ## Concrete gaps
 
-These are generated from the `❌` cells above; `⚠️` entries are partial
-surfaces, not missing implementations.
+Completed T-051 through T-057 surfaces are reflected in the matrix above and
+are not repeated here. The checklist records concrete missing or partial
+cross-surface work; `⚠️` cells are intentionally called out where they mark a
+specific limitation.
 
-- [ ] Add a direct TUI or CLI entry point for JARVIS collaboration/sharing.
-- [ ] Expose user/login/access-profile administration in the TUI or terminal CLI.
-- [ ] Add JARVIS bridge handlers for collaboration, jobs, workflows, webhooks,
-  remote/device management, notifications, deployment and release operations,
-  rather than exposing those only through local web/Electron code.
-- [ ] Add a direct web UI for YouTube and game-updater operations.
-- [ ] Add a terminal CLI command for the Awesome LLM Apps catalog.
-- [ ] Add TUI and CLI commands for workflow runs, n8n automation and webhook
-  trigger management.
-- [ ] Add a TUI/CLI surface for push notifications and device status.
-- [ ] Add a web UI for Git hooks, upgrades and release management.
-- [ ] Add web pages for API docs/types/mock generation.
-- [ ] Add a web UI for design resources, Vigolium and the open-source-tools
-  catalog.
-- [ ] Add a direct JARVIS/bridge contract for Electron-only desktop
+- [ ] Add TUI and terminal CLI collaboration/sharing controls for JARVIS.
+- [ ] Expose user, login and access-profile administration in the TUI or
+  terminal CLI.
+- [ ] Add dedicated TUI and terminal CLI controls for workflow runs, n8n
+  automation and webhook trigger management.
+- [ ] Add a web UI for Git hooks, upgrades and release management; the bridge
+  release contract currently exposes status, preparation and notes actions
+  only.
+- [ ] Add deployment/Azure operations to the JARVIS bridge; its current
+  release contract does not perform deployments.
+- [ ] Implement workflow execution in the JARVIS bridge beyond persisted
+  workflow state and step updates.
+- [ ] Extend the JARVIS jobs contract beyond limited state actions and stub
+  search/autopilot responses.
+- [ ] Add a visible web UI for managing push notifications; the existing push
+  API and service worker do not provide a management page.
+- [ ] Provide JARVIS live device-status and remote-setup operations beyond the
+  current persisted device registry.
+- [ ] Add a TUI and terminal CLI surface for Electron-only desktop
   integrations and packaged mobile apps, or document them as desktop-only
   capabilities.
 
