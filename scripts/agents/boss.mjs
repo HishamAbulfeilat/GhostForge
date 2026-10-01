@@ -233,6 +233,11 @@ function killTree(child) {
   else child.kill('SIGTERM')
 }
 
+/** Read a file, or `fallback` when it doesn't exist — avoids existsSync-then-read races. */
+function readOr(file, fallback = null, encoding = 'utf8') {
+  try { return fs.readFileSync(file, encoding) } catch (e) { if (e.code === 'ENOENT') return fallback; throw e }
+}
+
 function fill(template, vars) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '')
 }
@@ -303,8 +308,8 @@ class Boss {
   /** Rewrite the live block of docs/SESSION-HANDOFF.md so any new session or provider can pick up. */
   updateHandoff() {
     const file = path.join(ROOT, 'docs', 'SESSION-HANDOFF.md')
-    if (!fs.existsSync(file)) return
-    const doc = fs.readFileSync(file, 'utf8')
+    const doc = readOr(file)
+    if (doc === null) return
     const START = '<!-- LIVE-STATUS:START -->'
     const END = '<!-- LIVE-STATUS:END -->'
     const a = doc.indexOf(START)
@@ -350,11 +355,11 @@ class Boss {
 
   /** npm ci in web-ui when node_modules is missing or the lockfile changed. */
   syncDeps(wt) {
-    const lock = path.join(wt, 'web-ui', 'package-lock.json')
-    if (!fs.existsSync(lock)) return
-    const hash = crypto.createHash('sha1').update(fs.readFileSync(lock)).digest('hex')
+    const lockData = readOr(path.join(wt, 'web-ui', 'package-lock.json'), null, null)
+    if (lockData === null) return
+    const hash = crypto.createHash('sha1').update(lockData).digest('hex')
     const stamp = path.join(wt, 'web-ui', 'node_modules', '.gf-lock-hash')
-    if (fs.existsSync(stamp) && fs.readFileSync(stamp, 'utf8') === hash) return
+    if (readOr(stamp) === hash) return
     this.log(`installing web-ui deps in ${wt}…`)
     const r = sh('npm', ['ci', '--no-audit', '--no-fund'], path.join(wt, 'web-ui'))
     if (r.ok) fs.writeFileSync(stamp, hash)
@@ -741,13 +746,18 @@ class Boss {
 
   takeLock() {
     const lock = path.join(this.dir, 'boss.pid')
-    const pid = Number(fs.existsSync(lock) && fs.readFileSync(lock, 'utf8'))
-    if (pid && pid !== process.pid) {
+    // Create the lock atomically ('wx' fails if it exists) — no check-then-write race.
+    try {
+      fs.writeFileSync(lock, String(process.pid), { flag: 'wx' })
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e
+      const pid = Number(readOr(lock, '0'))
       let alive = false
-      try { process.kill(pid, 0); alive = true } catch { /* stale lock */ }
+      if (pid && pid !== process.pid) { try { process.kill(pid, 0); alive = true } catch { /* stale lock */ } }
       if (alive) throw new Error(`boss already running (pid ${pid})`)
+      fs.rmSync(lock, { force: true })
+      fs.writeFileSync(lock, String(process.pid), { flag: 'wx' }) // throws if another boss won the race
     }
-    fs.writeFileSync(lock, String(process.pid))
     process.on('exit', () => { try { fs.rmSync(lock) } catch { /* gone */ } })
   }
 
