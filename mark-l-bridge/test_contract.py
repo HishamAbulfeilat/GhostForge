@@ -20,10 +20,12 @@ class BridgeContractTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.original_data_dir = server._BRIDGE_DATA_DIR
+        self.original_users_file = server._GHOSTFORGE_USERS_FILE
         self.original_job_hunter_dir = server._JOB_HUNTER_DIR
         self.original_missing = set(server._MISSING)
         self.original_collab_sessions = server._COLLAB_SESSIONS.copy()
         server._BRIDGE_DATA_DIR = Path(self.tmp.name)
+        server._GHOSTFORGE_USERS_FILE = Path(self.tmp.name) / "users.json"
         server._JOB_HUNTER_DIR = Path(self.tmp.name) / "jobs"
         server._MISSING.discard("system_monitor")
         server._COLLAB_SESSIONS.clear()
@@ -33,6 +35,7 @@ class BridgeContractTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         server._BRIDGE_DATA_DIR = self.original_data_dir
+        server._GHOSTFORGE_USERS_FILE = self.original_users_file
         server._JOB_HUNTER_DIR = self.original_job_hunter_dir
         server._MISSING.clear()
         server._MISSING.update(self.original_missing)
@@ -43,6 +46,8 @@ class BridgeContractTests(unittest.TestCase):
     def test_feature_routes_require_authentication(self):
         paths = (
             "/api/jarvis/collab",
+            "/api/jarvis/users",
+            "/api/jarvis/access-profiles",
             "/api/jobs",
             "/api/workflows",
             "/api/webhook",
@@ -63,6 +68,55 @@ class BridgeContractTests(unittest.TestCase):
             with self.subTest(path=path, method="POST"):
                 response = self.client.post(path, json=payload)
                 self.assertEqual(response.status_code, 401)
+
+    def test_jarvis_users_and_access_profiles_are_read_only_and_safe(self):
+        server._GHOSTFORGE_USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        server._GHOSTFORGE_USERS_FILE.write_text(
+            json.dumps(
+                {
+                    "users": [
+                        {
+                            "username": "hisham",
+                            "role": "admin",
+                            "permissions": ["*", "terminal", "n8n"],
+                            "passwordHash": "secret_hash",
+                            "token": "secret_token",
+                        },
+                        {
+                            "username": "maya",
+                            "role": "user",
+                            "permissions": ["chat", "documents"],
+                            "passwordHash": "other_hash",
+                            "apiKey": "api-key",
+                        },
+                    ]
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        response = self.client.get("/api/jarvis/users", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual([user["username"] for user in payload["users"]], ["hisham", "maya"])
+        self.assertIn("role", payload["users"][0])
+        self.assertIn("permissions", payload["users"][0])
+        for user in payload["users"]:
+            self.assertNotIn("passwordHash", user)
+            self.assertNotIn("password", user)
+            self.assertNotIn("token", user)
+            self.assertNotIn("apiKey", user)
+        self.assertGreater(len(payload["profiles"]), 0)
+        for profile in payload["profiles"]:
+            self.assertIn("id", profile)
+            self.assertIn("label", profile)
+            self.assertIn("permissions", profile)
+            self.assertNotIn("keywords", profile)
+
+        profile_response = self.client.get("/api/jarvis/access-profiles", headers=self.headers)
+        self.assertEqual(profile_response.status_code, 200)
+        self.assertIn("profiles", profile_response.json())
 
     def test_collaboration_get_creates_and_post_persists_message(self):
         created = self.client.get("/api/jarvis/collab", headers=self.headers)
