@@ -42,6 +42,47 @@ if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
   process.exit(0);
 }
 
+// ── Device status + push notifications ──────────────────────────────────────
+
+async function screenDeviceStatus() {
+  while (true) {
+    sectionHeader('📡  Device & Push Status', 'Authenticated web-ui controls for the local device');
+    const action = await select({
+      message: T.white('Device action:'),
+      choices: [
+        { name: T.success('📊  Show device status'), value: 'status' },
+        { name: T.accent('🔔  Send push notification preview'), value: 'push' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+
+    const args = [resolve(ROOT, 'scripts/device-status.mjs'), action];
+    if (action === 'push') {
+      const title = await input({ message: 'Notification title:' });
+      const body = await input({ message: 'Notification body:' });
+      if (!title.trim() || !body.trim()) {
+        console.log(T.warning('\n  ⚠ Title and body are required.'));
+        await pressEnter();
+        continue;
+      }
+      args.push('--title', title.trim(), '--body', body.trim());
+      const url = await input({ message: 'Open URL (optional):', default: '' });
+      if (url.trim()) args.push('--url', url.trim());
+    }
+
+    const result = spawnSync(process.execPath, args, {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['inherit', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    const output = (result.stdout || result.stderr || '').trim();
+    console.log(result.status === 0 ? T.success(`\n  ✔ ${output}`) : T.warning(`\n  ⚠ ${output || 'Device command failed.'}`));
+    await pressEnter();
+  }
+}
+
 async function screenAgentTeam() {
   while (true) {
     sectionHeader('Agent Team', 'Control the local boss and coordinate workers');
@@ -467,6 +508,7 @@ async function screenHome() {
       menuChoice(T.white.bold,   '🚀  Deploy',                    'deploy to Azure / GitHub / Vercel', 'deploy'),
       menuChoice(T.accent.bold,  '🎨  Design Resources',          'DESIGN.md templates (74 sites) + awesome-design tools', 'designresources'),
       menuChoice(T.accent.bold,  '📱  Install on Device',         'PWA · Android APK · iOS IPA · Desktop', 'deviceinstall'),
+      menuChoice(T.cyan.bold,    '📡  Device & Push Status',       'check host status · send a push notification preview', 'device-status'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
       menuChoice(T.white.bold,   '🍎  Mac Control',               'control Mac with natural language → AppleScript', 'maccontrol'),
       menuChoice(T.muted,        '🌅  Daily Digest',              'morning summary: tickets, security, deps, git', 'digest'),
@@ -5607,6 +5649,7 @@ async function screenCommandCenter() {
     else if (dest === 'maccontrol') await screenMacControl();
     else if (dest === 'remote')  { console.log(T.cyan('\n  Opening remote: http://localhost:3001/remote\n')); try { execSync('open http://localhost:3001/remote 2>/dev/null', { stdio: 'ignore' }); } catch {} await pressEnter(); }
     else if (dest === 'deviceinstall') await screenDeviceInstall();
+    else if (dest === 'device-status') await screenDeviceStatus();
     else if (dest === 'freemodels') await screenFreeModels();
     else if (dest === 'freeapis') await screenFreeAPIs();
     else if (dest === 'audit')   await screenAuditLog();
@@ -6637,6 +6680,7 @@ async function main() {
         case 'commandcenter': await screenCommandCenter(); break;
         case 'guideme':      await screenGuideMe(); break;
         case 'deviceinstall': await screenDeviceInstall(); break;
+        case 'device-status': await screenDeviceStatus(); break;
         case 'freeapis':     await screenFreeAPIs(); break;
         case 'audit':        await screenAuditLog(); break;
         case 'dashboard':    await screenDashboard(); break; // lazy
