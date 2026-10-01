@@ -860,7 +860,155 @@ def _run_openjarvis_cli(*args: str, timeout_s: int = 60) -> str:
 # ---------------------------------------------------------------------------
 
 _BRIDGE_DATA_DIR = Path.home() / ".ghostforge" / "bridge"
+_GHOSTFORGE_USERS_FILE = Path.home() / ".ghostforge" / "users.json"
 _COLLAB_SESSIONS: dict[str, dict[str, Any]] = {}
+
+
+_ACCESS_PROFILES: list[dict[str, Any]] = [
+    {
+        "id": "devops",
+        "label": "DevOps / IT & Infrastructure",
+        "description": "Full engineering toolkit plus remote access, system control and automation.",
+        "permissions": [
+            "chat",
+            "conversation_history",
+            "web_search",
+            "weather",
+            "voice",
+            "semantic_memory",
+            "reminders",
+            "calendar",
+            "contacts",
+            "clipboard",
+            "career",
+            "job_hunter",
+            "file_read",
+            "file_write",
+            "file_process",
+            "documents",
+            "terminal",
+            "github",
+            "copilot",
+            "code_helper",
+            "ai_models",
+            "mcp",
+            "browser",
+            "system_info",
+            "remote",
+            "mac_control",
+            "native_desktop",
+            "screenshots",
+            "admin_tools",
+            "n8n",
+        ],
+    },
+    {
+        "id": "data",
+        "label": "Data & AI",
+        "description": "Files, code helper, AI models and AI Studio for analysis work.",
+        "permissions": [
+            "chat",
+            "conversation_history",
+            "web_search",
+            "weather",
+            "voice",
+            "semantic_memory",
+            "reminders",
+            "calendar",
+            "contacts",
+            "clipboard",
+            "career",
+            "job_hunter",
+            "file_read",
+            "file_write",
+            "file_process",
+            "documents",
+            "code_helper",
+            "ai_models",
+            "ai_studio",
+            "mcp",
+            "github",
+            "browser",
+            "terminal",
+        ],
+    },
+    {
+        "id": "designer",
+        "label": "Design & Creative",
+        "description": "Files, browser, screenshots and AI Studio for design work.",
+        "permissions": [
+            "chat",
+            "conversation_history",
+            "web_search",
+            "weather",
+            "voice",
+            "semantic_memory",
+            "reminders",
+            "calendar",
+            "contacts",
+            "clipboard",
+            "career",
+            "job_hunter",
+            "file_read",
+            "file_write",
+            "file_process",
+            "documents",
+            "browser",
+            "screenshots",
+            "youtube",
+            "ai_studio",
+        ],
+    },
+    {
+        "id": "manager",
+        "label": "Management & Leadership",
+        "description": "Documents, messaging, workflows and GitHub visibility.",
+        "permissions": [
+            "chat",
+            "conversation_history",
+            "web_search",
+            "weather",
+            "voice",
+            "semantic_memory",
+            "reminders",
+            "calendar",
+            "contacts",
+            "clipboard",
+            "career",
+            "job_hunter",
+            "file_read",
+            "file_write",
+            "file_process",
+            "documents",
+            "email",
+            "send_message",
+            "user_message",
+            "n8n",
+            "browser",
+            "github",
+            "system_info",
+        ],
+    },
+    {
+        "id": "general",
+        "label": "General",
+        "description": "Chat, search, reminders, career tools and the Job Hunter.",
+        "permissions": [
+            "chat",
+            "conversation_history",
+            "web_search",
+            "weather",
+            "voice",
+            "semantic_memory",
+            "reminders",
+            "calendar",
+            "contacts",
+            "clipboard",
+            "career",
+            "job_hunter",
+        ],
+    },
+]
 
 
 def _safe_user(value: str) -> str:
@@ -1820,6 +1968,65 @@ def collab_post(req: CollabMessageRequest):
 # ---------------------------------------------------------------------------
 
 _JOB_HUNTER_DIR = Path.home() / ".ghostforge" / "jobs"
+
+
+def _ghostforge_users() -> list[dict[str, Any]]:
+    try:
+        users = json.loads(_GHOSTFORGE_USERS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if isinstance(users, dict):
+        users = users.get("users", [])
+    if not isinstance(users, list):
+        return []
+
+    public: list[dict[str, Any]] = []
+    for user in users:
+        if not isinstance(user, dict):
+            continue
+        username = str(user.get("username") or "").strip()
+        if not username:
+            continue
+        role = user.get("role")
+        if role not in ("admin", "user"):
+            role = "user"
+        permissions = user.get("permissions")
+        if not isinstance(permissions, list):
+            permissions = []
+        public.append(
+            {
+                "username": username,
+                "role": role,
+                "permissions": [str(p).strip() for p in permissions if isinstance(p, str) and str(p).strip()],
+            }
+        )
+    public.sort(key=lambda item: item["username"].lower())
+    return public
+
+
+def _jarvis_user_snapshot() -> dict[str, Any]:
+    return {
+        "users": _ghostforge_users(),
+        "profiles": [
+            {
+                "id": profile["id"],
+                "label": profile["label"],
+                "description": profile["description"],
+                "permissions": profile["permissions"],
+            }
+            for profile in _ACCESS_PROFILES
+        ],
+    }
+
+
+@app.get("/api/jarvis/users", dependencies=[Depends(require_token)])
+def jarvis_users_get():
+    return _jarvis_user_snapshot()
+
+
+@app.get("/api/jarvis/access-profiles", dependencies=[Depends(require_token)])
+def jarvis_access_profiles_get():
+    return {"profiles": _jarvis_user_snapshot()["profiles"]}
 
 
 def _job_hunter_user_dir(user_id: str) -> Path:
