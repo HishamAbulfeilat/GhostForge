@@ -38,12 +38,14 @@ function buildHelp() {
     'Commands:',
     '  marketplace    Browse and install marketplace items',
     '  agent-team     Agent-team status, tasks, and communication',
+    '  agents         Alias for agent-team controls',
     '  workflows     Workflow list, create, update, run, and step controls',
     '  jobs           Job Hunter: CV, search, prepare, and approval flows',
     '  help           Show this help',
     '',
     'Aliases:',
     '  ghostforge team        -> ghostforge agent-team',
+    '  ghostforge agents      -> ghostforge agent-team',
     '  ghostforge workflow   -> ghostforge workflows',
     '',
     'Examples:',
@@ -63,6 +65,8 @@ function parseArgs(argv = []) {
   const raw = argv[0]
   const normalized = raw === 'team'
     ? 'agent-team'
+    : raw === 'agents'
+      ? 'agent-team'
     : raw === 'workflow' || raw === 'workflows'
       ? 'workflows'
       : raw === 'agent-team'
@@ -76,6 +80,8 @@ function resolveCommand(command) {
   if (!command) return null
   const normalized = command === 'team'
     ? 'agent-team'
+    : command === 'agents'
+      ? 'agent-team'
     : command === 'workflow'
       ? 'workflows'
       : command
