@@ -13,13 +13,11 @@ import {
 
 const electronAppDir = fileURLToPath(new URL('..', import.meta.url))
 const electronBin = process.platform === 'win32'
-  ? join(electronAppDir, 'node_modules', '.bin', 'electron.cmd')
+  ? join(electronAppDir, 'node_modules', 'electron', 'dist', 'electron.exe')
   : join(electronAppDir, 'node_modules', '.bin', 'electron')
 
 test('Electron app launches in headless CI mode and reaches the bridge', async () => {
-  const child = spawn(process.platform === 'win32' ? 'cmd' : electronBin, process.platform === 'win32'
-    ? ['/c', electronBin, '.', HEADLESS_SMOKE_ARG]
-    : ['.', HEADLESS_SMOKE_ARG], {
+  const child = spawn(electronBin, ['.', HEADLESS_SMOKE_ARG], {
     cwd: electronAppDir,
     env: {
       ...process.env,
@@ -47,14 +45,6 @@ test('Electron app launches in headless CI mode and reaches the bridge', async (
     const onOutput = (chunk) => {
       const text = chunk.toString()
       output += text
-      const hasStartup = text.includes(HEADLESS_STARTUP_LOG)
-      const hasBridgeReady = text.includes(HEADLESS_BRIDGE_LOG)
-      if ((hasStartup || hasBridgeReady) && !settled) {
-        settled = true
-        clearTimeout(timeout)
-        child.kill('SIGTERM')
-        resolve()
-      }
     }
 
     child.stdout.on('data', onOutput)
@@ -68,7 +58,7 @@ test('Electron app launches in headless CI mode and reaches the bridge', async (
 
     child.on('exit', (code, signal) => {
       if (settled) return
-      if (signal === 'SIGTERM' || (code === 0 && output.includes(HEADLESS_BRIDGE_LOG))) {
+      if (code === 0 && output.includes(HEADLESS_STARTUP_LOG)) {
         settled = true
         clearTimeout(timeout)
         resolve()
