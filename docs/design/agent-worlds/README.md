@@ -3,13 +3,17 @@
 Designed with Claude Design (canvas: https://claude.ai/artifact/6bSqAGRGFDSHJemEVfdbeC — owner-only).
 One `.dc.html` per screen; the markup + `renderVals()` sample data show layout, tokens and states.
 
-| File | Implements |
-|---|---|
-| `Main.dc.html` | `/agents` command center: team builder (leader + workers, provider/model, template), 5-column board, workflow graph, stop-with-confirm |
-| `DevMonitor.dc.html` | `tools/dev-monitor` standalone page: all Claude + Copilot sessions, progress, activity, pipeline counts |
-| `ForgeWorld.dc.html` | Forge World (original): furnaces per worker, boss anvil, ore→forging→quench→armory lanes |
-| `AgentOffice.dc.html` | Layout intent only — **Agent Office runs the vendored upstream harishkotra/agent-office front-end** (web-ui/vendor/agent-office) fed by the GhostForge snapshot |
-| `AgentTown.dc.html` | Layout intent only — **Agent Town runs the vendored upstream a16z-infra/ai-town front-end** (web-ui/vendor/ai-town) fed by the GhostForge snapshot |
+These files are design references, not a list of bundled upstream applications. The shipped `/agent-world` page currently renders the original GhostForge Forge World scene and a GhostForge Agent Office map from available session snapshots. Agent Town's selector entry shows an unavailable-state message because its scene is not included in the current snapshot. No upstream Agent Town or Agent Office front ends or third-party assets are present under `web-ui/vendor`.
+
+| File | Design intent | Shipped state |
+|---|---|---|
+| `Main.dc.html` | `/agents` command center: team builder (leader + workers, provider/model, template), 5-column board, workflow graph, stop-with-confirm | Design reference; not an implementation status claim |
+| `DevMonitor.dc.html` | `tools/dev-monitor` standalone page: all Claude + Copilot sessions, progress, activity, pipeline counts | Design reference; not an implementation status claim |
+| `ForgeWorld.dc.html` | Original Forge World: furnaces per worker, boss anvil, ore→forging→quench→armory lanes | Shipped as the GhostForge Forge World scene |
+| `AgentOffice.dc.html` | Office layout inspired by harishkotra/agent-office | Shipped as a GhostForge Agent Office map using available session snapshots; the upstream front end is not vendored or used |
+| `AgentTown.dc.html` | Town layout inspired by a16z-infra/ai-town | Not shipped; the selector shows an unavailable-state message. The upstream front end is not vendored or used |
+
+**Planned integrations:** Agent Town and any future Agent Office upstream integration require explicitly adding and reviewing the relevant upstream code and assets, including their licenses and notices. Until then, the upstream project names above describe design inspiration only; they do not indicate that their code or assets are included.
 
 **Tokens:** ground `#0E1014`, surface `#15181E`, line `#262A33`, text `#E8E6E1`, muted `#A9ADB6`; ember `#F2A65A` (boss/review), steel `#7CC4EA` (working), green `#8FD3A8` (done), red `#E58C8C` (blocked). Type: Space Grotesk (display), IBM Plex Sans (body), JetBrains Mono (data).
-**Rules:** render only real snapshot data (no fake movement); every agent is a real `<button>` (keyboard + screen reader); reduced-motion safe; Forge World uses original art; Town/Office keep upstream art only where each asset license permits redistribution (see THIRD_PARTY_NOTICES.md).
+**Rules:** render only real snapshot data (no fake movement); every agent is a real `<button>` (keyboard + screen reader); reduced-motion safe; Forge World uses original art. Any future upstream integration must verify asset redistribution rights and document applicable licenses before including third-party assets.
