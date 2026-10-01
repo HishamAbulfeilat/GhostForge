@@ -478,7 +478,7 @@ class Boss {
       const commits = Number(git(wt, 'rev-list', '--count', `${base}..HEAD`))
       const result = takeResult(this.dir, task.id)
 
-      if (run.code !== 0 && !commits && RATE_LIMIT_RE.test(run.output)) {
+      if (!commits && (run.code !== 0 || run.output.length < 2000) && RATE_LIMIT_RE.test(run.output)) {
         st.cooldownUntil = new Date(Date.now() + this.cfg.cooldownMinutes * 60_000).toISOString()
         this.updateTask(task.id, { status: 'todo', owner: null })
         this.log(`${agentId} rate-limited — cooling down until ${st.cooldownUntil}`)

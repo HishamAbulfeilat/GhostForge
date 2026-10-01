@@ -84,7 +84,7 @@ export function commandFor(provider, opts) {
 }
 
 /** Output meaning "out of quota / rate limited" → cool the agent down, don't fail the task. */
-export const RATE_LIMIT_RE = /rate.?limit|usage limit|quota|\b429\b|too many requests|credit balance|limit reached/i
+export const RATE_LIMIT_RE = /rate.?limit|usage limit|quota|\b429\b|too many requests|credit balance|limit reached|session limit|hit your (?:\w+ )?limit|limit · resets/i
 
 /**
  * Quote one arg for `spawn(..., { shell: true })` on Windows, where npm-installed
