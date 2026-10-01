@@ -182,6 +182,22 @@ export function lastJSON(text = '') {
   return null
 }
 
+/**
+ * Release todo tasks pinned to an agent that can't take them right now (cooling
+ * down after a rate limit, or not enabled) so any worker can. Otherwise one
+ * pinned task keeps the board "active", which also stops the boss from
+ * planning, and every other worker idles. Returns how many were released.
+ */
+export function releaseStuckTasks(tasks, state, now = Date.now()) {
+  let released = 0
+  for (const t of tasks) {
+    if (t.status !== 'todo' || !t.agent || t.agent === 'any') continue
+    const st = state[t.agent]
+    if (!st || (st.cooldownUntil && Date.parse(st.cooldownUntil) > now)) { t.agent = 'any'; released++ }
+  }
+  return released
+}
+
 /** Next todo task for an agent: allowed owner, no area overlap with busy tasks, preferring its strengths. */
 export function pickTask(tasks, agentId, strengths = []) {
   const busy = tasks.filter(t => t.status === 'in-progress' || t.status === 'review')
@@ -699,8 +715,10 @@ class Boss {
   async tick() {
     const board = this.board()
     this.ingestRequests(board)
-    saveBoard(this.dir, board)
     const now = Date.now()
+    const released = releaseStuckTasks(board.tasks, this.state, now)
+    if (released) this.log(`released ${released} task(s) pinned to an unavailable agent`)
+    saveBoard(this.dir, board)
     for (const [id, a] of this.agents) {
       const st = this.state[id]
       if (st.state !== 'idle') continue
