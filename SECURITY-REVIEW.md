@@ -10,7 +10,7 @@ no exploitation attempted, own code only.
 |---|----------|----------|---------|--------|
 | 1 | High | `web-ui/app/api/jarvis/biometrics/route.ts` | Owner PII (full name + date of birth) hardcoded in source as the "identity challenge" answer key | **Fixed** — moved to `OWNER_FULL_NAME`/`OWNER_DOB` env vars (documented in `.env.example`), feature now returns `not_configured` when unset |
 | 2 | Medium | `web-ui/lib/apple-automation.js` (`validateAppleScript`) | Denylist-based blocklist for AI-generated AppleScript passed to `osascript`; blocks a few destructive patterns (`rm -rf`, `sudo`, `curl\|sh`, ...) but a denylist is inherently bypassable (e.g. `do shell script "curl -o /tmp/x && bash /tmp/x"`, `chmod`, `launchctl`, `pkill`, base64-wrapped commands, alternate `rm` flags) | Documented, not auto-fixed |
-| 3 | Low | `mcp/tools/health.js` (`resolveProjectPath`) | Accepts any `projectPath` and resolves it without confining to a workspace root, so the `health_check` MCP tool can run `npm audit`/read `package.json` anywhere on disk the process can reach | Documented, not auto-fixed |
+| 3 | Low | `mcp/tools/health.js` (`resolveProjectPath`) | The original path-confinement finding: `health_check` could target paths outside its workspace root | **Fixed** — paths are checked for lexical and symlink/junction-resolved containment; `mcp/test/health.test.js` covers traversal and external symlink escapes |
 | 4 | Info | root `npm audit`, `web-ui` `npm audit` | 0 vulnerabilities (info/low/moderate/high/critical) at scan time | No action needed |
 | 5 | Info | XSS / `dangerouslySetInnerHTML` | No occurrences of `dangerouslySetInnerHTML` found in `web-ui`; `dompurify` appears only in `package-lock.json` (transitive), not imported anywhere — no raw HTML-from-API rendering path was found | No action needed |
 | 6 | Info | Auth/webhook code | `web-ui/app/api/auth/route.ts` and `webhook/route.ts` already use `crypto.timingSafeEqual` for PIN/password and GitHub HMAC signature comparisons; `web-ui/app/api/files/route.ts` already confines reads/writes to the user's home directory via `path.resolve` + prefix check | No action needed |
@@ -89,24 +89,21 @@ an allowlist of script templates, or require explicit user confirmation
 (surfaced diff of the generated script) before any `do shell script` call is
 executed.
 
-### 3. MCP `health_check` tool path confinement (not auto-fixed)
+### 3. MCP `health_check` tool path confinement (fixed)
 
-`mcp/tools/health.js`'s `resolveProjectPath(projectPath)` does
-`resolve(projectPath || '.')` with no check that the result stays under a
-workspace root, so a caller of the MCP tool can point `health_check` at any
-absolute path reachable by the process (e.g. `../../etc` equivalents,
-though it only ever reads `package.json` and shells out to `npm audit`, not
-arbitrary file contents).
+`resolveProjectPath(projectPath, allowedRoot)` in `mcp/tools/health.js` now
+rejects paths outside the configured workspace root. It checks both lexical
+containment and canonical paths, resolving symlinks and junctions on the
+deepest existing ancestor so paths that do not exist yet cannot escape via a
+link. `getPackageInfo()` also rejects a `package.json` symlink that resolves
+outside the allowed root.
 
-**Why not auto-fixed here**: the MCP server is a local, trusted-caller tool
-(it's wired into this repo's own agent tooling per `mcp/index.js`), so
-"caller can point it at another directory on the same machine" is expected
-day-to-day usage (auditing sibling projects), not a clear vulnerability in
-this context. Constraining it to a single workspace root would break that
-legitimate use without a corresponding threat model change, so it's flagged
-here for awareness rather than patched. If the MCP server is ever exposed to
-untrusted/remote callers, this should be revisited (confine to an allowed
-roots list).
+Regression coverage in `mcp/test/health.test.js` verifies that traversal paths
+and symlinks pointing outside the root are rejected, including paths with a
+not-yet-existing tail. It also preserves valid behavior for in-root paths,
+in-root symlinks, and a workspace root reached through a symlink. The
+`package.json` symlink escape is covered as well (the test skips only when
+Windows permissions prevent creating a file symlink).
 
 ## npm audit results
 
