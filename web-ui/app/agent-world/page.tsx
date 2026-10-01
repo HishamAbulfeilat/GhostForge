@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import WorkflowDependencyGraph from '../../components/agent-world/WorkflowDependencyGraph'
 import {
   collectAgentWorldData,
   loadAgentWorld,
@@ -162,6 +163,7 @@ export default function AgentWorldPage() {
             <SourceList connectors={state.data.connectors} />
             <DataList title="Sessions" records={state.data.sessions} empty="No sessions were reported by the available snapshots." fields={['source', 'project', 'device', 'status', 'state', 'provider']} />
             <DataList title="Agents" records={state.data.agents} empty="No agents were reported by the available snapshots." fields={['source', 'provider', 'state', 'role', 'model', 'task']} />
+            <WorkflowDependencyGraph tasks={state.data.tasks} />
             <DataList title="Tasks" records={state.data.tasks} empty="No tasks were reported by the available snapshots." fields={['source', 'status', 'kind', 'owner', 'assignee', 'description']} />
             <DataList title="Events" records={state.data.events} empty="No events were reported by the available snapshots." fields={['source', 'from', 'to', 'status', 'error', 'text']} />
           </>
