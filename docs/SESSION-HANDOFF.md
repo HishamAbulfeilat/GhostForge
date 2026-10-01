@@ -108,32 +108,30 @@ progress. Keep going until every check is green, then keep improving.
 ## LIVE STATUS
 
 <!-- LIVE-STATUS:START -->
-_Auto-updated by the boss (pid 28660) at 2026-10-01T08:11:48.015Z._
+_Auto-updated by the boss (pid 28660) at 2026-10-01T08:16:35.024Z._
 
 **Phase 4:** Production-perfect on every surface: every GhostForge feature works end to end and is reachable from the web UI, the TUI, the terminal CLI and JARVIS (feature parity — record gaps in docs/FEATURE-MATRIX.md and close them); the Electron desktop app builds and runs on Windows, macOS and Linux and the Android (Capacitor) app builds, with CI proving it; security hardened (fix every real finding from CodeQL, npm audit, secret/dependency scanners and security reviews); the Agentic OS dashboard (/agents) shows each agent's progress, the todo/in-progress/review/done/blocked board, messages, health and history; accessible, RTL-safe, polished UI. Keep going until every check is green, then keep improving.
 
-**Health:** ?/100 · **merges this run:** 0 · **PR:** none yet · **boss:** claude (fallback copilot)
+**Health:** 100/100 · **merges this run:** 2 · **PR:** none yet · **boss:** claude (fallback copilot)
 
-**Board:** todo 2 · in-progress 5 · review 0 · done 76 · blocked 5
+**Board:** todo 0 · in-progress 3 · review 2 · done 78 · blocked 5
 
 **Agents**
-- **claude** (claude): working on T-090
-- **copilot-tui** (copilot): working on T-089
-- **copilot-desktop** (copilot): working on T-091
+- **claude** (claude): working on T-094
+- **copilot-tui** (copilot): waiting-merge on T-089
+- **copilot-desktop** (copilot): working on T-095
 - **copilot-web** (copilot): working on T-093
 - **copilot-integration** (copilot): idle
-- **copilot-quality** (copilot): working on T-092
+- **copilot-quality** (copilot): waiting-merge on T-092
 
 **In progress / review**
-- T-089 [feature] Wire existing users, collab, device-status and awesome-llm-apps scripts into the ghostforge CLI dispatcher — copilot-tui
-- T-090 [bugfix] Redo T-086: add a bounded packaged-app build script using the real electron-app npm script names — claude
-- T-091 [chore] Consolidate Android CI into a single workflow (resolve T-043) — copilot-desktop
-- T-092 [docs] Refresh FEATURE-MATRIX n8n, collaboration, users and device rows from current code — copilot-quality
 - T-093 [feature] Add an authenticated web page for snippets, changelog and README — copilot-web
+- T-094 [feature] Add a read-only JARVIS bridge contract for listing users and access profiles — claude
+- T-095 [test] Fix Desktop (linux) CI: Electron headless smoke aborts with 'SUID sandbox helper binary ... not configured correctly' (Ubuntu 24.04 restricts unprivileged user namespaces). In the Linux job add a step before the smoke test: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 (keeps Chromium sandbox ON — do NOT add --no-sandbox to the app). Verify on PR #11 that Desktop (linux) passes — copilot-desktop
+- T-089 [feature] Wire existing users, collab, device-status and awesome-llm-apps scripts into the ghostforge CLI dispatcher — copilot-tui
+- T-092 [docs] Refresh FEATURE-MATRIX n8n, collaboration, users and device rows from current code — copilot-quality
 
 **Next up (todo)**
-- T-094 [feature] Add a read-only JARVIS bridge contract for listing users and access profiles
-- T-095 [test] Fix Desktop (linux) CI: Electron headless smoke aborts with 'SUID sandbox helper binary ... not configured correctly' (Ubuntu 24.04 restricts unprivileged user namespaces). In the Linux job add a step before the smoke test: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 (keeps Chromium sandbox ON — do NOT add --no-sandbox to the app). Verify on PR #11 that Desktop (linux) passes
 
 **Blocked (needs a human or a fresh approach)**
 - T-041 [feature] Agentic OS dashboard: add a kanban board (todo/in-progress/review/done/blocked) with per-agent progress, current task, model/provider, elapsed time and recent history to /agents, backed by the existing /api/agents snapshot: …e, hiding the snapshot's explicit current task. - Elapsed time is only measured since the dashboard first observed a task; it resets on page load and does not represent time already spent on the task.
@@ -143,8 +141,6 @@ _Auto-updated by the boss (pid 28660) at 2026-10-01T08:11:48.015Z._
 - T-086 [feature] Expose packaged app builds in the terminal CLI: …oss review rejected the change: - Electron macOS and Windows builds invoke nonexistent npm scripts: the CLI uses build:macos/build:windows, while electron-app/package.json defines build:mac/build:win.
 
 **Recently done**
-- T-075 [feature] Add workflow execution to the terminal CLI — copilot-integration
-- T-076 [feature] Add workflow controls to the TUI — copilot-tui
 - T-077 [docs] Refresh feature parity matrix after completed workflow surfaces — copilot-quality
 - T-078 [feature] Add TUI webhook management controls — copilot-tui
 - T-079 [feature] Replace bridge job search and autopilot stubs — copilot-integration
@@ -155,14 +151,16 @@ _Auto-updated by the boss (pid 28660) at 2026-10-01T08:11:48.015Z._
 - T-085 [feature] Add TUI n8n automation screen — copilot-tui
 - T-087 [feature] Add JARVIS n8n bridge contract — claude
 - T-088 [docs] Refresh phase-four feature matrix after surface work — copilot-quality
+- T-090 [bugfix] Redo T-086: add a bounded packaged-app build script using the real electron-app npm script names — claude
+- T-091 [chore] Consolidate Android CI into a single workflow (resolve T-043) — copilot-desktop
 
 **Latest messages**
-- 2026-10-01T03:43 boss → all: …mote setup through JARVIS. Added authenticated live device status and bounded remote setup; websockify is loopback-only and unverified listeners are refused. Files: mark-l-bridge/server.py, mark-l-bridge/test_contract.py
-- 2026-10-01T03:43 boss → copilot-tui: … after 3 attempts: Boss review rejected the change: - Electron macOS and Windows builds invoke nonexistent npm scripts: the CLI uses build:macos/build:windows, while electron-app/package.json defines build:mac/build:win.
 - 2026-10-01T03:46 boss → all: …and wired ghostforge/cli dispatch and help. Focused tests 6/6, npm test, health 100/100, syntax and diff checks pass. Commit 531b600. Files: cli/index.js, ghostforge, scripts/n8n.mjs, scripts/n8n.sh, scripts/n8n.test.mjs
 - 2026-10-01T03:46 boss → all: PR to main updated with 75 task(s): https://github.com/HishamAbulfeilat/GhostForge/pull/11
 - 2026-10-01T08:04 boss → all: …no API key sent; 502 on n8n failure. 5 new contract tests; bridge suite 22/22, health 100/100. Files: mark-l-bridge/server.py, mark-l-bridge/test_contract.py Files: mark-l-bridge/server.py, mark-l-bridge/test_contract.py
 - 2026-10-01T08:08 boss → all: Health 100/100. Planned 6 new task(s) for phase 4.
 - 2026-10-01T08:09 boss → all: Boss online. Template: null. Agents: claude, copilot-tui, copilot-desktop, copilot-web, copilot-integration, copilot-quality. Phase 4.
 - 2026-10-01T08:11 boss → human: …ob add a step before the smoke test: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 (keeps Chromium sandbox ON — do NOT add --no-sandbox to the app). Verify on PR #11 that Desktop (linux) passes" as T-095.
+- 2026-10-01T08:14 boss → all: …t that exists in electron-app/package.json, plus arg validation and dry-run/no-spawn. Root npm test and health pass. CLI dispatcher wiring left as follow-up. Files: scripts/package-apps.mjs, scripts/package-apps.test.mjs
+- 2026-10-01T08:15 boss → all: …ease-triggered runs. Added a short install note to the PR validation workflow header so the artifact is easy to find and install. Files: .github/workflows/build-apps.yml, .github/workflows/electron-android-validation.yml
 <!-- LIVE-STATUS:END -->
