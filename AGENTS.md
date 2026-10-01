@@ -35,46 +35,24 @@ Python **bridge**). Surfaces share one repo:
    CLAUDE.md.
 6. **Never** commit secrets, large binaries, or vendored dependency trees.
 
-## Multi-agent workflow (Claude Code ⇄ Copilot CLI)
+## Multi-agent workflow
 
-Two agents work this repo **simultaneously** and coordinate through files in
-`.agent-sync/`. Full protocol: **`docs/MULTI-AGENT-WORKFLOW.md`**. In short:
+The autonomous team is coordinated by `scripts/agents/boss.mjs`. The boss
+assigns tasks, reviews worker commits, and merges approved work into
+`agent/integration`; workers do not claim tasks or merge/push to `main`.
+Workers use their provider's model auto-selection. The boss uses Claude Opus
+for planning, security work, and high-risk reviews, Claude Sonnet for routine
+reviews, and falls back to Copilot when Claude is unavailable.
 
-- **Shared board:** `.agent-sync/BOARD.md` — every task, its owner
-  (`claude` | `copilot`), status, and area. Claim a task by setting yourself as
-  owner + `in-progress` and committing that one-line change **first** (a cheap
-  lock). If the push rejects, someone claimed it — pick another.
-- **Talk to each other:** append to `.agent-sync/MESSAGES.md` (dated, signed).
-  Read it at the start of every cycle and reply.
-- **Stay out of each other's files:** Claude owns tasks tagged `[claude]`,
-  Copilot owns `[copilot]`; unassigned tasks go to whoever claims first. Prefer
-  disjoint file areas; when unavoidable, hand off via the board.
-- **Loop:** read board + messages → claim → implement → validate → commit →
-  push → update board → repeat. Don't stop until the board is clear or blocked.
+## Agent team operation
 
-## Starting each agent
-
-Fastest: **`scripts/start-agents.sh`** — sets up a separate Copilot worktree and
-launches both (tmux split if available, otherwise prints the two commands).
-`--setup-only` just prepares the worktree; `--no-loop` runs Copilot once.
-
-**One provider unavailable (e.g. Claude hit its usage/token limit)?** Use
-**`scripts/start-agents-interactive.sh`** instead — same setup, but it asks
-which agent(s) to run: both, Claude Code only, or Copilot CLI only
-(`--mode both|claude|copilot` to skip the prompt). Solo mode uses
-`prompts/copilot-solo-kickoff.md` / `prompts/claude-solo-kickoff.md`, which let
-the lone agent claim tasks tagged for the missing one (noting it in
-`MESSAGES.md` so nothing gets redone when the other agent comes back).
-
-Manually:
-- **Claude Code:** `claude` then `/team start` (see `commands/team.md`).
-- **Copilot CLI:** `copilot` then paste `prompts/multi-agent-kickoff.md`
-  (pre-approve its tools with `/allow` so it doesn't stop to ask). Running
-  Copilot alone? Paste `prompts/copilot-solo-kickoff.md` instead.
-
-Both load their MCP servers from `.mcp.json` (project tools + GitHub).
+The watchdog keeps the boss running (scheduled every five minutes on Windows);
+`npm run agents:status` shows team status.
+Interactive Copilot is co-lead: follow `prompts/copilot-colead.md` and
+coordinate through `scripts/agents/team.mjs`. See
+**`docs/MULTI-AGENT-WORKFLOW.md`** for details.
 
 ## Continuing a session
 
-The latest session state lives in **`docs/SESSION-HANDOFF.md`** — read it first
-when picking up work on a new machine.
+**`docs/SESSION-HANDOFF.md` is the single handoff** — read it first when
+continuing work or taking over as co-lead.
