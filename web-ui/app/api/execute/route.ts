@@ -22,6 +22,7 @@ const GHOSTFORGE_SCRIPT_MAP = [
   ['tech-debt', 'tech-debt.sh'],
   ['commit', 'commit.sh'],
   ['release', 'release.sh'],
+  ['upgrade', 'upgrade.sh'],
   ['pr-description', 'pr-description.sh'],
   ['git-hooks-setup', 'git-hooks-setup.sh'],
   ['component-gen', 'component-gen.sh'],
@@ -36,7 +37,7 @@ const GHOSTFORGE_SCRIPT_MAP = [
 ] as const
 
 type ResolvedCommand =
-  | { kind: 'exec'; command: string; file: string; args: string[] }
+  | { kind: 'exec'; command: string; file: string; args: string[]; timeoutMs?: number }
   | { kind: 'output'; output: string }
 
 export const dynamic = 'force-dynamic'
@@ -106,6 +107,7 @@ async function resolveGhostforgeCommand(command: string, ghostforgeRoot: string)
       command: `bash ${shellQuote(scriptPath)}${argList.length ? ` ${argList.map(shellQuote).join(' ')}` : ''}`,
       file: 'bash',
       args: [scriptPath, ...argList],
+      ...(subcommand === 'upgrade' ? { timeoutMs: 180_000 } : {}),
     }
   }
 
@@ -120,7 +122,7 @@ async function resolveGhostforgeCommand(command: string, ghostforgeRoot: string)
   }
 }
 
-async function executeBridgeCommand(command: string, bridgeToken: string) {
+async function executeBridgeCommand(command: string, bridgeToken: string, timeoutMs = 2000) {
   const response = await fetch(`${normalizeBridgeHttpUrl(getBridgeUrl())}/execute`, {
     method: 'POST',
     headers: {
@@ -128,7 +130,7 @@ async function executeBridgeCommand(command: string, bridgeToken: string) {
       Authorization: `Bearer ${bridgeToken}`,
     },
     body: JSON.stringify({ command }),
-    signal: AbortSignal.timeout(2000),
+    signal: AbortSignal.timeout(timeoutMs),
   })
 
   if (!response.ok) {
@@ -160,7 +162,7 @@ export async function POST(req: NextRequest) {
   const bridgeToken = getLiveBridgeToken()
   if (bridgeToken) {
     try {
-      const data = await executeBridgeCommand(resolved.command, bridgeToken)
+      const data = await executeBridgeCommand(resolved.command, bridgeToken, resolved.timeoutMs)
       return NextResponse.json(data)
     } catch {
       return NextResponse.json({ error: 'Bridge execution failed' }, { status: 502 })
@@ -190,7 +192,7 @@ export async function POST(req: NextRequest) {
   try {
     const { stdout, stderr } = await execFileAsync(resolved.file, resolved.args, {
       env,
-      timeout: 15000,
+      timeout: resolved.timeoutMs ?? 15000,
       cwd: ghostforgeRoot,
     })
     return NextResponse.json({ output: stdout.trim() || stderr.trim() || 'Done', connected: true })
