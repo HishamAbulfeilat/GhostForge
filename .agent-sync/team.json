@@ -15,7 +15,7 @@
   "agents": {
     "claude": {
       "provider": "claude",
-      "enabled": true,
+      "enabled": false,
       "worktree": "../gf-claude",
       "branch": "agent/claude/work",
       "strengths": [
@@ -110,7 +110,7 @@
     },
     "claude-2": {
       "provider": "claude",
-      "enabled": true,
+      "enabled": false,
       "strengths": [
         "feature",
         "bugfix",
@@ -125,7 +125,7 @@
     },
     "claude-3": {
       "provider": "claude",
-      "enabled": true,
+      "enabled": false,
       "strengths": [
         "feature",
         "bugfix",
