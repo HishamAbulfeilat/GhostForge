@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 type PushConfig = {
   configured: boolean
@@ -33,32 +33,57 @@ export default function PushNotificationPanel() {
   const [subscribed, setSubscribed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const serviceWorkerRegistrationRef = useRef<Promise<ServiceWorkerRegistration> | null>(null)
 
-  const loadPushState = useCallback(async () => {
+  const getServiceWorkerRegistration = useCallback(async () => {
+    if (!isPushSupported()) return null
+
+    if (!serviceWorkerRegistrationRef.current) {
+      serviceWorkerRegistrationRef.current = navigator.serviceWorker.register('/sw.js')
+    }
+
+    return serviceWorkerRegistrationRef.current
+  }, [])
+
+  const loadPushState = useCallback(async (isActive: () => boolean = () => true) => {
     if (!isPushSupported()) {
-      setState('unsupported')
+      if (isActive()) setState('unsupported')
       return
     }
 
-    setError('')
+    if (isActive()) setError('')
     try {
       const response = await fetch('/api/push')
+      if (!isActive()) return
+
       const data = await response.json() as PushConfig & { error?: string }
       if (!response.ok) throw new Error(data.error || `Unable to inspect push configuration (${response.status}).`)
 
+      if (!isActive()) return
       setConfig({ configured: Boolean(data.configured), publicKey: data.publicKey || null })
-      const registration = await navigator.serviceWorker.register('/sw.js')
+
+      const registration = await getServiceWorkerRegistration()
+      if (!registration || !isActive()) return
+
       const currentSubscription = await registration.pushManager.getSubscription()
+      if (!isActive()) return
+
       setSubscribed(Boolean(currentSubscription))
       setState('ready')
     } catch (cause) {
+      if (!isActive()) return
       setError(cause instanceof Error ? cause.message : 'Unable to inspect push notification configuration.')
       setState('error')
     }
-  }, [])
+  }, [getServiceWorkerRegistration])
 
   useEffect(() => {
-    void loadPushState()
+    let active = true
+    void loadPushState(() => active)
+
+    return () => {
+      active = false
+    }
   }, [loadPushState])
 
   const subscribe = async () => {
@@ -73,7 +98,8 @@ export default function PushNotificationPanel() {
           : 'Notification permission was not granted.')
       }
 
-      const registration = await navigator.serviceWorker.register('/sw.js')
+      const registration = await getServiceWorkerRegistration()
+      if (!registration) throw new Error('This browser does not support push notifications.')
       const current = await registration.pushManager.getSubscription()
       const subscription = current || await registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -102,7 +128,8 @@ export default function PushNotificationPanel() {
     setBusy(true)
     setError('')
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js')
+      const registration = await getServiceWorkerRegistration()
+      if (!registration) throw new Error('This browser does not support push notifications.')
       const subscription = await registration.pushManager.getSubscription()
       if (subscription) await subscription.unsubscribe()
 
