@@ -26,6 +26,11 @@ const COMMAND_SPECS = {
     script: path.join(ROOT, 'scripts', 'jobs.sh'),
     summary: 'Run Job Hunter (CV, search, prepare, approve)',
   },
+  n8n: {
+    kind: 'node',
+    script: path.join(ROOT, 'scripts', 'n8n.mjs'),
+    summary: 'List, inspect, and safely trigger n8n workflows',
+  },
 }
 
 function buildHelp() {
@@ -41,6 +46,7 @@ function buildHelp() {
     '  agents         Alias for agent-team controls',
     '  workflows     Workflow list, create, update, run, and step controls',
     '  jobs           Job Hunter: CV, search, prepare, and approval flows',
+    '  n8n            List, inspect, and trigger active n8n webhooks',
     '  help           Show this help',
     '',
     'Aliases:',
@@ -69,6 +75,8 @@ function parseArgs(argv = []) {
       ? 'agent-team'
     : raw === 'workflow' || raw === 'workflows'
       ? 'workflows'
+      : raw === 'n8n'
+        ? 'n8n'
       : raw === 'agent-team'
         ? 'agent-team'
         : raw
