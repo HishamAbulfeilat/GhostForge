@@ -91,6 +91,9 @@ export const RATE_LIMIT_RE = /rate.?limit|usage limit|quota|\b429\b|too many req
  * CLIs are .cmd shims. Our args never contain double quotes, but guard anyway.
  */
 export function winQuote(arg) {
-  const s = String(arg).replace(/"/g, '\\"')
+  const s = String(arg)
+  // cmd.exe has no safe escape for an embedded double quote (and \" breaks on a
+  // trailing backslash), so refuse it instead of half-escaping.
+  if (s.includes('"')) throw new Error(`winQuote: refusing an argument containing a double quote: ${s.slice(0, 80)}`)
   return /[\s&|<>^()]/.test(s) ? `"${s}"` : s
 }

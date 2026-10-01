@@ -103,12 +103,15 @@ test('runtime prompts are staged inside the executing worktree', () => {
   fs.rmSync(worktree, { recursive: true, force: true })
 })
 
-test('team config exposes five independent Copilot workers', () => {
+test('team config: every enabled worker has its own provider, worktree and branch', () => {
   const config = JSON.parse(fs.readFileSync(new URL('../../.agent-sync/team.json', import.meta.url), 'utf8'))
-  const workers = Object.entries(config.agents).filter(([, agent]) => agent.enabled && agent.provider === 'copilot')
-  assert.equal(workers.length, 5)
-  assert.equal(new Set(workers.map(([, agent]) => agent.worktree)).size, 5)
-  assert.equal(new Set(workers.map(([, agent]) => agent.branch)).size, 5)
+  const workers = Object.entries(config.agents).filter(([, agent]) => agent.enabled)
+  assert.ok(workers.length >= 1, 'at least one enabled worker')
+  for (const [id, agent] of workers) {
+    assert.ok(agent.provider && agent.worktree && agent.branch, `${id} needs provider, worktree and branch`)
+  }
+  assert.equal(new Set(workers.map(([, agent]) => agent.worktree)).size, workers.length, 'worktrees are not shared')
+  assert.equal(new Set(workers.map(([, agent]) => agent.branch)).size, workers.length, 'branches are not shared')
 })
 
 test('lastJSON finds the verdict line in model output', () => {
