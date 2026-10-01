@@ -19,6 +19,7 @@ test('ghostforge help includes the supported commands', () => {
   assert.match(help, /collab/)
   assert.match(help, /device-status/)
   assert.match(help, /awesome-llm-apps/)
+  assert.match(help, /ghostforge package-apps/)
 })
 
 test('parseArgs normalizes terminal aliases', () => {
@@ -28,6 +29,7 @@ test('parseArgs normalizes terminal aliases', () => {
   assert.deepEqual(parseArgs(['collab', 'create']), { command: 'collab', args: ['create'] })
   assert.equal(resolveCommand('jobs').summary.includes('Job Hunter'), true)
   assert.equal(resolveCommand('users').summary.includes('users'), true)
+  assert.match(resolveCommand('package-apps').script, /package-apps\.mjs$/)
 })
 
 test('main dispatches the agent-team status command', () => {
@@ -41,6 +43,11 @@ test('main dispatches the user help command and rejects unknown commands', () =>
 
   const unknown = main(['nope'], { env: process.env, stdout: process.stdout, stderr: process.stderr })
   assert.equal(unknown, 1)
+})
+
+test('main dispatches packaged-app dry runs through the bounded builder', () => {
+  const exit = main(['package-apps', 'linux', '--dry-run'], { env: process.env })
+  assert.equal(exit, 0)
 })
 
 test('ghostforge --help exits cleanly via the shell launcher', () => {

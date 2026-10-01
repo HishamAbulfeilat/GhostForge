@@ -88,12 +88,15 @@ test('kanban groups every required state and normalizes the boss in-progress spe
   assert.match(board, /badgeStyles/)
 })
 
-test('worker progress comes from assigned task outcomes and current-task lookup excludes finished work', () => {
+test('worker progress comes from assigned outcomes and current-task lookup honors the boss snapshot', () => {
   assert.deepEqual(getAgentProgress('worker', tasks), { completed: 1, total: 4, percentage: 25 })
   assert.deepEqual(getAgentProgress('unassigned', tasks), { completed: 0, total: 0, percentage: 0 })
   assert.equal(findAgentTask('worker', {
     provider: 'copilot', state: 'working', task: 'T-4', model: 'gpt', since: null, cooldownUntil: null,
-  }, tasks).id, 'T-2')
+  }, tasks).id, 'T-4')
+  assert.equal(findAgentTask('worker', {
+    provider: 'copilot', state: 'working', task: 'external-task', model: 'gpt', since: null, cooldownUntil: null,
+  }, tasks).title, 'external-task')
   assert.equal(findAgentTask('worker', {
     provider: 'copilot', state: 'idle', task: null, model: null, since: null, cooldownUntil: null,
   }, [{ ...tasks[3] }]), null)
