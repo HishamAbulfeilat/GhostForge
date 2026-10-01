@@ -1,5 +1,8 @@
 name: Electron Android validation
 
+# Download the APK from this workflow run's Artifacts section, then enable
+# "Install unknown apps" / "Allow from this source" on the device and tap the file
+# to install it.
 on:
   pull_request:
     branches: [main, master, develop]
