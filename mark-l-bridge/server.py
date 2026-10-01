@@ -11,8 +11,10 @@ import hmac
 import json
 import logging
 import os
+import platform
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -773,6 +775,10 @@ class DeviceRequest(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
+class RemoteSetupRequest(BaseModel):
+    action: str = Field(..., min_length=1, max_length=32)
+
+
 class ReleaseRequest(BaseModel):
     action: str = "status"
     kind: str = "patch"
@@ -886,6 +892,35 @@ def _new_id(prefix: str = "") -> str:
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _probe_loopback_port(port: int, timeout: float = 0.25) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _find_novnc_root() -> Optional[Path]:
+    candidates = (
+        Path("/opt/homebrew/share/novnc"),
+        Path("/usr/local/share/novnc"),
+        Path("/opt/homebrew/opt/novnc/share/novnc"),
+        Path("/usr/local/opt/novnc/share/novnc"),
+        Path("/usr/share/novnc"),
+        Path("/usr/share/noVNC"),
+    )
+    return next((path for path in candidates if (path / "vnc.html").is_file()), None)
+
+
+def _remote_setup_status() -> dict[str, Any]:
+    websockify = _probe_loopback_port(6080)
+    return {
+        "screenSharing": _probe_loopback_port(5900),
+        "websockify": websockify,
+        "noVncUrl": "http://127.0.0.1:6080/vnc.html" if websockify else None,
+    }
 
 
 def _workflow_progress(workflow: dict[str, Any]) -> dict[str, int]:
@@ -2115,6 +2150,81 @@ def devices_delete(user_id: str = "default", id: Optional[str] = None):
     if len(next_devices) == len(devices):
         raise HTTPException(status_code=404, detail="Device not found")
     return {"ok": True}
+
+
+@app.get("/api/devices/status", dependencies=[Depends(require_token)])
+def devices_status(user_id: str = "default"):
+    safe_user = _safe_user(user_id)
+    _require_module("system_monitor", "system_monitor" not in _MISSING)
+    try:
+        metrics = _get_system_status()
+    except Exception:
+        logger.exception("system_monitor status failed")
+        raise _err("Live device status is unavailable", status=503)
+    if not isinstance(metrics, dict) or metrics.get("error"):
+        raise _err("Live device status is unavailable", status=503)
+    return {
+        "status": "online",
+        "user": safe_user,
+        "device": {
+            "hostname": socket.gethostname(),
+            "platform": platform.system().lower(),
+            "platformLabel": platform.system(),
+            "arch": platform.machine(),
+        },
+        "metrics": metrics,
+        "updatedAt": _iso_now(),
+    }
+
+
+@app.get("/api/remote/setup", dependencies=[Depends(require_token)])
+def remote_setup_get():
+    return _remote_setup_status()
+
+
+@app.post("/api/remote/setup", dependencies=[Depends(require_token)])
+def remote_setup_post(req: RemoteSetupRequest):
+    if req.action != "start-websockify":
+        raise HTTPException(status_code=400, detail="Unsupported remote setup action")
+
+    websockify = shutil.which("websockify")
+    novnc_root = _find_novnc_root()
+    if not websockify or novnc_root is None:
+        raise _err(
+            "websockify and noVNC must be installed to start the local viewer",
+            status=503,
+        )
+
+    if _probe_loopback_port(6080):
+        raise HTTPException(
+            status_code=409,
+            detail="Port 6080 is already in use; refusing to reuse an unverified listener",
+        )
+
+    try:
+        subprocess.Popen(
+            [
+                websockify,
+                "127.0.0.1:6080",
+                "127.0.0.1:5900",
+                "--web",
+                str(novnc_root),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=(os.name != "nt"),
+        )
+    except OSError:
+        logger.exception("Could not start local websockify")
+        raise _err("Could not start the local WebSocket bridge", status=503)
+    return {
+        "ok": True,
+        "started": True,
+        "listenerHost": "127.0.0.1",
+        **_remote_setup_status(),
+    }
 
 
 @app.get("/api/release", dependencies=[Depends(require_token)])
