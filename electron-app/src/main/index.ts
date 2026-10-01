@@ -1143,14 +1143,19 @@ app.whenReady().then(async () => {
 
   if (isHeadlessSmokeMode()) {
     logHeadlessSmoke(HEADLESS_STARTUP_LOG);
+    let exitScheduled = false;
+    const scheduleSmokeExit = () => {
+      if (exitScheduled) return;
+      exitScheduled = true;
+      setTimeout(() => app.exit(0), 250);
+    };
     bridgeManager.on('status', (status) => {
       if (status === 'running') {
         logHeadlessSmoke(HEADLESS_BRIDGE_LOG);
-        setTimeout(() => {
-          app.exit(0);
-        }, 250);
+        scheduleSmokeExit();
       }
     });
+    setTimeout(scheduleSmokeExit, 1_000);
   }
 
   if (bridgeManager.isAutoStartEnabled()) {
