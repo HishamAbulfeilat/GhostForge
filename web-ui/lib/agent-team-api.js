@@ -440,6 +440,25 @@ function projectTaskRecords(tasks) {
   })
 }
 
+function projectSessionRecords(sessions, source, project, device, provider) {
+  if (!Array.isArray(sessions)) return []
+  return sessions.slice(0, AGENT_SESSION_CONNECTOR_MAX_RECORDS).flatMap(value => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+    const id = projectedString(value.id ?? value.sessionId, 128)
+    if (!id) return []
+    const result = { id, source, project, device, provider }
+    for (const field of ['name', 'status', 'state', 'agent', 'task']) {
+      const fieldValue = projectedString(value[field], field === 'name' ? 512 : 256)
+      if (fieldValue) result[field] = fieldValue
+    }
+    for (const field of ['createdAt', 'updatedAt', 'startedAt', 'endedAt']) {
+      const fieldValue = normalizedHeartbeat(value[field])
+      if (fieldValue) result[field] = fieldValue
+    }
+    return [result]
+  })
+}
+
 function projectEventRecords(events, source) {
   if (!Array.isArray(events)) return []
   return events.slice(-AGENT_SESSION_CONNECTOR_MAX_RECORDS).flatMap(value => {
@@ -491,6 +510,7 @@ function offlineConnector(config, project, error) {
     error,
     agents: [],
     tasks: [],
+    sessions: [],
     events: [{ ts: eventTime, type: 'connector.error', source: config.source, error }],
   }
 }
@@ -535,6 +555,7 @@ function projectLocalConnector(root) {
       : null,
     agents: projectAgentRecords(snapshot.agents),
     tasks: projectTaskRecords(snapshot.tasks),
+    sessions: [],
     events,
   }
 }
@@ -583,7 +604,7 @@ async function readConnectorPayload(response) {
 function validateConnectorPayload(payload) {
   const heartbeat = normalizedHeartbeat(payload.heartbeat)
   if (!heartbeat) throw new Error('Connector heartbeat is missing or invalid')
-  for (const field of ['agents', 'tasks', 'events']) {
+  for (const field of ['agents', 'tasks', 'sessions', 'events']) {
     if (payload[field] !== undefined && !Array.isArray(payload[field])) {
       throw new Error(`Connector ${field} must be an array`)
     }
@@ -621,6 +642,13 @@ async function readRemoteConnector(config, headers, project) {
         : heartbeatStatus
     const agents = projectAgentRecords(payload.agents ?? [])
     const tasks = projectTaskRecords(payload.tasks ?? [])
+    const sessions = projectSessionRecords(
+      payload.sessions ?? [],
+      config.source,
+      project,
+      config.device ?? null,
+      config.provider ?? null,
+    )
     const events = projectEventRecords(payload.events ?? [], config.source)
     if (status === 'offline') {
       const error = reportedOffline ? 'Connector reports offline' : 'Connector heartbeat is outside the valid time range'
@@ -641,12 +669,13 @@ async function readRemoteConnector(config, headers, project) {
       error: null,
       agents,
       tasks,
+      sessions,
       events,
     }
   } catch (error) {
     const message = controller.signal.aborted
       ? 'Connector request timed out'
-      : error instanceof Error && /^Connector (?:returned HTTP status \d+|response exceeded the size limit|response body is unavailable|response was not valid JSON|snapshot must be an object|heartbeat is missing or invalid|agents must be an array|tasks must be an array|events must be an array|status is invalid|online status is invalid)/.test(error.message)
+      : error instanceof Error && /^Connector (?:returned HTTP status \d+|response exceeded the size limit|response body is unavailable|response was not valid JSON|snapshot must be an object|heartbeat is missing or invalid|agents must be an array|tasks must be an array|sessions must be an array|events must be an array|status is invalid|online status is invalid)/.test(error.message)
         ? error.message
         : 'Connector request failed'
     return offlineConnector(config, project, message)
