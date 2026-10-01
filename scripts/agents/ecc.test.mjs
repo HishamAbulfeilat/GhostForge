@@ -43,19 +43,22 @@ test('ECC task routing combines core, kind, and area skills without duplicates',
 
 test('ECC context is staged inside the worker and cleaned up', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-ecc-'))
-  const cache = path.join(root, 'cache')
-  for (const name of ['verification-loop', 'tdd-workflow']) {
-    const dir = path.join(cache, '.agents', 'skills', name)
-    fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(path.join(dir, 'SKILL.md'), `# ${name}\nFollow ${name}.`)
-  }
+  try {
+    const cache = path.join(root, 'cache')
+    for (const name of ['verification-loop', 'tdd-workflow']) {
+      const dir = path.join(cache, '.agents', 'skills', name)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'SKILL.md'), `# ${name}\nFollow ${name}.`)
+    }
 
-  const context = buildECCContext(config, cache, { kind: 'feature' })
-  assert.match(context, /verification-loop/)
-  assert.match(context, /tdd-workflow/)
-  const staged = stageECCContext(root, context)
-  assert.equal(fs.existsSync(staged), true)
-  clearECCContext(staged)
-  assert.equal(fs.existsSync(staged), false)
-  fs.rmSync(root, { recursive: true, force: true })
+    const context = buildECCContext(config, cache, { kind: 'feature' })
+    assert.match(context, /verification-loop/)
+    assert.match(context, /tdd-workflow/)
+    const staged = stageECCContext(root, context)
+    assert.equal(fs.existsSync(staged), true)
+    clearECCContext(staged)
+    assert.equal(fs.existsSync(staged), false)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })

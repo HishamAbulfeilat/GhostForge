@@ -3,6 +3,8 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { spawnSync } = require('node:child_process')
+const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 
 const { buildHelp, parseArgs, resolveCommand, main } = require('../cli/index.js')
@@ -33,8 +35,13 @@ test('parseArgs normalizes terminal aliases', () => {
 })
 
 test('main dispatches the agent-team status command', () => {
-  const exit = main(['team', 'status'], { env: process.env })
-  assert.equal(exit, 0)
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'ghostforge-team-status-'))
+  try {
+    const exit = main(['team', 'status'], { env: { ...process.env, GF_AGENT_STATE: state } })
+    assert.equal(exit, 0)
+  } finally {
+    fs.rmSync(state, { recursive: true, force: true })
+  }
 })
 
 test('main dispatches the user help command and rejects unknown commands', () => {
