@@ -3,6 +3,7 @@
 Run with: python -m unittest mark-l-bridge/test_contract.py
 """
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -49,6 +50,7 @@ class BridgeContractTests(unittest.TestCase):
             "/api/devices/status",
             "/api/remote/setup",
             "/api/release",
+            "/api/n8n/workflows",
         )
         for path in paths:
             with self.subTest(path=path):
@@ -582,6 +584,86 @@ class BridgeContractTests(unittest.TestCase):
         )
         self.assertEqual(invalid_environment.status_code, 400)
         self.assertEqual(invalid_target.status_code, 400)
+
+
+    def test_n8n_list_exposes_only_declared_workflows(self):
+        response = self.client.get("/api/n8n/workflows", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        by_id = {item["id"]: item for item in response.json()["workflows"]}
+        self.assertTrue(by_id["ghostforge-notify"]["triggerable"])
+        self.assertEqual(by_id["ghostforge-notify"]["webhookPath"], "ghostforge-notify")
+        self.assertFalse(by_id["ghostforge-agent-monitor"]["triggerable"])
+        self.assertIsNone(by_id["ghostforge-agent-monitor"]["webhookPath"])
+
+    def test_n8n_trigger_requires_auth_and_valid_known_id(self):
+        body = {"id": "ghostforge-notify", "payload": {}}
+        self.assertEqual(self.client.post("/api/n8n/trigger", json=body).status_code, 401)
+        with patch.object(server, "_n8n_post") as post_mock:
+            for bad in ("../etc/passwd", "http://evil.test/x", "Bad Id", "", "a" * 65):
+                with self.subTest(id=bad):
+                    r = self.client.post(
+                        "/api/n8n/trigger", headers=self.headers, json={"id": bad}
+                    )
+                    self.assertIn(r.status_code, (400, 422))
+            unknown = self.client.post(
+                "/api/n8n/trigger", headers=self.headers, json={"id": "nope"}
+            )
+            inactive = self.client.post(
+                "/api/n8n/trigger", headers=self.headers, json={"id": "ghostforge-agent-monitor"}
+            )
+            self.assertEqual(unknown.status_code, 404)
+            self.assertEqual(inactive.status_code, 409)
+            post_mock.assert_not_called()
+
+    def test_n8n_trigger_posts_to_declared_loopback_webhook_only(self):
+        with patch.dict("os.environ", {"GHOSTFORGE_N8N_URL": "http://127.0.0.1:5678"}), patch.object(
+            server, "_n8n_post", return_value=(200, b'{"done": true}')
+        ) as post_mock:
+            response = self.client.post(
+                "/api/n8n/trigger",
+                headers=self.headers,
+                json={"id": "ghostforge-notify", "payload": {"message": "hi"}},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["result"], {"done": True})
+        url, body = post_mock.call_args.args
+        self.assertEqual(url, "http://127.0.0.1:5678/webhook/ghostforge-notify")
+        self.assertEqual(json.loads(body), {"message": "hi"})
+
+    def test_n8n_trigger_rejects_urls_commands_and_oversized_payloads(self):
+        with patch.object(server, "_n8n_post") as post_mock:
+            for payload in ({"webhookUrl": "http://evil.test"}, {"a": {"Command": "rm -rf /"}}):
+                r = self.client.post(
+                    "/api/n8n/trigger",
+                    headers=self.headers,
+                    json={"id": "ghostforge-notify", "payload": payload},
+                )
+                self.assertEqual(r.status_code, 400)
+            big = self.client.post(
+                "/api/n8n/trigger",
+                headers=self.headers,
+                json={"id": "ghostforge-notify", "payload": {"m": "x" * 20000}},
+            )
+            self.assertEqual(big.status_code, 413)
+            post_mock.assert_not_called()
+
+    def test_n8n_trigger_refuses_non_loopback_endpoint_and_maps_failures(self):
+        request = {"id": "ghostforge-notify", "payload": {}}
+        for url in ("http://evil.test:5678", "http://user:pw@localhost:5678", "ftp://localhost", "http://localhost/x"):
+            with self.subTest(url=url), patch.dict("os.environ", {"GHOSTFORGE_N8N_URL": url}), patch.object(
+                server, "_n8n_post"
+            ) as post_mock:
+                r = self.client.post("/api/n8n/trigger", headers=self.headers, json=request)
+                self.assertEqual(r.status_code, 503)
+                post_mock.assert_not_called()
+        with patch.object(server, "_n8n_post", side_effect=OSError("down")):
+            self.assertEqual(
+                self.client.post("/api/n8n/trigger", headers=self.headers, json=request).status_code, 502
+            )
+        with patch.object(server, "_n8n_post", return_value=(500, b"boom")):
+            self.assertEqual(
+                self.client.post("/api/n8n/trigger", headers=self.headers, json=request).status_code, 502
+            )
 
 
 if __name__ == "__main__":

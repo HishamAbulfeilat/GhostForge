@@ -12,17 +12,21 @@ import json
 import logging
 import os
 import platform
+import re
 import secrets
 import shutil
 import socket
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 import uuid
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -2092,6 +2096,156 @@ def workflows_delete(user_id: str = "default", id: Optional[str] = None):
     next_workflows = [item for item in workflows if item.get("id") != id]
     _write_store("workflows", user_id, next_workflows)
     return {"ok": len(next_workflows) != len(workflows)}
+
+
+# ---------------------------------------------------------------------------
+# n8n automation (bounded list/trigger over the shipped workflow definitions)
+# ---------------------------------------------------------------------------
+
+_N8N_WORKFLOW_DIR = Path(__file__).resolve().parent.parent / "electron-app" / "n8n-workflows"
+_N8N_DEFAULT_URL = "http://localhost:5678"
+_N8N_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+_N8N_PATH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+_N8N_MAX_PAYLOAD_BYTES = 16 * 1024
+_N8N_MAX_RESPONSE_BYTES = 64 * 1024
+_N8N_TIMEOUT_SECONDS = 10
+_N8N_FORBIDDEN_PAYLOAD_KEYS = {"url", "webhookurl", "command", "cmd", "script", "shell"}
+
+
+class N8nTriggerRequest(BaseModel):
+    id: str = Field(max_length=64)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+def _n8n_load_workflows() -> dict[str, dict[str, Any]]:
+    """Discover workflows from the shipped definitions, keyed by file-stem id."""
+    found: dict[str, dict[str, Any]] = {}
+    if not _N8N_WORKFLOW_DIR.is_dir():
+        return found
+    for path in sorted(_N8N_WORKFLOW_DIR.glob("*.json")):
+        workflow_id = path.stem.lower()
+        if not _N8N_ID_RE.match(workflow_id):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        webhook = next(
+            (
+                node.get("parameters") or {}
+                for node in data.get("nodes") or []
+                if isinstance(node, dict) and node.get("type") == "n8n-nodes-base.webhook"
+            ),
+            None,
+        )
+        method = str((webhook or {}).get("httpMethod") or "").upper()
+        hook_path = str((webhook or {}).get("path") or "")
+        triggerable = (
+            webhook is not None
+            and method == "POST"
+            and bool(_N8N_PATH_RE.match(hook_path))
+            and data.get("active") is not False
+        )
+        found[workflow_id] = {
+            "id": workflow_id,
+            "name": str(data.get("name") or workflow_id)[:200],
+            "active": data.get("active") is not False,
+            "triggerable": triggerable,
+            "webhookMethod": method or None,
+            "webhookPath": hook_path if triggerable else None,
+        }
+    return found
+
+
+def _n8n_base_url() -> str:
+    """Return the configured n8n origin; only credential-free loopback http(s) is allowed."""
+    raw = (os.environ.get("GHOSTFORGE_N8N_URL") or _N8N_DEFAULT_URL).strip()
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError:
+        raise _err("n8n endpoint is not configured correctly", status=503)
+    if (
+        parsed.scheme not in ("http", "https")
+        or parsed.hostname not in ("localhost", "127.0.0.1", "::1")
+        or parsed.username
+        or parsed.password
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise _err("n8n endpoint must be a loopback http(s) origin", status=503)
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    return f"{parsed.scheme}://{host}" + (f":{port}" if port else "")
+
+
+def _n8n_check_payload(value: Any, depth: int = 0) -> None:
+    if depth > 6:
+        raise HTTPException(status_code=400, detail="Payload is nested too deeply")
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key).lower() in _N8N_FORBIDDEN_PAYLOAD_KEYS:
+                raise HTTPException(status_code=400, detail=f"Payload key {str(key)[:40]!r} is not allowed")
+            _n8n_check_payload(item, depth + 1)
+    elif isinstance(value, list):
+        for item in value:
+            _n8n_check_payload(item, depth + 1)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):  # noqa: D401 - never follow redirects
+        return None
+
+
+def _n8n_post(url: str, body: bytes) -> tuple[int, bytes]:
+    """POST *body* to *url* without redirects; returns (status, bounded response)."""
+    request = urllib.request.Request(
+        url, data=body, method="POST", headers={"Content-Type": "application/json"}
+    )
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        with opener.open(request, timeout=_N8N_TIMEOUT_SECONDS) as response:
+            return response.status, response.read(_N8N_MAX_RESPONSE_BYTES)
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(_N8N_MAX_RESPONSE_BYTES)
+
+
+@app.get("/api/n8n/workflows", dependencies=[Depends(require_token)])
+def n8n_workflows_get():
+    workflows = list(_n8n_load_workflows().values())
+    return {"workflows": workflows, "count": len(workflows)}
+
+
+@app.post("/api/n8n/trigger", dependencies=[Depends(require_token)])
+def n8n_trigger(req: N8nTriggerRequest):
+    workflow_id = req.id.strip().lower()
+    if not _N8N_ID_RE.match(workflow_id):
+        raise HTTPException(status_code=400, detail="Invalid workflow id")
+    workflow = _n8n_load_workflows().get(workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if not workflow["triggerable"]:
+        raise HTTPException(status_code=409, detail="Workflow has no active POST webhook")
+    _n8n_check_payload(req.payload)
+    body = json.dumps(req.payload).encode("utf-8")
+    if len(body) > _N8N_MAX_PAYLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Payload is too large")
+    url = f"{_n8n_base_url()}/webhook/{workflow['webhookPath']}"
+    try:
+        status, raw = _n8n_post(url, body)
+    except (urllib.error.URLError, OSError, TimeoutError):
+        logger.warning("n8n trigger for %s failed to connect", workflow_id)
+        raise _err("n8n is unreachable", status=502)
+    if status >= 400:
+        raise _err(f"n8n rejected the trigger (HTTP {status})", status=502)
+    text = raw.decode("utf-8", errors="replace")
+    try:
+        result: Any = json.loads(text)
+    except ValueError:
+        result = text[:2000]
+    return {"ok": True, "id": workflow_id, "status": status, "result": result}
 
 
 # ---------------------------------------------------------------------------
