@@ -1,5 +1,6 @@
 import { Tray, Menu, nativeImage, app, BrowserWindow } from 'electron';
 import { join } from 'path';
+import { requestExplicitAppQuit } from './app-lifecycle';
 
 export class TrayManager {
   private tray: Tray | null = null;
@@ -70,7 +71,9 @@ export class TrayManager {
       {
         label: 'Quit',
         click: () => {
-          app.quit();
+          if (requestExplicitAppQuit()) {
+            app.quit();
+          }
         },
       },
     ]);

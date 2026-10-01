@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, appendFileSync, readFileSync, writeFileSync } fr
 import { join } from 'path';
 import { homedir } from 'os';
 import { processCommand } from './omniroute';
+import { requestExplicitAppQuit } from './app-lifecycle';
 
 const execAsync = promisify(exec);
 
@@ -314,7 +315,11 @@ export class JarvisDaemon extends EventEmitter {
         label: 'Quit JARVIS',
         click: () => {
           this.isQuitting = true;
-          this.stop().then(() => app.quit());
+          this.stop().then(() => {
+            if (requestExplicitAppQuit()) {
+              app.quit();
+            }
+          });
         },
       },
     ]);

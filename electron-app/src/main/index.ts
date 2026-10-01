@@ -24,6 +24,7 @@ import { getDaemon, JarvisDaemon } from './jarvis-daemon';
 import { SelfUpdater } from './self-updater';
 import { CodeModifier } from './code-modifier';
 import { VoiceboxIntegration } from './voicebox-integration';
+import { quitController, requestExplicitAppQuit } from './app-lifecycle';
 import {
   listEmails as emailList, readEmail, sendEmail as emailSend, replyToEmail,
   markAsRead, markAsUnread, starEmail, unstarEmail, deleteEmail,
@@ -248,7 +249,7 @@ function createMainWindow(): void {
   });
 
   mainWindow.on('close', (event) => {
-    if (config.minimizeToTray) {
+    if (quitController.shouldMinimizeOnWindowClose(config.minimizeToTray)) {
       event.preventDefault();
       mainWindow?.hide();
     }
@@ -428,7 +429,15 @@ function registerIPC(): void {
     if (mainWindow?.isMaximized()) mainWindow.unmaximize();
     else mainWindow?.maximize();
   });
-  ipcMain.handle('window:close', () => mainWindow?.close());
+  ipcMain.handle('window:close', () => {
+    if (config.minimizeToTray) {
+      mainWindow?.hide();
+      return;
+    }
+    if (requestExplicitAppQuit()) {
+      app.quit();
+    }
+  });
   ipcMain.handle('window:hide', () => mainWindow?.hide());
   ipcMain.handle('window:show', () => mainWindow?.show());
 
@@ -1177,7 +1186,12 @@ app.whenReady().then(async () => {
   }
 });
 
+app.on('before-quit', () => {
+  quitController.markShutdownStarted();
+});
+
 app.on('window-all-closed', () => {
+  if (quitController.isShutdownStarted()) return;
   if (jarvisDaemon?.isRunning()) {
     jarvisDaemon.hideWindow();
     return;
@@ -1196,17 +1210,19 @@ app.on('activate', () => {
 });
 
 app.on('will-quit', () => {
-  jarvisDaemon?.destroy();
-  selfUpdater?.destroy();
-  codeModifier?.destroy();
-  voiceboxIntegration?.destroy();
-  bridgeManager.stopBridge().catch(() => {});
-  geminiLiveVoice?.destroy();
-  n8nIntegration = undefined as any;
-  globalShortcut.unregisterAll();
-  cursorOverlay.destroyAll();
-  voiceSystem.unregisterAll();
-  jarvisConnection?.destroy();
-  connectionToggle?.destroy();
-  trayManager?.destroy();
+  if (quitController.isShutdownStarted()) {
+    jarvisDaemon?.destroy();
+    selfUpdater?.destroy();
+    codeModifier?.destroy();
+    voiceboxIntegration?.destroy();
+    bridgeManager.stopBridge().catch(() => {});
+    geminiLiveVoice?.destroy();
+    n8nIntegration = undefined as any;
+    globalShortcut.unregisterAll();
+    cursorOverlay.destroyAll();
+    voiceSystem.unregisterAll();
+    jarvisConnection?.destroy();
+    connectionToggle?.destroy();
+    trayManager?.destroy();
+  }
 });
