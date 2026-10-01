@@ -31,20 +31,30 @@ GhostForge v$VERSION
 Operator-grade dev tools, forged in the shadows.
 
 Usage:
-  ghostforge                Launch the TUI
-  ghostforge -v|--version   Print toolkit version
-  ghostforge -h|--help      Show this help
-  ghostforge <command>      Run scripts/<command>.sh
-  ghostforge --open PATH    Run open-project.sh directly
+  ghostforge                            Launch the TUI
+  ghostforge -v|--version               Print toolkit version
+  ghostforge -h|--help                  Show this help
+  ghostforge marketplace [args]         Browse/install the marketplace
+  ghostforge agent-team [args]          Manage the agent team boss and board
+  ghostforge workflows [args]          Workflow list/create/update/run commands
+  ghostforge jobs [args]               Run Job Hunter commands
+  ghostforge <command>                 Run scripts/<command>.sh (legacy)
+  ghostforge --open PATH                Run open-project.sh directly
   ghostforge --command health [PATH]
   ghostforge --command security [PATH]
   ghostforge --digest [PATH]
-  gf                        Alias for ghostforge
+  gf                                    Alias for ghostforge
 EOF
 }
 
 if [[ $# -gt 0 && "${1#-}" == "$1" ]]; then
   subcommand="$1"
+  case "$subcommand" in
+    marketplace|agent-team|team|workflows|workflow|jobs|help)
+      exec node "$SCRIPT_DIR/cli/index.js" "$@"
+      ;;
+  esac
+
   subcommand_script="$SCRIPT_DIR/scripts/${subcommand}.sh"
 
   if [[ -f "$subcommand_script" ]]; then
