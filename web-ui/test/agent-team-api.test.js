@@ -9,6 +9,7 @@ const {
   normalizeAgentTeamAction,
   readAgentTeamSnapshot,
   readRequestJsonWithLimit,
+  toPublicAgentTeamSnapshot,
 } = require('../lib/agent-team-api.js')
 
 test('resolveWorkspaceRoot blocks symlink escapes', () => {
@@ -36,8 +37,8 @@ test('GF_AGENT_STATE is honored when reading snapshots', () => {
 
   fs.writeFileSync(path.join(root, '.agent-sync', 'team.json'), JSON.stringify({
     agents: {
-      copilot: { provider: 'configured-copilot' },
-      configuredOnly: { provider: 'configured-only' },
+      copilot: { provider: 'configured-copilot', enabled: true, branch: 'agent/private', strengths: ['feature'] },
+      configuredOnly: { provider: 'configured-only', enabled: false },
     },
   }))
   fs.writeFileSync(path.join(stateDir, 'status.json'), JSON.stringify({
@@ -74,7 +75,21 @@ test('GF_AGENT_STATE is honored when reading snapshots', () => {
     assert.equal(snapshot.snapshot.agents.reportedOnly.provider, 'reported-only')
     assert.equal(snapshot.snapshot.agents.copilot.state, 'working')
     assert.equal(snapshot.snapshot.agents.copilot.since, '2024-01-01T00:00:00Z')
+    assert.equal(snapshot.snapshot.agents.copilot.enabled, true)
+    assert.equal(snapshot.snapshot.agents.copilot.branch, 'agent/private')
+    assert.deepEqual(snapshot.snapshot.agents.copilot.strengths, ['feature'])
+    assert.equal(snapshot.snapshot.agents.configuredOnly.state, 'disabled')
     assert.equal(snapshot.snapshot.messages[0].text, 'hello')
+
+    snapshot.snapshot.agents.copilot.task = 'Open C:\\Users\\operator\\repo secret=value'
+    const publicSnapshot = toPublicAgentTeamSnapshot(snapshot)
+    assert.deepEqual(Object.keys(publicSnapshot.snapshot.agents), ['copilot', 'reportedOnly'])
+    assert.equal(publicSnapshot.snapshot.agents.copilot.model, null)
+    assert.equal(publicSnapshot.snapshot.agents.copilot.branch, null)
+    assert.deepEqual(publicSnapshot.snapshot.agents.copilot.strengths, [])
+    assert.match(publicSnapshot.snapshot.agents.copilot.task, /\[local path redacted\]/)
+    assert.match(publicSnapshot.snapshot.agents.copilot.task, /secret=\[redacted\]/)
+    assert.deepEqual(publicSnapshot.snapshot.messages, [])
   } finally {
     if (previous === undefined) delete process.env.GF_AGENT_STATE
     else process.env.GF_AGENT_STATE = previous

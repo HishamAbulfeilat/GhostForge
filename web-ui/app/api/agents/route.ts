@@ -7,6 +7,7 @@ import {
   repoRootFromLib,
   resolveWorkspaceRoot,
   runAgentTeamCommand,
+  toPublicAgentTeamSnapshot,
 } from '@/lib/agent-team-api'
 
 export const dynamic = 'force-dynamic'
@@ -16,6 +17,10 @@ function adminToolsForbidden() {
   return NextResponse.json({ error: 'Admin tools permission required.' }, { status: 403 })
 }
 
+function authenticationRequired() {
+  return NextResponse.json({ error: 'Authentication required.' }, { status: 401 })
+}
+
 async function requireAdminUser(request: NextRequest) {
   const user = await getCurrentUser(request)
   if (!user || !hasPermission(user, 'admin_tools')) return null
@@ -23,9 +28,15 @@ async function requireAdminUser(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  if (!await requireAdminUser(request)) return adminToolsForbidden()
+  const user = await getCurrentUser(request)
+  if (!user) return authenticationRequired()
   const workspaceRoot = resolveWorkspaceRoot(repoRootFromLib())
-  return NextResponse.json(readAgentTeamSnapshot(workspaceRoot))
+  const snapshot = readAgentTeamSnapshot(workspaceRoot)
+  const publicView = request.nextUrl?.searchParams.get('view') === 'public'
+
+  if (publicView) return NextResponse.json(toPublicAgentTeamSnapshot(snapshot))
+  if (!hasPermission(user, 'admin_tools')) return adminToolsForbidden()
+  return NextResponse.json(snapshot)
 }
 
 export async function POST(request: NextRequest) {

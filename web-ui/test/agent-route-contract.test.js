@@ -14,7 +14,30 @@ const snapshotFixture = {
     health: 90,
     running: false,
     agents: {
-      copilot: { provider: 'copilot', state: 'idle', task: null, model: null, since: null, cooldownUntil: null },
+      copilot: {
+        provider: 'copilot',
+        state: 'working',
+        task: 'Check C:\\Users\\operator\\repo token=private',
+        model: 'gpt-private',
+        since: '2026-10-01T00:00:00.000Z',
+        cooldownUntil: null,
+        enabled: true,
+        role: 'worker',
+        strengths: ['feature'],
+        branch: 'agent/private',
+      },
+      disabled: {
+        provider: 'claude',
+        state: 'disabled',
+        task: null,
+        model: null,
+        since: null,
+        cooldownUntil: null,
+        enabled: false,
+        role: 'worker',
+        strengths: ['review'],
+        branch: 'agent/disabled',
+      },
     },
     tasks: [{ id: 'T-030', title: 'Route tests', kind: 'test', status: 'in-progress', owner: 'copilot' }],
     messages: [{ ts: '2026-10-01T00:00:00.000Z', from: 'boss', to: 'all', text: 'hello' }],
@@ -91,19 +114,41 @@ async function responseBody(response) {
 
 const admin = { role: 'admin', permissions: [] }
 
-test('GET and POST require an authenticated admin_tools user', async t => {
+test('private GET and every POST remain restricted to admin_tools users', async t => {
+  state.user = null
+  const unauthenticatedGet = await route.GET({})
+  assert.equal(unauthenticatedGet.status, 401)
+  assert.deepEqual(await responseBody(unauthenticatedGet), { error: 'Authentication required.' })
+
   for (const user of [null, { role: 'user', permissions: [] }]) {
     state.user = user
-    for (const method of ['GET', 'POST']) {
-      await t.test(`${method} rejects ${user ? 'non-admin' : 'unauthenticated'} requests`, async () => {
-        const request = method === 'GET' ? {} : requestWithText('{}')
-        const response = await route[method](request)
-        assert.equal(response.status, 403)
-        assert.deepEqual(await responseBody(response), { error: 'Admin tools permission required.' })
-      })
-    }
+    await t.test(`POST rejects ${user ? 'non-admin' : 'unauthenticated'} requests`, async () => {
+      const response = await route.POST(requestWithText('{}'))
+      assert.equal(response.status, 403)
+      assert.deepEqual(await responseBody(response), { error: 'Admin tools permission required.' })
+    })
   }
+
+  state.user = { role: 'user', permissions: [] }
+  const forbiddenGet = await route.GET({})
+  assert.equal(forbiddenGet.status, 403)
+  assert.deepEqual(await responseBody(forbiddenGet), { error: 'Admin tools permission required.' })
   assert.deepEqual(state.commands, [])
+})
+
+test('public GET allows signed-in users and strips private session metadata', async () => {
+  state.user = { role: 'user', permissions: [] }
+  const response = await route.GET({ nextUrl: { searchParams: new URLSearchParams('view=public') } })
+  const body = await responseBody(response)
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(Object.keys(body.snapshot.agents), ['copilot'])
+  assert.equal(body.snapshot.agents.copilot.model, null)
+  assert.equal(body.snapshot.agents.copilot.branch, null)
+  assert.deepEqual(body.snapshot.agents.copilot.strengths, [])
+  assert.match(body.snapshot.agents.copilot.task, /\[local path redacted\]/)
+  assert.match(body.snapshot.agents.copilot.task, /token=\[redacted\]/)
+  assert.deepEqual(body.snapshot.messages, [])
 })
 
 test('GET returns the wrapped agent-team snapshot contract', async () => {
@@ -121,7 +166,18 @@ test('GET returns the wrapped agent-team snapshot contract', async () => {
   assert.equal(Array.isArray(snapshot.messages), true)
   assert.equal(typeof snapshot.phase, 'number')
   for (const agent of Object.values(snapshot.agents)) {
-    assert.deepEqual(Object.keys(agent), ['provider', 'state', 'task', 'model', 'since', 'cooldownUntil'])
+    assert.deepEqual(Object.keys(agent), [
+      'provider',
+      'state',
+      'task',
+      'model',
+      'since',
+      'cooldownUntil',
+      'enabled',
+      'role',
+      'strengths',
+      'branch',
+    ])
   }
   for (const task of snapshot.tasks) {
     assert.deepEqual(Object.keys(task), ['id', 'title', 'kind', 'status', 'owner'])

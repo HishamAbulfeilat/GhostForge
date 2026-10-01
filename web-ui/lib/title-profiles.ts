@@ -153,6 +153,8 @@ export const PAGE_ACCESS: PageAccess[] = [
   { path: '/terminal',    label: 'Terminal',    icon: '🖥️', permission: 'terminal', nav: true },
   { path: '/maintenance', label: 'Maintenance', icon: '🛠️', permission: 'terminal', nav: true },
   { path: '/dashboard',   label: 'Dashboard',   icon: '📊', permission: 'system_info', nav: true },
+  { path: '/agent-world', label: 'Agent World', icon: '🌐', permission: null, nav: true },
+  { path: '/maintainer-world', label: 'Maintainer World', icon: '🧭', permission: 'admin_tools', nav: true },
   { path: '/agents',      label: 'Agents',       icon: '🤝', permission: 'admin_tools', nav: true },
   { path: '/media-tools', label: 'Media',       icon: '▶️', permission: 'youtube', nav: true },
   { path: '/files',       label: 'Files',      icon: '🗂️', permission: 'file_read', nav: true },

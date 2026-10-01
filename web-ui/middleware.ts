@@ -7,6 +7,9 @@ const AUTH_COOKIE_NAME = AUTH_COOKIE
 const PROTECTED_PREFIXES = [
   '/chat',
   '/dashboard',
+  '/agent-world',
+  '/maintainer-world',
+  '/agents',
   '/terminal',
   '/files',
   '/features',
@@ -42,6 +45,9 @@ export const config = {
   matcher: [
     '/chat/:path*',
     '/dashboard/:path*',
+    '/agent-world/:path*',
+    '/maintainer-world/:path*',
+    '/agents/:path*',
     '/terminal/:path*',
     '/files/:path*',
     '/features/:path*',

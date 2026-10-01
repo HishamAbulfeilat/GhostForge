@@ -75,6 +75,28 @@ function readMessages(stateDir) {
   return entries
 }
 
+function normalizedString(value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  return normalized || null
+}
+
+function normalizedStrings(value) {
+  return Array.isArray(value)
+    ? value.map(entry => normalizedString(entry)).filter(Boolean)
+    : []
+}
+
+function sanitizePublicText(value) {
+  if (!value) return null
+  const sanitized = value
+    .replace(/(token|secret|api[_-]?key|password|authorization)\s*[:=]\s*[^\s\n]+/gi, '$1=[redacted]')
+    .replace(/[A-Za-z]:\\[^\s\n]+/g, '[local path redacted]')
+    .replace(/(?:^|\s)\/(?:Users|home|var|tmp)\/[^\s\n]+/g, ' [local path redacted]')
+    .trim()
+  return sanitized || null
+}
+
 function isProcessRunning(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false
   try {
@@ -184,24 +206,33 @@ function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverri
     ? status.agents
     : {}
   const agentIds = new Set([...Object.keys(configuredAgents), ...Object.keys(reportedAgents)])
+  const bossConfig = teamConfig && typeof teamConfig.boss === 'object' && !Array.isArray(teamConfig.boss)
+    ? teamConfig.boss
+    : {}
+  if (Object.keys(bossConfig).length > 0) agentIds.add('boss')
   const agents = {}
 
   for (const agentId of agentIds) {
-    const config = configuredAgents[agentId] && typeof configuredAgents[agentId] === 'object'
+    const config = agentId === 'boss'
+      ? bossConfig
+      : configuredAgents[agentId] && typeof configuredAgents[agentId] === 'object'
       ? configuredAgents[agentId]
       : {}
     const info = reportedAgents[agentId] && typeof reportedAgents[agentId] === 'object'
       ? reportedAgents[agentId]
       : {}
-    const configuredProvider = typeof config.provider === 'string' ? config.provider.trim() : ''
-    const reportedProvider = typeof info.provider === 'string' ? info.provider.trim() : ''
+    const enabled = agentId === 'boss' || config.enabled !== false
     agents[agentId] = {
-      provider: configuredProvider || reportedProvider || null,
-      state: typeof info.state === 'string' && info.state.trim() ? info.state.trim() : 'unknown',
-      task: typeof info.task === 'string' && info.task.trim() ? info.task.trim() : null,
-      model: typeof info.model === 'string' && info.model.trim() ? info.model.trim() : null,
-      since: typeof info.since === 'string' && info.since.trim() ? info.since.trim() : null,
-      cooldownUntil: typeof info.cooldownUntil === 'string' && info.cooldownUntil.trim() ? info.cooldownUntil.trim() : null,
+      provider: normalizedString(config.provider) ?? normalizedString(info.provider),
+      state: normalizedString(info.state) ?? (enabled ? 'unknown' : 'disabled'),
+      task: normalizedString(info.task),
+      model: normalizedString(info.model),
+      since: normalizedString(info.since),
+      cooldownUntil: normalizedString(info.cooldownUntil),
+      enabled,
+      role: normalizedString(config.role) ?? (agentId === 'boss' ? 'coordinator' : 'worker'),
+      strengths: normalizedStrings(config.strengths),
+      branch: normalizedString(config.branch),
     }
   }
 
@@ -221,6 +252,45 @@ function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverri
       tasks,
       messages: readMessages(stateDir),
       phase: Number(board.phase ?? status?.phase ?? 1) || 1,
+    },
+  }
+}
+
+function toPublicAgentTeamSnapshot(envelope) {
+  const source = envelope.snapshot
+  const agents = Object.fromEntries(
+    Object.entries(source.agents)
+      .filter(([, agent]) => agent.enabled && agent.state !== 'disabled')
+      .map(([id, agent]) => [id, {
+        provider: agent.provider,
+        state: agent.state,
+        task: sanitizePublicText(agent.task),
+        model: null,
+        since: agent.since,
+        cooldownUntil: null,
+        enabled: true,
+        role: 'agent',
+        strengths: [],
+        branch: null,
+      }]),
+  )
+  const publicAgentIds = new Set(Object.keys(agents))
+  const tasks = source.tasks.map(task => ({
+    id: task.id,
+    title: sanitizePublicText(task.title) ?? 'Untitled task',
+    kind: task.kind,
+    status: task.status,
+    owner: task.owner && publicAgentIds.has(task.owner) ? task.owner : null,
+  }))
+
+  return {
+    snapshot: {
+      health: source.health,
+      running: source.running,
+      agents,
+      tasks,
+      messages: [],
+      phase: source.phase,
     },
   }
 }
@@ -317,6 +387,7 @@ module.exports = {
   repoRootFromLib,
   resolveWorkspaceRoot,
   readAgentTeamSnapshot,
+  toPublicAgentTeamSnapshot,
   readRequestJsonWithLimit,
   normalizeAgentTeamAction,
   buildAgentTeamCliArgs,
