@@ -91,6 +91,7 @@ export default function WorkflowsPage() {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [notice, setNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [running, setRunning] = useState(false)
 
   const selected = workflows.find(w => w.id === selectedId) || null
 
@@ -129,6 +130,20 @@ export default function WorkflowsPage() {
       const d = await api<{ workflow: Workflow }>('/api/workflows', json('PUT', { id: selected.id, stepId, step: { status }, log: `→ ${status}` }))
       setWorkflows(prev => prev.map(w => w.id === selected.id ? d.workflow : w))
     } catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : String(e) }) }
+  }
+
+  const runSelected = async () => {
+    if (!selected || running) return
+    setRunning(true)
+    try {
+      const d = await api<{ workflow: Workflow }>('/api/workflows', json('POST', { action: 'run', id: selected.id }))
+      await loadList(); setSelectedId(d.workflow.id)
+      setNotice({ tone: 'info', text: `Ran "${d.workflow.name}".` })
+    } catch (e) {
+      if (e instanceof Error && /401|Unauthorized/.test(e.message)) { router.push('/login'); return }
+      setNotice({ tone: 'error', text: `Run failed: ${e instanceof Error ? e.message : String(e)}` })
+      await refreshSelected(selected.id)
+    } finally { setRunning(false) }
   }
 
   const createFromTemplate = async (template: WorkflowTemplate) => {
@@ -235,6 +250,9 @@ export default function WorkflowsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs text-gf-muted">{selected.progress?.pct ?? 0}%</span>
+                  <button type="button" onClick={() => void runSelected()} disabled={running || selected.status === 'running' || selected.steps.length === 0}
+                    title="Runs manual steps (skipped) and allow-listed bridge commands only"
+                    className="min-h-9 rounded-lg bg-gf-accent px-3 text-sm font-semibold text-gf-bg hover:brightness-110 disabled:opacity-50">{running ? 'Running…' : '▶ Run'}</button>
                   <button type="button" onClick={() => setMode('edit')} className="min-h-9 rounded-lg border border-gf-line2 px-3 text-sm">Edit</button>
                 </div>
               </div>
