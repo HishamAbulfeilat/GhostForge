@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import {
   BOARD_COLUMNS,
+  buildDependencyGraph,
   countOpenTasks,
   findAgentTask,
   formatElapsed,
@@ -67,6 +68,7 @@ export default function AgentKanbanBoard({
   }, [])
 
   const groupedTasks = groupTasksByStatus(tasks)
+  const dependencyGraph = buildDependencyGraph(tasks)
   const recentMessages = messages.slice(-6).reverse()
 
   return (
@@ -95,6 +97,72 @@ export default function AgentKanbanBoard({
             </section>
           ))}
         </div>
+      </section>
+
+      <section aria-labelledby="workflow-dependencies-heading">
+        <div className="mb-3">
+          <h2 id="workflow-dependencies-heading" className="font-display text-lg font-semibold">Workflow dependencies</h2>
+          <p className="mt-1 text-xs text-gf-muted">Each task links to the tasks it depends on. Select a dependency to jump to its task.</p>
+        </div>
+        {dependencyGraph.length ? (
+          <ol className="grid list-none gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3">
+            {dependencyGraph.map(node => {
+              const dependencyNodes = node.dependencyNodeKeys
+                .map(key => dependencyGraph.find(candidate => candidate.key === key))
+                .filter((dependency): dependency is (typeof dependencyGraph)[number] => dependency !== undefined)
+              const criteria = Array.isArray(node.task.acceptanceCriteria)
+                ? [...new Set(node.task.acceptanceCriteria
+                  .filter((criterion): criterion is string => typeof criterion === 'string')
+                  .map(criterion => criterion.trim())
+                  .filter(Boolean))]
+                : []
+
+              return (
+                <li key={node.key} className="min-w-0">
+                  <article id={node.anchorId} className="h-full scroll-mt-4 rounded-xl border border-gf-line bg-gf-surface p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <h3 className="min-w-0 break-words font-semibold">{node.task.title || 'Untitled task'}</h3>
+                      {node.cyclic && <span className="rounded-full bg-amber-950 px-2 py-1 text-xs text-amber-200">Circular dependency</span>}
+                    </div>
+                    <p className="mt-1 break-words text-xs text-gf-muted">{node.task.id || 'No task ID'} · {node.task.kind}</p>
+
+                    <div className="mt-3">
+                      <h4 className="text-xs font-semibold text-gf-muted">Depends on</h4>
+                      {dependencyNodes.length || node.missingDependencies.length || node.ambiguousDependencies.length ? (
+                        <ul className="mt-1 flex flex-col gap-1 ps-4 text-sm">
+                          {dependencyNodes.map(dependency => (
+                            <li key={dependency.key} className="break-words">
+                              <a className="text-gf-accent underline-offset-2 hover:underline focus-visible:rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gf-accent" href={`#${dependency.anchorId}`}>
+                                <span aria-hidden="true">→ </span>{dependency.task.id || dependency.task.title}: {dependency.task.title || 'Untitled task'}
+                              </a>
+                            </li>
+                          ))}
+                          {node.missingDependencies.map(dependency => (
+                            <li key={`missing-${dependency}`} className="break-words text-amber-200">Unavailable task: {dependency}</li>
+                          ))}
+                          {node.ambiguousDependencies.map(dependency => (
+                            <li key={`ambiguous-${dependency}`} className="break-words text-amber-200">Ambiguous task ID: {dependency}</li>
+                          ))}
+                        </ul>
+                      ) : <p className="mt-1 text-sm text-gf-muted">No dependencies</p>}
+                    </div>
+
+                    {criteria.length > 0 && (
+                      <details className="mt-3 border-t border-gf-line pt-3">
+                        <summary className="w-fit cursor-pointer text-sm font-medium text-gf-ink focus-visible:rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gf-accent">
+                          Acceptance criteria ({criteria.length})
+                        </summary>
+                        <ul className="mt-2 list-disc space-y-1 ps-5 text-sm text-gf-muted">
+                          {criteria.map((criterion, index) => <li key={`${index}-${criterion}`} className="break-words">{criterion}</li>)}
+                        </ul>
+                      </details>
+                    )}
+                  </article>
+                </li>
+              )
+            })}
+          </ol>
+        ) : <p className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">No workflow tasks to visualize.</p>}
       </section>
 
       <section aria-labelledby="workers-heading">
