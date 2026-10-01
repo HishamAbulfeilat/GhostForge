@@ -350,6 +350,235 @@ async function screenWorkflows() {
   }
 }
 
+function n8nConfig(rawUrl = process.env.N8N_URL || 'http://localhost:5678') {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(rawUrl.trim());
+  } catch {
+    throw new Error('N8N_URL must be an absolute http(s) URL.');
+  }
+  if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password ||
+      parsedUrl.search || parsedUrl.hash) {
+    throw new Error('Use an http(s) n8n URL without embedded credentials, query, or fragment.');
+  }
+  const loopback = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(parsedUrl.hostname);
+  if (parsedUrl.protocol !== 'https:' && !loopback && process.env.GF_ALLOW_REMOTE_N8N !== '1') {
+    throw new Error('Remote n8n over plain HTTP is blocked; use HTTPS or set GF_ALLOW_REMOTE_N8N=1 to opt in.');
+  }
+  const baseUrl = `${parsedUrl.origin}${parsedUrl.pathname.replace(/\/+$/, '')}`;
+  const apiKey = process.env.N8N_API_KEY?.trim() || '';
+  if (/[\r\n]/.test(apiKey)) throw new Error('N8N_API_KEY contains invalid characters.');
+  return { baseUrl, apiKey };
+}
+
+async function n8nRequest(config, pathname, init = {}) {
+  let response;
+  try {
+    response = await fetch(`${config.baseUrl}${pathname}`, {
+      ...init,
+      headers: {
+        ...(config.apiKey ? { 'X-N8N-API-KEY': config.apiKey } : {}),
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        ...init.headers,
+      },
+      redirect: 'error',
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (error) {
+    if (error.name === 'TimeoutError') throw new Error('The n8n request timed out.');
+    throw new Error(`Could not reach n8n: ${safeWorkflowText(error.message)}`);
+  }
+
+  const text = await response.text();
+  let body;
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    body = {};
+  }
+  if (!response.ok) {
+    const detail = body?.message || body?.error || `n8n returned HTTP ${response.status}.`;
+    throw new Error(safeWorkflowText(detail).slice(0, 240));
+  }
+  return body;
+}
+
+function n8nWebhookPath(value) {
+  const path = String(value ?? '').trim();
+  const segments = path.split('/');
+  if (!path || path.startsWith('/') || path.endsWith('/') ||
+      !segments.every(segment => segment !== '.' && segment !== '..' && /^[a-z0-9._~-]+$/i.test(segment))) {
+    return null;
+  }
+  return segments.map(encodeURIComponent).join('/');
+}
+
+async function screenN8n() {
+  let config;
+  try {
+    const baseUrl = await input({
+      message: 'n8n base URL:',
+      default: process.env.N8N_URL || 'http://localhost:5678',
+      validate(value) {
+        try {
+          n8nConfig(value);
+          return true;
+        } catch (error) {
+          return error.message;
+        }
+      },
+    });
+    config = n8nConfig(baseUrl);
+  } catch (error) {
+    if (error.name === 'ExitPromptError') return;
+    console.log(T.warning(`\n  ⚠ ${safeWorkflowText(error.message)}`));
+    await pressEnter();
+    return;
+  }
+
+  while (true) {
+    sectionHeader('⚡  n8n Automation', 'List existing workflows and trigger active POST webhooks');
+    let workflows;
+    try {
+      const data = await n8nRequest(config, '/api/v1/workflows?limit=250');
+      if (!Array.isArray(data.data) || data.data.some(workflow =>
+        !workflow || typeof workflow.id !== 'string' || !workflow.id.trim() ||
+        typeof workflow.name !== 'string' || typeof workflow.active !== 'boolean')) {
+        throw new Error('The n8n API returned an invalid workflow list.');
+      }
+      workflows = data.data;
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeWorkflowText(error.message || 'Could not load n8n workflows.')}`));
+      console.log(T.muted('  Check that n8n is running, N8N_API_KEY is valid, and your account can list workflows.'));
+      await pressEnter();
+      return;
+    }
+
+    if (workflows.length === 0) {
+      console.log(T.muted('\n  No workflows found in n8n.'));
+    } else {
+      const table = new Table({
+        head: ['Workflow', 'ID', 'Status'],
+        style: { head: ['cyan'] },
+        colWidths: [38, 28, 14],
+        wordWrap: true,
+      });
+      for (const workflow of workflows) {
+        table.push([
+          safeWorkflowText(workflow.name),
+          safeWorkflowText(workflow.id),
+          workflow.active ? 'active' : 'inactive',
+        ]);
+      }
+      console.log(table.toString());
+    }
+
+    const activeWorkflows = workflows.filter(workflow => workflow.active);
+    const action = await select({
+      message: T.white('n8n action:'),
+      choices: [
+        ...(activeWorkflows.length
+          ? [{ name: T.accent('▶  Trigger an active workflow webhook'), value: 'trigger' }]
+          : []),
+        { name: T.accent('↻  Refresh workflows'), value: 'refresh' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+    if (action === 'refresh') continue;
+
+    const workflowId = await select({
+      message: 'Select an active workflow:',
+      choices: activeWorkflows.map(workflow => ({
+        name: `${safeWorkflowText(workflow.name)} (${safeWorkflowText(workflow.id)})`,
+        value: workflow.id,
+      })),
+      pageSize: 15,
+    });
+    const workflow = activeWorkflows.find(item => item.id === workflowId);
+    if (!workflow) {
+      console.log(T.warning('\n  ⚠ The selected workflow is no longer in the list.'));
+      await pressEnter();
+      continue;
+    }
+
+    try {
+      const detail = await n8nRequest(config, `/api/v1/workflows/${encodeURIComponent(workflow.id)}`);
+      if (detail.id !== workflow.id || detail.active !== true || !Array.isArray(detail.nodes)) {
+        throw new Error('n8n returned invalid workflow details, or the workflow is no longer active.');
+      }
+      const webhooks = detail.nodes
+        .filter(node => node?.type === 'n8n-nodes-base.webhook')
+        .map(node => ({
+          name: safeWorkflowText(node.name || 'Webhook'),
+          path: n8nWebhookPath(node.parameters?.path),
+          method: String(node.parameters?.httpMethod || '').toUpperCase(),
+        }))
+        .filter(webhook => webhook.path && ['POST', 'ALL'].includes(webhook.method));
+      if (webhooks.length === 0) {
+        console.log(T.warning('\n  ⚠ This active workflow has no supported POST webhook trigger.'));
+        console.log(T.muted('  Add a Webhook node with a path and HTTP method POST or ALL, then activate the workflow.'));
+        await pressEnter();
+        continue;
+      }
+      const webhook = webhooks.length === 1
+        ? webhooks[0]
+        : webhooks[await select({
+            message: 'Select a POST webhook:',
+            choices: webhooks.map((item, index) => ({
+              name: `${item.name} — ${item.path}`,
+              value: index,
+            })),
+            pageSize: 15,
+          })];
+      const payloadText = await input({
+        message: 'JSON request body:',
+        default: '{"triggeredFrom":"ghostforge-tui"}',
+        validate(value) {
+          try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+              ? true
+              : 'Enter a JSON object.';
+          } catch {
+            return 'Enter valid JSON.';
+          }
+        },
+      });
+      const payload = JSON.parse(payloadText);
+      const target = `${config.baseUrl}/webhook/${webhook.path}`;
+      console.log(T.muted(`\n  Target: ${safeWorkflowText(target)}`));
+      console.log(T.muted('  This sends the JSON body to the active workflow webhook.'));
+      const approved = await confirm({
+        message: T.warning(`Trigger "${safeWorkflowText(workflow.name)}" now?`),
+        default: false,
+      });
+      if (!approved) continue;
+
+      let response;
+      try {
+        response = await fetch(target, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          redirect: 'error',
+          signal: AbortSignal.timeout(10_000),
+        });
+      } catch (error) {
+        if (error.name === 'TimeoutError') throw new Error('The webhook request timed out.');
+        throw new Error(`Could not reach the workflow webhook: ${safeWorkflowText(error.message)}`);
+      }
+      if (!response.ok) throw new Error(`The workflow webhook returned HTTP ${response.status}.`);
+      const result = safeWorkflowText((await response.text()).slice(0, 300));
+      console.log(T.success(`\n  ✔ Workflow "${safeWorkflowText(workflow.name)}" triggered (HTTP ${response.status}).`));
+      if (result) console.log(T.muted(`  ${result}`));
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ Workflow trigger failed: ${safeWorkflowText(error.message || 'Unknown n8n error.')}`));
+    }
+    await pressEnter();
+  }
+}
+
 async function screenWebhooks() {
   while (true) {
     sectionHeader('🪝  Webhooks', 'Inspect and replace bridge trigger configuration; review logs and clear them');
@@ -1147,6 +1376,7 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '🤝  Collaboration & Sharing',   'create or join sessions · send messages · copy share links', 'collaboration'),
       menuChoice(T.accent.bold,  '👥  User Administration',       'list users · owner-only role, status, and permission controls', 'users'),
       menuChoice(T.accent.bold,  '🔁  Workflows',                  'review saved workflows · run bounded, allowlisted steps', 'workflows'),
+      menuChoice(T.accent.bold,  '⚡  n8n Automation',             'list and safely trigger active workflow webhooks', 'n8n'),
       menuChoice(T.accent.bold,  '🪝  Webhooks',                   'inspect triggers · replace config · review logs', 'webhooks'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
       menuChoice(T.white.bold,   '🍎  Mac Control',               'control Mac with natural language → AppleScript', 'maccontrol'),
@@ -7324,6 +7554,7 @@ async function main() {
         case 'collaboration': await screenCollaboration(); break;
         case 'users':         await screenUsers(); break;
         case 'workflows':     await screenWorkflows(); break;
+        case 'n8n':            await screenN8n(); break;
         case 'webhooks':      await screenWebhooks(); break;
         case 'freeapis':     await screenFreeAPIs(); break;
         case 'audit':        await screenAuditLog(); break;
