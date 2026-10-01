@@ -24,6 +24,7 @@ import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatform
 import { askGFAI } from './lib/gfai-client.js';
 import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
 import { runTeamCommand, startAgentTeam } from './lib/agent-team.js';
+import { parseArgs as parseUsersArgs, request as requestUsersApi } from '../scripts/users.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -172,6 +173,145 @@ async function screenDeviceStatus() {
     });
     const output = (result.stdout || result.stderr || '').trim();
     console.log(result.status === 0 ? T.success(`\n  ✔ ${output}`) : T.warning(`\n  ⚠ ${output || 'Device command failed.'}`));
+    await pressEnter();
+  }
+}
+
+function safeUsersText(value) {
+  return String(value ?? '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+}
+
+async function screenUsers() {
+  while (true) {
+    sectionHeader('👥  User Administration', 'List users and manage role, active status, and permissions');
+    let data;
+    try {
+      data = await requestUsersApi(parseUsersArgs(['list', '--json']));
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeUsersText(error.message || 'Could not load users.')}`));
+      console.log(T.muted('  Check GF_SESSION_TOKEN and your web UI connection.'));
+      await pressEnter();
+      return;
+    }
+
+    const users = data.users;
+    if (users.some(user => !user || typeof user.id !== 'string' || typeof user.username !== 'string')) {
+      console.log(T.warning('\n  ⚠ The users API returned an invalid user entry.'));
+      await pressEnter();
+      return;
+    }
+    if (users.length === 0) {
+      console.log(T.muted('\n  No users found.'));
+    } else {
+      const rows = users.map(user => [
+        safeUsersText(user.username),
+        safeUsersText(user.id),
+        safeUsersText(user.role || 'unknown'),
+        user.active ? 'active' : 'inactive',
+        Array.isArray(user.permissions) ? safeUsersText(user.permissions.join(', ') || 'none') : 'unknown',
+        user.owner ? 'owner' : '',
+      ]);
+      const table = new Table({
+        head: ['Username', 'ID', 'Role', 'Status', 'Permissions', 'Owner'],
+        style: { head: ['cyan'] },
+        colWidths: [18, 18, 12, 12, 32, 8],
+        wordWrap: true,
+      });
+      for (const row of rows) table.push(row);
+      console.log(table.toString());
+    }
+
+    if (data.canManage !== true) {
+      console.log(T.muted('\n  Role, status, and permission changes are owner-only.'));
+      const action = await select({
+        message: 'User administration:',
+        choices: [
+          { name: T.accent('↻  Refresh users'), value: 'refresh' },
+          { name: T.muted('← Back'), value: 'back' },
+        ],
+      });
+      if (action === 'back') return;
+      continue;
+    }
+
+    const action = await select({
+      message: T.white('Owner-only user administration:'),
+      choices: [
+        ...(users.length ? [{ name: T.accent('✎  Change a user role, status, or permissions'), value: 'update' }] : []),
+        { name: T.accent('↻  Refresh users'), value: 'refresh' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+    if (action === 'refresh') continue;
+
+    const userId = await select({
+      message: 'Select a user to update:',
+      choices: users.map(user => ({
+        name: `${safeUsersText(user.username)} (${safeUsersText(user.id)})${user.owner ? ' — owner' : ''}`,
+        value: user.id,
+      })),
+      pageSize: 15,
+    });
+    const user = users.find(item => item.id === userId);
+    if (!user) {
+      console.log(T.warning('\n  ⚠ The selected user is no longer in the list.'));
+      await pressEnter();
+      continue;
+    }
+
+    const canChangeRole = !user.owner;
+    const canDeactivate = !user.owner;
+    const updateAction = await select({
+      message: `Owner-only changes for ${safeUsersText(user.username)}:`,
+      choices: [
+        ...(canChangeRole ? [{ name: T.accent(`Role (current: ${safeUsersText(user.role)})`), value: 'role' }] : []),
+        ...(canDeactivate ? [{ name: T.accent(`Active status (current: ${user.active ? 'active' : 'inactive'})`), value: 'active' }] : []),
+        { name: T.accent('Permissions'), value: 'permissions' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (updateAction === 'back') continue;
+
+    const args = ['update', user.id];
+    if (updateAction === 'role') {
+      const role = await select({
+        message: 'New role:',
+        choices: [
+          { name: 'Admin', value: 'admin' },
+          { name: 'User', value: 'user' },
+        ],
+      });
+      args.push('--role', role);
+    } else if (updateAction === 'active') {
+      args.push('--active', String(!user.active));
+    } else {
+      const permissions = await input({
+        message: 'Permission keys (comma-separated, or none to clear):',
+        default: Array.isArray(user.permissions) ? user.permissions.join(',') : '',
+      });
+      args.push('--permissions', permissions.trim() || 'none');
+    }
+
+    try {
+      const options = parseUsersArgs(args);
+      const confirmed = await confirm({
+        message: T.warning(`Apply this owner-only change to ${safeUsersText(user.username)}?`),
+        default: false,
+      });
+      if (!confirmed) continue;
+      const result = await requestUsersApi(options);
+      const updated = result.user;
+      console.log(T.success(
+        `\n  ✔ Updated ${safeUsersText(updated.username)}: ${safeUsersText(updated.role)}, ` +
+        `${updated.active ? 'active' : 'inactive'}, permissions=` +
+        `${Array.isArray(updated.permissions) ? safeUsersText(updated.permissions.join(',') || 'none') : 'unknown'}`,
+      ));
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeUsersText(error.message || 'User update failed.')}`));
+    }
     await pressEnter();
   }
 }
@@ -677,6 +817,7 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '📱  Install on Device',         'PWA · Android APK · iOS IPA · Desktop', 'deviceinstall'),
       menuChoice(T.cyan.bold,    '📡  Device & Push Status',       'check host status · send a push notification preview', 'device-status'),
       menuChoice(T.accent.bold,  '🤝  Collaboration & Sharing',   'create or join sessions · send messages · copy share links', 'collaboration'),
+      menuChoice(T.accent.bold,  '👥  User Administration',       'list users · owner-only role, status, and permission controls', 'users'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
       menuChoice(T.white.bold,   '🍎  Mac Control',               'control Mac with natural language → AppleScript', 'maccontrol'),
       menuChoice(T.muted,        '🌅  Daily Digest',              'morning summary: tickets, security, deps, git', 'digest'),
@@ -6851,6 +6992,7 @@ async function main() {
         case 'deviceinstall': await screenDeviceInstall(); break;
         case 'device-status': await screenDeviceStatus(); break;
         case 'collaboration': await screenCollaboration(); break;
+        case 'users':         await screenUsers(); break;
         case 'freeapis':     await screenFreeAPIs(); break;
         case 'audit':        await screenAuditLog(); break;
         case 'dashboard':    await screenDashboard(); break; // lazy
