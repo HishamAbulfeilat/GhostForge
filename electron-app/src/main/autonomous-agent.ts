@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { validateOutboundUrl } from './outbound-url';
 import { execSync, exec as execCb, execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
@@ -234,7 +235,8 @@ export class AutonomousAgent extends EventEmitter {
       headers['Content-Type'] = 'application/json';
     }
 
-    const response = await fetch(url, {
+    const safeUrl = validateOutboundUrl(url, ['api.github.com'], 'GitHub API');
+    const response = await fetch(safeUrl, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,

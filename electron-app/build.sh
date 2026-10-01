@@ -1,29 +1,40 @@
-#!/bin/bash
-# GhostForge JARVIS — Build Script
-# Builds for macOS, Windows, Linux, and Android
+#!/usr/bin/env bash
+# GhostForge JARVIS — platform build entrypoint
+# Android is invoked via the portable script in scripts/build-android.sh.
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "help" ] || [ "${2:-}" = "-h" ] || [ "${2:-}" = "--help" ] || [ "${2:-}" = "help" ]; then
+  echo "Usage: $0 [mac|win|linux|android|all|deps|ts] [debug|release|bundle]"
+  echo ""
+  echo "  macos    - Build macOS .dmg and .zip"
+  echo "  windows  - Build Windows .exe installer"
+  echo "  linux    - Build Linux .AppImage, .deb, .rpm"
+  echo "  android  - Build Android .apk"
+  echo "  all      - Build all desktop platforms"
+  echo "  deps     - Install dependencies only"
+  echo "  ts       - Build TypeScript only"
+  exit 0
+fi
+
 echo "╔══════════════════════════════════════════════╗"
 echo "║  GhostForge JARVIS — Build Script            ║"
-echo "║  v5.2.0                                       ║"
+echo "║  v5.2.1                                       ║"
 echo "╚══════════════════════════════════════════════╝"
 echo ""
-
-# ── Prerequisites ────────────────────────────────────────────────────────────
 
 check_prerequisites() {
   echo "Checking prerequisites..."
 
-  if ! command -v node &> /dev/null; then
+  if ! command -v node &>/dev/null; then
     echo "Error: Node.js not found. Install from https://nodejs.org"
     exit 1
   fi
 
-  if ! command -v npm &> /dev/null; then
+  if ! command -v npm &>/dev/null; then
     echo "Error: npm not found."
     exit 1
   fi
@@ -33,15 +44,11 @@ check_prerequisites() {
   echo ""
 }
 
-# ── Install Dependencies ─────────────────────────────────────────────────────
-
 install_deps() {
   echo "Installing dependencies..."
   npm install
   echo ""
 }
-
-# ── Build TypeScript ─────────────────────────────────────────────────────────
 
 build_ts() {
   echo "Building TypeScript..."
@@ -49,8 +56,6 @@ build_ts() {
   echo "TypeScript build complete ✓"
   echo ""
 }
-
-# ── macOS Build ──────────────────────────────────────────────────────────────
 
 build_mac() {
   echo "Building for macOS (x64 + arm64)..."
@@ -60,8 +65,6 @@ build_mac() {
   echo ""
 }
 
-# ── Windows Build ────────────────────────────────────────────────────────────
-
 build_windows() {
   echo "Building for Windows (x64)..."
   npx electron-builder --win --publish never
@@ -69,8 +72,6 @@ build_windows() {
   echo "  Output: release/*.exe"
   echo ""
 }
-
-# ── Linux Build ──────────────────────────────────────────────────────────────
 
 build_linux() {
   echo "Building for Linux (x64)..."
@@ -80,39 +81,16 @@ build_linux() {
   echo ""
 }
 
-# ── Android Build ────────────────────────────────────────────────────────────
-
 build_android() {
+  local target="${1:-debug}"
   echo "Building for Android..."
-
-  # Check if Capacitor is initialized
-  if [ ! -f "android/build.gradle" ]; then
-    echo "Initializing Capacitor for Android..."
-    npx cap add android
-  fi
-
-  # Build web assets
-  cd ../web-ui
-  npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
-  npm run build
-  cd "$SCRIPT_DIR"
-
-  # Sync with Capacitor
-  npx cap sync android
-
-  # Build APK
-  cd android
-  ./gradlew assembleDebug
-  cd "$SCRIPT_DIR"
-
+  bash scripts/build-android.sh "$target"
   echo "Android build complete ✓"
-  echo "  Output: android/app/build/outputs/apk/debug/*.apk"
   echo ""
 }
 
-# ── All Platforms ────────────────────────────────────────────────────────────
-
 build_all() {
+  local target="${1:-debug}"
   echo "Building for all platforms..."
   echo ""
 
@@ -125,16 +103,13 @@ build_all() {
   echo "══════════════════════════════════════════════"
   echo ""
 
-  # Android requires Android SDK
-  if command -v sdkmanager &> /dev/null || [ -n "$ANDROID_HOME" ]; then
-    build_android
+  if [ -n "${ANDROID_HOME:-}" ] || [ -n "${ANDROID_SDK_ROOT:-}" ] || command -v sdkmanager &>/dev/null; then
+    build_android "$target"
   else
     echo "Android SDK not found. Skipping Android build."
-    echo "To build Android: install Android SDK and set ANDROID_HOME"
+    echo "To build Android: set ANDROID_HOME or ANDROID_SDK_ROOT to your Android SDK path."
   fi
 }
-
-# ── Parse Arguments ──────────────────────────────────────────────────────────
 
 case "${1:-all}" in
   mac|macos)
@@ -159,13 +134,13 @@ case "${1:-all}" in
     check_prerequisites
     install_deps
     build_ts
-    build_android
+    build_android "${2:-debug}"
     ;;
   all)
     check_prerequisites
     install_deps
     build_ts
-    build_all
+    build_all "${2:-debug}"
     ;;
   deps)
     check_prerequisites
@@ -175,7 +150,7 @@ case "${1:-all}" in
     build_ts
     ;;
   *)
-    echo "Usage: $0 [mac|win|linux|android|all|deps|ts]"
+    echo "Usage: $0 [mac|win|linux|android|all|deps|ts] [debug|release|bundle]"
     echo ""
     echo "  macos    - Build macOS .dmg and .zip"
     echo "  windows  - Build Windows .exe installer"

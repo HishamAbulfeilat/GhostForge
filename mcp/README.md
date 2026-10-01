@@ -12,7 +12,7 @@ When VS Code starts an MCP server, Copilot can call its registered tools on dema
 - `get_tickets(provider, repo, owner)`
 - `fix_ticket(provider, repo, owner, issueNumber, projectPath?)`
 - `list_models(tier?)`
-- `get_best_model(taskType)`
+- `get_best_model(taskType = "auto", description?)` — `auto` classifies the description (security → deep, feature → balanced, docs/chores → fast, SQL → sql)
 - `security_scan(projectPath)`
 - `list_snippets()`
 - `get_snippet(name)`
@@ -60,3 +60,6 @@ MCP_HTTP_PORT=8787 npm run start
 
 - `GITHUB_TOKEN` — required for GitHub issue tools
 - `MCP_HTTP_PORT` — optional local health/debug endpoint
+
+Model tools work immediately in a fresh checkout using a small bundled model
+catalog. If `.ghostforge-models.json` is present, it is used instead.

@@ -25,7 +25,9 @@ Plus the bridge's own intelligence layer: `ai_memory`, `ai_agents`,
 
 Auth: requests carry a token from `~/.ghostforge/bridge/token` (or
 `MARKL_BRIDGE_TOKEN`). Endpoints live under `/api/mark-l/*`, `/api/mark-liv/*`,
-and `/api/openjarvis/*`.
+`/api/openjarvis/*`, and the JARVIS feature contracts (`/api/jarvis/collab`,
+`/api/jobs`, `/api/workflows`, `/api/webhook`, `/api/devices`, and
+`/api/release`).
 
 ### OpenJarvis endpoints
 
@@ -37,6 +39,14 @@ bridge shells out to it with a fixed argv (never `shell=True`):
 | `/api/openjarvis/health` | GET | `{ installed, binary }` — whether `jarvis` is on PATH |
 | `/api/openjarvis/doctor` | GET | Runs `jarvis doctor`, returns its output |
 | `/api/openjarvis/ask` | POST | `{ prompt, timeout_s? }` → `{ response }`; 503 if not installed |
+
+### JARVIS feature contracts
+
+These endpoints use the same bridge token and provide local, bridge-native
+access to the web feature contracts. Collaboration `GET` without an `id`
+creates a session and returns `{ id, shareUrl }`; workflow updates preserve
+the existing status when `status` is omitted. Jobs, workflows, webhooks, and
+devices are persisted under `~/.ghostforge/bridge/`.
 
 ## Licensing
 

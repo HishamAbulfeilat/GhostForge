@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { validateOutboundUrl } from './outbound-url';
 
 const CREDENTIALS_DIR = join(homedir(), '.ghostforge', 'credentials');
 const AI_STUDIO_CONFIG_FILE = join(CREDENTIALS_DIR, 'ai-studio.json');
@@ -98,7 +99,12 @@ function saveConfig(config: AIStudioConfig): void {
 
 function getBaseUrl(): string {
   const config = loadConfig();
-  return config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta';
+  const baseUrl = config.baseUrl || 'https://generativelanguage.googleapis.com/v1beta';
+  const safeUrl = validateOutboundUrl(baseUrl, ['generativelanguage.googleapis.com'], 'Google AI Studio');
+  if (!['', '/v1beta'].includes(safeUrl.pathname.replace(/\/+$/, ''))) {
+    throw new Error('Google AI Studio URL must target the v1beta API');
+  }
+  return safeUrl.toString().replace(/\/+$/, '');
 }
 
 async function aiStudioRequest(
@@ -115,7 +121,7 @@ async function aiStudioRequest(
   }
 
   const baseUrl = getBaseUrl();
-  const url = new URL(`${baseUrl}${endpoint}`);
+  const url = validateOutboundUrl(`${baseUrl}${endpoint}`, ['generativelanguage.googleapis.com'], 'Google AI Studio');
   url.searchParams.set('key', config.apiKey);
   if (options.params) {
     for (const [k, v] of Object.entries(options.params)) {

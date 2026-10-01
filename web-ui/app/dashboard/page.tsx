@@ -8,6 +8,7 @@ import dynamic from 'next/dynamic'
 const MacMetricsWidget = dynamic(() => import('@/components/MacMetricsWidget').then(m => ({ default: m.MacMetricsWidget })), { ssr: false })
 const BridgeControl = dynamic(() => import('@/components/BridgeControl').then(m => ({ default: m.BridgeControl })), { ssr: false })
 const JobHunterWidget = dynamic(() => import('@/components/JobHunterWidget').then(m => ({ default: m.JobHunterWidget })), { ssr: false })
+const DeviceControlsPanel = dynamic(() => import('@/components/DeviceControlsPanel'), { ssr: false })
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -792,6 +793,9 @@ export default function DashboardPage() {
             { href: '/mac-control',  icon: '🍎', label: 'Mac Control', desc: 'Automate Mac',  color: 'hover:border-pink-600/60 hover:bg-pink-950/20' },
             { href: '/features',     icon: '⚡', label: 'Features',  desc: 'Run commands',    color: 'hover:border-amber-600/60 hover:bg-amber-950/20' },
             { href: '/marketplace',  icon: '🏪', label: 'Market',    desc: 'Plugins',         color: 'hover:border-rose-600/60 hover:bg-rose-950/20' },
+            { href: '/design-resources', icon: '🎨', label: 'Design', desc: 'Resources', color: 'hover:border-fuchsia-600/60 hover:bg-fuchsia-950/20' },
+            { href: '/open-source-tools', icon: '🔭', label: 'Open Source', desc: 'Tools', color: 'hover:border-cyan-600/60 hover:bg-cyan-950/20' },
+            { href: '/vigolium', icon: '🛡️', label: 'Vigolium', desc: 'Defensive scans', color: 'hover:border-amber-600/60 hover:bg-amber-950/20' },
             { href: '/settings',     icon: '⚙️', label: 'Settings',  desc: 'AI models',       color: 'hover:border-gray-500/60 hover:bg-gray-800/40' },
           ].map(item => (
             <Link
@@ -852,6 +856,7 @@ export default function DashboardPage() {
 
         {/* ── Bridge control (live status + start) ── */}
         <BridgeControl />
+        <DeviceControlsPanel />
 
         {/* ── Doctor + Metrics side by side ── */}
         <div className="grid gap-3 lg:grid-cols-2">

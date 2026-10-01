@@ -2,6 +2,40 @@ function escapeAppleScript(value) {
   return String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
+const APPLE_SCRIPT_ALLOWLIST = Object.freeze({
+  openLocation: {
+    name: 'open location',
+    matcher: script => {
+      const value = String(script || '').trim()
+      return /^open location "https?:\/\/[^"\n]+"$/i.test(value) ||
+        /^tell application "[^"]+"\s*\n\s*activate\s*\n\s*open location "https?:\/\/[^"\n]+"\s*\n\s*end tell$/is.test(value)
+    },
+  },
+  activateApp: {
+    name: 'activate app',
+    matcher: script => /^tell application "[^"]+" to activate$/i.test(String(script || '').trim()),
+  },
+  setVolume: {
+    name: 'set volume',
+    matcher: script => /^set volume(?: output volume (?:\d{1,2}|100)| (?:with|without) output muted)$/i.test(String(script || '').trim()),
+  },
+  lockScreen: {
+    name: 'lock screen',
+    matcher: script => /^tell application "System Events" to keystroke "q" using \{command down, control down\}$/i.test(String(script || '').trim()),
+  },
+  showDesktop: {
+    name: 'show desktop',
+    matcher: script => /^tell application "System Events" to key code 103$/i.test(String(script || '').trim()),
+  },
+  screenshot: {
+    name: 'take screenshot',
+    matcher: script => {
+      const value = String(script || '').trim()
+      return /^set outputDir to \(POSIX path of \(path to home folder\)\) & "GhostForge\/screenshots"\s*\n\s*set outputFile to outputDir & "\/screenshot-" & \(do shell script "date \+%Y%m%d-%H%M%S"\) & "\.png"\s*\n\s*do shell script "mkdir -p " & quoted form of outputDir & " && screencapture -x " & quoted form of outputFile\s*\n\s*return outputFile\s*$/is.test(value)
+    },
+  },
+})
+
 function knownAppleScript(command) {
   const input = String(command || '').trim()
   const lower = input.toLowerCase()
@@ -50,14 +84,11 @@ function validateAppleScript(script) {
   if (!value) return { ok: false, reason: 'AppleScript is empty' }
   if (value.length > 20_000) return { ok: false, reason: 'AppleScript is too large' }
 
-  const blocked = [
-    /do shell script[\s\S]*(?:rm\s+-rf|sudo\s+|shutdown|reboot|mkfs|diskutil\s+erase|dd\s+if=|csrutil\s+disable)/i,
-    /do shell script[\s\S]*(?:curl|wget)[\s\S]*\|\s*(?:sh|bash|zsh)/i,
-    /tell application "System Events"[\s\S]*delete every/i,
-  ]
-  if (blocked.some(pattern => pattern.test(value))) {
-    return { ok: false, reason: 'Blocked destructive AppleScript pattern' }
+  const approved = Object.values(APPLE_SCRIPT_ALLOWLIST).some(({ matcher }) => matcher(value))
+  if (!approved) {
+    return { ok: false, reason: 'Script is not in the approved allowlist for supported macOS actions' }
   }
+
   return { ok: true, reason: '' }
 }
 

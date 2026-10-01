@@ -40,6 +40,9 @@ export async function POST(req: NextRequest) {
   }
 
   const { task, subtasks } = parsed
+  if (typeof task !== 'string' || !task.trim()) {
+    return NextResponse.json({ error: 'task is required' }, { status: 400 })
+  }
   const tasks: SubTask[] = subtasks?.length ? subtasks : autoDecompose(task)
   const startTime = Date.now()
   // Forward the caller's session token instead of raw secret

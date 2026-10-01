@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "tsc && electron .",
     "build": "tsc",
+    "test": "tsc && node --test test/*.test.mjs",
     "generate-icons": "node scripts/generate-icons.js",
     "build:mac": "node scripts/generate-icons.js && tsc && electron-builder --mac dmg --x64 --publish never && electron-builder --mac dmg --arm64 --publish never && electron-builder --mac zip --publish never",
     "build:win": "node scripts/generate-icons.js && tsc && electron-builder --win nsis --x64 --publish never && electron-builder --win portable --x64 --publish never",
@@ -37,13 +38,13 @@
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.2",
-    "@capacitor/cli": "^8.5.2",
+    "@capacitor/cli": "^8.4.3",
     "@capacitor/core": "^8.5.2",
     "@capacitor/ios": "^8.5.2",
     "@electron/notarize": "^2.5.0",
     "@types/node": "^20.11.5",
-    "electron": "^28.2.0",
-    "electron-builder": "^24.9.1",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.3.3"
   }
 }

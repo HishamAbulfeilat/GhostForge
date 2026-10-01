@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { WORKFLOW_TEMPLATES, type WorkflowTemplate, templateToWorkflow } from '@/lib/workflows/templates'
 
 // ── types (mirror lib/workflows/store) ───────────────────────────────────────
 type StepKind = 'agent' | 'skill' | 'command' | 'manual'
@@ -81,27 +82,6 @@ function layout(steps: WorkflowStep[]) {
   }
 }
 
-const TEMPLATES: Array<{ name: string; goal: string; steps: Array<{ title: string; kind: StepKind; ref: string; deps: number[] }> }> = [
-  {
-    name: 'Ship a feature', goal: 'Plan → build → test → review → deploy',
-    steps: [
-      { title: 'Plan & spec', kind: 'skill', ref: 'superpowers:brainstorming', deps: [] },
-      { title: 'Implement', kind: 'agent', ref: 'feature-dev:code-architect', deps: [0] },
-      { title: 'Write & run tests', kind: 'skill', ref: 'superpowers:test-driven-development', deps: [1] },
-      { title: 'Code review', kind: 'agent', ref: 'ecc:code-reviewer', deps: [2] },
-      { title: 'Deploy', kind: 'command', ref: 'npm run build && deploy', deps: [3] },
-    ],
-  },
-  {
-    name: 'Fix a bug', goal: 'Reproduce → fix → verify → review',
-    steps: [
-      { title: 'Reproduce as failing test', kind: 'skill', ref: 'superpowers:systematic-debugging', deps: [] },
-      { title: 'Fix to green', kind: 'agent', ref: 'ecc:build-error-resolver', deps: [0] },
-      { title: 'Review', kind: 'agent', ref: 'ecc:code-reviewer', deps: [1] },
-    ],
-  },
-]
-
 export default function WorkflowsPage() {
   const router = useRouter()
   const [workflows, setWorkflows] = useState<Workflow[]>([])
@@ -111,6 +91,7 @@ export default function WorkflowsPage() {
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [notice, setNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [running, setRunning] = useState(false)
 
   const selected = workflows.find(w => w.id === selectedId) || null
 
@@ -151,10 +132,24 @@ export default function WorkflowsPage() {
     } catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : String(e) }) }
   }
 
-  const createFromTemplate = async (t: typeof TEMPLATES[number]) => {
+  const runSelected = async () => {
+    if (!selected || running) return
+    setRunning(true)
     try {
-      const steps = t.steps.map((s, i) => ({ id: `s${i}`, title: s.title, kind: s.kind, ref: s.ref, deps: s.deps.map(d => `s${d}`) }))
-      const d = await api<{ workflow: Workflow }>('/api/workflows', json('POST', { name: t.name, goal: t.goal, steps }))
+      const d = await api<{ workflow: Workflow }>('/api/workflows', json('POST', { action: 'run', id: selected.id }))
+      await loadList(); setSelectedId(d.workflow.id)
+      setNotice({ tone: 'info', text: `Ran "${d.workflow.name}".` })
+    } catch (e) {
+      if (e instanceof Error && /401|Unauthorized/.test(e.message)) { router.push('/login'); return }
+      setNotice({ tone: 'error', text: `Run failed: ${e instanceof Error ? e.message : String(e)}` })
+      await refreshSelected(selected.id)
+    } finally { setRunning(false) }
+  }
+
+  const createFromTemplate = async (template: WorkflowTemplate) => {
+    try {
+      const draft = templateToWorkflow(template)
+      const d = await api<{ workflow: Workflow }>('/api/workflows', json('POST', { name: template.name, goal: template.goal, steps: draft.steps }))
       await loadList(); setSelectedId(d.workflow.id); setNotice({ tone: 'info', text: `Created "${d.workflow.name}".` })
     } catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : String(e) }) }
   }
@@ -212,7 +207,7 @@ export default function WorkflowsPage() {
           ) : workflows.length === 0 ? (
             <div className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-5">
               <p className="text-sm text-gf-muted">No workflows yet. Start from a template:</p>
-              {TEMPLATES.map(t => (
+              {WORKFLOW_TEMPLATES.map(t => (
                 <button key={t.name} type="button" onClick={() => void createFromTemplate(t)}
                   className="rounded-xl border border-gf-line2 bg-gf-bar p-3 text-start hover:border-gf-accent">
                   <div className="font-display text-sm font-semibold">{t.name}</div>
@@ -255,6 +250,9 @@ export default function WorkflowsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs text-gf-muted">{selected.progress?.pct ?? 0}%</span>
+                  <button type="button" onClick={() => void runSelected()} disabled={running || selected.status === 'running' || selected.steps.length === 0}
+                    title="Runs manual steps (skipped) and allow-listed bridge commands only"
+                    className="min-h-9 rounded-lg bg-gf-accent px-3 text-sm font-semibold text-gf-bg hover:brightness-110 disabled:opacity-50">{running ? 'Running…' : '▶ Run'}</button>
                   <button type="button" onClick={() => setMode('edit')} className="min-h-9 rounded-lg border border-gf-line2 px-3 text-sm">Edit</button>
                 </div>
               </div>

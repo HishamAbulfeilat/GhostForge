@@ -2,9 +2,21 @@
   "name": "ghostforge",
   "version": "5.3.1",
   "private": true,
+  "bin": {
+    "ghostforge": "bin/ghostforge"
+  },
   "scripts": {
     "postinstall": "node scripts/fix-node-pty-perms.js",
-    "test": "node scripts/test.js"
+    "test": "node scripts/test.js",
+    "agents:setup": "node scripts/agents/boss.mjs setup",
+    "ecc:setup": "node scripts/agents/ecc-setup.mjs",
+    "agents:start": "node scripts/agents/boss.mjs start",
+    "agents:status": "node scripts/agents/team.mjs status",
+    "agents:stop": "node scripts/agents/team.mjs stop",
+    "agents:watchdog": "node scripts/agents/watchdog.mjs",
+    "test:agents": "node --test scripts/agents/*.test.mjs",
+    "awesome-llm-apps": "node scripts/awesome-llm-apps.mjs",
+    "test:awesome-llm-apps": "node --test scripts/awesome-llm-apps.test.mjs"
   },
   "dependencies": {
     "node-pty": "^1.1.0",

@@ -1,0 +1,8 @@
+{
+  "name": "pair",
+  "description": "Focus on a small pair: one implementation agent and one reviewer/QA loop.",
+  "agents": [
+    "copilot",
+    "copilot-qa"
+  ]
+}
