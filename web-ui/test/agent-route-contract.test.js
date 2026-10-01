@@ -14,7 +14,7 @@ const snapshotFixture = {
     health: 90,
     running: false,
     agents: {
-      copilot: { provider: 'copilot', state: 'idle', task: null, model: null, cooldownUntil: null },
+      copilot: { provider: 'copilot', state: 'idle', task: null, model: null, since: null, cooldownUntil: null },
     },
     tasks: [{ id: 'T-030', title: 'Route tests', kind: 'test', status: 'in-progress', owner: 'copilot' }],
     messages: [{ ts: '2026-10-01T00:00:00.000Z', from: 'boss', to: 'all', text: 'hello' }],
@@ -121,7 +121,7 @@ test('GET returns the wrapped agent-team snapshot contract', async () => {
   assert.equal(Array.isArray(snapshot.messages), true)
   assert.equal(typeof snapshot.phase, 'number')
   for (const agent of Object.values(snapshot.agents)) {
-    assert.deepEqual(Object.keys(agent), ['provider', 'state', 'task', 'model', 'cooldownUntil'])
+    assert.deepEqual(Object.keys(agent), ['provider', 'state', 'task', 'model', 'since', 'cooldownUntil'])
   }
   for (const task of snapshot.tasks) {
     assert.deepEqual(Object.keys(task), ['id', 'title', 'kind', 'status', 'owner'])
