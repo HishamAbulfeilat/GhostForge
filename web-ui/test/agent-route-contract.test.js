@@ -141,7 +141,7 @@ test('POST dispatches start, stop, say, and add without launching the boss', asy
     {
       name: 'add',
       payload: { action: 'add', title: 'Add route tests', kind: 'test', area: ['web-ui/test'] },
-      args: ['add', 'Add route tests', '--kind', 'test', '--area', 'web-ui/test', '--agent', 'any', '--from', 'human'],
+      args: ['add', 'Add route tests', '--kind', 'test', '--area', 'web-ui/test', '--agent', 'any', '--workflow', 'parallel', '--from', 'human'],
     },
   ]
 

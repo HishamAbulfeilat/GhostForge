@@ -7,10 +7,15 @@ import type { Agent, Task } from './dashboard-model'
 type Snapshot = {
   health: number | null
   running: boolean
-  agents: Record<string, Agent>
-  tasks: Task[]
+  agents: Record<string, Agent & { leader?: boolean; assignee?: string | null; role?: string | null; strengths?: string[] }>
+  tasks: Task[] & Array<Task & { assignee?: string | null; leader?: string | null; dependencies?: string[]; acceptanceCriteria?: string[] }>
   messages: Array<Record<string, unknown>>
   phase: number
+  workflow?: {
+    leader?: string | null
+    mode?: string
+    specialists?: string[]
+  }
 }
 
 type DisplayMessage = {
@@ -113,6 +118,11 @@ export default function AgentsPage() {
   const [recipient, setRecipient] = useState('all')
   const [title, setTitle] = useState('')
   const [kind, setKind] = useState('feature')
+  const [leader, setLeader] = useState('boss')
+  const [assignee, setAssignee] = useState('any')
+  const [workflowMode, setWorkflowMode] = useState('parallel')
+  const [dependencies, setDependencies] = useState('')
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -167,8 +177,26 @@ export default function AgentsPage() {
       setNotice({ error: true, text: 'Enter a task title before adding it.' })
       return
     }
-    await run('add', { action: 'add', title: title.trim(), kind, agent: 'any' })
+    await run('add', {
+      action: 'add',
+      title: title.trim(),
+      kind,
+      agent: assignee || 'any',
+      assignee: assignee || 'any',
+      leader: leader || 'boss',
+      workflow: workflowMode,
+      dependencies: dependencies
+        .split(',')
+        .map(item => item.trim())
+        .filter(Boolean),
+      acceptanceCriteria: acceptanceCriteria
+        .split('\n')
+        .map(item => item.trim())
+        .filter(Boolean),
+    })
     setTitle('')
+    setDependencies('')
+    setAcceptanceCriteria('')
   }
 
   return (
@@ -201,6 +229,17 @@ export default function AgentsPage() {
               ].map(([label, value]) => <div key={label} className="rounded-2xl border border-gf-line bg-gf-surface p-4"><div className="text-xs uppercase tracking-wide text-gf-muted">{label}</div><div className="mt-1 font-display text-xl font-semibold">{value}</div></div>)}
             </section>
 
+            <section className="rounded-2xl border border-gf-line bg-gf-surface p-4" aria-label="Workflow summary">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="font-display text-lg font-semibold">Workflow</h2>
+                <span className="rounded-full border border-gf-line2 bg-gf-bar px-2 py-1 text-xs uppercase tracking-wide text-gf-muted">{snapshot.workflow?.mode ?? 'parallel'}</span>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2 text-sm text-gf-muted">
+                <span className="rounded-full bg-gf-bar px-2 py-1">Leader: <strong className="text-gf-ink">{snapshot.workflow?.leader ?? 'boss'}</strong></span>
+                <span className="rounded-full bg-gf-bar px-2 py-1">Specialists: <strong className="text-gf-ink">{(snapshot.workflow?.specialists ?? []).length ? snapshot.workflow!.specialists!.join(', ') : '—'}</strong></span>
+              </div>
+            </section>
+
             <AgentKanbanBoard agents={snapshot.agents} tasks={snapshot.tasks} messages={displayMessages} />
 
             <section>
@@ -209,6 +248,15 @@ export default function AgentsPage() {
                 <div className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-4">
                   <div className="flex flex-col gap-2 sm:flex-row"><label className="sr-only" htmlFor="agent-message">Message</label><input id="agent-message" value={message} onChange={event => setMessage(event.target.value)} placeholder="Say something to the team…" className="min-h-10 min-w-0 flex-1 rounded-lg border border-gf-line2 bg-gf-bar px-3 text-sm outline-none focus:border-gf-accent" /><select aria-label="Message recipient" value={recipient} onChange={event => setRecipient(event.target.value)} className="min-h-10 rounded-lg border border-gf-line2 bg-gf-bar px-2 text-sm"><option value="all">All</option>{Object.keys(snapshot.agents).map(id => <option key={id} value={id}>{id}</option>)}</select><button type="button" disabled={busy !== null} onClick={() => void sendMessage()} className="min-h-10 rounded-lg bg-gf-accent px-3 text-sm font-semibold text-gf-bg disabled:opacity-50">Say</button></div>
                   <div className="flex flex-col gap-2 sm:flex-row"><label className="sr-only" htmlFor="agent-task">Task title</label><input id="agent-task" value={title} onChange={event => setTitle(event.target.value)} placeholder="Add a task…" className="min-h-10 min-w-0 flex-1 rounded-lg border border-gf-line2 bg-gf-bar px-3 text-sm outline-none focus:border-gf-accent" /><select aria-label="Task kind" value={kind} onChange={event => setKind(event.target.value)} className="min-h-10 rounded-lg border border-gf-line2 bg-gf-bar px-2 text-sm">{['feature', 'bugfix', 'security', 'performance', 'refactor', 'test', 'docs', 'chore'].map(value => <option key={value} value={value}>{value}</option>)}</select><button type="button" disabled={busy !== null} onClick={() => void addTask()} className="min-h-10 rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent disabled:opacity-50">Add</button></div>
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <label className="flex flex-col gap-1 text-xs text-gf-muted"><span>Team leader</span><select aria-label="Workflow leader" value={leader} onChange={event => setLeader(event.target.value)} className="min-h-10 rounded-lg border border-gf-line2 bg-gf-bar px-2 text-sm"><option value="boss">boss</option>{Object.keys(snapshot.agents).map(id => <option key={id} value={id}>{id}</option>)}</select></label>
+                    <label className="flex flex-col gap-1 text-xs text-gf-muted"><span>Assignee</span><select aria-label="Workflow assignee" value={assignee} onChange={event => setAssignee(event.target.value)} className="min-h-10 rounded-lg border border-gf-line2 bg-gf-bar px-2 text-sm"><option value="any">any</option>{Object.keys(snapshot.agents).map(id => <option key={id} value={id}>{id}</option>)}</select></label>
+                    <label className="flex flex-col gap-1 text-xs text-gf-muted"><span>Mode</span><select aria-label="Workflow mode" value={workflowMode} onChange={event => setWorkflowMode(event.target.value)} className="min-h-10 rounded-lg border border-gf-line2 bg-gf-bar px-2 text-sm"><option value="ordered">ordered</option><option value="parallel">parallel</option></select></label>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <label className="flex flex-col gap-1 text-xs text-gf-muted"><span>Dependencies</span><input value={dependencies} onChange={event => setDependencies(event.target.value)} placeholder="T-101, T-102" className="min-h-10 rounded-lg border border-gf-line2 bg-gf-bar px-3 text-sm outline-none focus:border-gf-accent" /></label>
+                    <label className="flex flex-col gap-1 text-xs text-gf-muted"><span>Acceptance criteria</span><textarea value={acceptanceCriteria} onChange={event => setAcceptanceCriteria(event.target.value)} placeholder="One per line" rows={3} className="rounded-lg border border-gf-line2 bg-gf-bar px-3 py-2 text-sm outline-none focus:border-gf-accent" /></label>
+                  </div>
                 </div>
               </div>
             </section>
