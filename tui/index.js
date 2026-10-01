@@ -189,6 +189,46 @@ function parseWorkflowMaxSteps(value) {
   return maxSteps;
 }
 
+function parseWebhookConfig(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    throw new Error('Webhook configuration JSON is required.');
+  }
+  let config;
+  try {
+    config = JSON.parse(raw);
+  } catch {
+    throw new Error('Webhook configuration must be valid JSON.');
+  }
+  if (!Array.isArray(config)) {
+    throw new Error('Webhook configuration must be a JSON array.');
+  }
+
+  const seen = new Set();
+  for (const [index, trigger] of config.entries()) {
+    if (!trigger || typeof trigger !== 'object' || Array.isArray(trigger)) {
+      throw new Error(`Webhook trigger ${index + 1} must be an object.`);
+    }
+    for (const field of ['id', 'source', 'eventType', 'action']) {
+      if (typeof trigger[field] !== 'string' || !trigger[field].trim()) {
+        throw new Error(`Webhook trigger ${index + 1} requires a non-empty ${field}.`);
+      }
+    }
+    const id = trigger.id.trim();
+    if (seen.has(id)) {
+      throw new Error(`Webhook trigger IDs must be unique: ${id}.`);
+    }
+    seen.add(id);
+  }
+
+  return config.map(trigger => ({
+    id: String(trigger.id).trim(),
+    source: String(trigger.source).trim(),
+    eventType: String(trigger.eventType).trim(),
+    action: String(trigger.action).trim(),
+  }));
+}
+
 function safeWorkflowText(value) {
   return String(value ?? '')
     .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
@@ -305,6 +345,161 @@ async function screenWorkflows() {
       ));
     } catch (error) {
       console.log(T.warning(`\n  ⚠ Workflow run failed: ${safeWorkflowText(error.message || 'Unknown bridge error.')}`));
+    }
+    await pressEnter();
+  }
+}
+
+async function screenWebhooks() {
+  while (true) {
+    sectionHeader('🪝  Webhooks', 'Inspect and replace bridge trigger configuration; review logs and clear them');
+
+    let configured;
+    try {
+      configured = await collabBridgeRequest('/api/webhook');
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message || 'Could not load webhook configuration.')}`));
+      console.log(T.muted('  Check MARKL_BRIDGE_TOKEN and that the local bridge is running.'));
+      await pressEnter();
+      return;
+    }
+
+    if (!Array.isArray(configured)) {
+      console.log(T.warning('\n  ⚠ The webhook API returned an invalid configuration list.'));
+      await pressEnter();
+      return;
+    }
+
+    if (configured.length === 0) {
+      console.log(T.muted('\n  No webhook triggers configured.'));
+    } else {
+      const table = new Table({
+        head: ['Trigger', 'Source', 'Event', 'Action'],
+        style: { head: ['cyan'] },
+        colWidths: [18, 18, 18, 30],
+        wordWrap: true,
+      });
+      for (const trigger of configured) {
+        if (!trigger || typeof trigger !== 'object') {
+          console.log(T.warning('\n  ⚠ The webhook API returned an invalid trigger entry.'));
+          await pressEnter();
+          return;
+        }
+        table.push([
+          safeCollabText(trigger.id || 'unknown'),
+          safeCollabText(trigger.source || 'unknown'),
+          safeCollabText(trigger.eventType || 'unknown'),
+          safeCollabText(trigger.action || 'unknown'),
+        ]);
+      }
+      console.log(table.toString());
+    }
+
+    const action = await select({
+      message: T.white('Webhook action:'),
+      choices: [
+        { name: T.accent('🔄  Replace configuration'), value: 'replace' },
+        { name: T.accent('📜  View logs'), value: 'logs' },
+        { name: T.accent('🧹  Clear logs'), value: 'clear' },
+        { name: T.accent('↻  Refresh'), value: 'refresh' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+    if (action === 'refresh') continue;
+
+    if (action === 'logs') {
+      let logs;
+      try {
+        logs = await collabBridgeRequest('/api/webhook?log=1');
+      } catch (error) {
+        console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message || 'Could not load webhook logs.')}`));
+        await pressEnter();
+        continue;
+      }
+      if (!Array.isArray(logs)) {
+        console.log(T.warning('\n  ⚠ The webhook log API returned an invalid payload.'));
+        await pressEnter();
+        continue;
+      }
+      if (logs.length === 0) {
+        console.log(T.muted('\n  No webhook events found.'));
+      } else {
+        const table = new Table({
+          head: ['Source', 'Event', 'Received', 'Body'],
+          style: { head: ['cyan'] },
+          colWidths: [18, 18, 16, 40],
+          wordWrap: true,
+        });
+        for (const entry of logs) {
+          const bodyText = typeof entry?.body === 'undefined'
+            ? ''
+            : safeCollabText(JSON.stringify(entry.body)).slice(0, 120);
+          table.push([
+            safeCollabText(entry?.source || 'unknown'),
+            safeCollabText(entry?.event || 'unknown'),
+            safeCollabText(entry?.receivedAt || 'unknown'),
+            bodyText,
+          ]);
+        }
+        console.log(table.toString());
+      }
+      await pressEnter();
+      continue;
+    }
+
+    if (action === 'clear') {
+      const approved = await confirm({ message: 'Clear the webhook event log through the bridge?', default: false });
+      if (!approved) continue;
+      try {
+        const result = await collabBridgeRequest('/api/webhook', { method: 'DELETE' });
+        if (!result || typeof result !== 'object' || result.ok !== true) {
+          throw new Error('The webhook API did not confirm the clear request.');
+        }
+        console.log(T.success('\n  ✔ Webhook event log cleared.'));
+      } catch (error) {
+        console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message || 'Webhook log clear failed.')}`));
+      }
+      await pressEnter();
+      continue;
+    }
+
+    const rawConfig = await input({
+      message: 'Replace webhook configuration as JSON array:',
+      default: JSON.stringify(configured, null, 2),
+      validate(value) {
+        try {
+          parseWebhookConfig(value);
+          return true;
+        } catch (error) {
+          return error.message;
+        }
+      },
+    });
+
+    let nextConfig;
+    try {
+      nextConfig = parseWebhookConfig(rawConfig);
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message)}`));
+      await pressEnter();
+      continue;
+    }
+
+    const approved = await confirm({ message: 'Replace the webhook configuration through the bridge?', default: false });
+    if (!approved) continue;
+
+    try {
+      const result = await collabBridgeRequest('/api/webhook', {
+        method: 'POST',
+        body: JSON.stringify({ config: nextConfig }),
+      });
+      if (!result || typeof result !== 'object' || result.ok !== true) {
+        throw new Error('The webhook API did not confirm the requested change.');
+      }
+      console.log(T.success(`\n  ✔ Saved ${nextConfig.length} webhook trigger${nextConfig.length === 1 ? '' : 's'}.`));
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message || 'Webhook configuration update failed.')}`));
     }
     await pressEnter();
   }
@@ -952,6 +1147,7 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '🤝  Collaboration & Sharing',   'create or join sessions · send messages · copy share links', 'collaboration'),
       menuChoice(T.accent.bold,  '👥  User Administration',       'list users · owner-only role, status, and permission controls', 'users'),
       menuChoice(T.accent.bold,  '🔁  Workflows',                  'review saved workflows · run bounded, allowlisted steps', 'workflows'),
+      menuChoice(T.accent.bold,  '🪝  Webhooks',                   'inspect triggers · replace config · review logs', 'webhooks'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
       menuChoice(T.white.bold,   '🍎  Mac Control',               'control Mac with natural language → AppleScript', 'maccontrol'),
       menuChoice(T.muted,        '🌅  Daily Digest',              'morning summary: tickets, security, deps, git', 'digest'),
@@ -7128,6 +7324,7 @@ async function main() {
         case 'collaboration': await screenCollaboration(); break;
         case 'users':         await screenUsers(); break;
         case 'workflows':     await screenWorkflows(); break;
+        case 'webhooks':      await screenWebhooks(); break;
         case 'freeapis':     await screenFreeAPIs(); break;
         case 'audit':        await screenAuditLog(); break;
         case 'dashboard':    await screenDashboard(); break; // lazy
