@@ -43,7 +43,7 @@ surface. The evidence column names the implementation that was checked.
 | Jarvis collaboration and sharing | ✅ | ✅ | ❌ | ✅ | `app/api/jarvis/collab`, `CollabShare`, `screenCollaboration`, bridge `/api/jarvis/collab` |
 | Job Hunter (search, profile, CV, GitHub) | ✅ | ⚠️ | ✅ | ✅ | `app/jobs`, `JobHunterWidget`, `scripts/job-hunter.mjs`/`scripts/jobs.sh`, bridge `/api/jobs` backed by the real user-scoped profile and review-only autopilot flow |
 | Workflow engine and workflow runs | ⚠️ | ✅ | ✅ | ✅ | `app/workflows`/`/api/workflows`, `screenWorkflows`, `scripts/workflows.mjs`, bridge `/api/workflows?action=run` executes only allowlisted command steps and enforces `--max-steps 1-100` |
-| n8n automation | ✅ | ⚠️ | ❌ | ❌ | `app/automation`, `electron-app/src/main/n8n-integration.ts` |
+| n8n automation | ✅ | ⚠️ | ❌ | ❌ | `app/automation`, `screenN8n` (menu + dispatch), `n8nConfig`/`n8nRequest` in `tui/index.js`, `electron-app/src/main/n8n-integration.ts`; TUI lists workflows and triggers active POST/ALL webhooks |
 | Webhooks and trigger automation | ✅ | ✅ | ✅ | ✅ | `app/automation`, `screenWebhooks`, `/api/webhook`, `scripts/webhooks.mjs`, bridge webhook config/log/clear contract |
 | Orchestrated multi-agent work | ✅ | ⚠️ | ✅ | ✅ | `app/orchestrate`, `OrchestratePanel`, `/api/jarvis/orchestrate`, `/api/mark-l/agents` |
 | Remote setup and device management | ✅ | ✅ | ✅ | ⚠️ | `app/remote`, `app/api/remote/setup`, `screenDeviceInstall`, `scripts/setup-https.sh`, bridge `/api/devices` (registry only) |
@@ -74,36 +74,38 @@ surface. The evidence column names the implementation that was checked.
 | Free APIs/models and provider setup | ✅ | ✅ | ✅ | ❌ | `app/models`, `screenFreeAPIs`/`screenFreeModels`, `scripts/free-models.sh`/`free-models.sh` |
 | Users, login and access profiles | ✅ | ✅ | ❌ | ❌ | `app/login`, `app/users`, `app/api/auth`, `app/api/users`, `screenUsers` |
 | Bridge start/status and connection controls | ✅ | ✅ | ✅ | ✅ | `BridgeControl`, `screenHealth`, `scripts/bridge-server.js`, bridge `/api/mark-l/health` |
-| Electron desktop integrations | ❌ | ❌ | ✅ | ⚠️ | `electron-app/src/main/*`, `scripts/build-electron.sh`; bridge overlap is partial |
+| Electron desktop integrations | ❌ | ❌ | ❌ | ⚠️ | Runtime integrations are in `electron-app/src/main/*` and accessible in the Electron app; `scripts/build-electron.sh` is packaging only; bridge overlap is partial |
 | Android/iOS packaged app | ❌ | ❌ | ✅ | ❌ | `electron-app/android`, `electron-app/ios`, `scripts/build-android.sh`/`build-ios.sh` |
 | Design resources, Vigolium and open-source tools | ✅ | ✅ | ✅ | ❌ | `app/design-resources`, `app/vigolium`, `app/open-source-tools`, `screenDesignResources`/`screenVigolium`/`screenOpenSourceTools`, `scripts/figma-tokens.sh` |
 
 ## Concrete gaps
 
-Completed workflow and webhook surfaces are reflected in the matrix above and
-are not repeated here. The checklist records the remaining verified cross-surface
-work; `⚠️` cells are intentionally called out where they mark a specific
-limitation.
+These are implementation limitations in the current checkout, not task-status
+or blocked-work claims:
 
-- [ ] Provide JARVIS live device-status and remote-setup operations beyond the
-  current persisted device registry.
-- [ ] Add a TUI and terminal CLI surface for Electron-only desktop
-  integrations and packaged mobile apps, or document them as desktop-only
-  capabilities.
+- The TUI n8n screen can list workflows and trigger active POST/ALL webhook
+  nodes, but requires a running external n8n service and has no standalone
+  terminal CLI or JARVIS/bridge surface.
+- JARVIS device handlers expose persisted registry CRUD only; they do not
+  provide live device status or remote setup operations.
+- Electron-only integrations are available inside the packaged Electron app,
+  but have no TUI or direct terminal CLI runtime controls. The build script is
+  packaging support only. Android/iOS packaging likewise has CLI build scripts,
+  but no web, TUI, or JARVIS app-control surface.
 
-## Validation guidance
+## Validation
 
-Treat any matrix row as verified only when the underlying surface is present and
-its relevant checks pass in this repository.
+Snapshot checked 2026-10-01:
 
-- Run `node scripts/agents/health.mjs` after any refresh to recheck the full
-  repo contract, typecheck, lint, and bridge integration status.
-- Recheck the TUI implementation directly in `tui/index.js` (`screenWorkflows`,
-  `screenWebhooks`, and the menu dispatch table) and keep the corresponding
-  workflow/webhook tests as evidence.
-- Recheck the terminal CLI in `scripts/workflows.mjs` and `scripts/webhooks.mjs`
-  and verify the bounded `--max-steps` and allowlisted bridge contracts remain in
-  place.
+- `node --check tui/index.js` — PASS (TUI syntax).
+- `npm test` — PASS (root smoke suite).
+- `node scripts/agents/health.mjs` — PASS (health 100/100).
+
+The TUI source audit confirmed `screenN8n` is reachable from the menu and
+dispatch table, in addition to `screenWorkflows` and `screenWebhooks`. These
+checks do not exercise a live n8n service; its endpoint and credentials remain
+external prerequisites. Workflow and webhook implementations remain in
+`scripts/workflows.mjs`, `scripts/webhooks.mjs`, and the bridge contracts.
 
 ## Audit sources
 
@@ -111,7 +113,7 @@ The matrix was derived from these implementation surfaces in this revision:
 
 - Web: `web-ui/app/**`, `web-ui/components/**`, and `web-ui/app/api/**`.
 - TUI: `tui/index.js` screen declarations and the dispatch table near the
-  program loop, including `screenWorkflows` and `screenWebhooks`.
+  program loop, including `screenWorkflows`, `screenN8n`, and `screenWebhooks`.
 - CLI: the executable scripts in `scripts/`, especially `scripts/workflows.mjs`
   and `scripts/webhooks.mjs`, plus the agent-team commands under
   `scripts/agents/`.
