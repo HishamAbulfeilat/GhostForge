@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GhostForge Dev Monitor</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#0B0D10}
+a{color:#7CC4EA}a:hover{color:#A9DDF6}
+</style>
+</helmet>
+<div style="min-height: 1024px; background: #0B0D10; color: #E8E6E1; font-family: 'IBM Plex Sans', sans-serif; padding: 28px 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+  <header style="display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font: 600 12px 'JetBrains Mono', monospace; color: #7CC4EA; letter-spacing: 0.08em">127.0.0.1 · READ-ONLY · AUTO-REFRESH 5s</span>
+      <h1 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 30px">GhostForge Dev Monitor</h1>
+      <span style="font-size: 14px; color: #A9ADB6">Every Claude and Copilot session working on this repository</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px">
+      <sc-for list="{{kpis}}" as="k" hint-placeholder-count="4">
+        <div style="min-width: 110px; padding: 10px 14px; border-radius: 12px; background: #13161C; border: 1px solid #252932; display: flex; flex-direction: column; gap: 2px">
+          <span style="font: 700 22px 'Space Grotesk', sans-serif; color: {{k.color}}">{{k.value}}</span>
+          <span style="font-size: 12px; color: #A9ADB6">{{k.label}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </header>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start">
+    <section aria-label="Sessions" style="background: #13161C; border: 1px solid #252932; border-radius: 14px; overflow: hidden">
+      <div style="display: grid; grid-template-columns: 1.4fr 1.2fr 0.9fr 1.8fr 1fr; gap: 12px; padding: 12px 16px; font: 600 12px 'JetBrains Mono', monospace; color: #8E939C; border-bottom: 1px solid #252932">
+        <span>SESSION</span><span>PROVIDER · MODEL</span><span>STATE</span><span>CURRENT TASK · PROGRESS</span><span>LAST ACTIVITY</span>
+      </div>
+      <sc-for list="{{sessions}}" as="s" hint-placeholder-count="8">
+        <div style="display: grid; grid-template-columns: 1.4fr 1.2fr 0.9fr 1.8fr 1fr; gap: 12px; padding: 12px 16px; align-items: center; border-bottom: 1px solid #1C2028">
+          <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600; font-size: 14px">{{s.name}}</span><span style="font-size: 12px; color: #8E939C">{{s.role}}</span></div>
+          <span style="font: 12px 'JetBrains Mono', monospace; color: #C9CCD2">{{s.model}}</span>
+          <span style="justify-self: start; font-size: 12px; padding: 3px 9px; border-radius: 999px; background: {{s.bg}}; color: {{s.fg}}">{{s.state}}</span>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 13px">{{s.task}}</span>
+            <div aria-hidden="true" style="height: 6px; border-radius: 3px; background: #252932"><div style="height: 6px; border-radius: 3px; width: {{s.pct}}; background: {{s.fg}}"></div></div>
+          </div>
+          <span style="font: 12px 'JetBrains Mono', monospace; color: #A9ADB6">{{s.last}}</span>
+        </div>
+      </sc-for>
+    </section>
+
+    <aside aria-label="Activity" style="background: #13161C; border: 1px solid #252932; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+      <h2 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 17px">Activity</h2>
+      <sc-for list="{{events}}" as="e" hint-placeholder-count="7">
+        <div style="display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; font-size: 13px">
+          <span style="font: 12px 'JetBrains Mono', monospace; color: #8E939C">{{e.t}}</span>
+          <span><span style="color: {{e.color}}; font-weight: 600">{{e.who}}</span> {{e.what}}</span>
+        </div>
+      </sc-for>
+    </aside>
+  </div>
+
+  <section aria-label="Pipeline" style="background: #13161C; border: 1px solid #252932; border-radius: 14px; padding: 16px 18px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px">
+    <sc-for list="{{lanes}}" as="l" hint-placeholder-count="5">
+      <div style="display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 10px; background: #0B0D10; border-left: 4px solid {{l.color}}">
+        <span style="font-size: 13px; color: #A9ADB6">{{l.name}}</span>
+        <span style="font: 700 26px 'Space Grotesk', sans-serif">{{l.n}}</span>
+      </div>
+    </sc-for>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1024}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const S = { working: ['#13212B', '#7CC4EA'], reviewing: ['#2A1F14', '#F2A65A'], idle: ['#1C1F26', '#A9ADB6'], paused: ['#241517', '#F2B0B0'], leading: ['#15201A', '#8FD3A8'] };
+    const row = (name, role, model, state, task, pct, last) => ({ name, role, model, state, task, pct, last, bg: S[state][0], fg: S[state][1] });
+    const sessions = [
+      row('Claude Code', 'lead · this session', 'claude · opus', 'leading', 'Boss check-in · routing tasks', '60%', 'now'),
+      row('boss.mjs', 'reviewer / planner', 'claude opus+sonnet → copilot', 'reviewing', 'Review T-131', '40%', '12s ago'),
+      row('Copilot CLI', 'co-lead (interactive)', 'copilot · auto', 'paused', 'Usage limit — handed off', '100%', '21:00'),
+      row('copilot-tui', 'worker', 'copilot · auto', 'working', 'T-129 orchestration metadata', '70%', '30s ago'),
+      row('copilot-web', 'worker', 'copilot · auto', 'working', 'T-127 Agent Office map', '45%', '1m ago'),
+      row('copilot-integration', 'worker', 'copilot · auto', 'working', 'T-128 workflow graph', '35%', '2m ago'),
+      row('copilot-desktop', 'worker', 'copilot · auto', 'idle', 'waiting for a task', '0%', '4m ago'),
+      row('copilot-quality', 'worker', 'copilot · auto', 'reviewing', 'T-131 Agent World docs', '90%', '3m ago'),
+    ];
+    const kpis = [
+      { value: '8', label: 'sessions', color: '#E8E6E1' }, { value: '100', label: 'health', color: '#8FD3A8' },
+      { value: '17', label: 'merges today', color: '#7CC4EA' }, { value: '#12', label: 'open PR', color: '#F2A65A' },
+    ];
+    const events = [
+      ['18:18', 'boss', 'merged T-130 · health 100', '#8FD3A8'], ['18:06', 'boss', 'merged T-121', '#8FD3A8'],
+      ['18:02', 'boss', 'bounced T-126 with review notes', '#F2A65A'], ['18:01', 'boss', 'PR #12 updated', '#7CC4EA'],
+      ['17:59', 'boss', 'Claude busy → Copilot reviewed', '#F2B0B0'], ['17:44', 'boss', 'merged T-122', '#8FD3A8'],
+      ['17:36', 'copilot-tui', 'blocked on T-120', '#E58C8C'],
+    ].map(([t, who, what, color]) => ({ t, who, what, color }));
+    const lanes = [
+      { name: 'Todo', n: '0', color: '#A9ADB6' }, { name: 'In progress', n: '2', color: '#7CC4EA' }, { name: 'Review', n: '2', color: '#F2A65A' },
+      { name: 'Done', n: '113', color: '#8FD3A8' }, { name: 'Blocked', n: '7', color: '#E58C8C' },
+    ];
+    return { sessions, kpis, events, lanes };
+  }
+}
+</script>
+</body>
+</html>

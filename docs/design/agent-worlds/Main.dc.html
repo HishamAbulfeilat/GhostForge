@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent Command Center</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#0E1014}
+a{color:#F2A65A}a:hover{color:#FFC48A}
+</style>
+</helmet>
+<div style="min-height: 1024px; background: #0E1014; color: #E8E6E1; font-family: 'IBM Plex Sans', sans-serif; padding: 28px 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+  <header style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <h1 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 30px; font-weight: 700; letter-spacing: -0.01em">Agent Command Center</h1>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 13px">
+        <span style="padding: 4px 10px; border-radius: 999px; background: #2A1F14; color: #F2A65A; border: 1px solid #5A3B1C">Boss · Claude (Opus plans · Sonnet reviews)</span>
+        <span style="padding: 4px 10px; border-radius: 999px; background: #13212B; color: #7CC4EA; border: 1px solid #23465C">Fallback · Copilot</span>
+        <span style="padding: 4px 10px; border-radius: 999px; background: #15201A; color: #8FD3A8; border: 1px solid #2B4A36">Health {{health}}/100</span>
+      </div>
+    </div>
+    <div style="display: flex; gap: 10px">
+      <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid #3A3F49; background: #181B22; color: #E8E6E1; font: 600 14px 'IBM Plex Sans', sans-serif">Message team</button>
+      <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid #6B2E2E; background: #241517; color: #F2B0B0; font: 600 14px 'IBM Plex Sans', sans-serif">Stop team…</button>
+      <button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 10px; border: 0; background: {{accent}}; color: #1A1208; font: 700 14px 'IBM Plex Sans', sans-serif">Dispatch team</button>
+    </div>
+  </header>
+
+  <div style="display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 20px; align-items: start">
+    <section aria-label="Team builder" style="background: #15181E; border: 1px solid #262A33; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+      <h2 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 18px">Team</h2>
+      <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #A9ADB6">Template
+        <select style="min-height: 40px; border-radius: 8px; background: #0E1014; color: #E8E6E1; border: 1px solid #343944; padding: 0 10px; font: 500 14px 'IBM Plex Sans', sans-serif">
+          <option>Copilot squad (5 workers)</option><option>Pair</option><option>Trio</option><option>Reviewer-heavy</option><option>Custom…</option>
+        </select>
+      </label>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 10px; background: #2A1F14; border: 1px solid #5A3B1C">
+        <span aria-hidden="true" style="width: 34px; height: 34px; border-radius: 50%; background: #F2A65A; color: #1A1208; display: flex; align-items: center; justify-content: center; font: 700 13px 'JetBrains Mono', monospace">B</span>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">boss · leader</span><span style="font: 12px 'JetBrains Mono', monospace; color: #D9B48C">claude · opus/sonnet</span></div>
+      </div>
+      <sc-for list="{{workers}}" as="w" hint-placeholder-count="5">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 10px; background: #0E1014; border: 1px solid #262A33">
+          <div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600; font-size: 14px">{{w.id}}</span><span style="font: 12px 'JetBrains Mono', monospace; color: #8E939C">{{w.provider}} · model {{w.model}}</span></div>
+          <span style="font-size: 12px; padding: 3px 8px; border-radius: 999px; background: {{w.stateBg}}; color: {{w.stateFg}}">{{w.state}}</span>
+        </div>
+      </sc-for>
+      <button type="button" style="min-height: 40px; border-radius: 8px; border: 1px dashed #3A3F49; background: transparent; color: #A9ADB6; font: 600 13px 'IBM Plex Sans', sans-serif">+ Add worker</button>
+    </section>
+
+    <div style="display: flex; flex-direction: column; gap: 20px; min-width: 0">
+      <section aria-label="Task board" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px">
+        <sc-for list="{{columns}}" as="col" hint-placeholder-count="5">
+          <div style="background: #15181E; border: 1px solid #262A33; border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-height: 330px">
+            <div style="display: flex; justify-content: space-between; align-items: center"><h3 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 15px">{{col.name}}</h3><span style="font: 600 12px 'JetBrains Mono', monospace; color: {{col.color}}">{{col.count}}</span></div>
+            <sc-for list="{{col.cards}}" as="c" hint-placeholder-count="2">
+              <article style="background: #0E1014; border: 1px solid #2C313B; border-top: 3px solid {{col.color}}; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 6px">
+                <span style="font: 600 11px 'JetBrains Mono', monospace; color: #8E939C">{{c.id}} · {{c.kind}}</span>
+                <span style="font-size: 13px; line-height: 1.35">{{c.title}}</span>
+                <span style="font: 12px 'JetBrains Mono', monospace; color: #A9ADB6">{{c.owner}}</span>
+              </article>
+            </sc-for>
+          </div>
+        </sc-for>
+      </section>
+
+      <section aria-label="Workflow graph" style="background: #15181E; border: 1px solid #262A33; border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; justify-content: space-between; align-items: center"><h2 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 18px">Workflow · task → review → merge</h2><span style="font-size: 13px; color: #A9ADB6">live from the boss snapshot</span></div>
+        <div style="display: flex; align-items: center; overflow-x: auto; padding: 8px 0">
+          <sc-for list="{{flow}}" as="n" hint-placeholder-count="6">
+            <div style="display: flex; align-items: center">
+              <div style="min-width: 150px; padding: 12px 14px; border-radius: 12px; background: #0E1014; border: 2px solid {{n.color}}; display: flex; flex-direction: column; gap: 4px">
+                <span style="font: 600 11px 'JetBrains Mono', monospace; color: {{n.color}}">{{n.status}}</span>
+                <span style="font-weight: 600; font-size: 14px">{{n.label}}</span>
+                <span style="font-size: 12px; color: #A9ADB6">{{n.detail}}</span>
+              </div>
+              <sc-if value="{{n.arrow}}" hint-placeholder-val="{{ true }}"><div aria-hidden="true" style="width: 36px; height: 2px; background: #3A3F49"></div></sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#F2A65A","options":["#F2A65A","#7CC4EA","#8FD3A8"]},"health":{"editor":"int","default":100,"min":0,"max":100},"$preview":{"width":1440,"height":1024}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = {
+      working: ['#13212B', '#7CC4EA'], review: ['#2A1F14', '#F2A65A'], idle: ['#1C1F26', '#A9ADB6'], cooling: ['#241517', '#F2B0B0'],
+    };
+    const workers = [
+      ['copilot-tui', 'working'], ['copilot-desktop', 'idle'], ['copilot-web', 'working'], ['copilot-integration', 'working'], ['copilot-quality', 'review'],
+    ].map(([id, s]) => ({ id, provider: 'copilot', model: 'auto', state: s, stateBg: st[s][0], stateFg: st[s][1] }));
+    const col = (name, color, cards) => ({ name, color, count: cards.length, cards });
+    const columns = [
+      col('Todo', '#A9ADB6', [
+        { id: 'T-1xx', kind: 'feature', title: 'Team + workflow builder on /agents', owner: 'any' },
+        { id: 'T-1xx', kind: 'docs', title: 'BA analysis → PRODUCT-ANALYSIS.md', owner: 'any' },
+      ]),
+      col('In progress', '#7CC4EA', [
+        { id: 'T-127', kind: 'feature', title: 'Snapshot-driven Agent Office map', owner: 'copilot-web' },
+        { id: 'T-128', kind: 'feature', title: 'Workflow dependency graph', owner: 'copilot-integration' },
+      ]),
+      col('Review', '#F2A65A', [{ id: 'T-131', kind: 'docs', title: 'Document Agent World data & inspirations', owner: 'copilot-quality' }]),
+      col('Done', '#8FD3A8', [{ id: 'T-130', kind: 'bugfix', title: 'Merged · health 100', owner: 'copilot-desktop' }]),
+      col('Blocked', '#E58C8C', [{ id: 'T-104', kind: 'bugfix', title: 'Flaky root unit test under load', owner: 'needs triage' }]),
+    ];
+    const flow = [
+      { label: 'Plan', detail: 'boss · opus', status: 'DONE', color: '#8FD3A8' },
+      { label: 'Assign', detail: '5 copilot workers', status: 'DONE', color: '#8FD3A8' },
+      { label: 'Build', detail: '3 in progress', status: 'RUNNING', color: '#7CC4EA' },
+      { label: 'Review', detail: 'boss · sonnet', status: 'QUEUED', color: '#F2A65A' },
+      { label: 'Merge + health', detail: 'agent/integration', status: 'WAITING', color: '#A9ADB6' },
+      { label: 'PR → main', detail: 'every 5 merges', status: 'WAITING', color: '#A9ADB6' },
+    ].map((n, i, a) => ({ ...n, arrow: i < a.length - 1 }));
+    return { accent: this.props.accent ?? '#F2A65A', health: this.props.health ?? 100, workers, columns, flow };
+  }
+}
+</script>
+</body>
+</html>
