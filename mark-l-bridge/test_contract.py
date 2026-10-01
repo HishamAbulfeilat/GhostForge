@@ -19,8 +19,10 @@ class BridgeContractTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.original_data_dir = server._BRIDGE_DATA_DIR
+        self.original_job_hunter_dir = server._JOB_HUNTER_DIR
         self.original_collab_sessions = server._COLLAB_SESSIONS.copy()
         server._BRIDGE_DATA_DIR = Path(self.tmp.name)
+        server._JOB_HUNTER_DIR = Path(self.tmp.name) / "jobs"
         server._COLLAB_SESSIONS.clear()
         self.client = TestClient(server.app)
         self.headers = {"X-Bridge-Token": server._read_bridge_token()}
@@ -28,6 +30,7 @@ class BridgeContractTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         server._BRIDGE_DATA_DIR = self.original_data_dir
+        server._JOB_HUNTER_DIR = self.original_job_hunter_dir
         server._COLLAB_SESSIONS.clear()
         server._COLLAB_SESSIONS.update(self.original_collab_sessions)
         self.tmp.cleanup()
@@ -116,6 +119,74 @@ class BridgeContractTests(unittest.TestCase):
         self.assertEqual(missing_job.status_code, 404)
         self.assertEqual(invalid_user.status_code, 400)
         self.assertEqual(invalid_request.status_code, 422)
+
+    def test_jobs_search_and_autopilot_read_job_hunter_profile_and_no_submit(self):
+        user = "contract-search"
+        profile_dir = server._JOB_HUNTER_DIR / user
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        profile_dir.joinpath("profile.json").write_text(
+            __import__("json").dumps(
+                {
+                    "cv": {"fileName": "cv.txt"},
+                    "applicant": {"firstName": "Ada", "lastName": "Lovelace", "email": "ada@example.com", "phone": "123"},
+                    "preferences": {"titles": ["Backend Engineer", "Platform Engineer"], "locations": ["Remote"], "remote": "any"},
+                    "autopilot": {"enabled": True, "dailyLimit": 3},
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        profile_dir.joinpath("jobs.json").write_text(
+            __import__("json").dumps(
+                [
+                    {"id": "job-1", "title": "Backend Engineer", "company": "GhostForge", "description": "Build APIs and platform services", "location": "Remote", "status": "found"},
+                    {"id": "job-2", "title": "Designer", "company": "Acme", "description": "Design marketing pages", "location": "Remote", "status": "found"},
+                ],
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        searched = self.client.post(
+            "/api/jobs",
+            headers=self.headers,
+            json={"user_id": user, "action": "search", "terms": ["Backend Engineer"], "auto_prepare": 2},
+        )
+        self.assertEqual(searched.status_code, 200)
+        self.assertEqual(searched.json()["result"]["matched"], 1)
+        self.assertEqual(searched.json()["result"]["prepared"], 1)
+
+        autopilot = self.client.post(
+            "/api/jobs",
+            headers=self.headers,
+            json={"user_id": user, "action": "autopilot"},
+        )
+        self.assertEqual(autopilot.status_code, 200)
+        self.assertEqual(autopilot.json()["report"]["submitted"], 0)
+        self.assertGreaterEqual(autopilot.json()["report"]["prepared"], 0)
+
+        loaded = self.client.get(f"/api/jobs?user_id={user}", headers=self.headers)
+        self.assertTrue(loaded.json()["ready"]["hasCv"])
+        self.assertTrue(loaded.json()["autopilot"]["enabled"])
+
+    def test_jobs_search_missing_cv_returns_clear_failure(self):
+        user = "contract-no-cv"
+        profile_dir = server._JOB_HUNTER_DIR / user
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        profile_dir.joinpath("profile.json").write_text(
+            __import__("json").dumps(
+                {"applicant": {"firstName": "Ada", "lastName": "Lovelace", "email": "ada@example.com", "phone": "123"}},
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        response = self.client.post(
+            "/api/jobs",
+            headers=self.headers,
+            json={"user_id": user, "action": "search", "terms": ["Backend Engineer"]},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Upload your CV first", response.json()["detail"])
 
     def test_workflow_update_without_status_preserves_status(self):
         created = self.client.post(
