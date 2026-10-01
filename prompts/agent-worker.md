@@ -33,7 +33,14 @@ and work around it.
 
 ## How to work
 
-1. Implement the task completely inside your file area. Keep changes focused.
+1. Implement the task completely. Your file area is your primary scope, not a
+   wall: you MAY also edit the shared files needed to finish it — `package.json`
+   and lockfiles, the page or route that mounts your feature, tests,
+   `THIRD_PARTY_NOTICES.md`, docs — as long as no other agent's area above
+   covers them. List every such file in your done-summary. Never block only
+   because a needed file is outside your area; block only for a real blocker
+   (missing credentials, an external service, a decision only a human can make).
+   Keep changes focused.
 2. Validate before committing: `node scripts/agents/health.mjs` (tests,
    typecheck, lint, bridge). It must not get worse than before your change —
    fix anything you broke.
