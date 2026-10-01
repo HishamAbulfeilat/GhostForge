@@ -89,19 +89,32 @@ export function collectAgentWorldData(
     ...connectors.flatMap(connector => recordList(connector.sessions)),
   ]
   const runtimeAgents = asRecord(snapshot.agents)
+  const runtimeTasks = recordList(snapshot.tasks)
+  const runtimeAgentIds = new Set(Object.keys(runtimeAgents ?? {}))
+  const runtimeTaskIds = new Set(runtimeTasks.flatMap(task =>
+    typeof task.id === 'string' ? [task.id] : [],
+  ))
   const agents = [
     ...Object.entries(runtimeAgents ?? {}).map(([id, agent]) => ({ ...asRecord(agent), id, source: 'GhostForge runtime' })),
-    ...connectors.flatMap(connector => recordList(connector.agents).map(agent => ({
-      ...agent,
-      source: connector.id,
-    }))),
+    ...connectors.flatMap(connector => recordList(connector.agents)
+      .filter(agent => connector.id !== 'ghostforge-local'
+        || typeof agent.id !== 'string'
+        || !runtimeAgentIds.has(agent.id))
+      .map(agent => ({
+        ...agent,
+        source: connector.id,
+      }))),
   ]
   const tasks = [
-    ...recordList(snapshot.tasks).map(task => ({ ...task, source: 'GhostForge runtime' })),
-    ...connectors.flatMap(connector => recordList(connector.tasks).map(task => ({
-      ...task,
-      source: connector.id,
-    }))),
+    ...runtimeTasks.map(task => ({ ...task, source: 'GhostForge runtime' })),
+    ...connectors.flatMap(connector => recordList(connector.tasks)
+      .filter(task => connector.id !== 'ghostforge-local'
+        || typeof task.id !== 'string'
+        || !runtimeTaskIds.has(task.id))
+      .map(task => ({
+        ...task,
+        source: connector.id,
+      }))),
   ]
   const events = [
     ...recordList(snapshot.messages).map(message => ({ ...message, type: 'team.message', source: 'GhostForge runtime' })),

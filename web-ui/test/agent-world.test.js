@@ -65,6 +65,52 @@ test('Agent World includes federated sessions, agents, tasks, events and connect
   assert.deepEqual(data.events, [{ type: 'connector.error', error: 'Heartbeat timed out', source: 'remote-desk' }])
 })
 
+test('Agent World removes duplicate ghostforge-local agents and tasks from the API response', async () => {
+  const apiPayload = {
+    snapshot: {
+      agents: { copilot: { provider: 'copilot', state: 'working' } },
+      tasks: [{ id: 'T-1', title: 'Local task', status: 'in-progress' }],
+      messages: [],
+    },
+    connectorSnapshot: {
+      connectors: [
+        {
+          id: 'ghostforge-local',
+          agents: [
+            { id: 'copilot', provider: 'copilot', state: 'working' },
+            { id: 'local-helper', state: 'idle' },
+          ],
+          tasks: [
+            { id: 'T-1', title: 'Local task', status: 'in-progress' },
+            { id: 'T-2', title: 'Another local task', status: 'todo' },
+          ],
+        },
+        {
+          id: 'remote-desk',
+          agents: [{ id: 'copilot', provider: 'remote', state: 'working' }],
+          tasks: [{ id: 'T-1', title: 'Remote task', status: 'todo' }],
+        },
+      ],
+    },
+  }
+  const loaded = await loadAgentWorld(async () => response(200, apiPayload), () => {})
+
+  assert.equal(loaded.status, 'loaded')
+  if (loaded.status !== 'loaded') assert.fail('Expected the agents API response to load')
+
+  const data = collectAgentWorldData(loaded.snapshot, loaded.connectorSummary)
+  assert.deepEqual(data.agents, [
+    { provider: 'copilot', state: 'working', id: 'copilot', source: 'GhostForge runtime' },
+    { id: 'local-helper', state: 'idle', source: 'ghostforge-local' },
+    { id: 'copilot', provider: 'remote', state: 'working', source: 'remote-desk' },
+  ])
+  assert.deepEqual(data.tasks, [
+    { id: 'T-1', title: 'Local task', status: 'in-progress', source: 'GhostForge runtime' },
+    { id: 'T-2', title: 'Another local task', status: 'todo', source: 'ghostforge-local' },
+    { id: 'T-1', title: 'Remote task', status: 'todo', source: 'remote-desk' },
+  ])
+})
+
 test('403 from agents redirects signed-out visitors after checking auth/me', async () => {
   const calls = []
   let redirects = 0
