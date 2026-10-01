@@ -14,16 +14,16 @@ const MAX_FILE_BYTES = 256 * 1024
 
 function readRegularFile(root: string, relative: string): string | null {
   const target = path.join(root, relative)
+  let fd: number | undefined
   try {
-    if (fs.lstatSync(target).isSymbolicLink()) return null
-    const real = fs.realpathSync.native(target)
-    const realRoot = fs.realpathSync.native(root)
-    if (real !== path.join(realRoot, relative)) return null
-    const stat = fs.statSync(real)
+    fd = fs.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
+    const stat = fs.fstatSync(fd)
     if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return null
-    return fs.readFileSync(real, 'utf8')
+    return fs.readFileSync(fd, 'utf8')
   } catch {
     return null
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd)
   }
 }
 
