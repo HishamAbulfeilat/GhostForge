@@ -59,6 +59,14 @@ check('every catalog item has id, name, type, category, description', () => {
   if (bad.length) throw new Error(`${bad.length} item(s) missing required fields`);
 });
 
+check('Awesome LLM Apps CLI smoke tests pass', () => {
+  execFileSync(
+    process.execPath,
+    ['--test', 'scripts/awesome-llm-apps.test.mjs'],
+    { cwd: ROOT, stdio: 'pipe' }
+  );
+});
+
 check('tests/*.test.js unit tests pass (node:test)', () => {
   const testsDir = path.join(ROOT, 'tests');
   const testFiles = fs.readdirSync(testsDir).filter(f => f.endsWith('.test.js'));
