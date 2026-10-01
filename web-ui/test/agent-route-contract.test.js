@@ -8,7 +8,7 @@ const ts = require('typescript')
 const routePath = path.resolve(__dirname, '../app/api/agents/route.ts')
 const routeSource = fs.readFileSync(routePath, 'utf8')
 const agentTeamApi = require('../lib/agent-team-api.js')
-const state = { user: null, commands: [], commandResult: { status: 0, stdout: 'mock output', stderr: '' } }
+const state = { user: null, commands: [], connectorReads: 0, commandResult: { status: 0, stdout: 'mock output', stderr: '' } }
 const snapshotFixture = {
   snapshot: {
     health: 90,
@@ -49,6 +49,10 @@ const dependencies = {
       })
     },
     readAgentTeamSnapshot: () => snapshotFixture,
+    readConnectorSnapshot: (...args) => {
+      state.connectorReads++
+      return agentTeamApi.readConnectorSnapshot(...args)
+    },
   },
 }
 
@@ -92,39 +96,129 @@ async function responseBody(response) {
 const admin = { role: 'admin', permissions: [] }
 
 test('GET and POST require an authenticated admin_tools user', async t => {
-  for (const user of [null, { role: 'user', permissions: [] }]) {
-    state.user = user
-    for (const method of ['GET', 'POST']) {
-      await t.test(`${method} rejects ${user ? 'non-admin' : 'unauthenticated'} requests`, async () => {
-        const request = method === 'GET' ? {} : requestWithText('{}')
-        const response = await route[method](request)
-        assert.equal(response.status, 403)
-        assert.deepEqual(await responseBody(response), { error: 'Admin tools permission required.' })
-      })
+  const previousConnectorConfig = process.env.GF_AGENT_SESSION_CONNECTORS
+  process.env.GF_AGENT_SESSION_CONNECTORS = JSON.stringify([{
+    id: 'private-connector',
+    source: 'cloud',
+    allow: true,
+  }])
+  state.connectorReads = 0
+  try {
+    for (const user of [null, { role: 'user', permissions: [] }]) {
+      state.user = user
+      for (const method of ['GET', 'POST']) {
+        await t.test(`${method} rejects ${user ? 'non-admin' : 'unauthenticated'} requests`, async () => {
+          const request = method === 'GET' ? {} : requestWithText('{}')
+          const response = await route[method](request)
+          assert.equal(response.status, 403)
+          assert.deepEqual(await responseBody(response), { error: 'Admin tools permission required.' })
+        })
+      }
     }
+    assert.deepEqual(state.commands, [])
+    assert.equal(state.connectorReads, 0)
+  } finally {
+    if (previousConnectorConfig === undefined) delete process.env.GF_AGENT_SESSION_CONNECTORS
+    else process.env.GF_AGENT_SESSION_CONNECTORS = previousConnectorConfig
   }
-  assert.deepEqual(state.commands, [])
 })
 
 test('GET returns the wrapped agent-team snapshot contract', async () => {
   state.user = admin
-  const response = await route.GET({})
-  const body = await responseBody(response)
+  const previousConnectorConfig = process.env.GF_AGENT_SESSION_CONNECTORS
+  delete process.env.GF_AGENT_SESSION_CONNECTORS
+  try {
+    const response = await route.GET({})
+    const body = await responseBody(response)
 
-  assert.equal(response.status, 200)
-  assert.deepEqual(body, snapshotFixture)
-  const { snapshot } = body
-  assert.equal(typeof snapshot.health === 'number' || snapshot.health === null, true)
-  assert.equal(typeof snapshot.running, 'boolean')
-  assert.equal(typeof snapshot.agents, 'object')
-  assert.equal(Array.isArray(snapshot.tasks), true)
-  assert.equal(Array.isArray(snapshot.messages), true)
-  assert.equal(typeof snapshot.phase, 'number')
-  for (const agent of Object.values(snapshot.agents)) {
-    assert.deepEqual(Object.keys(agent), ['provider', 'state', 'task', 'model', 'since', 'cooldownUntil'])
+    assert.equal(response.status, 200)
+    assert.deepEqual(body.snapshot, snapshotFixture.snapshot)
+    assert.equal(body.connectorSnapshot.version, 1)
+    assert.equal(body.connectorSnapshot.mode, 'local-only')
+    assert.deepEqual(body.connectorSnapshot.connectors.map(connector => connector.id), ['ghostforge-local'])
+    const { snapshot } = body
+    assert.equal(typeof snapshot.health === 'number' || snapshot.health === null, true)
+    assert.equal(typeof snapshot.running, 'boolean')
+    assert.equal(typeof snapshot.agents, 'object')
+    assert.equal(Array.isArray(snapshot.tasks), true)
+    assert.equal(Array.isArray(snapshot.messages), true)
+    assert.equal(typeof snapshot.phase, 'number')
+    for (const agent of Object.values(snapshot.agents)) {
+      assert.deepEqual(Object.keys(agent), ['provider', 'state', 'task', 'model', 'since', 'cooldownUntil'])
+    }
+    for (const task of snapshot.tasks) {
+      assert.deepEqual(Object.keys(task), ['id', 'title', 'kind', 'status', 'owner'])
+    }
+  } finally {
+    if (previousConnectorConfig === undefined) delete process.env.GF_AGENT_SESSION_CONNECTORS
+    else process.env.GF_AGENT_SESSION_CONNECTORS = previousConnectorConfig
   }
-  for (const task of snapshot.tasks) {
-    assert.deepEqual(Object.keys(task), ['id', 'title', 'kind', 'status', 'owner'])
+})
+
+test('GET includes configured connector summaries from the real connector adapter', async () => {
+  state.user = admin
+  const previousConnectorConfig = process.env.GF_AGENT_SESSION_CONNECTORS
+  process.env.GF_AGENT_SESSION_CONNECTORS = JSON.stringify([{
+    id: 'cloud-sandbox',
+    source: 'cloud',
+    project: 'web-ui',
+    device: 'desk-1',
+    provider: 'openai-compatible',
+    allow: true,
+    headers: { Authorization: 'must-not-leak' },
+  }])
+
+  try {
+    const response = await route.GET({})
+    const body = await responseBody(response)
+    const connector = body.connectorSnapshot.connectors.find(item => item.id === 'cloud-sandbox')
+
+    assert.equal(response.status, 200)
+    assert.deepEqual(body.snapshot, snapshotFixture.snapshot)
+    assert.equal(body.connectorSnapshot.mode, 'allowlisted')
+    assert.equal(connector.source, 'cloud')
+    assert.equal(connector.project, 'web-ui')
+    assert.equal(connector.device, 'desk-1')
+    assert.equal(connector.provider, 'openai-compatible')
+    assert.equal(JSON.stringify(body).includes('must-not-leak'), false)
+    assert.equal(state.connectorReads > 0, true)
+  } finally {
+    if (previousConnectorConfig === undefined) delete process.env.GF_AGENT_SESSION_CONNECTORS
+    else process.env.GF_AGENT_SESSION_CONNECTORS = previousConnectorConfig
+  }
+})
+
+test('GET rejects malformed connector configuration without returning a snapshot', async () => {
+  state.user = admin
+  const previousConnectorConfig = process.env.GF_AGENT_SESSION_CONNECTORS
+  process.env.GF_AGENT_SESSION_CONNECTORS = '{'
+
+  try {
+    const response = await route.GET({})
+    assert.equal(response.status, 500)
+    assert.deepEqual(await responseBody(response), {
+      error: 'GF_AGENT_SESSION_CONNECTORS must be valid JSON.',
+    })
+  } finally {
+    if (previousConnectorConfig === undefined) delete process.env.GF_AGENT_SESSION_CONNECTORS
+    else process.env.GF_AGENT_SESSION_CONNECTORS = previousConnectorConfig
+  }
+})
+
+test('GET rejects oversized connector configuration', async () => {
+  state.user = admin
+  const previousConnectorConfig = process.env.GF_AGENT_SESSION_CONNECTORS
+  process.env.GF_AGENT_SESSION_CONNECTORS = `[${' '.repeat(65_535)}]`
+
+  try {
+    const response = await route.GET({})
+    assert.equal(response.status, 500)
+    assert.deepEqual(await responseBody(response), {
+      error: 'GF_AGENT_SESSION_CONNECTORS exceeds the 65536 byte limit.',
+    })
+  } finally {
+    if (previousConnectorConfig === undefined) delete process.env.GF_AGENT_SESSION_CONNECTORS
+    else process.env.GF_AGENT_SESSION_CONNECTORS = previousConnectorConfig
   }
 })
 
