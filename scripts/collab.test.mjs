@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { formatResult, parseArgs, request, resolveBridgeConfig } from './collab.mjs'
 
 const cliPath = fileURLToPath(new URL('./collab.mjs', import.meta.url))
+const shellPath = fileURLToPath(new URL('./collab.sh', import.meta.url))
 const env = { MARKL_BRIDGE_TOKEN: 'bridge-token' }
 
 function jsonResponse(data, status = 200) {
@@ -22,6 +24,13 @@ test('help documents collaboration commands and bridge configuration', () => {
   assert.match(result.stdout, /ghostforge collab/)
   assert.match(result.stdout, /collab post/)
   assert.match(result.stdout, /MARKL_BRIDGE_TOKEN/)
+})
+
+test('shell launcher exists and forwards help to the collaboration CLI', () => {
+  assert.equal(existsSync(shellPath), true)
+  const result = spawnSync('bash', [shellPath, '--help'], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /ghostforge collab create/)
 })
 
 test('parses create, get, and bounded post commands', () => {
@@ -88,7 +97,32 @@ test('reports API, network, and malformed response failures', async () => {
 })
 
 test('formats human-readable collaboration results', () => {
-  assert.match(formatResult({ command: 'create' }, { id: 'session01', shareUrl: '/jarvis?session=session01' }), /Created/)
-  assert.match(formatResult({ command: 'get' }, { id: 'session01', participants: 1, messages: [{ role: 'user', content: 'Hi' }] }), /user: Hi/)
+  assert.match(
+    formatResult({ command: 'create' }, { id: 'session01', shareUrl: '/jarvis?session=session01' }),
+    /Created[\s\S]*Share link: \/jarvis\?session=session01/,
+  )
+  assert.match(
+    formatResult({ command: 'get' }, { id: 'session01', participants: 1, messages: [{ role: 'user', content: 'Hi' }] }),
+    /Share link: \/jarvis\?session=session01[\s\S]*user: Hi/,
+  )
   assert.equal(formatResult({ command: 'post' }, { id: 'session01', ok: true }), 'Message sent to session session01.')
+})
+
+test('JSON create and get results include a share link', () => {
+  assert.deepEqual(JSON.parse(formatResult(
+    { command: 'create', json: true },
+    { id: 'session01', shareUrl: '/jarvis?session=session01' },
+  )), {
+    id: 'session01',
+    shareUrl: '/jarvis?session=session01',
+  })
+  assert.deepEqual(JSON.parse(formatResult(
+    { command: 'get', json: true },
+    { id: 'session01', messages: [], participants: 1 },
+  )), {
+    id: 'session01',
+    messages: [],
+    participants: 1,
+    shareUrl: '/jarvis?session=session01',
+  })
 })

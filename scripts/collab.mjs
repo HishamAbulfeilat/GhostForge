@@ -205,14 +205,19 @@ function safeText(value) {
 }
 
 function formatResult(options, data) {
-  if (options.json) return JSON.stringify(data, null, 2)
+  const shareUrl = data.shareUrl || `/jarvis?session=${encodeURIComponent(data.id)}`
+  if (options.json) {
+    const output = ['create', 'get'].includes(options.command) ? { ...data, shareUrl } : data
+    return JSON.stringify(output, null, 2)
+  }
   if (options.command === 'create') {
-    return `Created collaboration session ${safeText(data.id)}.\nShare path: ${safeText(data.shareUrl || `/jarvis?session=${data.id}`)}`
+    return `Created collaboration session ${safeText(data.id)}.\nShare link: ${safeText(shareUrl)}`
   }
   if (options.command === 'get') {
     const messages = data.messages.map(message =>
       `  ${safeText(message?.role || 'unknown')}: ${safeText(message?.content || '')}`)
     return `Session ${safeText(data.id)} (${Number.isFinite(data.participants) ? data.participants : 'unknown'} participants)` +
+      `\nShare link: ${safeText(shareUrl)}` +
       (messages.length ? `\nMessages:\n${messages.join('\n')}` : '\nNo messages yet.')
   }
   return `Message sent to session ${safeText(data.id)}.`
