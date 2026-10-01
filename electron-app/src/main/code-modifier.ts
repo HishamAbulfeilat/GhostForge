@@ -418,7 +418,7 @@ export class CodeModifier extends EventEmitter {
     this.log('Restarting application');
     setTimeout(() => {
       app.relaunch();
-      app.exit(0);
+      app.quit();
     }, 1000);
   }
 

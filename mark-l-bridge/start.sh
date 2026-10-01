@@ -21,4 +21,7 @@ pip install -q -r requirements.txt
 export PYTHONPATH="${MARK_L_PARENT}${PYTHONPATH:+:$PYTHONPATH}"
 
 echo "[start.sh] Starting uvicorn on port 8765..."
+if [ "${1:-}" = "--managed" ]; then
+  exec python server.py
+fi
 exec uvicorn server:app --host 127.0.0.1 --port 8765 --reload

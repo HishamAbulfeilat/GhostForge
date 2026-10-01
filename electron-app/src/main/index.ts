@@ -11,7 +11,7 @@ import { searchAndPlay, getTranscript, getVideoInfo, getTrending, summarizeVideo
 import { listAllGames, scanSteamGames, scanEpicGames, checkForUpdates, updateGame } from './game-updater';
 import { startClipboardWatcher, stopClipboardWatcher, analyzeClipboard, getClipboardHistory, smartPaste } from './clipboard-intel';
 import { getSetupStatus, getSetupSteps, completeStep, isFirstRun } from './setup-wizard';
-import { openUrl as browserOpen, searchWeb, navigateTab, clickElement, typeText, goBack, goForward, scrollPage, takeScreenshot as browserScreenshot, getPageText } from './browser-automation';
+import { closeBrowser, openUrl as browserOpen, searchWeb, navigateTab, clickElement, typeText, goBack, goForward, scrollPage, takeScreenshot as browserScreenshot, getPageText } from './browser-automation';
 import { extractText, readAndSummarize, askQuestionAboutFile, convertFormat } from './file-processor';
 import { getCpuStats, getRamStats, getDiskStats, getGpuStats, getFanSpeed, getFullSystemReport } from './hardware-monitor';
 import { JarvisConnection } from './jarvis-connection';
@@ -24,7 +24,7 @@ import { getDaemon, JarvisDaemon } from './jarvis-daemon';
 import { SelfUpdater } from './self-updater';
 import { CodeModifier } from './code-modifier';
 import { VoiceboxIntegration } from './voicebox-integration';
-import { quitController, requestExplicitAppQuit } from './app-lifecycle';
+import { quitController, requestExplicitAppQuit, runCleanupTasks } from './app-lifecycle';
 import {
   listEmails as emailList, readEmail, sendEmail as emailSend, replyToEmail,
   markAsRead, markAsUnread, starEmail, unstarEmail, deleteEmail,
@@ -35,6 +35,7 @@ import {
 import {
   getHeadlessSwitches,
   HEADLESS_BRIDGE_LOG,
+  HEADLESS_SHUTDOWN_LOG,
   HEADLESS_STARTUP_LOG,
   HEADLESS_WINDOW_LOG,
   isHeadlessSmokeMode,
@@ -76,6 +77,11 @@ let jarvisDaemon: JarvisDaemon;
 let selfUpdater: SelfUpdater;
 let codeModifier: CodeModifier;
 let voiceboxIntegration: VoiceboxIntegration;
+const SHUTDOWN_TIMEOUT_MS = 8_000;
+
+if (process.env.GHOSTFORGE_ELECTRON_USER_DATA_DIR) {
+  app.setPath('userData', process.env.GHOSTFORGE_ELECTRON_USER_DATA_DIR);
+}
 
 const GOT_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 
@@ -1142,6 +1148,44 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (err) => {
   console.error('[electron] uncaughtException:', err);
 });
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    requestExplicitAppQuit();
+    app.quit();
+  });
+}
+
+async function cleanupBeforeQuit(): Promise<void> {
+  const result = await runCleanupTasks([
+    { name: 'clipboard watcher', run: () => stopClipboardWatcher() },
+    { name: 'browser automation', run: () => closeBrowser() },
+    { name: 'JARVIS daemon', run: async () => {
+      await jarvisDaemon?.gracefulShutdown();
+      jarvisDaemon?.destroy();
+    } },
+    { name: 'self updater', run: () => selfUpdater?.destroy() },
+    { name: 'code modifier', run: () => codeModifier?.destroy() },
+    { name: 'voicebox', run: () => voiceboxIntegration?.destroy() },
+    { name: 'Gemini voice', run: () => geminiLiveVoice?.destroy() },
+    { name: 'JARVIS connection', run: () => jarvisConnection?.destroy() },
+    { name: 'connection toggle', run: () => connectionToggle?.destroy() },
+    { name: 'bridge', run: () => bridgeManager.stopBridge() },
+    { name: 'global shortcuts', run: () => globalShortcut.unregisterAll() },
+    { name: 'cursor overlay', run: () => cursorOverlay?.destroyAll() },
+    { name: 'voice shortcuts', run: () => voiceSystem?.unregisterAll() },
+    { name: 'tray', run: () => trayManager?.destroy() },
+  ], SHUTDOWN_TIMEOUT_MS);
+
+  for (const failure of result.failed) {
+    console.error(`[electron] shutdown cleanup failed (${failure.name}):`, failure.error);
+  }
+  if (result.timedOut) {
+    console.error(`[electron] shutdown cleanup exceeded ${SHUTDOWN_TIMEOUT_MS}ms; continuing quit`);
+  }
+  if (isHeadlessSmokeMode()) {
+    logHeadlessSmoke(HEADLESS_SHUTDOWN_LOG);
+  }
+}
 
 app.whenReady().then(async () => {
   try {
@@ -1156,7 +1200,10 @@ app.whenReady().then(async () => {
     const scheduleSmokeExit = () => {
       if (exitScheduled) return;
       exitScheduled = true;
-      setTimeout(() => app.exit(0), 250);
+      setTimeout(() => {
+        requestExplicitAppQuit();
+        app.quit();
+      }, 250);
     };
     bridgeManager.on('status', (status) => {
       if (status === 'running') {
@@ -1186,8 +1233,16 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('before-quit', () => {
-  quitController.markShutdownStarted();
+app.on('before-quit', (event) => {
+  if (quitController.isCleanupComplete()) return;
+
+  event.preventDefault();
+  if (!quitController.beginCleanup()) return;
+
+  void cleanupBeforeQuit().finally(() => {
+    quitController.finishCleanup();
+    app.quit();
+  });
 });
 
 app.on('window-all-closed', () => {
@@ -1210,19 +1265,5 @@ app.on('activate', () => {
 });
 
 app.on('will-quit', () => {
-  if (quitController.isShutdownStarted()) {
-    jarvisDaemon?.destroy();
-    selfUpdater?.destroy();
-    codeModifier?.destroy();
-    voiceboxIntegration?.destroy();
-    bridgeManager.stopBridge().catch(() => {});
-    geminiLiveVoice?.destroy();
-    n8nIntegration = undefined as any;
-    globalShortcut.unregisterAll();
-    cursorOverlay.destroyAll();
-    voiceSystem.unregisterAll();
-    jarvisConnection?.destroy();
-    connectionToggle?.destroy();
-    trayManager?.destroy();
-  }
+  n8nIntegration = undefined as any;
 });

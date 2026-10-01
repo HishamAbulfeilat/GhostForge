@@ -11,7 +11,8 @@ const HEALTH_ENDPOINT = getHealthEndpoint(BRIDGE_URL, 'mark-l');
 const MAX_LOG_LINES = 1000;
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY = 2000;
-const SIGKILL_TIMEOUT_MS = 5000;
+const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5000;
+const TERMINATE_TIMEOUT_MS = 1000;
 
 const STORE_KEY = 'jarvis.autoStartBridge';
 
@@ -22,6 +23,7 @@ class BridgeManager extends EventEmitter {
   private status: BridgeStatus = 'stopped';
   private retryCount = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private stopPromise: Promise<void> | null = null;
   private logs: string[] = [];
   private killed = false;
 
@@ -118,15 +120,15 @@ class BridgeManager extends EventEmitter {
 
     let cmd: string;
     let args: string[];
-    const opts = { cwd: bridgeDir, stdio: ['ignore', 'pipe', 'pipe'] as any };
+    const opts = { cwd: bridgeDir, stdio: ['pipe', 'pipe', 'pipe'] as any, windowsHide: true };
 
     if (isWin) {
       cmd = 'python';
-      args = ['-m', 'uvicorn', 'server:app', '--host', '0.0.0.0', '--port', String(BRIDGE_PORT)];
+      args = ['server.py'];
     } else {
       // Run through bash so a lost exec bit in the packaged copy doesn't matter
       cmd = 'bash';
-      args = [join(bridgeDir, 'start.sh')];
+      args = [join(bridgeDir, 'start.sh'), '--managed'];
       opts.cwd = bridgeDir;
     }
 
@@ -150,6 +152,10 @@ class BridgeManager extends EventEmitter {
 
     child.on('error', (err) => {
       this.appendLog(`[bridge-manager] Process error: ${err.message}`);
+      if (this.killed) {
+        this.setStatus('stopped');
+        return;
+      }
       this.setStatus('error');
       this.emit('error', err);
       this.scheduleRetry();
@@ -214,6 +220,17 @@ class BridgeManager extends EventEmitter {
   }
 
   async stopBridge(): Promise<void> {
+    if (this.stopPromise) return this.stopPromise;
+
+    this.stopPromise = this.stopBridgeProcess();
+    try {
+      await this.stopPromise;
+    } finally {
+      this.stopPromise = null;
+    }
+  }
+
+  private async stopBridgeProcess(): Promise<void> {
     this.killed = true;
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
@@ -225,22 +242,34 @@ class BridgeManager extends EventEmitter {
       return;
     }
 
-    this.appendLog('[bridge-manager] Sending SIGTERM…');
-    this.process.kill('SIGTERM');
+    const child = this.process;
+    this.appendLog('[bridge-manager] Requesting graceful shutdown…');
+    child.stdin?.end('shutdown\n');
 
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        if (this.process) {
-          this.appendLog('[bridge-manager] SIGTERM timeout — sending SIGKILL');
-          this.process.kill('SIGKILL');
+      let terminateTimer: ReturnType<typeof setTimeout> | null = null;
+      const finish = () => {
+        clearTimeout(gracefulTimer);
+        if (terminateTimer) clearTimeout(terminateTimer);
+        resolve();
+      };
+      const gracefulTimer = setTimeout(() => {
+        if (this.process === child) {
+          this.appendLog('[bridge-manager] Graceful shutdown timeout — terminating bridge process');
+          child.kill('SIGTERM');
+          terminateTimer = setTimeout(() => {
+            if (this.process === child) {
+              this.appendLog('[bridge-manager] Bridge did not terminate — killing process');
+              child.kill('SIGKILL');
+            }
+            finish();
+          }, TERMINATE_TIMEOUT_MS);
+          return;
         }
-        resolve();
-      }, SIGKILL_TIMEOUT_MS);
+        finish();
+      }, GRACEFUL_SHUTDOWN_TIMEOUT_MS);
 
-      this.process!.on('exit', () => {
-        clearTimeout(timer);
-        resolve();
-      });
+      child.once('exit', finish);
     });
 
     this.process = null;

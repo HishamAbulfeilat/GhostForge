@@ -46,8 +46,9 @@ const DEFAULT_DAEMON_SETTINGS: DaemonSettings = {
   logLevel: 'info',
 };
 
-const STATE_FILE = join(homedir(), '.ghostforge', 'daemon-state.json');
-const LOG_FILE = join(homedir(), '.ghostforge', 'daemon.log');
+const DATA_DIR = process.env.GHOSTFORGE_DATA_DIR || join(homedir(), '.ghostforge');
+const STATE_FILE = join(DATA_DIR, 'daemon-state.json');
+const LOG_FILE = join(DATA_DIR, 'daemon.log');
 
 export class JarvisDaemon extends EventEmitter {
   private state: DaemonState = 'STOPPED';
@@ -72,7 +73,7 @@ export class JarvisDaemon extends EventEmitter {
   }
 
   private ensureDirectories(): void {
-    const dir = join(homedir(), '.ghostforge');
+    const dir = DATA_DIR;
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
@@ -94,7 +95,7 @@ export class JarvisDaemon extends EventEmitter {
 
   private loadSettings(): void {
     try {
-      const settingsPath = join(homedir(), '.ghostforge', 'daemon-settings.json');
+      const settingsPath = join(DATA_DIR, 'daemon-settings.json');
       if (existsSync(settingsPath)) {
         const raw = readFileSync(settingsPath, 'utf8');
         this.settings = { ...DEFAULT_DAEMON_SETTINGS, ...JSON.parse(raw) };
@@ -106,7 +107,7 @@ export class JarvisDaemon extends EventEmitter {
 
   private saveSettings(): void {
     try {
-      const settingsPath = join(homedir(), '.ghostforge', 'daemon-settings.json');
+      const settingsPath = join(DATA_DIR, 'daemon-settings.json');
       writeFileSync(settingsPath, JSON.stringify(this.settings, null, 2));
     } catch (err) {
       this.log('error', 'Failed to save daemon settings', err);

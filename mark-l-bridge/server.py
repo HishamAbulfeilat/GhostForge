@@ -2615,6 +2615,18 @@ def release_post(req: ReleaseRequest):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import sys
+    import threading
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8765)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=8765))
+
+    def _watch_parent() -> None:
+        for line in sys.stdin:
+            if line.strip() == "shutdown":
+                server.should_exit = True
+                return
+        server.should_exit = True
+
+    threading.Thread(target=_watch_parent, name="parent-shutdown", daemon=True).start()
+    server.run()

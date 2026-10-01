@@ -28,8 +28,9 @@ export interface UpdateProgress {
   timestamp: number;
 }
 
-const BACKUP_DIR = join(homedir(), '.ghostforge', 'backups');
-const UPDATE_LOG = join(homedir(), '.ghostforge', 'update.log');
+const DATA_DIR = process.env.GHOSTFORGE_DATA_DIR || join(homedir(), '.ghostforge');
+const BACKUP_DIR = join(DATA_DIR, 'backups');
+const UPDATE_LOG = join(DATA_DIR, 'update.log');
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 
 export class SelfUpdater extends EventEmitter {
@@ -57,7 +58,7 @@ export class SelfUpdater extends EventEmitter {
       : `[${timestamp}] ${message}`;
 
     try {
-      const dir = join(homedir(), '.ghostforge');
+      const dir = DATA_DIR;
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       require('fs').appendFileSync(UPDATE_LOG, entry + '\n');
     } catch { /* ignore */ }
@@ -345,7 +346,7 @@ export class SelfUpdater extends EventEmitter {
 
       setTimeout(() => {
         app.relaunch();
-        app.exit(0);
+        app.quit();
       }, 2000);
 
       return true;
@@ -407,7 +408,7 @@ export class SelfUpdater extends EventEmitter {
         this.emit('phase', { phase: 'restarting', message: 'Restarting after self-modification...', percent: 100 });
         setTimeout(() => {
           app.relaunch();
-          app.exit(0);
+          app.quit();
         }, 1000);
       }
 

@@ -3,6 +3,7 @@ export const HEADLESS_SMOKE_ARG = '--ghostforge-headless-smoke';
 export const HEADLESS_STARTUP_LOG = '[ghostforge:smoke] startup-ready';
 export const HEADLESS_WINDOW_LOG = '[ghostforge:smoke] browser-window-ready';
 export const HEADLESS_BRIDGE_LOG = '[ghostforge:smoke] bridge-reachable';
+export const HEADLESS_SHUTDOWN_LOG = '[ghostforge:smoke] shutdown-clean';
 
 export function isHeadlessSmokeMode(
   args: readonly string[] = process.argv,
