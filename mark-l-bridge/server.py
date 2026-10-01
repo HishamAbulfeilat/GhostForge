@@ -8,15 +8,25 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import logging
 import os
+import platform
+import re
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
+import uuid
 from contextlib import asynccontextmanager, contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -710,6 +720,78 @@ class UnifiedChainRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Pydantic request models — web-only contracts exposed to JARVIS
+# ---------------------------------------------------------------------------
+
+
+class CollabMessageRequest(BaseModel):
+    id: str = Field(..., min_length=8, max_length=64)
+    role: str = Field(..., min_length=1, max_length=32)
+    content: str = Field(..., min_length=1, max_length=10_000)
+
+
+class JobActionRequest(BaseModel):
+    action: str = Field(..., min_length=1, max_length=32)
+    user_id: str = "default"
+    id: Optional[str] = None
+    terms: list[str] = Field(default_factory=list)
+    auto_prepare: int = Field(default=3, ge=0, le=5)
+
+
+class WorkflowStepRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    id: Optional[str] = None
+    kind: str = "manual"
+    ref: str = ""
+    deps: list[str] = Field(default_factory=list)
+    status: str = "pending"
+    notes: str = ""
+
+
+class WorkflowRequest(BaseModel):
+    user_id: str = "default"
+    id: Optional[str] = None
+    action: Optional[str] = None
+    max_steps: int = Field(default=100, ge=1, le=100)
+    name: Optional[str] = None
+    goal: Optional[str] = None
+    status: Optional[str] = None
+    steps: Optional[list[WorkflowStepRequest]] = None
+    step_id: Optional[str] = None
+    step: Optional[dict[str, Any]] = None
+    log: Optional[str] = None
+
+
+class WebhookRequest(BaseModel):
+    source: str = "generic"
+    event: str = "unknown"
+    body: dict[str, Any] = Field(default_factory=dict)
+    config: Optional[list[dict[str, Any]]] = None
+
+
+class DeviceRequest(BaseModel):
+    user_id: str = "default"
+    id: str = Field(..., min_length=1, max_length=128)
+    name: str = ""
+    platform: str = ""
+    browser: str = ""
+    model: str = ""
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class RemoteSetupRequest(BaseModel):
+    action: str = Field(..., min_length=1, max_length=32)
+
+
+class ReleaseRequest(BaseModel):
+    action: str = "status"
+    kind: str = "patch"
+    environment: str = "staging"
+    target: str = "static"
+    notes: str = ""
+
+
+# ---------------------------------------------------------------------------
 # Response helpers
 # ---------------------------------------------------------------------------
 
@@ -767,6 +849,416 @@ def _run_openjarvis_cli(*args: str, timeout_s: int = 60) -> str:
             f"jarvis {' '.join(args)} exited {proc.returncode}: {proc.stderr.strip()}"
         )
     return proc.stdout.strip()
+
+
+# ---------------------------------------------------------------------------
+# Web-only feature contracts
+#
+# These deliberately use the same small JSON stores as the web application,
+# but remain independent of Next.js so JARVIS and the desktop bridge can use
+# them when the web UI is not running.
+# ---------------------------------------------------------------------------
+
+_BRIDGE_DATA_DIR = Path.home() / ".ghostforge" / "bridge"
+_GHOSTFORGE_USERS_FILE = Path.home() / ".ghostforge" / "users.json"
+_COLLAB_SESSIONS: dict[str, dict[str, Any]] = {}
+
+
+_ACCESS_PROFILES: list[dict[str, Any]] = [
+    {
+        "id": "devops",
+        "label": "DevOps / IT & Infrastructure",
+        "description": "Full engineering toolkit plus remote access, system control and automation.",
+        "permissions": [
+            "chat",
+            "conversation_history",
+            "web_search",
+            "weather",
+            "voice",
+            "semantic_memory",
+            "reminders",
+            "calendar",
+            "contacts",
+            "clipboard",
+            "career",
+            "job_hunter",
+            "file_read",
+            "file_write",
+            "file_process",
+            "documents",
+            "terminal",
+            "github",
+            "copilot",
+            "code_helper",
+            "ai_models",
+            "mcp",
+            "browser",
+            "system_info",
+            "remote",
+            "mac_control",
+            "native_desktop",
+            "screenshots",
+            "admin_tools",
+            "n8n",
+        ],
+    },
+    {
+        "id": "data",
+        "label": "Data & AI",
+        "description": "Files, code helper, AI models and AI Studio for analysis work.",
+        "permissions": [
+            "chat",
+            "conversation_history",
+            "web_search",
+            "weather",
+            "voice",
+            "semantic_memory",
+            "reminders",
+            "calendar",
+            "contacts",
+            "clipboard",
+            "career",
+            "job_hunter",
+            "file_read",
+            "file_write",
+            "file_process",
+            "documents",
+            "code_helper",
+            "ai_models",
+            "ai_studio",
+            "mcp",
+            "github",
+            "browser",
+            "terminal",
+        ],
+    },
+    {
+        "id": "designer",
+        "label": "Design & Creative",
+        "description": "Files, browser, screenshots and AI Studio for design work.",
+        "permissions": [
+            "chat",
+            "conversation_history",
+            "web_search",
+            "weather",
+            "voice",
+            "semantic_memory",
+            "reminders",
+            "calendar",
+            "contacts",
+            "clipboard",
+            "career",
+            "job_hunter",
+            "file_read",
+            "file_write",
+            "file_process",
+            "documents",
+            "browser",
+            "screenshots",
+            "youtube",
+            "ai_studio",
+        ],
+    },
+    {
+        "id": "manager",
+        "label": "Management & Leadership",
+        "description": "Documents, messaging, workflows and GitHub visibility.",
+        "permissions": [
+            "chat",
+            "conversation_history",
+            "web_search",
+            "weather",
+            "voice",
+            "semantic_memory",
+            "reminders",
+            "calendar",
+            "contacts",
+            "clipboard",
+            "career",
+            "job_hunter",
+            "file_read",
+            "file_write",
+            "file_process",
+            "documents",
+            "email",
+            "send_message",
+            "user_message",
+            "n8n",
+            "browser",
+            "github",
+            "system_info",
+        ],
+    },
+    {
+        "id": "general",
+        "label": "General",
+        "description": "Chat, search, reminders, career tools and the Job Hunter.",
+        "permissions": [
+            "chat",
+            "conversation_history",
+            "web_search",
+            "weather",
+            "voice",
+            "semantic_memory",
+            "reminders",
+            "calendar",
+            "contacts",
+            "clipboard",
+            "career",
+            "job_hunter",
+        ],
+    },
+]
+
+
+def _safe_user(value: str) -> str:
+    user = str(value or "default").strip().lower()
+    if not user or len(user) > 64 or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789._-" for c in user):
+        raise HTTPException(status_code=400, detail="Invalid user_id")
+    return user
+
+
+def _store_path(name: str, user_id: str = "default") -> Path:
+    return _BRIDGE_DATA_DIR / name / f"{_safe_user(user_id)}.json"
+
+
+def _read_store(name: str, user_id: str = "default", default: Any = None) -> Any:
+    path = _store_path(name, user_id)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def _write_store(name: str, user_id: str, value: Any) -> None:
+    path = _store_path(name, user_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{secrets.token_hex(4)}.tmp")
+    tmp.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _new_id(prefix: str = "") -> str:
+    return f"{prefix}{uuid.uuid4().hex[:12]}"
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _probe_loopback_port(port: int, timeout: float = 0.25) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _find_novnc_root() -> Optional[Path]:
+    candidates = (
+        Path("/opt/homebrew/share/novnc"),
+        Path("/usr/local/share/novnc"),
+        Path("/opt/homebrew/opt/novnc/share/novnc"),
+        Path("/usr/local/opt/novnc/share/novnc"),
+        Path("/usr/share/novnc"),
+        Path("/usr/share/noVNC"),
+    )
+    return next((path for path in candidates if (path / "vnc.html").is_file()), None)
+
+
+def _remote_setup_status() -> dict[str, Any]:
+    websockify = _probe_loopback_port(6080)
+    return {
+        "screenSharing": _probe_loopback_port(5900),
+        "websockify": websockify,
+        "noVncUrl": "http://127.0.0.1:6080/vnc.html" if websockify else None,
+    }
+
+
+def _workflow_progress(workflow: dict[str, Any]) -> dict[str, int]:
+    steps = workflow.get("steps") or []
+    done = sum(1 for step in steps if step.get("status") in ("done", "skipped"))
+    return {"done": done, "total": len(steps), "pct": round(done / len(steps) * 100) if steps else 0}
+
+
+def _fail_workflow(workflow: dict[str, Any], message: str) -> None:
+    workflow["status"] = "failed"
+    workflow["updatedAt"] = _iso_now()
+    workflow.setdefault("log", []).append({"at": workflow["updatedAt"], "msg": message})
+
+
+def _run_workflow(workflow: dict[str, Any], max_steps: int) -> dict[str, Any]:
+    steps = workflow.get("steps") or []
+    if len(steps) > max_steps:
+        raise ValueError(f"Workflow contains {len(steps)} steps; maximum is {max_steps}")
+    by_id = {step.get("id"): step for step in steps}
+    if len(by_id) != len(steps) or None in by_id:
+        raise ValueError("Workflow contains duplicate or missing step ids")
+    for step in steps:
+        unknown = [dep for dep in step.get("deps", []) if dep not in by_id]
+        if unknown:
+            raise ValueError(f"Step {step['id']} references missing dependency {unknown[0]}")
+    completed: set[str] = set()
+    for _ in steps:
+        progressed = False
+        for step in steps:
+            if step["id"] in completed or step.get("status") in ("done", "skipped"):
+                completed.add(step["id"])
+                continue
+            if any(dep not in completed for dep in step.get("deps", [])):
+                continue
+            kind = step.get("kind", "manual")
+            ref = step.get("ref", "")
+            if kind == "manual":
+                step["status"] = "skipped"
+                message = "Skipped: manual steps require a human"
+            elif kind == "command" and ref in (
+                "bridge:health",
+                "bridge:release-status",
+                "bridge:deploy",
+                "bridge:deploy-azure",
+                "bridge:azure-deploy",
+            ):
+                step["status"] = "running"
+                if ref == "bridge:health":
+                    result = health()
+                elif ref == "bridge:release-status":
+                    result = _release_status()
+                else:
+                    result = _deploy_azure()
+                step["status"] = "done"
+                message = f"Completed {ref}" if result is None else f"Completed {ref}: {str(result)[:500]}"
+            elif kind == "command" and ref.startswith("bridge:deploy"):
+                step["status"] = "running"
+                ref_parts = ref.split(":")
+                environment = "staging"
+                target = "static"
+                if len(ref_parts) > 2:
+                    environment = ref_parts[2]
+                if len(ref_parts) > 3:
+                    target = ref_parts[3]
+                result = _deploy_azure(environment=environment, target=target)
+                step["status"] = "done"
+                message = f"Completed {ref}: {str(result)[:500]}"
+            else:
+                step["status"] = "failed"
+                message = f"Unsupported workflow step: kind={kind!r}, ref={ref!r}"
+                step.setdefault("log", []).append({"at": _iso_now(), "msg": message})
+                raise ValueError(message)
+            step.setdefault("log", []).append({"at": _iso_now(), "msg": message})
+            completed.add(step["id"])
+            progressed = True
+        if len(completed) == len(steps):
+            break
+        if not progressed:
+            raise ValueError("Workflow dependencies contain a cycle or blocked step")
+    workflow["status"] = "done"
+    workflow["updatedAt"] = _iso_now()
+    return workflow
+
+
+def _workflow_step(value: WorkflowStepRequest | dict[str, Any]) -> dict[str, Any]:
+    data = value.model_dump() if isinstance(value, WorkflowStepRequest) else value
+    return {
+        "id": str(data.get("id") or _new_id("step-")),
+        "title": str(data.get("title") or "Untitled step")[:200],
+        "kind": data.get("kind") if data.get("kind") in ("agent", "skill", "command", "manual") else "manual",
+        "ref": str(data.get("ref") or "")[:2000],
+        "deps": [str(item) for item in data.get("deps", [])][:100],
+        "status": data.get("status") if data.get("status") in ("pending", "running", "done", "failed", "blocked", "skipped") else "pending",
+        "notes": str(data.get("notes") or "")[:4000],
+        "log": list(data.get("log") or [])[-50:],
+    }
+
+
+_DEPLOY_ENVIRONMENTS = {"staging", "production", "dev"}
+_DEPLOY_TARGET_ALIASES = {
+    "static": "static",
+    "azure-static": "static",
+    "static-web-apps": "static",
+    "swa": "static",
+    "app": "app-service",
+    "app-service": "app-service",
+    "appservice": "app-service",
+    "node": "app-service",
+    "service": "app-service",
+    "eas": "eas",
+    "eas-build": "eas",
+    "expo": "eas",
+    "mobile": "eas",
+}
+
+
+def _normalize_deploy_environment(value: str) -> str:
+    environment = (value or "staging").strip().lower()
+    if environment not in _DEPLOY_ENVIRONMENTS:
+        raise ValueError("Unsupported deployment environment; allowed: staging, production, dev")
+    return environment
+
+
+def _normalize_deploy_target(value: str) -> str:
+    target = (value or "static").strip().lower().replace("_", "-")
+    target = _DEPLOY_TARGET_ALIASES.get(target, target)
+    allowed = {"static", "app-service", "eas"}
+    if target not in allowed:
+        raise ValueError("Unsupported deployment target; allowed: static, app-service, eas")
+    return target
+
+
+def _deploy_azure(environment: str = "staging", target: str = "static") -> dict[str, Any]:
+    normalized_environment = _normalize_deploy_environment(environment)
+    normalized_target = _normalize_deploy_target(target)
+    script = Path(__file__).resolve().parent.parent / "scripts" / "deploy-azure.sh"
+    if not script.exists():
+        raise RuntimeError("Azure deployment script is not available")
+    deploy_type_map = {"static": "1", "app-service": "2", "eas": "3"}
+    command = [
+        "bash",
+        str(script),
+        "--env",
+        normalized_environment,
+        "--type",
+        deploy_type_map[normalized_target],
+    ]
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=str(script.parent.parent),
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+            env={**os.environ, "GF_NON_INTERACTIVE": "1"},
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"Azure deployment is unavailable: {exc}") from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "deployment command failed").strip()
+        raise RuntimeError(f"Azure deployment failed: {detail[:1000]}")
+    out = (proc.stdout or proc.stderr or "Deployment started").strip()
+    return {
+        "environment": normalized_environment,
+        "target": normalized_target,
+        "output": out[:4000],
+        "script": str(script),
+    }
+
+
+def _release_status() -> dict[str, Any]:
+    package = Path(__file__).resolve().parent.parent / "package.json"
+    version = "0.0.0"
+    try:
+        version = str(json.loads(package.read_text(encoding="utf-8")).get("version", version))
+    except (OSError, ValueError):
+        pass
+    try:
+        tag = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=package.parent, capture_output=True, text=True, timeout=10, check=False,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        tag = ""
+    return {"version": version, "lastTag": tag or None}
 
 
 # ---------------------------------------------------------------------------
@@ -1439,6 +1931,683 @@ def openjarvis_ask(req: OpenJarvisAskRequest):
     except Exception:
         logger.exception("openjarvis ask failed")
         raise _err("openjarvis ask failed: internal error")
+
+
+# ---------------------------------------------------------------------------
+# Collaboration
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/jarvis/collab", dependencies=[Depends(require_token)])
+def collab_get(id: Optional[str] = None):
+    """Create a session when no id is supplied, matching the web contract."""
+    if not id:
+        session_id = _new_id()
+        _COLLAB_SESSIONS[session_id] = {"messages": [], "createdAt": time.time(), "participants": 1}
+        return {"id": session_id, "shareUrl": f"/jarvis?session={session_id}"}
+    if id not in _COLLAB_SESSIONS:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session = _COLLAB_SESSIONS[id]
+    session["participants"] += 1
+    return {"id": id, "messages": session["messages"], "participants": session["participants"]}
+
+
+@app.post("/api/jarvis/collab", dependencies=[Depends(require_token)])
+def collab_post(req: CollabMessageRequest):
+    if req.role not in ("user", "assistant"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+    session = _COLLAB_SESSIONS.get(req.id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session["messages"].append({"role": req.role, "content": req.content, "ts": int(time.time() * 1000)})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Job Hunter bridge-safe adapter
+# ---------------------------------------------------------------------------
+
+_JOB_HUNTER_DIR = Path.home() / ".ghostforge" / "jobs"
+
+
+def _ghostforge_users() -> list[dict[str, Any]]:
+    try:
+        users = json.loads(_GHOSTFORGE_USERS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if isinstance(users, dict):
+        users = users.get("users", [])
+    if not isinstance(users, list):
+        return []
+
+    public: list[dict[str, Any]] = []
+    for user in users:
+        if not isinstance(user, dict):
+            continue
+        username = str(user.get("username") or "").strip()
+        if not username:
+            continue
+        role = user.get("role")
+        if role not in ("admin", "user"):
+            role = "user"
+        permissions = user.get("permissions")
+        if not isinstance(permissions, list):
+            permissions = []
+        public.append(
+            {
+                "username": username,
+                "role": role,
+                "permissions": [str(p).strip() for p in permissions if isinstance(p, str) and str(p).strip()],
+            }
+        )
+    public.sort(key=lambda item: item["username"].lower())
+    return public
+
+
+def _jarvis_user_snapshot() -> dict[str, Any]:
+    return {
+        "users": _ghostforge_users(),
+        "profiles": [
+            {
+                "id": profile["id"],
+                "label": profile["label"],
+                "description": profile["description"],
+                "permissions": profile["permissions"],
+            }
+            for profile in _ACCESS_PROFILES
+        ],
+    }
+
+
+@app.get("/api/jarvis/users", dependencies=[Depends(require_token)])
+def jarvis_users_get():
+    return _jarvis_user_snapshot()
+
+
+@app.get("/api/jarvis/access-profiles", dependencies=[Depends(require_token)])
+def jarvis_access_profiles_get():
+    return {"profiles": _jarvis_user_snapshot()["profiles"]}
+
+
+def _job_hunter_user_dir(user_id: str) -> Path:
+    safe = _safe_user(user_id)
+    return _JOB_HUNTER_DIR / safe
+
+
+def _job_hunter_read_json(path: Path, default: Any = None) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def _job_hunter_write_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{secrets.token_hex(4)}.tmp")
+    tmp.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _job_hunter_profile(user_id: str) -> dict[str, Any]:
+    path = _job_hunter_user_dir(user_id) / "profile.json"
+    data = _job_hunter_read_json(path, {})
+    return data if isinstance(data, dict) else {}
+
+
+def _job_hunter_jobs(user_id: str) -> list[dict[str, Any]]:
+    path = _job_hunter_user_dir(user_id) / "jobs.json"
+    jobs = _job_hunter_read_json(path, [])
+    return jobs if isinstance(jobs, list) else []
+
+
+def _bridge_jobs(user_id: str) -> list[dict[str, Any]]:
+    jobs = _read_store("jobs", user_id, None)
+    return jobs if isinstance(jobs, list) else _job_hunter_jobs(user_id)
+
+
+def _persist_jobs(user_id: str, jobs: list[dict[str, Any]]) -> None:
+    _write_store("jobs", user_id, jobs)
+    _job_hunter_write_json(_job_hunter_user_dir(user_id) / "jobs.json", jobs)
+
+
+def _job_hunter_missing_fields(profile: dict[str, Any]) -> list[str]:
+    applicant = profile.get("applicant") or {}
+    missing: list[str] = []
+    if not profile.get("cv"):
+        missing.append("CV")
+    if not applicant.get("firstName"):
+        missing.append("First name")
+    if not applicant.get("lastName"):
+        missing.append("Last name")
+    if not applicant.get("email"):
+        missing.append("Email")
+    if not applicant.get("phone"):
+        missing.append("Phone")
+    return missing
+
+
+def _job_hunter_terms(profile: dict[str, Any], requested: list[str]) -> list[str]:
+    base = requested if requested else ((profile.get("preferences") or {}).get("titles") or [])
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for term in base[:5]:
+        value = str(term or "").strip()
+        key = value.lower()
+        if value and key not in seen:
+            cleaned.append(value)
+            seen.add(key)
+    return cleaned
+
+
+def _job_hunter_matches(job: dict[str, Any], terms: list[str]) -> bool:
+    haystack = " ".join(
+        [
+            str(job.get("title") or ""),
+            str(job.get("company") or ""),
+            str(job.get("description") or ""),
+            str(job.get("location") or ""),
+        ]
+    ).lower()
+    return any(term.lower() in haystack for term in terms)
+
+
+def _job_hunter_prepare_matches(user_id: str, jobs: list[dict[str, Any]], terms: list[str], limit: int) -> tuple[int, int]:
+    matched = [job for job in jobs if not job.get("status") == "dismissed" and _job_hunter_matches(job, terms)]
+    prepared = 0
+    for job in matched:
+        if prepared >= limit:
+            break
+        if job.get("status") not in {"found", "ready", "failed", "needs_user"}:
+            continue
+        job["status"] = "ready"
+        job.setdefault("log", [])
+        job["log"].append({"at": _iso_now(), "msg": "Bridge autopilot prepared for review"})
+        job["updatedAt"] = _iso_now()
+        prepared += 1
+    if prepared:
+        _persist_jobs(user_id, jobs)
+    return len(matched), prepared
+
+
+@app.get("/api/jobs", dependencies=[Depends(require_token)])
+def jobs_get(user_id: str = "default"):
+    user = _safe_user(user_id)
+    profile = _job_hunter_profile(user)
+    jobs = _bridge_jobs(user)
+    autopilot = (profile.get("autopilot") or {})
+    submitted_by_day = autopilot.get("submittedByDay") or {}
+    submitted_today = sum(int(v) for v in submitted_by_day.values() if isinstance(v, (int, float)))
+    return {
+        "jobs": jobs,
+        "ready": {
+            "hasCv": bool(profile.get("cv")),
+            "missing": _job_hunter_missing_fields(profile),
+            "titles": (profile.get("preferences") or {}).get("titles", []),
+        },
+        "autopilot": {
+            "enabled": bool(autopilot.get("enabled")),
+            "submittedToday": submitted_today,
+            "dailyLimit": autopilot.get("dailyLimit", 5),
+            "minScore": autopilot.get("minScore", 75),
+        },
+    }
+
+
+@app.post("/api/jobs", dependencies=[Depends(require_token)])
+def jobs_post(req: JobActionRequest):
+    user_id = _safe_user(req.user_id)
+    if req.action == "search":
+        profile = _job_hunter_profile(user_id)
+        if not profile.get("cv"):
+            raise HTTPException(status_code=400, detail="Upload your CV first")
+        terms = _job_hunter_terms(profile, [str(term) for term in req.terms])
+        if not terms:
+            raise HTTPException(status_code=400, detail="Add at least one target role")
+        jobs = _bridge_jobs(user_id)
+        matched = [job for job in jobs if job.get("status") != "dismissed" and _job_hunter_matches(job, terms)]
+        prepared = 0
+        queue = [job for job in matched if job.get("status") in {"found", "ready", "failed", "needs_user"}][: max(0, min(req.auto_prepare, 5))]
+        for job in queue:
+            if job.get("status") != "ready":
+                job["status"] = "ready"
+                job["updatedAt"] = _iso_now()
+                job.setdefault("log", []).append({"at": _iso_now(), "msg": "Bridge search prepared for approval"})
+                prepared += 1
+        if queue:
+            _persist_jobs(user_id, jobs)
+        result = {"terms": terms, "found": len(jobs), "matched": len(matched), "added": len(matched), "prepared": prepared}
+        return {"result": result}
+    if req.action in ("prepare", "approve", "dismiss"):
+        jobs = _bridge_jobs(user_id)
+        job = next((item for item in jobs if item.get("id") == req.id), None)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        job["status"] = {"prepare": "ready", "approve": "submitted", "dismiss": "dismissed"}[req.action]
+        _persist_jobs(user_id, jobs)
+        return {"job": job}
+    if req.action == "autopilot":
+        profile = _job_hunter_profile(user_id)
+        autopilot = profile.get("autopilot") or {}
+        if isinstance(autopilot, dict) and autopilot.get("enabled") is False:
+            return {"report": {"found": 0, "prepared": 0, "submitted": 0, "needsUser": 0, "failed": 0, "reason": "Autopilot is off"}}
+        terms = _job_hunter_terms(profile, [])
+        if not profile.get("cv"):
+            raise HTTPException(status_code=400, detail="Upload your CV first")
+        if not terms:
+            raise HTTPException(status_code=400, detail="Add at least one target role")
+        jobs = _bridge_jobs(user_id)
+        matched = [job for job in jobs if job.get("status") != "dismissed" and _job_hunter_matches(job, terms)]
+        prepared_limit = max(0, int(autopilot.get("dailyLimit", 3) or 3))
+        found_count, prepared = _job_hunter_prepare_matches(user_id, jobs, terms, prepared_limit)
+        report = {
+            "found": found_count,
+            "prepared": prepared,
+            "submitted": 0,
+            "needsUser": max(0, found_count - prepared),
+            "failed": 0,
+            "reason": "Bridge-safe autopilot is in review-only mode; no external submit is allowed",
+        }
+        return {"report": report}
+    raise HTTPException(status_code=400, detail="Unknown action")
+
+
+# ---------------------------------------------------------------------------
+# Workflows
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/workflows", dependencies=[Depends(require_token)])
+def workflows_get(user_id: str = "default", id: Optional[str] = None):
+    workflows = _read_store("workflows", user_id, [])
+    if id:
+        workflow = next((item for item in workflows if item.get("id") == id), None)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        return {"workflow": workflow, "progress": _workflow_progress(workflow), "ready": []}
+    return {"workflows": [{**item, "progress": _workflow_progress(item)} for item in workflows]}
+
+
+@app.post("/api/workflows", dependencies=[Depends(require_token)])
+def workflows_create(req: WorkflowRequest):
+    if req.action is not None:
+        if req.action != "run":
+            raise HTTPException(status_code=400, detail="Unknown workflow action")
+        if not req.id:
+            raise HTTPException(status_code=400, detail="Workflow id required")
+        user_id = _safe_user(req.user_id)
+        workflows = _read_store("workflows", user_id, [])
+        workflow = next((item for item in workflows if item.get("id") == req.id), None)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        workflow["status"] = "running"
+        workflow["updatedAt"] = _iso_now()
+        try:
+            _run_workflow(workflow, req.max_steps)
+        except ValueError as exc:
+            _fail_workflow(workflow, str(exc))
+            _write_store("workflows", user_id, workflows)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        _write_store("workflows", user_id, workflows)
+        return {"workflow": workflow, "progress": _workflow_progress(workflow)}
+    if not req.name or not req.name.strip():
+        raise HTTPException(status_code=400, detail="A workflow name is required")
+    user_id = _safe_user(req.user_id)
+    now = _iso_now()
+    workflow = {
+        "id": _new_id("wf-"), "name": req.name[:200], "goal": (req.goal or "")[:4000],
+        "status": "draft", "steps": [_workflow_step(step) for step in (req.steps or [])[:100]],
+        "createdAt": now, "updatedAt": now,
+    }
+    workflows = _read_store("workflows", user_id, [])
+    workflows.append(workflow)
+    _write_store("workflows", user_id, workflows)
+    return {"workflow": workflow}
+
+
+@app.put("/api/workflows", dependencies=[Depends(require_token)])
+def workflows_update(req: WorkflowRequest):
+    if not req.id:
+        raise HTTPException(status_code=400, detail="Workflow id required")
+    user_id = _safe_user(req.user_id)
+    workflows = _read_store("workflows", user_id, [])
+    workflow = next((item for item in workflows if item.get("id") == req.id), None)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if req.step_id and req.step is not None:
+        step = next((item for item in workflow["steps"] if item.get("id") == req.step_id), None)
+        if not step:
+            raise HTTPException(status_code=404, detail="Workflow or step not found")
+        step.update({key: value for key, value in req.step.items() if key in ("status", "notes", "title", "ref")})
+        if req.log:
+            step.setdefault("log", []).append({"msg": req.log})
+    else:
+        if req.name is not None:
+            workflow["name"] = req.name[:200]
+        if req.goal is not None:
+            workflow["goal"] = req.goal[:4000]
+        # Omitted status means preserve the current status, never reset to draft.
+        if req.status is not None:
+            workflow["status"] = req.status
+        if req.steps is not None:
+            workflow["steps"] = [_workflow_step(step) for step in req.steps[:100]]
+    workflow["updatedAt"] = _iso_now()
+    _write_store("workflows", user_id, workflows)
+    return {"workflow": workflow, "progress": _workflow_progress(workflow)}
+
+
+@app.delete("/api/workflows", dependencies=[Depends(require_token)])
+def workflows_delete(user_id: str = "default", id: Optional[str] = None):
+    if not id:
+        raise HTTPException(status_code=400, detail="Workflow id required")
+    workflows = _read_store("workflows", user_id, [])
+    next_workflows = [item for item in workflows if item.get("id") != id]
+    _write_store("workflows", user_id, next_workflows)
+    return {"ok": len(next_workflows) != len(workflows)}
+
+
+# ---------------------------------------------------------------------------
+# n8n automation (bounded list/trigger over the shipped workflow definitions)
+# ---------------------------------------------------------------------------
+
+_N8N_WORKFLOW_DIR = Path(__file__).resolve().parent.parent / "electron-app" / "n8n-workflows"
+_N8N_DEFAULT_URL = "http://localhost:5678"
+_N8N_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+_N8N_PATH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+_N8N_MAX_PAYLOAD_BYTES = 16 * 1024
+_N8N_MAX_RESPONSE_BYTES = 64 * 1024
+_N8N_TIMEOUT_SECONDS = 10
+_N8N_FORBIDDEN_PAYLOAD_KEYS = {"url", "webhookurl", "command", "cmd", "script", "shell"}
+
+
+class N8nTriggerRequest(BaseModel):
+    id: str = Field(max_length=64)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+def _n8n_load_workflows() -> dict[str, dict[str, Any]]:
+    """Discover workflows from the shipped definitions, keyed by file-stem id."""
+    found: dict[str, dict[str, Any]] = {}
+    if not _N8N_WORKFLOW_DIR.is_dir():
+        return found
+    for path in sorted(_N8N_WORKFLOW_DIR.glob("*.json")):
+        workflow_id = path.stem.lower()
+        if not _N8N_ID_RE.match(workflow_id):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        webhook = next(
+            (
+                node.get("parameters") or {}
+                for node in data.get("nodes") or []
+                if isinstance(node, dict) and node.get("type") == "n8n-nodes-base.webhook"
+            ),
+            None,
+        )
+        method = str((webhook or {}).get("httpMethod") or "").upper()
+        hook_path = str((webhook or {}).get("path") or "")
+        triggerable = (
+            webhook is not None
+            and method == "POST"
+            and bool(_N8N_PATH_RE.match(hook_path))
+            and data.get("active") is not False
+        )
+        found[workflow_id] = {
+            "id": workflow_id,
+            "name": str(data.get("name") or workflow_id)[:200],
+            "active": data.get("active") is not False,
+            "triggerable": triggerable,
+            "webhookMethod": method or None,
+            "webhookPath": hook_path if triggerable else None,
+        }
+    return found
+
+
+def _n8n_base_url() -> str:
+    """Return the configured n8n origin; only credential-free loopback http(s) is allowed."""
+    raw = (os.environ.get("GHOSTFORGE_N8N_URL") or _N8N_DEFAULT_URL).strip()
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError:
+        raise _err("n8n endpoint is not configured correctly", status=503)
+    if (
+        parsed.scheme not in ("http", "https")
+        or parsed.hostname not in ("localhost", "127.0.0.1", "::1")
+        or parsed.username
+        or parsed.password
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise _err("n8n endpoint must be a loopback http(s) origin", status=503)
+    host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    return f"{parsed.scheme}://{host}" + (f":{port}" if port else "")
+
+
+def _n8n_check_payload(value: Any, depth: int = 0) -> None:
+    if depth > 6:
+        raise HTTPException(status_code=400, detail="Payload is nested too deeply")
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key).lower() in _N8N_FORBIDDEN_PAYLOAD_KEYS:
+                raise HTTPException(status_code=400, detail=f"Payload key {str(key)[:40]!r} is not allowed")
+            _n8n_check_payload(item, depth + 1)
+    elif isinstance(value, list):
+        for item in value:
+            _n8n_check_payload(item, depth + 1)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):  # noqa: D401 - never follow redirects
+        return None
+
+
+def _n8n_post(url: str, body: bytes) -> tuple[int, bytes]:
+    """POST *body* to *url* without redirects; returns (status, bounded response)."""
+    request = urllib.request.Request(
+        url, data=body, method="POST", headers={"Content-Type": "application/json"}
+    )
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        with opener.open(request, timeout=_N8N_TIMEOUT_SECONDS) as response:
+            return response.status, response.read(_N8N_MAX_RESPONSE_BYTES)
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(_N8N_MAX_RESPONSE_BYTES)
+
+
+@app.get("/api/n8n/workflows", dependencies=[Depends(require_token)])
+def n8n_workflows_get():
+    workflows = list(_n8n_load_workflows().values())
+    return {"workflows": workflows, "count": len(workflows)}
+
+
+@app.post("/api/n8n/trigger", dependencies=[Depends(require_token)])
+def n8n_trigger(req: N8nTriggerRequest):
+    workflow_id = req.id.strip().lower()
+    if not _N8N_ID_RE.match(workflow_id):
+        raise HTTPException(status_code=400, detail="Invalid workflow id")
+    workflow = _n8n_load_workflows().get(workflow_id)
+    if workflow is None:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    if not workflow["triggerable"]:
+        raise HTTPException(status_code=409, detail="Workflow has no active POST webhook")
+    _n8n_check_payload(req.payload)
+    body = json.dumps(req.payload).encode("utf-8")
+    if len(body) > _N8N_MAX_PAYLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Payload is too large")
+    url = f"{_n8n_base_url()}/webhook/{workflow['webhookPath']}"
+    try:
+        status, raw = _n8n_post(url, body)
+    except (urllib.error.URLError, OSError, TimeoutError):
+        logger.warning("n8n trigger for %s failed to connect", workflow_id)
+        raise _err("n8n is unreachable", status=502)
+    if status >= 400:
+        raise _err(f"n8n rejected the trigger (HTTP {status})", status=502)
+    text = raw.decode("utf-8", errors="replace")
+    try:
+        result: Any = json.loads(text)
+    except ValueError:
+        result = text[:2000]
+    return {"ok": True, "id": workflow_id, "status": status, "result": result}
+
+
+# ---------------------------------------------------------------------------
+# Webhooks, devices, and release status/actions
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/webhook", dependencies=[Depends(require_token)])
+def webhook_get(log: int = 0):
+    if log == 1:
+        return _read_store("webhook-log", "default", [])
+    return _read_store("webhooks", "default", [])
+
+
+@app.post("/api/webhook", dependencies=[Depends(require_token)])
+def webhook_post(req: WebhookRequest):
+    if req.config is not None:
+        _write_store("webhooks", "default", req.config)
+        return {"ok": True}
+    log = _read_store("webhook-log", "default", [])
+    log.insert(0, {"source": req.source[:80], "event": req.event[:80], "body": req.body, "receivedAt": _iso_now()})
+    _write_store("webhook-log", "default", log[:200])
+    return {"ok": True, "event": req.event, "prompted": True}
+
+
+@app.delete("/api/webhook", dependencies=[Depends(require_token)])
+def webhook_delete():
+    _write_store("webhook-log", "default", [])
+    return {"ok": True}
+
+
+@app.get("/api/devices", dependencies=[Depends(require_token)])
+def devices_get(user_id: str = "default"):
+    return {"devices": _read_store("devices", user_id, []), "user": _safe_user(user_id)}
+
+
+@app.post("/api/devices", dependencies=[Depends(require_token)])
+def devices_post(req: DeviceRequest):
+    user_id = _safe_user(req.user_id)
+    devices = _read_store("devices", user_id, [])
+    device = req.model_dump()
+    device.pop("user_id", None)
+    device["updatedAt"] = _iso_now()
+    devices = [item for item in devices if item.get("id") != req.id] + [device]
+    _write_store("devices", user_id, devices)
+    return {"device": device, "devices": devices}
+
+
+@app.delete("/api/devices", dependencies=[Depends(require_token)])
+def devices_delete(user_id: str = "default", id: Optional[str] = None):
+    if not id:
+        raise HTTPException(status_code=400, detail="Missing device id")
+    devices = _read_store("devices", user_id, [])
+    next_devices = [item for item in devices if item.get("id") != id]
+    _write_store("devices", user_id, next_devices)
+    if len(next_devices) == len(devices):
+        raise HTTPException(status_code=404, detail="Device not found")
+    return {"ok": True}
+
+
+@app.get("/api/devices/status", dependencies=[Depends(require_token)])
+def devices_status(user_id: str = "default"):
+    safe_user = _safe_user(user_id)
+    _require_module("system_monitor", "system_monitor" not in _MISSING)
+    try:
+        metrics = _get_system_status()
+    except Exception:
+        logger.exception("system_monitor status failed")
+        raise _err("Live device status is unavailable", status=503)
+    if not isinstance(metrics, dict) or metrics.get("error"):
+        raise _err("Live device status is unavailable", status=503)
+    return {
+        "status": "online",
+        "user": safe_user,
+        "device": {
+            "hostname": socket.gethostname(),
+            "platform": platform.system().lower(),
+            "platformLabel": platform.system(),
+            "arch": platform.machine(),
+        },
+        "metrics": metrics,
+        "updatedAt": _iso_now(),
+    }
+
+
+@app.get("/api/remote/setup", dependencies=[Depends(require_token)])
+def remote_setup_get():
+    return _remote_setup_status()
+
+
+@app.post("/api/remote/setup", dependencies=[Depends(require_token)])
+def remote_setup_post(req: RemoteSetupRequest):
+    if req.action != "start-websockify":
+        raise HTTPException(status_code=400, detail="Unsupported remote setup action")
+
+    websockify = shutil.which("websockify")
+    novnc_root = _find_novnc_root()
+    if not websockify or novnc_root is None:
+        raise _err(
+            "websockify and noVNC must be installed to start the local viewer",
+            status=503,
+        )
+
+    if _probe_loopback_port(6080):
+        raise HTTPException(
+            status_code=409,
+            detail="Port 6080 is already in use; refusing to reuse an unverified listener",
+        )
+
+    try:
+        subprocess.Popen(
+            [
+                websockify,
+                "127.0.0.1:6080",
+                "127.0.0.1:5900",
+                "--web",
+                str(novnc_root),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=(os.name != "nt"),
+        )
+    except OSError:
+        logger.exception("Could not start local websockify")
+        raise _err("Could not start the local WebSocket bridge", status=503)
+    return {
+        "ok": True,
+        "started": True,
+        "listenerHost": "127.0.0.1",
+        **_remote_setup_status(),
+    }
+
+
+@app.get("/api/release", dependencies=[Depends(require_token)])
+def release_get():
+    return _release_status()
+
+
+@app.post("/api/release", dependencies=[Depends(require_token)])
+def release_post(req: ReleaseRequest):
+    if req.action not in ("status", "prepare", "notes", "deploy"):
+        raise HTTPException(status_code=400, detail="Unknown release action")
+    if req.action == "prepare" and req.kind not in ("patch", "minor", "major"):
+        raise HTTPException(status_code=400, detail="Invalid release kind")
+    if req.action == "deploy":
+        try:
+            deployment = _deploy_azure(environment=req.environment, target=req.target)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"action": "deploy", "kind": req.kind, "environment": deployment["environment"], "target": deployment["target"], "result": deployment["output"]}
+    return {"action": req.action, **_release_status(), "kind": req.kind}
 
 
 # ---------------------------------------------------------------------------

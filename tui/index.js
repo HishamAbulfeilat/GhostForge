@@ -15,16 +15,22 @@ import ora from 'ora';
 import { execSync, spawn, spawnSync } from 'child_process';
 import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname, join } from 'path';
+import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { filterMenuChoices, groupCommandChoices } from './lib/menu-search.js';
 import { readRecentCommands, rememberCommand } from './lib/recent-commands.js';
+import { applyEffectiveMarketplaceState } from './lib/marketplace-state.js';
 import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP } from './lib/platform-utils.js';
 import { askGFAI } from './lib/gfai-client.js';
 import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
+import { runTeamCommand, startAgentTeam } from './lib/agent-team.js';
+import { parseArgs as parseUsersArgs, request as requestUsersApi } from '../scripts/users.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const BASE = ROOT;
+const COLLAB_BRIDGE_URL = 'http://127.0.0.1:8765';
+const COLLAB_SESSION_ID = /^[a-z0-9]{8,64}$/i;
 const VERSION = existsSync(resolve(ROOT, 'VERSION'))
   ? readFileSync(resolve(ROOT, 'VERSION'), 'utf8').trim()
   : '4.0.0';
@@ -34,10 +40,977 @@ const SCRIPTS_COUNT = existsSync(resolve(ROOT, 'scripts'))
   : 0;
 figlet.defaults({ fontPath: resolve(__dirname, 'node_modules/figlet/fonts') });
 
+function collabBridgeConfig(env = process.env) {
+  const rawUrl = env.MARKL_BRIDGE_URL?.trim() || COLLAB_BRIDGE_URL;
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    throw new Error('MARKL_BRIDGE_URL must be an absolute http(s) URL.');
+  }
+  if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password ||
+      !['', '/'].includes(parsedUrl.pathname) || parsedUrl.search || parsedUrl.hash) {
+    throw new Error('MARKL_BRIDGE_URL must contain only an http(s) scheme, host, and optional port.');
+  }
+  const loopback = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(parsedUrl.hostname);
+  if (!loopback && env.GF_ALLOW_REMOTE_BRIDGE !== '1') {
+    throw new Error('MARKL_BRIDGE_URL is not loopback; set GF_ALLOW_REMOTE_BRIDGE=1 to opt in.');
+  }
+  if (!loopback && parsedUrl.port && parsedUrl.port !== (parsedUrl.protocol === 'https:' ? '443' : '80')) {
+    throw new Error('Remote MARKL_BRIDGE_URL must use the default port.');
+  }
+
+  let token = env.MARKL_BRIDGE_TOKEN?.trim();
+  if (!token) {
+    const tokenPath = join(homedir(), '.ghostforge', 'bridge', 'token');
+    try {
+      token = readFileSync(tokenPath, 'utf8').trim();
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        throw new Error(`Bridge token not found. Set MARKL_BRIDGE_TOKEN or create ${tokenPath}.`);
+      }
+      throw new Error(`Could not read bridge token at ${tokenPath}: ${error.message}`);
+    }
+  }
+  if (!token) throw new Error('Bridge token is empty. Set MARKL_BRIDGE_TOKEN or check the bridge token file.');
+  if (/[\r\n]/.test(token)) throw new Error('Bridge token contains invalid characters.');
+  return { baseUrl: parsedUrl.origin, token };
+}
+
+function safeCollabText(value) {
+  return String(value ?? '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+}
+
+async function collabBridgeRequest(pathname, init = {}) {
+  const { baseUrl, token } = collabBridgeConfig();
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${pathname}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        ...init.headers,
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (error) {
+    if (error.name === 'TimeoutError') throw new Error('The collaboration bridge request timed out.');
+    throw new Error(`Could not reach the collaboration bridge: ${safeCollabText(error.message)}`);
+  }
+
+  const text = await response.text();
+  let parsedBody;
+  try {
+    parsedBody = text ? JSON.parse(text) : {};
+  } catch {
+    parsedBody = { detail: safeCollabText(text).slice(0, 300) };
+  }
+  const body = parsedBody && typeof parsedBody === 'object' ? parsedBody : {};
+  if (!response.ok) {
+    throw new Error(safeCollabText(body.detail || body.error || `Bridge request failed (${response.status}).`));
+  }
+  return body.data ?? body;
+}
+
+function collabShareUrl(id, sharePath = `/jarvis?session=${encodeURIComponent(id)}`) {
+  const base = process.env.GF_WEB_UI_URL?.trim() || 'http://127.0.0.1:3000';
+  let webUrl;
+  try {
+    webUrl = new URL(base);
+  } catch {
+    throw new Error('GF_WEB_UI_URL must be an absolute http(s) URL to build a share link.');
+  }
+  if (!['http:', 'https:'].includes(webUrl.protocol) || webUrl.username || webUrl.password ||
+      !['', '/'].includes(webUrl.pathname) || webUrl.search || webUrl.hash) {
+    throw new Error('GF_WEB_UI_URL must contain only an http(s) scheme, host, and optional port.');
+  }
+  const safePath = /^\/jarvis\?session=[a-z0-9]{8,64}$/i.test(sharePath)
+    ? sharePath
+    : `/jarvis?session=${encodeURIComponent(id)}`;
+  return new URL(safePath, webUrl.origin).toString();
+}
+
 const cliArgs = process.argv.slice(2);
 if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
   console.log(VERSION);
   process.exit(0);
+}
+
+// ── Device status + push notifications ──────────────────────────────────────
+
+async function screenDeviceStatus() {
+  while (true) {
+    sectionHeader('📡  Device & Push Status', 'Authenticated web-ui controls for the local device');
+    const action = await select({
+      message: T.white('Device action:'),
+      choices: [
+        { name: T.success('📊  Show device status'), value: 'status' },
+        { name: T.accent('🔔  Send push notification preview'), value: 'push' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+
+    const args = [resolve(ROOT, 'scripts/device-status.mjs'), action];
+    if (action === 'push') {
+      const title = await input({ message: 'Notification title:' });
+      const body = await input({ message: 'Notification body:' });
+      if (!title.trim() || !body.trim()) {
+        console.log(T.warning('\n  ⚠ Title and body are required.'));
+        await pressEnter();
+        continue;
+      }
+      args.push('--title', title.trim(), '--body', body.trim());
+      const url = await input({ message: 'Open URL (optional):', default: '' });
+      if (url.trim()) args.push('--url', url.trim());
+    }
+
+    const result = spawnSync(process.execPath, args, {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['inherit', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    const output = (result.stdout || result.stderr || '').trim();
+    console.log(result.status === 0 ? T.success(`\n  ✔ ${output}`) : T.warning(`\n  ⚠ ${output || 'Device command failed.'}`));
+    await pressEnter();
+  }
+}
+
+function parseWorkflowMaxSteps(value) {
+  const raw = String(value ?? '').trim();
+  if (!/^\d+$/.test(raw)) {
+    throw new Error('Enter a whole number from 1 to 100.');
+  }
+  const maxSteps = Number(raw);
+  if (!Number.isSafeInteger(maxSteps) || maxSteps < 1 || maxSteps > 100) {
+    throw new Error('Enter a whole number from 1 to 100.');
+  }
+  return maxSteps;
+}
+
+function parseWebhookConfig(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    throw new Error('Webhook configuration JSON is required.');
+  }
+  let config;
+  try {
+    config = JSON.parse(raw);
+  } catch {
+    throw new Error('Webhook configuration must be valid JSON.');
+  }
+  if (!Array.isArray(config)) {
+    throw new Error('Webhook configuration must be a JSON array.');
+  }
+
+  const seen = new Set();
+  for (const [index, trigger] of config.entries()) {
+    if (!trigger || typeof trigger !== 'object' || Array.isArray(trigger)) {
+      throw new Error(`Webhook trigger ${index + 1} must be an object.`);
+    }
+    for (const field of ['id', 'source', 'eventType', 'action']) {
+      if (typeof trigger[field] !== 'string' || !trigger[field].trim()) {
+        throw new Error(`Webhook trigger ${index + 1} requires a non-empty ${field}.`);
+      }
+    }
+    const id = trigger.id.trim();
+    if (seen.has(id)) {
+      throw new Error(`Webhook trigger IDs must be unique: ${id}.`);
+    }
+    seen.add(id);
+  }
+
+  return config.map(trigger => ({
+    id: String(trigger.id).trim(),
+    source: String(trigger.source).trim(),
+    eventType: String(trigger.eventType).trim(),
+    action: String(trigger.action).trim(),
+  }));
+}
+
+function safeWorkflowText(value) {
+  return String(value ?? '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+}
+
+async function screenWorkflows() {
+  while (true) {
+    sectionHeader('🔁  Workflows', 'Review saved workflows and run through the authenticated bridge');
+    let data;
+    try {
+      data = await collabBridgeRequest('/api/workflows');
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeWorkflowText(error.message || 'Could not load workflows.')}`));
+      console.log(T.muted('  Check MARKL_BRIDGE_TOKEN and that the local bridge is running.'));
+      await pressEnter();
+      return;
+    }
+
+    if (!Array.isArray(data.workflows) ||
+        data.workflows.some(workflow => !workflow || typeof workflow.id !== 'string' ||
+          typeof workflow.name !== 'string' || !Array.isArray(workflow.steps))) {
+      console.log(T.warning('\n  ⚠ The workflows API returned an invalid workflow list.'));
+      await pressEnter();
+      return;
+    }
+
+    const workflows = data.workflows;
+    if (workflows.length === 0) {
+      console.log(T.muted('\n  No workflows found.'));
+    } else {
+      const table = new Table({
+        head: ['Workflow', 'ID', 'Status', 'Steps'],
+        style: { head: ['cyan'] },
+        colWidths: [32, 20, 14, 8],
+        wordWrap: true,
+      });
+      for (const workflow of workflows) {
+        table.push([
+          safeWorkflowText(workflow.name),
+          safeWorkflowText(workflow.id),
+          safeWorkflowText(workflow.status || 'unknown'),
+          workflow.steps.length,
+        ]);
+      }
+      console.log(table.toString());
+    }
+
+    const action = await select({
+      message: T.white('Workflow action:'),
+      choices: [
+        ...(workflows.length
+          ? [{ name: T.accent('▶  Run a workflow'), value: 'run' }]
+          : []),
+        { name: T.accent('↻  Refresh workflows'), value: 'refresh' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+    if (action === 'refresh') continue;
+
+    const workflowId = await select({
+      message: 'Select a workflow to run:',
+      choices: workflows.map(workflow => ({
+        name: `${safeWorkflowText(workflow.name)} (${safeWorkflowText(workflow.id)})`,
+        value: workflow.id,
+      })),
+      pageSize: 15,
+    });
+    const workflow = workflows.find(item => item.id === workflowId);
+    if (!workflow) {
+      console.log(T.warning('\n  ⚠ The selected workflow is no longer in the list.'));
+      await pressEnter();
+      continue;
+    }
+
+    const defaultMaxSteps = String(Math.min(Math.max(workflow.steps.length, 1), 100));
+    const maxStepsText = await input({
+      message: 'Maximum workflow steps allowed (1-100):',
+      default: defaultMaxSteps,
+      validate(value) {
+        try {
+          parseWorkflowMaxSteps(value);
+          return true;
+        } catch (error) {
+          return error.message;
+        }
+      },
+    });
+    let maxSteps;
+    try {
+      maxSteps = parseWorkflowMaxSteps(maxStepsText);
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeWorkflowText(error.message)}`));
+      await pressEnter();
+      continue;
+    }
+
+    console.log(T.muted('\n  The bridge runs only its existing allowlisted command steps; manual steps are skipped.'));
+    const approved = await confirm({ message: 'Run this workflow through the bridge?', default: false });
+    if (!approved) continue;
+
+    try {
+      const result = await collabBridgeRequest('/api/workflows', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'run', id: workflow.id, max_steps: maxSteps }),
+      });
+      if (!result.workflow || result.workflow.id !== workflow.id ||
+          typeof result.workflow.status !== 'string') {
+        throw new Error('The workflows API returned an invalid run result.');
+      }
+      console.log(T.success(
+        `\n  ✔ Workflow ${safeWorkflowText(workflow.name)} finished with status "${safeWorkflowText(result.workflow.status)}".`,
+      ));
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ Workflow run failed: ${safeWorkflowText(error.message || 'Unknown bridge error.')}`));
+    }
+    await pressEnter();
+  }
+}
+
+function n8nConfig(rawUrl = process.env.N8N_URL || 'http://localhost:5678') {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(rawUrl.trim());
+  } catch {
+    throw new Error('N8N_URL must be an absolute http(s) URL.');
+  }
+  if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password ||
+      parsedUrl.search || parsedUrl.hash) {
+    throw new Error('Use an http(s) n8n URL without embedded credentials, query, or fragment.');
+  }
+  const loopback = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(parsedUrl.hostname);
+  if (parsedUrl.protocol !== 'https:' && !loopback && process.env.GF_ALLOW_REMOTE_N8N !== '1') {
+    throw new Error('Remote n8n over plain HTTP is blocked; use HTTPS or set GF_ALLOW_REMOTE_N8N=1 to opt in.');
+  }
+  const baseUrl = `${parsedUrl.origin}${parsedUrl.pathname.replace(/\/+$/, '')}`;
+  const apiKey = process.env.N8N_API_KEY?.trim() || '';
+  if (/[\r\n]/.test(apiKey)) throw new Error('N8N_API_KEY contains invalid characters.');
+  return { baseUrl, apiKey };
+}
+
+async function n8nRequest(config, pathname, init = {}) {
+  let response;
+  try {
+    response = await fetch(`${config.baseUrl}${pathname}`, {
+      ...init,
+      headers: {
+        ...(config.apiKey ? { 'X-N8N-API-KEY': config.apiKey } : {}),
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        ...init.headers,
+      },
+      redirect: 'error',
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (error) {
+    if (error.name === 'TimeoutError') throw new Error('The n8n request timed out.');
+    throw new Error(`Could not reach n8n: ${safeWorkflowText(error.message)}`);
+  }
+
+  const text = await response.text();
+  let body;
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    body = {};
+  }
+  if (!response.ok) {
+    const detail = body?.message || body?.error || `n8n returned HTTP ${response.status}.`;
+    throw new Error(safeWorkflowText(detail).slice(0, 240));
+  }
+  return body;
+}
+
+function n8nWebhookPath(value) {
+  const path = String(value ?? '').trim();
+  const segments = path.split('/');
+  if (!path || path.startsWith('/') || path.endsWith('/') ||
+      !segments.every(segment => segment !== '.' && segment !== '..' && /^[a-z0-9._~-]+$/i.test(segment))) {
+    return null;
+  }
+  return segments.map(encodeURIComponent).join('/');
+}
+
+async function screenN8n() {
+  let config;
+  try {
+    const baseUrl = await input({
+      message: 'n8n base URL:',
+      default: process.env.N8N_URL || 'http://localhost:5678',
+      validate(value) {
+        try {
+          n8nConfig(value);
+          return true;
+        } catch (error) {
+          return error.message;
+        }
+      },
+    });
+    config = n8nConfig(baseUrl);
+  } catch (error) {
+    if (error.name === 'ExitPromptError') return;
+    console.log(T.warning(`\n  ⚠ ${safeWorkflowText(error.message)}`));
+    await pressEnter();
+    return;
+  }
+
+  while (true) {
+    sectionHeader('⚡  n8n Automation', 'List existing workflows and trigger active POST webhooks');
+    let workflows;
+    try {
+      const data = await n8nRequest(config, '/api/v1/workflows?limit=250');
+      if (!Array.isArray(data.data) || data.data.some(workflow =>
+        !workflow || typeof workflow.id !== 'string' || !workflow.id.trim() ||
+        typeof workflow.name !== 'string' || typeof workflow.active !== 'boolean')) {
+        throw new Error('The n8n API returned an invalid workflow list.');
+      }
+      workflows = data.data;
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeWorkflowText(error.message || 'Could not load n8n workflows.')}`));
+      console.log(T.muted('  Check that n8n is running, N8N_API_KEY is valid, and your account can list workflows.'));
+      await pressEnter();
+      return;
+    }
+
+    if (workflows.length === 0) {
+      console.log(T.muted('\n  No workflows found in n8n.'));
+    } else {
+      const table = new Table({
+        head: ['Workflow', 'ID', 'Status'],
+        style: { head: ['cyan'] },
+        colWidths: [38, 28, 14],
+        wordWrap: true,
+      });
+      for (const workflow of workflows) {
+        table.push([
+          safeWorkflowText(workflow.name),
+          safeWorkflowText(workflow.id),
+          workflow.active ? 'active' : 'inactive',
+        ]);
+      }
+      console.log(table.toString());
+    }
+
+    const activeWorkflows = workflows.filter(workflow => workflow.active);
+    const action = await select({
+      message: T.white('n8n action:'),
+      choices: [
+        ...(activeWorkflows.length
+          ? [{ name: T.accent('▶  Trigger an active workflow webhook'), value: 'trigger' }]
+          : []),
+        { name: T.accent('↻  Refresh workflows'), value: 'refresh' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+    if (action === 'refresh') continue;
+
+    const workflowId = await select({
+      message: 'Select an active workflow:',
+      choices: activeWorkflows.map(workflow => ({
+        name: `${safeWorkflowText(workflow.name)} (${safeWorkflowText(workflow.id)})`,
+        value: workflow.id,
+      })),
+      pageSize: 15,
+    });
+    const workflow = activeWorkflows.find(item => item.id === workflowId);
+    if (!workflow) {
+      console.log(T.warning('\n  ⚠ The selected workflow is no longer in the list.'));
+      await pressEnter();
+      continue;
+    }
+
+    try {
+      const detail = await n8nRequest(config, `/api/v1/workflows/${encodeURIComponent(workflow.id)}`);
+      if (detail.id !== workflow.id || detail.active !== true || !Array.isArray(detail.nodes)) {
+        throw new Error('n8n returned invalid workflow details, or the workflow is no longer active.');
+      }
+      const webhooks = detail.nodes
+        .filter(node => node?.type === 'n8n-nodes-base.webhook')
+        .map(node => ({
+          name: safeWorkflowText(node.name || 'Webhook'),
+          path: n8nWebhookPath(node.parameters?.path),
+          method: String(node.parameters?.httpMethod || '').toUpperCase(),
+        }))
+        .filter(webhook => webhook.path && ['POST', 'ALL'].includes(webhook.method));
+      if (webhooks.length === 0) {
+        console.log(T.warning('\n  ⚠ This active workflow has no supported POST webhook trigger.'));
+        console.log(T.muted('  Add a Webhook node with a path and HTTP method POST or ALL, then activate the workflow.'));
+        await pressEnter();
+        continue;
+      }
+      const webhook = webhooks.length === 1
+        ? webhooks[0]
+        : webhooks[await select({
+            message: 'Select a POST webhook:',
+            choices: webhooks.map((item, index) => ({
+              name: `${item.name} — ${item.path}`,
+              value: index,
+            })),
+            pageSize: 15,
+          })];
+      const payloadText = await input({
+        message: 'JSON request body:',
+        default: '{"triggeredFrom":"ghostforge-tui"}',
+        validate(value) {
+          try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+              ? true
+              : 'Enter a JSON object.';
+          } catch {
+            return 'Enter valid JSON.';
+          }
+        },
+      });
+      const payload = JSON.parse(payloadText);
+      const target = `${config.baseUrl}/webhook/${webhook.path}`;
+      console.log(T.muted(`\n  Target: ${safeWorkflowText(target)}`));
+      console.log(T.muted('  This sends the JSON body to the active workflow webhook.'));
+      const approved = await confirm({
+        message: T.warning(`Trigger "${safeWorkflowText(workflow.name)}" now?`),
+        default: false,
+      });
+      if (!approved) continue;
+
+      let response;
+      try {
+        response = await fetch(target, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          redirect: 'error',
+          signal: AbortSignal.timeout(10_000),
+        });
+      } catch (error) {
+        if (error.name === 'TimeoutError') throw new Error('The webhook request timed out.');
+        throw new Error(`Could not reach the workflow webhook: ${safeWorkflowText(error.message)}`);
+      }
+      if (!response.ok) throw new Error(`The workflow webhook returned HTTP ${response.status}.`);
+      const result = safeWorkflowText((await response.text()).slice(0, 300));
+      console.log(T.success(`\n  ✔ Workflow "${safeWorkflowText(workflow.name)}" triggered (HTTP ${response.status}).`));
+      if (result) console.log(T.muted(`  ${result}`));
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ Workflow trigger failed: ${safeWorkflowText(error.message || 'Unknown n8n error.')}`));
+    }
+    await pressEnter();
+  }
+}
+
+async function screenWebhooks() {
+  while (true) {
+    sectionHeader('🪝  Webhooks', 'Inspect and replace bridge trigger configuration; review logs and clear them');
+
+    let configured;
+    try {
+      configured = await collabBridgeRequest('/api/webhook');
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message || 'Could not load webhook configuration.')}`));
+      console.log(T.muted('  Check MARKL_BRIDGE_TOKEN and that the local bridge is running.'));
+      await pressEnter();
+      return;
+    }
+
+    if (!Array.isArray(configured)) {
+      console.log(T.warning('\n  ⚠ The webhook API returned an invalid configuration list.'));
+      await pressEnter();
+      return;
+    }
+
+    if (configured.length === 0) {
+      console.log(T.muted('\n  No webhook triggers configured.'));
+    } else {
+      const table = new Table({
+        head: ['Trigger', 'Source', 'Event', 'Action'],
+        style: { head: ['cyan'] },
+        colWidths: [18, 18, 18, 30],
+        wordWrap: true,
+      });
+      for (const trigger of configured) {
+        if (!trigger || typeof trigger !== 'object') {
+          console.log(T.warning('\n  ⚠ The webhook API returned an invalid trigger entry.'));
+          await pressEnter();
+          return;
+        }
+        table.push([
+          safeCollabText(trigger.id || 'unknown'),
+          safeCollabText(trigger.source || 'unknown'),
+          safeCollabText(trigger.eventType || 'unknown'),
+          safeCollabText(trigger.action || 'unknown'),
+        ]);
+      }
+      console.log(table.toString());
+    }
+
+    const action = await select({
+      message: T.white('Webhook action:'),
+      choices: [
+        { name: T.accent('🔄  Replace configuration'), value: 'replace' },
+        { name: T.accent('📜  View logs'), value: 'logs' },
+        { name: T.accent('🧹  Clear logs'), value: 'clear' },
+        { name: T.accent('↻  Refresh'), value: 'refresh' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+    if (action === 'refresh') continue;
+
+    if (action === 'logs') {
+      let logs;
+      try {
+        logs = await collabBridgeRequest('/api/webhook?log=1');
+      } catch (error) {
+        console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message || 'Could not load webhook logs.')}`));
+        await pressEnter();
+        continue;
+      }
+      if (!Array.isArray(logs)) {
+        console.log(T.warning('\n  ⚠ The webhook log API returned an invalid payload.'));
+        await pressEnter();
+        continue;
+      }
+      if (logs.length === 0) {
+        console.log(T.muted('\n  No webhook events found.'));
+      } else {
+        const table = new Table({
+          head: ['Source', 'Event', 'Received', 'Body'],
+          style: { head: ['cyan'] },
+          colWidths: [18, 18, 16, 40],
+          wordWrap: true,
+        });
+        for (const entry of logs) {
+          const bodyText = typeof entry?.body === 'undefined'
+            ? ''
+            : safeCollabText(JSON.stringify(entry.body)).slice(0, 120);
+          table.push([
+            safeCollabText(entry?.source || 'unknown'),
+            safeCollabText(entry?.event || 'unknown'),
+            safeCollabText(entry?.receivedAt || 'unknown'),
+            bodyText,
+          ]);
+        }
+        console.log(table.toString());
+      }
+      await pressEnter();
+      continue;
+    }
+
+    if (action === 'clear') {
+      const approved = await confirm({ message: 'Clear the webhook event log through the bridge?', default: false });
+      if (!approved) continue;
+      try {
+        const result = await collabBridgeRequest('/api/webhook', { method: 'DELETE' });
+        if (!result || typeof result !== 'object' || result.ok !== true) {
+          throw new Error('The webhook API did not confirm the clear request.');
+        }
+        console.log(T.success('\n  ✔ Webhook event log cleared.'));
+      } catch (error) {
+        console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message || 'Webhook log clear failed.')}`));
+      }
+      await pressEnter();
+      continue;
+    }
+
+    const rawConfig = await input({
+      message: 'Replace webhook configuration as JSON array:',
+      default: JSON.stringify(configured, null, 2),
+      validate(value) {
+        try {
+          parseWebhookConfig(value);
+          return true;
+        } catch (error) {
+          return error.message;
+        }
+      },
+    });
+
+    let nextConfig;
+    try {
+      nextConfig = parseWebhookConfig(rawConfig);
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message)}`));
+      await pressEnter();
+      continue;
+    }
+
+    const approved = await confirm({ message: 'Replace the webhook configuration through the bridge?', default: false });
+    if (!approved) continue;
+
+    try {
+      const result = await collabBridgeRequest('/api/webhook', {
+        method: 'POST',
+        body: JSON.stringify({ config: nextConfig }),
+      });
+      if (!result || typeof result !== 'object' || result.ok !== true) {
+        throw new Error('The webhook API did not confirm the requested change.');
+      }
+      console.log(T.success(`\n  ✔ Saved ${nextConfig.length} webhook trigger${nextConfig.length === 1 ? '' : 's'}.`));
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message || 'Webhook configuration update failed.')}`));
+    }
+    await pressEnter();
+  }
+}
+
+function safeUsersText(value) {
+  return String(value ?? '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+}
+
+async function screenUsers() {
+  while (true) {
+    sectionHeader('👥  User Administration', 'List users and manage role, active status, and permissions');
+    let data;
+    try {
+      data = await requestUsersApi(parseUsersArgs(['list', '--json']));
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeUsersText(error.message || 'Could not load users.')}`));
+      console.log(T.muted('  Check GF_SESSION_TOKEN and your web UI connection.'));
+      await pressEnter();
+      return;
+    }
+
+    const users = data.users;
+    if (users.some(user => !user || typeof user.id !== 'string' || typeof user.username !== 'string')) {
+      console.log(T.warning('\n  ⚠ The users API returned an invalid user entry.'));
+      await pressEnter();
+      return;
+    }
+    if (users.length === 0) {
+      console.log(T.muted('\n  No users found.'));
+    } else {
+      const rows = users.map(user => [
+        safeUsersText(user.username),
+        safeUsersText(user.id),
+        safeUsersText(user.role || 'unknown'),
+        user.active ? 'active' : 'inactive',
+        Array.isArray(user.permissions) ? safeUsersText(user.permissions.join(', ') || 'none') : 'unknown',
+        user.owner ? 'owner' : '',
+      ]);
+      const table = new Table({
+        head: ['Username', 'ID', 'Role', 'Status', 'Permissions', 'Owner'],
+        style: { head: ['cyan'] },
+        colWidths: [18, 18, 12, 12, 32, 8],
+        wordWrap: true,
+      });
+      for (const row of rows) table.push(row);
+      console.log(table.toString());
+    }
+
+    if (data.canManage !== true) {
+      console.log(T.muted('\n  Role, status, and permission changes are owner-only.'));
+      const action = await select({
+        message: 'User administration:',
+        choices: [
+          { name: T.accent('↻  Refresh users'), value: 'refresh' },
+          { name: T.muted('← Back'), value: 'back' },
+        ],
+      });
+      if (action === 'back') return;
+      continue;
+    }
+
+    const action = await select({
+      message: T.white('Owner-only user administration:'),
+      choices: [
+        ...(users.length ? [{ name: T.accent('✎  Change a user role, status, or permissions'), value: 'update' }] : []),
+        { name: T.accent('↻  Refresh users'), value: 'refresh' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+    if (action === 'refresh') continue;
+
+    const userId = await select({
+      message: 'Select a user to update:',
+      choices: users.map(user => ({
+        name: `${safeUsersText(user.username)} (${safeUsersText(user.id)})${user.owner ? ' — owner' : ''}`,
+        value: user.id,
+      })),
+      pageSize: 15,
+    });
+    const user = users.find(item => item.id === userId);
+    if (!user) {
+      console.log(T.warning('\n  ⚠ The selected user is no longer in the list.'));
+      await pressEnter();
+      continue;
+    }
+
+    const canChangeRole = !user.owner;
+    const canDeactivate = !user.owner;
+    const updateAction = await select({
+      message: `Owner-only changes for ${safeUsersText(user.username)}:`,
+      choices: [
+        ...(canChangeRole ? [{ name: T.accent(`Role (current: ${safeUsersText(user.role)})`), value: 'role' }] : []),
+        ...(canDeactivate ? [{ name: T.accent(`Active status (current: ${user.active ? 'active' : 'inactive'})`), value: 'active' }] : []),
+        { name: T.accent('Permissions'), value: 'permissions' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (updateAction === 'back') continue;
+
+    const args = ['update', user.id];
+    if (updateAction === 'role') {
+      const role = await select({
+        message: 'New role:',
+        choices: [
+          { name: 'Admin', value: 'admin' },
+          { name: 'User', value: 'user' },
+        ],
+      });
+      args.push('--role', role);
+    } else if (updateAction === 'active') {
+      args.push('--active', String(!user.active));
+    } else {
+      const permissions = await input({
+        message: 'Permission keys (comma-separated, or none to clear):',
+        default: Array.isArray(user.permissions) ? user.permissions.join(',') : '',
+      });
+      args.push('--permissions', permissions.trim() || 'none');
+    }
+
+    try {
+      const options = parseUsersArgs(args);
+      const confirmed = await confirm({
+        message: T.warning(`Apply this owner-only change to ${safeUsersText(user.username)}?`),
+        default: false,
+      });
+      if (!confirmed) continue;
+      const result = await requestUsersApi(options);
+      const updated = result.user;
+      console.log(T.success(
+        `\n  ✔ Updated ${safeUsersText(updated.username)}: ${safeUsersText(updated.role)}, ` +
+        `${updated.active ? 'active' : 'inactive'}, permissions=` +
+        `${Array.isArray(updated.permissions) ? safeUsersText(updated.permissions.join(',') || 'none') : 'unknown'}`,
+      ));
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeUsersText(error.message || 'User update failed.')}`));
+    }
+    await pressEnter();
+  }
+}
+
+async function screenCollaboration() {
+  let sessionId = '';
+  let shareUrl = '';
+  while (true) {
+    sectionHeader('🤝  Collaboration & Sharing', 'Create or join a bridge-backed session and send messages');
+    const choices = [
+      { name: T.success('➕  Create a session'), value: 'create' },
+      { name: T.accent('↪  Load a session by ID'), value: 'load' },
+      { name: T.white('✉  Send a message'), value: 'send' },
+      ...(shareUrl ? [{ name: T.cyan('🔗  Copy share link'), value: 'copy' }] : []),
+      { name: T.muted('← Back'), value: 'back' },
+    ];
+    const action = await select({ message: 'Collaboration action:', choices });
+    if (action === 'back') return;
+
+    try {
+      if (action === 'create') {
+        const session = await collabBridgeRequest('/api/jarvis/collab');
+        if (typeof session.id !== 'string' || !COLLAB_SESSION_ID.test(session.id)) {
+          throw new Error('The bridge returned an invalid session ID.');
+        }
+        sessionId = session.id;
+        shareUrl = collabShareUrl(sessionId, session.shareUrl);
+        console.log(T.success(`\n  ✔ Session created: ${safeCollabText(sessionId)}`));
+        console.log(T.cyan(`  Share link: ${safeCollabText(shareUrl)}`));
+      } else if (action === 'load') {
+        const requestedId = (await input({ message: 'Session ID:' })).trim();
+        if (!COLLAB_SESSION_ID.test(requestedId)) {
+          throw new Error('Session ID must be 8–64 letters or numbers.');
+        }
+        const session = await collabBridgeRequest(`/api/jarvis/collab?id=${encodeURIComponent(requestedId)}`);
+        if (session.id !== requestedId) throw new Error('The bridge returned a different session ID.');
+        sessionId = requestedId;
+        shareUrl = collabShareUrl(sessionId);
+        console.log(T.success(`\n  ✔ Loaded session: ${safeCollabText(sessionId)}`));
+        if (Number.isFinite(session.participants)) {
+          console.log(T.muted(`  Participants: ${session.participants}`));
+        }
+        if (Array.isArray(session.messages) && session.messages.length) {
+          console.log(T.white('\n  Recent messages:'));
+          for (const message of session.messages.slice(-10)) {
+            const role = safeCollabText(message?.role || 'unknown');
+            const content = safeCollabText(message?.content || '');
+            console.log(`  ${role}: ${content}`);
+          }
+        } else {
+          console.log(T.muted('  No messages yet.'));
+        }
+      } else if (action === 'send') {
+        if (!sessionId) throw new Error('Create or load a session before sending a message.');
+        const content = (await input({ message: 'Message (up to 10,000 characters):' })).trim();
+        if (!content) throw new Error('Message cannot be empty.');
+        if (content.length > 10_000) throw new Error('Message must be at most 10,000 characters.');
+        await collabBridgeRequest('/api/jarvis/collab', {
+          method: 'POST',
+          body: JSON.stringify({ id: sessionId, role: 'user', content }),
+        });
+        console.log(T.success('\n  ✔ Message sent.'));
+      } else if (action === 'copy') {
+        if (!shareUrl) throw new Error('Create or load a session before copying a share link.');
+        if (crossPlatformCopy(shareUrl)) console.log(T.success('\n  ✔ Share link copied to clipboard.'));
+        else console.log(T.warning('\n  ⚠ Clipboard unavailable; copy the share link shown above.'));
+        console.log(T.cyan(`  ${safeCollabText(shareUrl)}`));
+      }
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message || 'Collaboration request failed.')}`));
+      if (/bridge/i.test(error.message || '')) {
+        console.log(T.muted('  Check that the bridge is running and its token is available.'));
+      }
+    }
+    await pressEnter();
+  }
+}
+
+async function screenAgentTeam() {
+  while (true) {
+    sectionHeader('Agent Team', 'Control the local boss and coordinate workers');
+    const action = await select({
+      message: 'Agent-team action:',
+      choices: [
+        { name: '📊  Status — board, agents, health', value: 'status' },
+        { name: '▶️   Start boss — launch the local orchestrator', value: 'start' },
+        { name: '⏹️   Stop boss — finish in-flight work, then stop', value: 'stop' },
+        { name: '💬  Messages — view inbox or send a message', value: 'messages' },
+        { name: '➕  Add task — queue work for the boss', value: 'add' },
+        { name: T.muted('← Back'), value: '__back__' },
+      ],
+    });
+    if (action === '__back__') return;
+
+    let result;
+    if (action === 'start') {
+      result = startAgentTeam();
+    } else if (action === 'status' || action === 'stop') {
+      result = runTeamCommand(action);
+    } else if (action === 'messages') {
+      const messageAction = await select({
+        message: 'Message action:',
+        choices: [
+          { name: '📥  Inbox — recent team messages', value: 'inbox' },
+          { name: '📤  Send — message an agent or the boss', value: 'send' },
+          { name: T.muted('← Back'), value: '__back__' },
+        ],
+      });
+      if (messageAction === '__back__') continue;
+      if (messageAction === 'inbox') {
+        result = runTeamCommand('inbox', ['--for', 'copilot-web', '--limit', '30']);
+      } else {
+        const to = await input({ message: 'Recipient (agent, all, or boss):', default: 'all' });
+        const text = await input({ message: 'Message:' });
+        if (!to.trim() || !text.trim()) {
+          result = { ok: false, output: 'Recipient and message are required.' };
+        } else {
+          result = runTeamCommand('say', ['--from', 'copilot-web', '--to', to.trim(), text.trim()]);
+        }
+      }
+    } else if (action === 'add') {
+      const title = await input({ message: 'Task title:' });
+      if (!title.trim()) {
+        result = { ok: false, output: 'Task title is required.' };
+      } else {
+        const kind = await input({ message: 'Kind:', default: 'feature' });
+        const area = await input({ message: 'Areas (comma-separated):', default: 'tui' });
+        result = runTeamCommand('add', [
+          title.trim(),
+          '--kind', kind.trim() || 'feature',
+          '--area', area.trim() || 'tui',
+          '--from', 'copilot-web',
+        ]);
+      }
+    }
+
+    console.log(result.ok ? T.success(`\n  ✔  ${result.output}`) : T.warning(`\n  ⚠  ${result.output}`));
+    await pressEnter();
+  }
 }
 
 if (cliArgs.includes('--help') || cliArgs.includes('-h')) {
@@ -383,6 +1356,7 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '📜  /changelog-view',           'browse CHANGELOG', 'changelog-view'),
       menuChoice(T.accent.bold,  '⚡  Run a Command',             'search or browse slash commands by category', 'commands'),
       menuChoice(T.success.bold, '🤖  Switch Agent / Role',       'activate a specialized AI agent', 'agents'),
+      menuChoice(T.success.bold, '👥  Agent Team',                'status, boss controls, messages, and tasks', 'agent-team'),
       menuChoice(T.warning.bold, '📚  Browse Instructions',       'view knowledge base / docs', 'instructions'),
       menuChoice(T.accent.bold,  '📋  Snippet Library',           'browse & copy ready-made code snippets', 'snippets'),
       menuChoice(T.white.bold,   '🔍  Bundle Analyzer',           'size, heavy deps, lazy-loading tips', 'bundle'),
@@ -401,6 +1375,12 @@ async function screenHome() {
       menuChoice(T.white.bold,   '🚀  Deploy',                    'deploy to Azure / GitHub / Vercel', 'deploy'),
       menuChoice(T.accent.bold,  '🎨  Design Resources',          'DESIGN.md templates (74 sites) + awesome-design tools', 'designresources'),
       menuChoice(T.accent.bold,  '📱  Install on Device',         'PWA · Android APK · iOS IPA · Desktop', 'deviceinstall'),
+      menuChoice(T.cyan.bold,    '📡  Device & Push Status',       'check host status · send a push notification preview', 'device-status'),
+      menuChoice(T.accent.bold,  '🤝  Collaboration & Sharing',   'create or join sessions · send messages · copy share links', 'collaboration'),
+      menuChoice(T.accent.bold,  '👥  User Administration',       'list users · owner-only role, status, and permission controls', 'users'),
+      menuChoice(T.accent.bold,  '🔁  Workflows',                  'review saved workflows · run bounded, allowlisted steps', 'workflows'),
+      menuChoice(T.accent.bold,  '⚡  n8n Automation',             'list and safely trigger active workflow webhooks', 'n8n'),
+      menuChoice(T.accent.bold,  '🪝  Webhooks',                   'inspect triggers · replace config · review logs', 'webhooks'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
       menuChoice(T.white.bold,   '🍎  Mac Control',               'control Mac with natural language → AppleScript', 'maccontrol'),
       menuChoice(T.muted,        '🌅  Daily Digest',              'morning summary: tickets, security, deps, git', 'digest'),
@@ -2469,12 +3449,9 @@ async function screenMarketplace() {
   // registry.json is the single source of truth for install state (shared with
   // the web UI). Seed it from any catalog items shipped as installed, minus any
   // the user explicitly removed, then reflect that onto each item for display.
-  const removedSet = new Set(registry.removed || []);
-  const installedSet = new Set((registry.installed || []).filter(id => !removedSet.has(id)));
-  for (const item of catalog.items) {
-    if (item.installed && !removedSet.has(item.id)) installedSet.add(item.id);
-    item.installed = installedSet.has(item.id);
-  }
+  const { installedSet, catalog: effectiveCatalog } = applyEffectiveMarketplaceState(catalog, registry);
+  const removedSet = new Set((registry.removed || []).filter(Boolean));
+  catalog.items = effectiveCatalog.items;
 
   const action = await select({
     message: T.white.bold('Marketplace:'),
@@ -5544,6 +6521,8 @@ async function screenCommandCenter() {
     else if (dest === 'maccontrol') await screenMacControl();
     else if (dest === 'remote')  { console.log(T.cyan('\n  Opening remote: http://localhost:3001/remote\n')); try { execSync('open http://localhost:3001/remote 2>/dev/null', { stdio: 'ignore' }); } catch {} await pressEnter(); }
     else if (dest === 'deviceinstall') await screenDeviceInstall();
+    else if (dest === 'device-status') await screenDeviceStatus();
+    else if (dest === 'collaboration') await screenCollaboration();
     else if (dest === 'freemodels') await screenFreeModels();
     else if (dest === 'freeapis') await screenFreeAPIs();
     else if (dest === 'audit')   await screenAuditLog();
@@ -6574,6 +7553,12 @@ async function main() {
         case 'commandcenter': await screenCommandCenter(); break;
         case 'guideme':      await screenGuideMe(); break;
         case 'deviceinstall': await screenDeviceInstall(); break;
+        case 'device-status': await screenDeviceStatus(); break;
+        case 'collaboration': await screenCollaboration(); break;
+        case 'users':         await screenUsers(); break;
+        case 'workflows':     await screenWorkflows(); break;
+        case 'n8n':            await screenN8n(); break;
+        case 'webhooks':      await screenWebhooks(); break;
         case 'freeapis':     await screenFreeAPIs(); break;
         case 'audit':        await screenAuditLog(); break;
         case 'dashboard':    await screenDashboard(); break; // lazy
@@ -6593,6 +7578,7 @@ async function main() {
         case 'changelog-view': await screenChangelogViewer(); break;
         case 'commands':     await screenCommands(); break;
         case 'agents':       await screenAgents(); break;
+        case 'agent-team':   await screenAgentTeam(); break;
         case 'instructions': await screenInstructions(); break;
         case 'tickets':      await screenTickets(); break;
         case 'security':     await screenSecurity(); break;

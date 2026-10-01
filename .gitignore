@@ -48,3 +48,9 @@ __pycache__/
 voice-pipeline/.venv/
 voice-pipeline/__pycache__/
 voice-pipeline/*.pyc
+
+# Agent team runtime state (board, messages, logs) — local only
+.agent-sync/state/
+
+# oh-my-claudecode local session state
+.omc/

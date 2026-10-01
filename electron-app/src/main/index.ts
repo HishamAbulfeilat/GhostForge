@@ -32,6 +32,14 @@ import {
   startGmailOAuth, handleOAuthCallback,
 } from './email-integration';
 import {
+  getHeadlessSwitches,
+  HEADLESS_BRIDGE_LOG,
+  HEADLESS_STARTUP_LOG,
+  HEADLESS_WINDOW_LOG,
+  isHeadlessSmokeMode,
+  logHeadlessSmoke,
+} from './headless-smoke';
+import {
   setApiKey as setAIStudioKey, getApiKeyStatus as getAIStudioKeyStatus,
   listTunedModels, getTunedModel, generateContent, updateTunedModel,
   listModels, getModelInfo, compareModels, testPrompt as aiStudioTest,
@@ -69,6 +77,12 @@ let codeModifier: CodeModifier;
 let voiceboxIntegration: VoiceboxIntegration;
 
 const GOT_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
+
+if (isHeadlessSmokeMode()) {
+  for (const switchName of getHeadlessSwitches()) {
+    app.commandLine.appendSwitch(switchName);
+  }
+}
 
 if (!GOT_SINGLE_INSTANCE_LOCK) {
   app.quit();
@@ -148,6 +162,7 @@ function trusted(
 }
 
 function createMainWindow(): void {
+  const headlessSmoke = isHeadlessSmokeMode();
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -164,8 +179,12 @@ function createMainWindow(): void {
       nodeIntegration: false,
       sandbox: true,
     },
-    show: false,
+    show: !headlessSmoke,
   });
+
+  if (headlessSmoke) {
+    mainWindow.setSkipTaskbar(true);
+  }
 
   // ── Navigation lockdown ──────────────────────────────────────────────────
   // Pop-ups: only allow the app's own origin; open everything else in the
@@ -220,6 +239,11 @@ function createMainWindow(): void {
   loadFirstReachable(webUICandidates);
 
   mainWindow.once('ready-to-show', () => {
+    logHeadlessSmoke(HEADLESS_WINDOW_LOG);
+    if (isHeadlessSmokeMode()) {
+      mainWindow?.hide();
+      return;
+    }
     mainWindow?.show();
   });
 
@@ -1115,6 +1139,23 @@ app.whenReady().then(async () => {
     createMainWindow();
   } catch (e) {
     console.error('[electron] createMainWindow failed:', (e as Error).message);
+  }
+
+  if (isHeadlessSmokeMode()) {
+    logHeadlessSmoke(HEADLESS_STARTUP_LOG);
+    let exitScheduled = false;
+    const scheduleSmokeExit = () => {
+      if (exitScheduled) return;
+      exitScheduled = true;
+      setTimeout(() => app.exit(0), 250);
+    };
+    bridgeManager.on('status', (status) => {
+      if (status === 'running') {
+        logHeadlessSmoke(HEADLESS_BRIDGE_LOG);
+        scheduleSmokeExit();
+      }
+    });
+    setTimeout(scheduleSmokeExit, 1_000);
   }
 
   if (bridgeManager.isAutoStartEnabled()) {

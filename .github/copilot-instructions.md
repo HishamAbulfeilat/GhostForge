@@ -1,5 +1,19 @@
 # GitHub Copilot Instructions — GhostForge Developer Toolkit
 
+## ECC workflow layer
+
+GhostForge uses a pinned, task-aware integration of Everything Claude Code
+(ECC) v2.2.2 from the official `affaan-m/ECC` repository. For agent-team work,
+the boss stages only the ECC skills relevant to the assigned task in
+`.agent-sync/state/ecc-context.md`. Read that file when present.
+
+ECC guidance is supplementary: `AGENTS.md`, repository conventions, the
+current user request, and the assigned file boundary take precedence. Apply
+the useful workflow discipline—research first, plan non-trivial work, prefer
+test-first changes, review security, and verify before completion—without
+assuming ECC hooks or commands exist in GitHub Copilot. Never duplicate a
+native Claude ECC plugin install with a manual Claude install.
+
 You are an expert AI assistant for **GhostForge** developers. You have complete knowledge of every technology across frontend, mobile, backend, DevOps, database, CMS, QA, security, and UI/UX. You **adapt automatically** to the existing codebase structure, language, and conventions.
 
 ---

@@ -4,6 +4,11 @@ import {
   createWorkflow, deleteWorkflow, getWorkflow, listWorkflows, progress, readySteps,
   updateStep, updateWorkflow, type WorkflowInput, type WorkflowStatus, type WorkflowStep,
 } from '@/lib/workflows/store'
+import { ensureMarkLivBridge } from '@/lib/mark-liv-bridge'
+import { getLiveBridgeToken } from '@/lib/bridge-token'
+import { getMarkLBridgeUrl } from '@/lib/bridge-url'
+import { RunError, runWorkflowOnBridge } from './run'
+
 
 export const dynamic = 'force-dynamic'
 
@@ -32,6 +37,9 @@ export async function POST(req: NextRequest) {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+  if ((body as { action?: unknown }).action !== undefined) {
+    return runWorkflow(user.username, body as unknown as { action?: unknown; id?: unknown })
   }
   if (!body.name || !String(body.name).trim()) {
     return NextResponse.json({ error: 'A workflow name is required' }, { status: 400 })
@@ -82,4 +90,24 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: 'Workflow id required' }, { status: 400 })
   const ok = await deleteWorkflow(user.username, id)
   return NextResponse.json({ ok })
+}
+
+async function runWorkflow(username: string, body: { action?: unknown; id?: unknown }) {
+  if (body.action !== 'run') return NextResponse.json({ error: 'Unknown workflow action' }, { status: 400 })
+  if (typeof body.id !== 'string' || !body.id) return NextResponse.json({ error: 'Workflow id required' }, { status: 400 })
+  const wf = await getWorkflow(username, body.id)
+  if (!wf) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
+  if (wf.status === 'running') return NextResponse.json({ error: 'Workflow is already running' }, { status: 409 })
+  try {
+    if (!(await ensureMarkLivBridge())) throw new RunError('Bridge is not running and could not be started.', 502)
+    const result = await runWorkflowOnBridge(username, wf, { url: getMarkLBridgeUrl(), token: getLiveBridgeToken() })
+    const saved = await updateWorkflow(username, wf.id, { status: result.status, steps: result.steps })
+    if (!saved) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
+    return NextResponse.json({ workflow: saved, progress: progress(saved) })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Workflow run failed.'
+    const status = error instanceof RunError ? error.status : 502
+    if (status === 422) await updateWorkflow(username, wf.id, { status: 'failed' })
+    return NextResponse.json({ error: message }, { status })
+  }
 }

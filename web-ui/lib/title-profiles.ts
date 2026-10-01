@@ -151,8 +151,11 @@ export const PAGE_ACCESS: PageAccess[] = [
   { path: '/chat',        label: 'Chat',        icon: '💬', permission: 'chat', nav: true },
   { path: '/jobs',        label: 'Jobs',        icon: '🎯', permission: 'job_hunter', nav: true },
   { path: '/terminal',    label: 'Terminal',    icon: '🖥️', permission: 'terminal', nav: true },
+  { path: '/maintenance', label: 'Maintenance', icon: '🛠️', permission: 'terminal', nav: true },
   { path: '/dashboard',   label: 'Dashboard',   icon: '📊', permission: 'system_info', nav: true },
-  { path: '/files',       label: 'Files',       icon: '🗂️', permission: 'file_read', nav: true },
+  { path: '/agents',      label: 'Agents',       icon: '🤝', permission: 'admin_tools', nav: true },
+  { path: '/media-tools', label: 'Media',       icon: '▶️', permission: 'youtube', nav: true },
+  { path: '/files',       label: 'Files',      icon: '🗂️', permission: 'file_read', nav: true },
   { path: '/features',    label: 'Features',    icon: '⚡', permission: 'chat', nav: true },
   { path: '/orchestrate', label: 'Orchestrate', icon: '🧠', permission: 'code_helper', nav: true },
   // 'workflows' isn't a real permission key — the catalog calls this 'n8n' (see permissions.ts)

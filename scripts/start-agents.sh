@@ -8,6 +8,11 @@
 #   scripts/start-agents.sh              # tmux split if available, else prints steps
 #   scripts/start-agents.sh --setup-only # just create the worktree + checks
 #   scripts/start-agents.sh --no-loop    # start Copilot once instead of looping
+#   scripts/start-agents.sh --no-ecc     # skip the default pinned ECC context setup
+#
+# Optional native Claude add-on (do not combine with a full manual install):
+#   claude /plugin marketplace add https://github.com/affaan-m/ECC
+#   claude /plugin install ecc@ecc
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,10 +22,13 @@ KICKOFF="$REPO_ROOT/prompts/multi-agent-kickoff.md"
 
 SETUP_ONLY=0
 LOOP=1
+INSTALL_ECC=1
 for arg in "$@"; do
   case "$arg" in
     --setup-only) SETUP_ONLY=1 ;;
     --no-loop)    LOOP=0 ;;
+    --install-ecc) INSTALL_ECC=1 ;;
+    --no-ecc) INSTALL_ECC=0 ;;
     -h|--help)    grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
@@ -35,6 +43,11 @@ command -v git >/dev/null || { warn "git not found"; exit 1; }
 
 HAVE_CLAUDE=1; command -v claude  >/dev/null || { HAVE_CLAUDE=0; warn "claude (Claude Code) not found — install: npm i -g @anthropic-ai/claude-code"; }
 HAVE_COPILOT=1; command -v copilot >/dev/null || { HAVE_COPILOT=0; warn "copilot (GitHub Copilot CLI) not found — install: npm i -g @github/copilot"; }
+
+if [ "$INSTALL_ECC" = 1 ]; then
+  info "Preparing pinned ECC task context…"
+  node "$REPO_ROOT/scripts/agents/ecc-setup.mjs"
+fi
 
 # ── Sync main ────────────────────────────────────────────────────────────────
 info "Fetching latest main…"
@@ -54,11 +67,16 @@ if [ "$SETUP_ONLY" = 1 ]; then
 fi
 
 # ── Build the two commands ───────────────────────────────────────────────────
+# --allow-all-tools is required by `copilot -p` (non-interactive mode); deny
+# the handful of destructive git/gh actions the workflow doesn't need the
+# agent to run itself (main is branch-protected anyway, but belt + suspenders).
+COPILOT_FLAGS="--allow-all-tools --deny-tool 'shell(git push --force*)' --deny-tool 'shell(git push origin main)' --deny-tool 'shell(git push origin main:*)' --deny-tool 'shell(gh pr merge)'"
+
 CLAUDE_CMD="cd '$REPO_ROOT' && claude '/team start'"
 if [ "$LOOP" = 1 ]; then
-  COPILOT_CMD="cd '$COPILOT_WORKTREE' && while :; do copilot -p \"\$(cat '$KICKOFF')\"; sleep 5; done"
+  COPILOT_CMD="cd '$COPILOT_WORKTREE' && while :; do copilot -p \"\$(cat '$KICKOFF')\" $COPILOT_FLAGS; sleep 5; done"
 else
-  COPILOT_CMD="cd '$COPILOT_WORKTREE' && copilot -p \"\$(cat '$KICKOFF')\""
+  COPILOT_CMD="cd '$COPILOT_WORKTREE' && copilot -p \"\$(cat '$KICKOFF')\" $COPILOT_FLAGS"
 fi
 
 # ── Launch: tmux split if we can, else print the steps ───────────────────────

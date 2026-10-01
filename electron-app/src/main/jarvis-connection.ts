@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import type { JarvisConfig } from '../shared/types';
+import { getHealthEndpoint } from './bridge-auth';
 
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected' | 'error';
 export type ConnectionType = 'websocket' | 'http' | 'omniroute';
@@ -207,7 +208,7 @@ export class JarvisConnection extends EventEmitter {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
-      const resp = await fetch(`${url}/health`, {
+      const resp = await fetch(getHealthEndpoint(url, 'jarvis'), {
         method: 'GET',
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
@@ -274,7 +275,7 @@ export class JarvisConnection extends EventEmitter {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 2000);
-        const resp = await fetch(`${url}/health`, {
+        const resp = await fetch(getHealthEndpoint(url, 'jarvis'), {
           method: 'GET',
           signal: controller.signal,
         });

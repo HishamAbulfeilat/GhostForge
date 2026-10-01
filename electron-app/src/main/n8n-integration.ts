@@ -1,5 +1,6 @@
 import type { N8nWorkflow } from '../shared/types';
 import { N8N } from '../shared/constants';
+import { validateOutboundUrl as validateCredentialUrl } from './outbound-url';
 
 interface N8nConfig {
   baseUrl: string;
@@ -12,6 +13,48 @@ interface WorkflowTrigger {
   callback: (data: unknown) => void;
 }
 
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '::1'];
+
+function normalizeApiKey(rawApiKey?: string): string | undefined {
+  const apiKey = rawApiKey?.trim();
+  if (apiKey && /[\r\n]/.test(apiKey)) {
+    throw new Error('N8N API key contains invalid characters');
+  }
+  return apiKey || undefined;
+}
+
+export function validateN8nUrl(
+  rawUrl: string,
+  allowRemote: boolean = process.env.GF_ALLOW_REMOTE_N8N === '1',
+): string {
+  let candidate: URL;
+  try {
+    candidate = new URL(rawUrl);
+  } catch {
+    throw new Error('n8n URL is invalid');
+  }
+
+  if (candidate.username || candidate.password) {
+    throw new Error('n8n URL must use an allowed scheme without credentials');
+  }
+  const loopback = LOOPBACK_HOSTS.includes(candidate.hostname);
+  if (!loopback && !allowRemote) {
+    throw new Error('n8n URL is not loopback; set GF_ALLOW_REMOTE_N8N=1 to opt in');
+  }
+  if (candidate.search || candidate.hash) {
+    throw new Error('n8n URL must not contain a query or fragment');
+  }
+
+  const validated = validateCredentialUrl(
+    rawUrl,
+    loopback ? LOOPBACK_HOSTS : [candidate.hostname],
+    'n8n',
+    ['http:', 'https:'],
+    ['5678'],
+  );
+  return `${validated.origin}${validated.pathname.replace(/\/+$/, '')}`;
+}
+
 export class N8nIntegration {
   private config: N8nConfig;
   private workflows: N8nWorkflow[] = [];
@@ -19,8 +62,8 @@ export class N8nIntegration {
 
   constructor(config?: Partial<N8nConfig>) {
     this.config = {
-      baseUrl: config?.baseUrl || N8N.defaultUrl,
-      apiKey: config?.apiKey,
+      baseUrl: validateN8nUrl(config?.baseUrl || N8N.defaultUrl),
+      apiKey: normalizeApiKey(config?.apiKey),
     };
   }
 
@@ -232,6 +275,13 @@ export class N8nIntegration {
   }
 
   updateConfig(updates: Partial<N8nConfig>): void {
-    this.config = { ...this.config, ...updates };
+    const nextConfig: N8nConfig = { ...this.config };
+    if (updates.baseUrl !== undefined) {
+      nextConfig.baseUrl = validateN8nUrl(updates.baseUrl);
+    }
+    if (updates.apiKey !== undefined) {
+      nextConfig.apiKey = normalizeApiKey(updates.apiKey);
+    }
+    this.config = nextConfig;
   }
 }

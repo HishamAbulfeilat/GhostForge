@@ -40,3 +40,17 @@ one-click "install everything" wiring. The `security-scan` skill is defensive
 **Reason**: Keep the marketplace useful for authorized security work without
 packaging attack-third-parties tooling for point-and-click use.
 **Status**: Accepted
+
+## ADR-006: Accepted risk — TUI dashboard dependency chain remains vulnerable upstream
+**Date**: 2026-10-01
+**Decision**: Keep the TUI dashboard on `blessed-contrib@^4.11.0` and accept the
+remaining `lodash`/`marked`/`xml2js` advisories until a non-vulnerable
+replacement for the dashboard library is adopted. We upgraded the direct leaf
+packages we could to their latest secure versions, but the upstream dashboard
+library still bundles the vulnerable transitive copies.
+**Reason**: `npm audit` shows the remaining high-severity issues are nested inside
+`blessed-contrib` itself (`lodash@4.17.23`, `marked@4.3.0`, `xml2js@0.4.23`).
+There is no patched upstream release of the library available in the current
+project ecosystem, and a replacement would require a broader TUI dashboard
+rewrite outside the scope of this targeted security sweep.
+**Status**: Accepted
