@@ -28,6 +28,26 @@ test('say defaults are applied before validation', () => {
   assert.throws(() => normalizeAgentTeamAction({ action: 'say', from: 'boss' }), /requires a message value/)
 })
 
+test('add preserves leader, assignee, workflow, and acceptance metadata', () => {
+  const normalized = normalizeAgentTeamAction({
+    action: 'add',
+    title: 'Ship orchestrator',
+    kind: 'feature',
+    leader: 'copilot',
+    assignee: 'qa',
+    workflow: 'ordered',
+    dependencies: 'T-100, T-101',
+    acceptanceCriteria: ['Test coverage', 'Health passes'],
+  })
+
+  assert.equal(normalized.action, 'add')
+  assert.equal(normalized.leader, 'copilot')
+  assert.equal(normalized.assignee, 'qa')
+  assert.equal(normalized.workflow, 'ordered')
+  assert.deepEqual(normalized.dependencies, ['T-100', 'T-101'])
+  assert.deepEqual(normalized.acceptanceCriteria, ['Test coverage', 'Health passes'])
+})
+
 test('GF_AGENT_STATE is honored when reading snapshots', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-agent-snapshot-'))
   const stateDir = path.join(root, 'custom-state')
@@ -79,6 +99,42 @@ test('GF_AGENT_STATE is honored when reading snapshots', () => {
     if (previous === undefined) delete process.env.GF_AGENT_STATE
     else process.env.GF_AGENT_STATE = previous
   }
+})
+
+test('snapshot includes workflow leadership and task metadata', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-agent-metadata-'))
+  const stateDir = path.join(root, '.agent-sync', 'state')
+  fs.mkdirSync(stateDir, { recursive: true })
+  fs.mkdirSync(path.join(root, '.agent-sync'), { recursive: true })
+  fs.writeFileSync(path.join(root, '.agent-sync', 'team.json'), JSON.stringify({
+    boss: { leader: 'copilot' },
+    agents: { copilot: { provider: 'copilot', role: 'lead', strengths: ['feature'] }, qa: { provider: 'copilot', strengths: ['test'] } },
+  }))
+  fs.writeFileSync(path.join(stateDir, 'status.json'), JSON.stringify({
+    health: 98,
+    pid: process.pid,
+    phase: 4,
+    boss: { leader: 'copilot' },
+    agents: {
+      copilot: { provider: 'copilot', state: 'working', task: 'T-042', model: 'gpt-5', since: '2024-02-01T00:00:00Z' },
+      qa: { provider: 'copilot', state: 'idle', task: null, model: 'gpt-4o' },
+    },
+  }))
+  fs.writeFileSync(path.join(stateDir, 'board.json'), JSON.stringify({
+    phase: 4,
+    workflow: { mode: 'ordered' },
+    tasks: [{ id: 'T-042', title: 'Ship orchestrator', kind: 'feature', status: 'in-progress', owner: 'copilot', assignee: 'copilot', leader: 'copilot', dependencies: ['T-041'], acceptanceCriteria: ['Ship', 'Verify'] }],
+  }))
+
+  const snapshot = readAgentTeamSnapshot(root)
+  assert.equal(snapshot.snapshot.workflow.leader, 'copilot')
+  assert.equal(snapshot.snapshot.workflow.mode, 'ordered')
+  assert.equal(snapshot.snapshot.agents.copilot.leader, true)
+  assert.equal(snapshot.snapshot.agents.qa.leader, false)
+  assert.equal(snapshot.snapshot.agents.copilot.role, 'lead')
+  assert.equal(snapshot.snapshot.tasks[0].assignee, 'copilot')
+  assert.deepEqual(snapshot.snapshot.tasks[0].dependencies, ['T-041'])
+  assert.deepEqual(snapshot.snapshot.tasks[0].acceptanceCriteria, ['Ship', 'Verify'])
 })
 
 test('request json can be read from a streaming body without Content-Length', async () => {

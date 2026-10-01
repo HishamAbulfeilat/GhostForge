@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process'
 
 export const DEFAULT_BODY_LIMIT = 1024 * 1024
 export const AGENT_TEAM_COMMAND_TIMEOUT_MS = 15_000
-export const VALID_ACTIONS = ['status', 'start', 'stop', 'say', 'add'] as const
+export const VALID_ACTIONS = ['status', 'start', 'stop', 'say', 'add', 'dispatch'] as const
 
 type AgentTeamActionName = (typeof VALID_ACTIONS)[number]
 
@@ -23,6 +23,12 @@ interface AgentTeamRequestPayload {
   area?: string[] | string
   agent?: string
   assignee?: string
+  leader?: string
+  workflow?: string
+  mode?: string
+  workflowMode?: string
+  dependencies?: string[] | string
+  acceptanceCriteria?: string[] | string
   [key: string]: unknown
 }
 
@@ -128,6 +134,12 @@ function normalizeAreaValue(value: string[] | string | undefined): string[] {
   return []
 }
 
+function normalizeStringList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(entry => String(entry).trim()).filter(Boolean)
+  if (typeof value === 'string') return value.split(',').map(entry => entry.trim()).filter(Boolean)
+  return []
+}
+
 export function normalizeAgentTeamAction(input: AgentTeamRequestPayload = {}): { action: string; [key: string]: unknown } {
   const source = input && typeof input === 'object' ? { ...input } : {}
   const actionName = String(source.action ?? '').trim().toLowerCase()
@@ -147,7 +159,7 @@ export function normalizeAgentTeamAction(input: AgentTeamRequestPayload = {}): {
     return { action: 'say', from, to, message }
   }
 
-  if (action === 'add') {
+  if (action === 'add' || action === 'dispatch') {
     const title = String(source.title ?? source.task ?? source.name ?? '').trim()
     if (!title) {
       throw new Error('Agent team add requires a title')
@@ -155,13 +167,22 @@ export function normalizeAgentTeamAction(input: AgentTeamRequestPayload = {}): {
     const kind = String(source.kind ?? 'feature').trim() || 'feature'
     const area = normalizeAreaValue(source.area as string[] | string | undefined)
     const agent = String(source.agent ?? source.assignee ?? 'any').trim() || 'any'
+    const leader = String(source.leader ?? source.boss ?? '').trim() || null
+    const workflowMode = String(source.workflow ?? source.mode ?? source.workflowMode ?? 'parallel').trim() || 'parallel'
+    const dependencies = normalizeStringList(source.dependencies)
+    const acceptanceCriteria = normalizeStringList(source.acceptanceCriteria)
     const from = String(source.from ?? source.sender ?? 'human').trim() || 'human'
     return {
-      action: 'add',
+      action: action === 'dispatch' ? 'dispatch' : 'add',
       title,
       kind,
       area,
       agent,
+      assignee: agent,
+      leader,
+      workflow: workflowMode,
+      dependencies,
+      acceptanceCriteria,
       from,
     }
   }
@@ -193,8 +214,16 @@ function buildAgentTeamCliArgs(action: string, params: AgentTeamRequestPayload =
       const area = Array.isArray(normalized.area) ? normalized.area : []
       if (area.length) args.push('--area', area.join(','))
       if (normalized.agent) args.push('--agent', String(normalized.agent))
+      if (normalized.leader) args.push('--leader', String(normalized.leader))
+      if (normalized.assignee && String(normalized.assignee) !== String(normalized.agent)) args.push('--assignee', String(normalized.assignee))
+      if (normalized.workflow) args.push('--workflow', String(normalized.workflow))
+      if (normalized.dependencies && Array.isArray(normalized.dependencies) && normalized.dependencies.length) args.push('--dependencies', normalized.dependencies.join(','))
+      if (normalized.acceptanceCriteria && Array.isArray(normalized.acceptanceCriteria) && normalized.acceptanceCriteria.length) args.push('--acceptance-criteria', normalized.acceptanceCriteria.join(';'))
       if (normalized.from) args.push('--from', String(normalized.from))
       return args
+    }
+    case 'dispatch': {
+      return buildAgentTeamCliArgs('add', { ...params, action: 'add', workflow: String((params.workflow ?? params.mode ?? params.workflowMode ?? 'parallel') || 'parallel') })
     }
     default:
       return [String(normalized.action)]
@@ -203,11 +232,20 @@ function buildAgentTeamCliArgs(action: string, params: AgentTeamRequestPayload =
 
 export function getStateDirectory(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): string {
   const root = resolveWorkspaceRoot(workspaceRoot)
-  const stateDir = stateDirOverride && String(stateDirOverride).trim() ? stateDirOverride : path.join(root, '.agent-sync', 'state')
-  return resolveWorkspaceRoot(root, stateDir)
+  const rawStateDir = stateDirOverride && String(stateDirOverride).trim() ? String(stateDirOverride).trim() : path.join(root, '.agent-sync', 'state')
+
+  if (rawStateDir === path.join(root, '.agent-sync', 'state')) {
+    return rawStateDir
+  }
+
+  try {
+    return resolveWorkspaceRoot(root, rawStateDir)
+  } catch {
+    return path.join(root, '.agent-sync', 'state')
+  }
 }
 
-export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): { snapshot: { health: number | null; running: boolean; agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; since: string | null; cooldownUntil: string | null }>; tasks: Array<{ id: string | null; title: string; kind: string; status: string; owner: string | null }>; messages: Array<Record<string, unknown>>; phase: number } } {
+export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): { snapshot: { health: number | null; running: boolean; agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; since: string | null; cooldownUntil: string | null; leader: boolean; assignee: string | null; role: string | null; strengths: string[] }>; tasks: Array<{ id: string | null; title: string; kind: string; status: string; owner: string | null; assignee: string | null; leader: string | null; dependencies: string[]; acceptanceCriteria: string[] }>; messages: Array<Record<string, unknown>>; phase: number; workflow: { leader: string | null; mode: string; specialists: string[] } } } {
   const root = resolveWorkspaceRoot(workspaceRoot)
   const stateDir = getStateDirectory(root, stateDirOverride)
   const status = asRecord(readJsonFile<unknown>(path.join(stateDir, 'status.json'), null))
@@ -216,10 +254,18 @@ export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDi
   const configuredAgents = asRecord(teamConfig.agents)
   const reportedAgents = asRecord(status.agents)
   const agentIds = new Set([...Object.keys(configuredAgents), ...Object.keys(reportedAgents)])
+  const configuredLeader = normalizedString(asRecord(status.boss).leader) ?? normalizedString(asRecord(status.boss).id) ?? normalizedString(asRecord(teamConfig.boss).leader) ?? normalizedString(asRecord(teamConfig.boss).id) ?? normalizedString(asRecord(teamConfig.boss).agent) ?? null
+  const workflowLeader = configuredLeader || Object.keys(configuredAgents).find(agentId => /boss|lead|manager/i.test(agentId)) || null
+  const workflowMode = normalizedString(asRecord(board.workflow).mode) ?? normalizedString(asRecord(status.workflow).mode) ?? normalizedString(asRecord(teamConfig.workflow).mode) ?? 'parallel'
 
   const agents = Object.fromEntries([...agentIds].map(agentId => {
     const config = asRecord(configuredAgents[agentId])
     const info = asRecord(reportedAgents[agentId])
+    const strengths = Array.isArray(config.strengths) ? config.strengths.map(strength => String(strength).trim()).filter(Boolean) : []
+    const role = normalizedString(config.role) ?? (
+      agentId === workflowLeader ? 'leader' : (strengths.length ? 'specialist' : 'agent')
+    )
+    const assignee = normalizedString(info.assignee) ?? normalizedString(info.owner) ?? null
     return [agentId, {
       provider: normalizedString(config.provider) ?? normalizedString(info.provider),
       state: normalizedString(info.state) ?? 'unknown',
@@ -227,21 +273,37 @@ export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDi
       model: normalizedString(info.model),
       since: normalizedString(info.since),
       cooldownUntil: normalizedString(info.cooldownUntil),
+      leader: agentId === workflowLeader,
+      assignee,
+      role,
+      strengths,
     }]
   }))
 
   const tasks = Array.isArray(board.tasks) ? board.tasks.map(task => {
     const info = asRecord(task)
     const owner = normalizedString(info.owner) ?? normalizedString(info.agent)
+    const assignee = normalizedString(info.assignee) ?? owner
+    const dependencies = Array.isArray(info.dependencies) ? info.dependencies.map(entry => String(entry).trim()).filter(Boolean) : normalizeStringList(info.dependsOn)
+    const acceptanceCriteria = Array.isArray(info.acceptanceCriteria)
+      ? info.acceptanceCriteria.map(entry => String(entry).trim()).filter(Boolean)
+      : typeof info.acceptanceCriteria === 'string'
+        ? [info.acceptanceCriteria.trim()].filter(Boolean)
+        : []
     return {
       id: normalizedString(info.id),
       title: typeof info.title === 'string' ? info.title : '',
       kind: normalizedString(info.kind) ?? 'feature',
       status: normalizedString(info.status) ?? 'todo',
       owner,
+      assignee,
+      leader: normalizedString(info.leader) ?? workflowLeader,
+      dependencies,
+      acceptanceCriteria,
     }
   }) : []
 
+  const specialists = [...agentIds].filter(agentId => agentId !== workflowLeader)
   const health = status.health
   const validHealth = typeof health === 'number' && Number.isFinite(health) ? health : null
   const pid = status.pid
@@ -258,6 +320,11 @@ export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDi
       tasks,
       messages: readMessages(stateDir),
       phase,
+      workflow: {
+        leader: workflowLeader,
+        mode: workflowMode,
+        specialists,
+      },
     },
   }
 }
