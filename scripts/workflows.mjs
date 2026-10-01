@@ -14,6 +14,7 @@ function usage() {
 Usage:
   ghostforge workflows list [--json]
   ghostforge workflows show <workflow-id> [--json]
+  ghostforge workflows run <workflow-id> [--max-steps <1-100>] [--json]
   ghostforge workflows create --name <name> [--goal <goal>] [--step <title> ...] [--json]
   ghostforge workflows update <workflow-id> [--name <name>] [--goal <goal>] [--status <status>] [--json]
   ghostforge workflows step <workflow-id> <step-id> <status> [--notes <text>] [--json]
@@ -22,7 +23,8 @@ Usage:
 Workflow statuses: draft, running, paused, done, failed
 Step statuses: pending, running, done, failed, blocked, skipped
 
-This command only stores workflow details and step statuses; it does not execute steps.
+The run command executes only bridge-allowlisted command steps; manual steps are skipped.
+Workflow runs are limited to 100 steps by default. Use --max-steps to set a lower maximum.
 
 Environment:
   MARKL_BRIDGE_TOKEN       Bridge bearer token (required)
@@ -33,7 +35,7 @@ Environment:
 function parseArgs(argv) {
   if (argv.includes('--help') || argv.includes('-h')) return { command: 'help', json: false }
   const [command = 'help', ...rest] = argv
-  if (!['help', 'list', 'show', 'create', 'update', 'step', 'delete'].includes(command)) {
+  if (!['help', 'list', 'show', 'run', 'create', 'update', 'step', 'delete'].includes(command)) {
     throw new Error(`Unknown command: ${command}`)
   }
   if (command === 'help') {
@@ -43,15 +45,21 @@ function parseArgs(argv) {
 
   const options = { command, json: false }
   let index = 0
-  const positionalCount = { list: 0, show: 1, create: 0, update: 1, step: 3, delete: 1 }[command]
+  const positionalCount = { list: 0, show: 1, run: 1, create: 0, update: 1, step: 3, delete: 1 }[command]
   const positionals = rest.slice(0, positionalCount)
   if (positionals.length !== positionalCount || positionals.some(value => value.startsWith('--'))) {
-    const labels = { show: 'workflow ID', update: 'workflow ID', step: 'workflow ID, step ID, and status', delete: 'workflow ID' }
+    const labels = {
+      show: 'workflow ID',
+      run: 'workflow ID',
+      update: 'workflow ID',
+      step: 'workflow ID, step ID, and status',
+      delete: 'workflow ID',
+    }
     throw new Error(`${command} requires ${labels[command] || 'arguments'}`)
   }
   index = positionals.length
 
-  if (command === 'show' || command === 'update' || command === 'delete') {
+  if (command === 'show' || command === 'run' || command === 'update' || command === 'delete') {
     options.id = validateId(positionals[0], 'workflow')
   } else if (command === 'step') {
     options.id = validateId(positionals[0], 'workflow')
@@ -74,9 +82,11 @@ function parseArgs(argv) {
       ? ['--name', '--goal', '--step']
       : command === 'update'
         ? ['--name', '--goal', '--status']
-        : command === 'step'
-          ? ['--notes']
-          : []
+        : command === 'run'
+          ? ['--max-steps']
+          : command === 'step'
+            ? ['--notes']
+            : []
     if (!allowed.includes(arg)) throw new Error(`Unknown option or argument: ${arg}`)
     if (arg !== '--step' && seen.has(arg)) throw new Error(`${arg} may only be provided once`)
     seen.add(arg)
@@ -92,9 +102,11 @@ function parseArgs(argv) {
     }
     if (arg === '--status') options.status = validateStatus(value, WORKFLOW_STATUSES, 'workflow')
     if (arg === '--notes') options.notes = value
+    if (arg === '--max-steps') options.maxSteps = validateMaxSteps(value)
     index += 2
   }
 
+  if (command === 'run' && options.maxSteps === undefined) options.maxSteps = 100
   if (command === 'create' && !options.name) throw new Error('create requires a non-empty --name')
   if (command === 'update') {
     if (options.name !== undefined && !options.name) throw new Error('--name requires a non-empty workflow name')
@@ -120,6 +132,17 @@ function validateStatus(value, statuses, kind) {
     throw new Error(`Invalid ${kind} status "${value}"; allowed: ${[...statuses].join(', ')}`)
   }
   return value
+}
+
+function validateMaxSteps(value) {
+  if (!/^\d+$/.test(value)) {
+    throw new Error('--max-steps must be an integer between 1 and 100')
+  }
+  const maxSteps = Number(value)
+  if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > 100) {
+    throw new Error('--max-steps must be an integer between 1 and 100')
+  }
+  return maxSteps
 }
 
 function resolveBaseUrl(env = process.env) {
@@ -158,6 +181,10 @@ async function request(options, env = process.env, fetchImpl = fetch) {
   let endpoint = '/api/workflows'
   if (options.command === 'show') {
     endpoint += `?id=${encodeURIComponent(options.id)}`
+  } else if (options.command === 'run') {
+    init.method = 'POST'
+    headers['Content-Type'] = 'application/json'
+    init.body = JSON.stringify({ action: 'run', id: options.id, max_steps: options.maxSteps })
   } else if (options.command === 'create') {
     init.method = 'POST'
     headers['Content-Type'] = 'application/json'
@@ -212,11 +239,21 @@ async function request(options, env = process.env, fetchImpl = fetch) {
   if (options.command === 'list' && !Array.isArray(data.workflows)) {
     throw new Error('The workflows API response did not include a workflows list')
   }
-  if (['show', 'create', 'update', 'step'].includes(options.command)) {
+  if (['show', 'run', 'create', 'update', 'step'].includes(options.command)) {
     const workflow = data.workflow
     if (!workflow || typeof workflow !== 'object' || typeof workflow.id !== 'string' || !workflow.id ||
         (options.id && workflow.id !== options.id)) {
       throw new Error('The workflows API response did not include the requested workflow')
+    }
+  }
+  if (options.command === 'run') {
+    const progress = data.progress
+    if (!progress || typeof progress !== 'object' || Array.isArray(progress) ||
+        !Number.isInteger(progress.done) || !Number.isInteger(progress.total) ||
+        !Number.isInteger(progress.pct) || progress.done < 0 || progress.total < 0 ||
+        progress.done > progress.total || progress.pct < 0 || progress.pct > 100 ||
+        data.workflow.status !== 'done') {
+      throw new Error('The workflows API response did not include a valid completed run result')
     }
   }
   if (options.command === 'delete' && typeof data.ok !== 'boolean') {
@@ -243,6 +280,10 @@ function formatResult(options, data) {
     const percentage = progress ? `\nProgress: ${progress.done}/${progress.total} steps (${progress.pct}%)` : ''
     const steps = (workflow.steps || []).map(step => `  [${step.status || 'pending'}] ${step.title} (${step.id})`)
     return `${summary}${percentage}${steps.length ? `\nSteps:\n${steps.join('\n')}` : '\nNo steps.'}`
+  }
+  if (options.command === 'run') {
+    const { workflow, progress } = data
+    return `Workflow ${workflow.id} finished (${workflow.status}): ${progress.done}/${progress.total} steps (${progress.pct}%).`
   }
   if (options.command === 'create') {
     const workflow = data.workflow
