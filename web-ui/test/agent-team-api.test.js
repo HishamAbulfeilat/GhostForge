@@ -9,6 +9,8 @@ const {
   normalizeAgentTeamAction,
   readAgentTeamSnapshot,
   readRequestJsonWithLimit,
+  normalizeSessionConnectorConfig,
+  readConnectorSnapshot,
 } = require('../lib/agent-team-api.js')
 
 test('resolveWorkspaceRoot blocks symlink escapes', () => {
@@ -135,6 +137,56 @@ test('snapshot includes workflow leadership and task metadata', () => {
   assert.equal(snapshot.snapshot.tasks[0].assignee, 'copilot')
   assert.deepEqual(snapshot.snapshot.tasks[0].dependencies, ['T-041'])
   assert.deepEqual(snapshot.snapshot.tasks[0].acceptanceCriteria, ['Ship', 'Verify'])
+})
+
+test('connector configs default to local-only and redact secrets', () => {
+  const snapshot = readConnectorSnapshot(null)
+  assert.equal(snapshot.version, 1)
+  assert.equal(snapshot.mode, 'local-only')
+  assert.equal(snapshot.connectors[0].id, 'ghostforge-local')
+  assert.equal(snapshot.connectors[0].source, 'local')
+  assert.equal(snapshot.connectors[0].project, '.')
+  assert.equal(snapshot.connectors[0].status, 'online')
+  assert.equal(typeof snapshot.connectors[0].heartbeat, 'string')
+  assert.equal(snapshot.connectors[0].staleAfterMs, 30000)
+  assert.equal(snapshot.connectors[0].error, null)
+  assert.equal(typeof snapshot.connectors[0].events[0].ts, 'string')
+  assert.equal(snapshot.connectors[0].events[0].type, 'runtime.heartbeat')
+  assert.equal(snapshot.connectors[0].events[0].source, 'local')
+  assert.equal(snapshot.connectors[0].events[0].project, '.')
+
+  const config = {
+    id: 'cloud-sandbox',
+    source: 'cloud',
+    project: './web-ui',
+    device: 'desk-1',
+    provider: 'openai-compatible',
+    allow: true,
+    url: 'https://example.com/session',
+    headers: { Authorization: 'Bearer secret', 'X-Trace': 'abc' },
+  }
+
+  const allowlisted = readConnectorSnapshot(config)
+  assert.equal(allowlisted.mode, 'allowlisted')
+  assert.equal(allowlisted.connectors[1].device, 'desk-1')
+  assert.equal(allowlisted.connectors[1].source, 'cloud')
+  assert.equal(allowlisted.connectors[1].project, 'web-ui')
+  assert.equal(allowlisted.connectors[1].events[0].project, 'web-ui')
+  assert.equal(allowlisted.connectors[1].events[0].device, 'desk-1')
+  assert.equal(allowlisted.connectors[1].error, null)
+  assert.equal(allowlisted.connectors[1].agents[0].provider, 'openai-compatible')
+  assert.deepEqual(allowlisted.connectors[1].events[0], { ts: allowlisted.connectors[1].events[0].ts, type: 'session.heartbeat', source: 'cloud', project: 'web-ui', device: 'desk-1' })
+
+  const rejected = readConnectorSnapshot({
+    id: 'bad-connector',
+    source: 'device',
+    project: '../outside',
+    allow: true,
+  })
+  assert.equal(rejected.connectors.at(-1).status, 'offline')
+  assert.match(rejected.connectors.at(-1).error, /workspace root/i)
+  assert.equal(rejected.connectors.at(-1).project, null)
+  assert.equal(normalizeSessionConnectorConfig({ id: 'device', headers: { Authorization: 'Bearer bad' } }).headers.Authorization, '[redacted]')
 })
 
 test('request json can be read from a streaming body without Content-Length', async () => {

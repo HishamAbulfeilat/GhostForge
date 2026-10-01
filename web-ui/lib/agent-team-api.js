@@ -4,11 +4,20 @@ const { spawnSync } = require('node:child_process')
 
 const DEFAULT_BODY_LIMIT = 1024 * 1024
 const AGENT_TEAM_COMMAND_TIMEOUT_MS = 15_000
+const AGENT_SESSION_CONNECTOR_VERSION = 1
+const AGENT_SESSION_CONNECTOR_MAX_BYTES = 65536
+const AGENT_SESSION_CONNECTOR_TIMEOUT_MS = 5000
 const VALID_ACTIONS = Object.freeze(['status', 'start', 'stop', 'say', 'add', 'dispatch'])
 const TEAM_SCRIPT = path.resolve(__dirname, '..', '..', 'scripts', 'agents', 'team.mjs')
 
 function repoRootFromLib() {
   return path.resolve(__dirname, '..', '..')
+}
+
+function sanitizeConnectorString(value, fallback = null) {
+  if (typeof value !== 'string') return fallback
+  const trimmed = value.trim()
+  return trimmed || fallback
 }
 
 function realpathIfExists(target) {
@@ -287,6 +296,148 @@ function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverri
   }
 }
 
+function normalizeSessionConnectorConfig(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const id = sanitizeConnectorString(value.id) ?? sanitizeConnectorString(value.name)
+  if (!id) return null
+
+  const source = value.source === 'cloud' || value.source === 'device' ? value.source : 'local'
+  const provider = sanitizeConnectorString(value.provider)
+  const project = sanitizeConnectorString(value.project)
+  const device = sanitizeConnectorString(value.device)
+  const rawUrl = sanitizeConnectorString(value.url)
+  let url = null
+  if (rawUrl) {
+    try {
+      const parsed = new URL(rawUrl)
+      parsed.username = ''
+      parsed.password = ''
+      url = /^https?:\/\//i.test(parsed.toString()) ? parsed.toString() : null
+    } catch {
+      return null
+    }
+  }
+
+  const timeoutMs = Number.isFinite(value.timeoutMs) && value.timeoutMs != null
+    ? Math.max(250, Math.min(60_000, Number(value.timeoutMs)))
+    : AGENT_SESSION_CONNECTOR_TIMEOUT_MS
+  const staleAfterMs = Number.isFinite(value.staleAfterMs) && value.staleAfterMs != null
+    ? Math.max(1_000, Math.min(86_400_000, Number(value.staleAfterMs)))
+    : 30_000
+  const allow = value.allow === true
+
+  const headers = value.headers && typeof value.headers === 'object' && !Array.isArray(value.headers)
+    ? Object.fromEntries(Object.entries(value.headers).map(([key, inner]) => {
+        const normalizedKey = String(key).toLowerCase()
+        const safeValue = typeof inner === 'string' ? inner : String(inner)
+        if (/authorization|cookie|set-cookie|api[-_ ]?key|token|secret/i.test(normalizedKey)) {
+          return [String(key), '[redacted]']
+        }
+        return [String(key), safeValue]
+      }))
+    : {}
+
+  const cleaned = { id, source, project: project ?? undefined, device: device ?? undefined, provider: provider ?? undefined, url: url ?? undefined, timeoutMs, staleAfterMs, allow, headers }
+  if (cleaned.url && !/^https?:\/\//i.test(cleaned.url)) return null
+  return cleaned
+}
+
+function normalizeSessionConnectorConfigs(value) {
+  if (!value) return []
+  if (Array.isArray(value)) {
+    return value.map(item => normalizeSessionConnectorConfig(item)).filter(Boolean)
+  }
+  const single = normalizeSessionConnectorConfig(value)
+  return single ? [single] : []
+}
+
+function resolveSafeProjectPath(root, project) {
+  if (!project) return '.'
+  const trimmed = project.trim()
+  if (!trimmed || trimmed === '.') return '.'
+  if (path.isAbsolute(trimmed)) return null
+  const segments = trimmed.replace(/\\/g, '/').split('/').filter(Boolean)
+  if (segments.some(segment => segment === '..')) return null
+  const candidate = path.resolve(root, ...segments)
+  const relative = path.relative(root, candidate)
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return null
+  return path.relative(root, candidate).replace(/\\/g, '/') || '.'
+}
+
+function readConnectorSnapshot(connectorConfig, workspaceRoot = repoRootFromLib()) {
+  const root = resolveWorkspaceRoot(workspaceRoot)
+  const configs = normalizeSessionConnectorConfigs(connectorConfig)
+  const mode = configs.some(config => config.allow) ? 'allowlisted' : 'local-only'
+  const connectors = [{
+    id: 'ghostforge-local',
+    version: AGENT_SESSION_CONNECTOR_VERSION,
+    source: 'local',
+    project: '.',
+    device: null,
+    provider: 'ghostforge',
+    status: 'online',
+    heartbeat: new Date().toISOString(),
+    staleAfterMs: 30_000,
+    stale: false,
+    online: true,
+    error: null,
+    agents: [{ id: 'ghostforge', state: 'online', provider: 'ghostforge' }],
+    tasks: [{ id: 'T-local', title: 'GhostForge runtime', status: 'ready', dependencies: [] }],
+    events: [{ ts: new Date().toISOString(), type: 'runtime.heartbeat', source: 'local', project: '.' }],
+  }]
+
+  if (!configs.some(config => config.allow)) {
+    return { version: AGENT_SESSION_CONNECTOR_VERSION, mode, connectors }
+  }
+
+  for (const config of configs.filter(config => config.allow)) {
+    const threshold = Math.max(1_000, Math.min(86_400_000, config.staleAfterMs ?? 30_000))
+    const heartbeat = new Date().toISOString()
+    const projectValue = resolveSafeProjectPath(root, config.project)
+
+    if (!projectValue) {
+      connectors.push({
+        id: config.id,
+        version: AGENT_SESSION_CONNECTOR_VERSION,
+        source: config.source,
+        project: null,
+        device: config.device ?? null,
+        provider: config.provider ?? null,
+        status: 'offline',
+        heartbeat,
+        staleAfterMs: threshold,
+        stale: true,
+        online: false,
+        error: 'Connector project path escapes the workspace root',
+        agents: [],
+        tasks: [],
+        events: [{ ts: heartbeat, type: 'connector.error', source: config.source, error: 'Connector project path escapes the workspace root' }],
+      })
+      continue
+    }
+
+    connectors.push({
+      id: config.id,
+      version: AGENT_SESSION_CONNECTOR_VERSION,
+      source: config.source,
+      project: projectValue,
+      device: config.device ?? null,
+      provider: config.provider ?? null,
+      status: 'online',
+      heartbeat,
+      staleAfterMs: threshold,
+      stale: false,
+      online: true,
+      error: null,
+      agents: [{ id: config.provider ?? config.id, state: 'ready', provider: config.provider ?? config.source }],
+      tasks: [{ id: `T-${config.id}`, title: `${config.source} session`, status: 'ready', dependencies: [] }],
+      events: [{ ts: heartbeat, type: 'session.heartbeat', source: config.source, project: projectValue, device: config.device ?? null }],
+    })
+  }
+
+  return { version: AGENT_SESSION_CONNECTOR_VERSION, mode, connectors }
+}
+
 async function readRequestJsonWithLimit(request, limit = DEFAULT_BODY_LIMIT) {
   if (!request || !request.body) return {}
   const reader = request.body.getReader ? request.body.getReader() : null
@@ -317,6 +468,7 @@ async function readRequestJsonWithLimit(request, limit = DEFAULT_BODY_LIMIT) {
   }
   const text = new TextDecoder().decode(merged)
   if (!text.trim()) return {}
+
   try {
     const parsed = JSON.parse(text)
     if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') return {}
@@ -375,6 +527,9 @@ function runAgentTeamCommand(action, params = {}, options = {}) {
 module.exports = {
   DEFAULT_BODY_LIMIT,
   AGENT_TEAM_COMMAND_TIMEOUT_MS,
+  AGENT_SESSION_CONNECTOR_VERSION,
+  AGENT_SESSION_CONNECTOR_MAX_BYTES,
+  AGENT_SESSION_CONNECTOR_TIMEOUT_MS,
   VALID_ACTIONS,
   repoRootFromLib,
   resolveWorkspaceRoot,
@@ -384,4 +539,7 @@ module.exports = {
   buildAgentTeamCliArgs,
   runAgentTeamCommand,
   getStateDirectory,
+  normalizeSessionConnectorConfig,
+  normalizeSessionConnectorConfigs,
+  readConnectorSnapshot,
 }
