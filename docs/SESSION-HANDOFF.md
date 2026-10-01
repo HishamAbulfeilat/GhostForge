@@ -89,6 +89,13 @@ progress. Keep going until every check is green, then keep improving.
   wasn't recognised as a rate limit, so the Claude worker burned 3 instant
   attempts and blocked 13 tasks. Fixed `RATE_LIMIT_RE` (+ test), requeued the
   13, closed 4 superseded blocked tasks, restarted the boss.
+- **2026-10-01 morning (11:10)** — ~55 tasks merged overnight; health 100/100.
+  PR #11: 100 commits, 160 files, mergeable; CI 8 pass / 4 pending / 1 fail
+  (Desktop linux — Electron SUID sandbox on Ubuntu 24.04; fix queued). Local
+  verification on `agent/integration`: root `npm test` ✓, web-ui `tsc` ✓,
+  web-ui tests 177/177 ✓. Bug fixed: a task pinned to rate-limited `claude`
+  kept the board "active" ~4h (03:47–08:04 UTC) so planning stopped and all
+  Copilot workers idled — pinned tasks now fall back to `any`.
 
 ## Environment gotchas
 
