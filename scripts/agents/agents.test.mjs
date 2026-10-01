@@ -1,13 +1,15 @@
 // Unit tests for the agent team (run: node --test scripts/agents/agents.test.mjs).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { routeModel, classifyTask, KIND_TIER } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
-import { lastJSON, pickTask, stagePrompt } from './boss.mjs'
+import { Boss, lastJSON, pickTask, stagePrompt } from './boss.mjs'
 import { scoreOf } from './health.mjs'
 
 test('classifyTask maps free text to task kinds', () => {
@@ -55,6 +57,45 @@ test('addTask dedupes open tasks by title', () => {
   const b = addTask(board, { title: 'same', kind: 'chore' })
   assert.equal(a.id, b.id)
   assert.equal(board.tasks.length, 1)
+})
+
+test('team add preserves orchestration metadata through request ingestion to the board', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-team-add-'))
+  const previousStateDir = process.env.GF_AGENT_STATE
+  const env = { ...process.env, GF_AGENT_STATE: dir }
+  try {
+    const cli = spawnSync(process.execPath, [
+      fileURLToPath(new URL('./team.mjs', import.meta.url)),
+      'add', 'Preserve orchestration metadata',
+      '--kind', 'feature',
+      '--area', 'scripts/agents',
+      '--agent', 'copilot-tui',
+      '--leader', 'copilot-integration',
+      '--workflow', 'sequential',
+      '--dependencies', 'T-120,T-121',
+      '--acceptance-criteria', 'Regression test passes;health check passes',
+      '--from', 'web-ui',
+    ], { encoding: 'utf8', env })
+    assert.equal(cli.status, 0, cli.stderr)
+
+    process.env.GF_AGENT_STATE = dir
+    const boss = new Boss()
+    const board = { phase: 4, nextId: 1, tasks: [] }
+    boss.ingestRequests(board)
+    saveBoard(dir, board)
+    const queued = loadBoard(dir).tasks[0]
+
+    assert.equal(queued.agent, 'copilot-tui')
+    assert.equal(queued.assignee, 'copilot-tui')
+    assert.equal(queued.leader, 'copilot-integration')
+    assert.equal(queued.workflow, 'sequential')
+    assert.deepEqual(queued.dependencies, ['T-120', 'T-121'])
+    assert.deepEqual(queued.acceptanceCriteria, ['Regression test passes', 'health check passes'])
+  } finally {
+    if (previousStateDir === undefined) delete process.env.GF_AGENT_STATE
+    else process.env.GF_AGENT_STATE = previousStateDir
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('bus round-trips board, messages, and results', () => {

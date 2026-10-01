@@ -250,7 +250,7 @@ export function stagePrompt(worktree, category, name, content) {
   return file
 }
 
-class Boss {
+export class Boss {
   constructor(templateName = null) {
     const baseCfg = readJSON(path.join(ROOT, '.agent-sync', 'team.json'), null)
     if (!baseCfg) throw new Error('Missing .agent-sync/team.json')
@@ -394,7 +394,17 @@ class Boss {
     for (const line of fs.readFileSync(taken, 'utf8').split('\n').filter(Boolean)) {
       try {
         const r = JSON.parse(line)
-        const t = addTask(board, { title: r.title, kind: r.kind || classifyTask(r.title), area: r.area, agent: r.agent })
+        const t = addTask(board, {
+          title: r.title,
+          kind: r.kind || classifyTask(r.title),
+          area: r.area,
+          agent: r.agent,
+          assignee: r.assignee ?? r.agent,
+          leader: r.leader,
+          workflow: r.workflow,
+          dependencies: r.dependencies,
+          acceptanceCriteria: r.acceptanceCriteria,
+        })
         this.say(r.from || 'all', `Queued "${r.title}" as ${t.id}.`)
       } catch { /* ignore a bad line */ }
     }
