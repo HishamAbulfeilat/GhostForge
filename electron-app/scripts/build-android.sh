@@ -1,125 +1,147 @@
-#!/bin/bash
-# GhostForge JARVIS — Build Android APK & AAB
-# Requires: Android SDK, Java 21+, Capacitor
+#!/usr/bin/env bash
+# GhostForge JARVIS — Android build entrypoint
+# Usage: bash scripts/build-android.sh [debug|release|bundle]
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-cd "$PROJECT_DIR"
+ANDROID_DIR="$PROJECT_DIR/android"
+GRADLEW="$ANDROID_DIR/gradlew"
 
-echo "╔══════════════════════════════════════════════╗"
-echo "║  GhostForge JARVIS — Android Build           ║"
-echo "╚══════════════════════════════════════════════╝"
-echo ""
+usage() {
+  echo "Usage: $0 [debug|release|bundle]"
+  echo "  debug   : assembleDebug (default)"
+  echo "  release : assembleRelease"
+  echo "  bundle  : bundleRelease"
+}
 
-# ── Check prerequisites ───────────────────────────────────────────────────
+resolve_android_sdk() {
+  local candidate
+  for candidate in \
+    "${ANDROID_HOME:-}" \
+    "${ANDROID_SDK_ROOT:-}" \
+    "${ANDROID_SDK:-}" \
+    "$HOME/Android/Sdk" \
+    "$HOME/Library/Android/sdk" \
+    "$HOME/Android/sdk" \
+    "/opt/android-sdk" \
+    "/usr/local/android-sdk" \
+    "/usr/local/share/android-sdk"; do
+    if [ -n "${candidate:-}" ] && [ -d "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
 
-check_prereqs() {
-  local ok=true
-
-  # Android SDK
-  if [ -z "${ANDROID_HOME:-}" ] && ! command -v sdkmanager &>/dev/null; then
-    echo "Error: Android SDK not found."
-    echo "Install Android SDK and set ANDROID_HOME, or install via Android Studio."
-    ok=false
-  fi
-
-  # Java
-  if ! command -v java &>/dev/null; then
-    echo "Error: Java not found. Install JDK 21+."
-    ok=false
-  else
-    JAVA_VERSION=$(java -version 2>&1 | head -n 1 | cut -d '"' -f 2 | cut -d '.' -f 1)
-    if [ "$JAVA_VERSION" -lt 21 ]; then
-      echo "Warning: Java $JAVA_VERSION detected. JDK 21+ recommended."
+  if [ -f "$ANDROID_DIR/local.properties" ]; then
+    candidate="$(sed -n 's/^[[:space:]]*sdk.dir[[:space:]]*=[[:space:]]*//p' "$ANDROID_DIR/local.properties" | head -n 1 || true)"
+    if [ -n "$candidate" ] && [ -d "$candidate" ]; then
+      echo "$candidate"
+      return 0
     fi
   fi
 
-  # Node.js
-  if ! command -v node &>/dev/null; then
-    echo "Error: Node.js not found."
-    ok=false
+  return 1
+}
+
+resolve_java_home() {
+  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+    echo "$JAVA_HOME"
+    return 0
   fi
 
-  if [ "$ok" = false ]; then
+  if command -v java >/dev/null 2>&1; then
+    local java_bin
+    java_bin="$(command -v java)"
+    local candidate
+    candidate="$(dirname "$(dirname "$java_bin")")"
+    if [ -x "$candidate/bin/java" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+require_prereqs() {
+  if [ ! -d "$ANDROID_DIR" ] || [ ! -f "$GRADLEW" ]; then
+    echo "Error: Android project is not initialized at $ANDROID_DIR"
+    echo "Run: cd $PROJECT_DIR && npx cap add android"
     exit 1
   fi
 
-  echo "Prerequisites OK"
-  echo ""
+  local java_home
+  java_home="$(resolve_java_home || true)"
+  if [ -z "$java_home" ]; then
+    echo "Error: JDK 21+ is required for Android builds. Set JAVA_HOME to a valid JDK or install one."
+    exit 1
+  fi
+
+  export JAVA_HOME="$java_home"
+  export PATH="$JAVA_HOME/bin:$PATH"
+
+  local java_version
+  java_version="$($JAVA_HOME/bin/java -version 2>&1 | awk -F '"' '/version/ {print $2; exit}' | cut -d '.' -f 1)"
+  if [ -z "$java_version" ] || [ "$java_version" -lt 21 ]; then
+    echo "Error: JDK 21+ is required. Current JAVA_HOME=$JAVA_HOME provides Java ${java_version:-unknown}."
+    exit 1
+  fi
+
+  local sdk_dir
+  sdk_dir="$(resolve_android_sdk || true)"
+  if [ -z "$sdk_dir" ]; then
+    echo "Error: Android SDK not found. Set ANDROID_HOME or ANDROID_SDK_ROOT to your SDK path."
+    echo "Typical locations: ~/Android/Sdk, ~/Library/Android/sdk, or /opt/android-sdk"
+    exit 1
+  fi
+
+  export ANDROID_HOME="$sdk_dir"
+  export ANDROID_SDK_ROOT="$sdk_dir"
+  export ANDROID_SDK="$sdk_dir"
+
+  if [ ! -x "$GRADLEW" ]; then
+    echo "Error: Missing Android Gradle wrapper at $GRADLEW"
+    exit 1
+  fi
 }
 
-check_prereqs
+run_gradle_task() {
+  local task="$1"
+  echo "Using JAVA_HOME=$JAVA_HOME"
+  echo "Using Android SDK=$ANDROID_HOME"
+  echo "Running Gradle task: $task"
+  chmod +x "$GRADLEW" 2>/dev/null || true
+  (
+    cd "$ANDROID_DIR"
+    ./gradlew --no-daemon "$task"
+  )
+}
 
-# ── Build TypeScript ──────────────────────────────────────────────────────
+TARGET="${1:-debug}"
+case "$TARGET" in
+  debug|--debug|-d)
+    TARGET_TASK="assembleDebug"
+    ;;
+  release|--release|-r)
+    TARGET_TASK="assembleRelease"
+    ;;
+  bundle|--bundle|-b)
+    TARGET_TASK="bundleRelease"
+    ;;
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "Error: unknown target '$TARGET'"
+    usage
+    exit 2
+    ;;
+ esac
 
-echo "Compiling TypeScript..."
-npx tsc
-echo "TypeScript compiled ✓"
-echo ""
+require_prereqs
+run_gradle_task "$TARGET_TASK"
 
-# ── Web assets ────────────────────────────────────────────────────────────
-# Capacitor serves android-web/ directly (webDir in capacitor.config.json).
-# The Next.js web UI is a server app and is reached over the network.
-
-# ── Initialize Capacitor if needed ───────────────────────────────────────
-
-if [ ! -d "android" ] || [ ! -f "android/build.gradle" ]; then
-  echo "Initializing Capacitor for Android..."
-  npx cap add android
-  echo ""
-fi
-
-# ── Sync Capacitor ────────────────────────────────────────────────────────
-
-echo "Syncing Capacitor..."
-npx cap sync android
-echo "Capacitor synced ✓"
-echo ""
-
-# ── Build APK (Debug) ─────────────────────────────────────────────────────
-
-echo "Building Android APK (Debug)..."
-cd android
-chmod +x gradlew 2>/dev/null || true
-./gradlew assembleDebug
-echo "Debug APK built ✓"
-echo ""
-
-# ── Build APK (Release — unsigned) ────────────────────────────────────────
-
-echo "Building Android APK (Release, unsigned)..."
-./gradlew assembleRelease
-echo "Release APK built ✓"
-echo ""
-
-# ── Build AAB (Release) ──────────────────────────────────────────────────
-
-echo "Building Android AAB (Release)..."
-./gradlew bundleRelease
-echo "Release AAB built ✓"
-echo ""
-
-cd "$PROJECT_DIR"
-
-# ── Copy artifacts to release/ ────────────────────────────────────────────
-
-RELEASE_DIR="$PROJECT_DIR/release"
-mkdir -p "$RELEASE_DIR"
-
-echo "Copying APK artifacts to release/..."
-cp android/app/build/outputs/apk/debug/*.apk "$RELEASE_DIR/" 2>/dev/null || true
-cp android/app/build/outputs/apk/release/*.apk "$RELEASE_DIR/" 2>/dev/null || true
-cp android/app/build/outputs/bundle/release/*.aab "$RELEASE_DIR/" 2>/dev/null || true
-echo "Artifacts copied ✓"
-echo ""
-
-echo "══════════════════════════════════════════════"
-echo "Android build complete!"
-echo ""
-echo "APK (Debug):   android/app/build/outputs/apk/debug/"
-echo "APK (Release): android/app/build/outputs/apk/release/"
-echo "AAB (Release): android/app/build/outputs/bundle/release/"
-echo "Artifacts:     release/"
-echo "══════════════════════════════════════════════"
+echo "Android build finished: $TARGET_TASK"

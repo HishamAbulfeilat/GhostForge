@@ -10,6 +10,20 @@
 
 Every entry below was hit for real while setting these builds up.
 
+### Android build scripts: CI-safe and portable
+`electron-app/scripts/build-android.sh` now validates `JAVA_HOME`/`ANDROID_HOME`/`ANDROID_SDK_ROOT`, accepts a target (`debug`, `release`, or `bundle`), and exits cleanly with a clear error when the JDK or SDK is missing. It avoids host-specific assumptions (no macOS-only paths or interactive prompt) and keeps the CI command deterministic with `assembleDebug`/`assembleRelease`/`bundleRelease`.
+
+Use:
+
+```bash
+cd electron-app
+bash scripts/build-android.sh debug
+bash scripts/build-android.sh release
+bash scripts/build-android.sh bundle
+```
+
+The GitHub Actions workflow still invokes the Gradle wrapper directly in `electron-app/android` with `JAVA_HOME` from `actions/setup-java` and the Android SDK from `android-actions/setup-android`.
+
 ### `Cannot create symbolic link : A required privilege is not held by the client` (local Windows build)
 electron-builder's `winCodeSign` archive contains macOS symlinks that Windows
 can't create without Developer Mode or admin rights. Either enable Developer
