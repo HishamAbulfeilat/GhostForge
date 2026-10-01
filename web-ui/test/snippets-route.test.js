@@ -100,6 +100,14 @@ test('rejects ambiguous doc+snippet requests', async () => {
   assert.equal((await get('?doc=README.md&snippet=api-hook.md')).status, 400)
 })
 
+test('reads snippets through one no-follow file descriptor', () => {
+  const source = fs.readFileSync(routePath, 'utf8')
+  assert.match(source, /openSync\(target, fs\.constants\.O_RDONLY \| fs\.constants\.O_NOFOLLOW\)/)
+  assert.match(source, /fstatSync\(fd\)/)
+  assert.match(source, /readFileSync\(fd, 'utf8'\)/)
+  assert.doesNotMatch(source, /(?:lstat|stat|realpath)Sync\(target\)/)
+})
+
 test('page uses only logical Tailwind utilities', () => {
   const page = fs.readFileSync(pagePath, 'utf8')
   assert.doesNotMatch(page, /(?<![\w-])(?:ml|mr|pl|pr|left|right)-[\w[]|text-(?:left|right)|rounded-[lr]\b|border-[lr]\b/)
