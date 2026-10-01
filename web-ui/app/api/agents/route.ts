@@ -49,10 +49,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 })
   }
 
-  return NextResponse.json({
-    ...readAgentTeamSnapshot(workspaceRoot),
-    connectorSnapshot: readConnectorSnapshot(connectorConfig, workspaceRoot),
-  })
+  try {
+    const connectorSnapshot = await readConnectorSnapshot(connectorConfig, workspaceRoot)
+    return NextResponse.json({
+      ...readAgentTeamSnapshot(workspaceRoot),
+      connectorSnapshot,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Agent connector configuration failed.'
+    const invalidConfig = /Duplicate connector IDs|Connector ID .* is reserved|configuration exceeds the .* connector limit/.test(message)
+    return NextResponse.json({ error: invalidConfig ? message : 'Agent connector snapshot failed.' }, { status: invalidConfig ? 400 : 500 })
+  }
 }
 
 export async function POST(request: NextRequest) {
