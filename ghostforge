@@ -39,6 +39,7 @@ Usage:
   ghostforge agents [args]             Alias for agent-team controls
   ghostforge workflows [args]          Workflow list/create/update/run commands
   ghostforge jobs [args]               Run Job Hunter commands
+  ghostforge n8n [args]                List, inspect, and trigger n8n workflows
   ghostforge <command>                 Run scripts/<command>.sh (legacy)
   ghostforge --open PATH                Run open-project.sh directly
   ghostforge --command health [PATH]
@@ -51,7 +52,7 @@ EOF
 if [[ $# -gt 0 && "${1#-}" == "$1" ]]; then
   subcommand="$1"
   case "$subcommand" in
-    marketplace|agent-team|agents|team|workflows|workflow|jobs|help)
+    marketplace|agent-team|agents|team|workflows|workflow|jobs|n8n|help)
       exec node "$SCRIPT_DIR/cli/index.js" "$@"
       ;;
   esac
