@@ -55,6 +55,43 @@ export const PROVIDERS = {
   // in process listings or the agent log.
   openai: ({ prompt, model, mode, config = {} }) => openAICompatible({ prompt, model, mode, config }),
   'openai-compatible': ({ prompt, model, mode, config = {} }) => openAICompatible({ prompt, model, mode, config }),
+  openrouter: ({ prompt, model, mode, config = {} }) => gatewayProvider({
+    prompt, model, mode, config,
+    endpointEnv: 'OPENROUTER_BASE_URL',
+    defaultEndpoint: 'https://openrouter.ai/api/v1',
+    apiKeyEnv: 'OPENROUTER_API_KEY',
+    defaultModel: 'deepseek/deepseek-r1:free',
+  }),
+  omniroute: ({ prompt, model, mode, config = {} }) => gatewayProvider({
+    prompt, model, mode, config,
+    endpointEnv: 'OMNIROUTE_URL',
+    defaultEndpoint: 'http://127.0.0.1:20128/v1',
+    apiKeyEnv: 'OMNIROUTE_API_KEY',
+    defaultModel: 'auto',
+    passAutoModel: true,
+  }),
+}
+
+function gatewayProvider({ prompt, model, mode, config, endpointEnv, defaultEndpoint, apiKeyEnv, defaultModel, passAutoModel = false }) {
+  const configuredEndpoint = config.endpoint ?? config.baseUrl ?? process.env[endpointEnv] ?? defaultEndpoint
+  const endpoint = normalizeOpenAIEndpoint(configuredEndpoint)
+  return openAICompatible({
+    prompt,
+    model: model && model !== 'auto' ? model : (config.model || defaultModel),
+    mode,
+    config: {
+      ...config,
+      endpoint,
+      apiKeyEnv: config.apiKeyEnv ?? apiKeyEnv,
+      clearMissingKey: true,
+      passAutoModel,
+    },
+  })
+}
+
+function normalizeOpenAIEndpoint(value) {
+  const endpoint = String(value).trim().replace(/\/+$/, '')
+  return endpoint.endsWith('/v1') ? endpoint : `${endpoint}/v1`
 }
 
 function openAICompatible({ prompt, model, mode, config = {} }) {
@@ -64,12 +101,13 @@ function openAICompatible({ prompt, model, mode, config = {} }) {
   const env = {}
   if (endpoint) env.OPENAI_BASE_URL = endpoint
   if (apiKey) env.OPENAI_API_KEY = apiKey
+  else if (config.clearMissingKey) env.OPENAI_API_KEY = ''
 
   return {
     cmd: 'codex',
     args: [
       'exec',
-      ...(model && model !== 'auto' ? ['-m', model] : []),
+      ...(model && (model !== 'auto' || config.passAutoModel) ? ['-m', model] : []),
       ...(mode === 'readonly' ? ['-s', 'read-only'] : ['--full-auto']),
       prompt,
     ],
