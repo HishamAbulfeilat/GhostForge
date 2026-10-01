@@ -42,21 +42,25 @@ const emitter = new EventEmitter();
 export function startClipboardWatcher(intervalMs: number = DEFAULT_POLL_MS): void {
   if (watcherInterval) return;
 
-  // Seed with current clipboard content so we don't fire on startup
-  lastClipboardText = clipboard.readText() || '';
+  void (async () => {
+    // Seed with current clipboard content so we don't fire on startup
+    lastClipboardText = (await clipboard.readText()) || '';
+  })();
 
   watcherInterval = setInterval(() => {
-    const current = clipboard.readText() || '';
-    if (current && current !== lastClipboardText) {
-      lastClipboardText = current;
-      addEntry(current);
-      emitter.emit('clipboard-change', current);
+    void (async () => {
+      const current = (await clipboard.readText()) || '';
+      if (current && current !== lastClipboardText) {
+        lastClipboardText = current;
+        addEntry(current);
+        emitter.emit('clipboard-change', current);
 
-      // Notify renderer
-      BrowserWindow.getAllWindows().forEach(win => {
-        win.webContents.send('clipboard:change', current);
-      });
-    }
+        // Notify renderer
+        BrowserWindow.getAllWindows().forEach(win => {
+          win.webContents.send('clipboard:change', current);
+        });
+      }
+    })();
   }, intervalMs);
 }
 
@@ -133,7 +137,7 @@ export function getClipboardHistory(): ClipboardEntry[] {
  * Read the current clipboard, apply the requested action, and return the result.
  */
 export async function smartPaste(action: ClipboardAction): Promise<ClipboardAnalysis> {
-  const text = clipboard.readText() || '';
+  const text = (await clipboard.readText()) || '';
   if (!text.trim()) {
     return {
       original: '',
