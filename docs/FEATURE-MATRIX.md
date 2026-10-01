@@ -40,15 +40,15 @@ surface. The evidence column names the implementation that was checked.
 | Clipboard, desktop and app launching | ⚠️ | ✅ | ⚠️ | ✅ | `app/mac-control`, `screenMacControl`, `/api/mark-l/clipboard`, `/desktop`, `/open-app` |
 | Memory (CRUD, semantic search, import/export) | ✅ | ⚠️ | ✅ | ✅ | `app/jarvis`, `scripts/setup-memory.sh`, `/api/mark-l/memory/*` |
 | Proactive assistant, morning briefing and inbox | ✅ | ⚠️ | ✅ | ❌ | `app/api/jarvis/proactive`, `app/api/jarvis/morning`, `scripts/daily-digest.sh` |
-| Jarvis collaboration and sharing | ✅ | ✅ | ❌ | ✅ | `app/api/jarvis/collab`, `CollabShare`, `screenCollaboration`, bridge `/api/jarvis/collab` |
+| Jarvis collaboration and sharing | ✅ | ✅ | ⚠️ | ✅ | `app/api/jarvis/collab`, `CollabShare`, `screenCollaboration`, `scripts/collab.mjs` (lower-level CLI only), bridge `/api/jarvis/collab` |
 | Job Hunter (search, profile, CV, GitHub) | ✅ | ⚠️ | ✅ | ✅ | `app/jobs`, `JobHunterWidget`, `scripts/job-hunter.mjs`/`scripts/jobs.sh`, bridge `/api/jobs` backed by the real user-scoped profile and review-only autopilot flow |
 | Workflow engine and workflow runs | ⚠️ | ✅ | ✅ | ✅ | `app/workflows`/`/api/workflows`, `screenWorkflows`, `scripts/workflows.mjs`, bridge `/api/workflows?action=run` executes only allowlisted command steps and enforces `--max-steps 1-100` |
-| n8n automation | ✅ | ⚠️ | ❌ | ❌ | `app/automation`, `screenN8n` (menu + dispatch), `n8nConfig`/`n8nRequest` in `tui/index.js`, `electron-app/src/main/n8n-integration.ts`; TUI lists workflows and triggers active POST/ALL webhooks |
+| n8n automation | ✅ | ⚠️ | ✅ | ✅ | `app/automation`, `screenN8n`, `cli/index.js` + `scripts/n8n.mjs`, `/api/n8n/workflows`, `/api/n8n/trigger`; TUI remains external-service dependent for live trigger execution |
 | Webhooks and trigger automation | ✅ | ✅ | ✅ | ✅ | `app/automation`, `screenWebhooks`, `/api/webhook`, `scripts/webhooks.mjs`, bridge webhook config/log/clear contract |
 | Orchestrated multi-agent work | ✅ | ⚠️ | ✅ | ✅ | `app/orchestrate`, `OrchestratePanel`, `/api/jarvis/orchestrate`, `/api/mark-l/agents` |
-| Remote setup and device management | ✅ | ✅ | ✅ | ⚠️ | `app/remote`, `app/api/remote/setup`, `screenDeviceInstall`, `scripts/setup-https.sh`, bridge `/api/devices` (registry only) |
+| Remote setup and device management | ✅ | ✅ | ✅ | ✅ | `app/remote`, `app/api/remote/setup`, `screenDeviceInstall`, `scripts/setup-https.sh`, bridge `/api/remote/setup` and `/api/devices` for registry + bounded remote actions |
 | Push notifications | ✅ | ✅ | ✅ | ❌ | `app/notifications`, `PushNotificationPanel`, `app/api/push`/service worker, `screenDeviceStatus`, `scripts/device-status.mjs push` |
-| Device status and registry | ✅ | ✅ | ✅ | ⚠️ | `DeviceStatus`, `app/api/devices`, `screenDeviceStatus`, `scripts/device-status.mjs status`, bridge `/api/devices` (registry, not live status) |
+| Device status and registry | ✅ | ✅ | ✅ | ✅ | `DeviceStatus`, `app/api/devices`, `screenDeviceStatus`, `scripts/device-status.mjs status`, bridge `/api/devices` + `/api/devices/status` |
 | Models catalog, install and recommendations | ✅ | ✅ | ✅ | ✅ | `app/models`, `screenModelSelect`, `scripts/free-models.sh`, `/api/mark-l/models/*` |
 | LLMFit model matching and auto-switch | ✅ | ✅ | ✅ | ❌ | `app/models`, `LLMfitAutoSwitch`, `screenLLMFit`, `scripts/free-models.sh` |
 | Hugging Face model search | ✅ | ✅ | ⚠️ | ✅ | `app/marketplace`, `/api/huggingface`, `screenMarketplace`, bridge model search |
@@ -72,7 +72,7 @@ surface. The evidence column names the implementation that was checked.
 | Tickets, Azure DevOps and estimates | ⚠️ | ✅ | ✅ | ❌ | `screenTickets`/`screenAdo`/`screenEstimate`, `scripts/ticket.sh`/`ado.sh`/`estimate.sh` |
 | Performance, bundle, unused-code and dependency health | ⚠️ | ✅ | ✅ | ❌ | `screenPerf`/`screenBundle`/`screenUnused`, `scripts/perf.sh`/`bundle.sh`/`unused.sh`/`dep-health.sh` |
 | Free APIs/models and provider setup | ✅ | ✅ | ✅ | ❌ | `app/models`, `screenFreeAPIs`/`screenFreeModels`, `scripts/free-models.sh`/`free-models.sh` |
-| Users, login and access profiles | ✅ | ✅ | ❌ | ❌ | `app/login`, `app/users`, `app/api/auth`, `app/api/users`, `screenUsers` |
+| Users, login and access profiles | ✅ | ✅ | ⚠️ | ❌ | `app/login`, `app/users`, `app/api/auth`, `app/api/users`, `scripts/users.mjs` (lower-level CLI only), `screenUsers` |
 | Bridge start/status and connection controls | ✅ | ✅ | ✅ | ✅ | `BridgeControl`, `screenHealth`, `scripts/bridge-server.js`, bridge `/api/mark-l/health` |
 | Electron desktop integrations | ❌ | ❌ | ❌ | ⚠️ | Runtime integrations are in `electron-app/src/main/*` and accessible in the Electron app; `scripts/build-electron.sh` is packaging only; bridge overlap is partial |
 | Android/iOS packaged app | ❌ | ❌ | ✅ | ❌ | `electron-app/android`, `electron-app/ios`, `scripts/build-android.sh`/`build-ios.sh` |
@@ -84,10 +84,12 @@ These are implementation limitations in the current checkout, not task-status
 or blocked-work claims:
 
 - The TUI n8n screen can list workflows and trigger active POST/ALL webhook
-  nodes, but requires a running external n8n service and has no standalone
-  terminal CLI or JARVIS/bridge surface.
-- JARVIS device handlers expose persisted registry CRUD only; they do not
-  provide live device status or remote setup operations.
+  nodes, but still requires a running external n8n service. The terminal CLI
+  and JARVIS bridge surfaces are available, but they remain lower-level entry
+  points rather than full web UI orchestration.
+- JARVIS device handlers now expose live device status and bounded remote setup
+  actions, in addition to persisted registry CRUD; the remaining limitation is
+  that live host availability still depends on the local bridge environment.
 - Electron-only integrations are available inside the packaged Electron app,
   but have no TUI or direct terminal CLI runtime controls. The build script is
   packaging support only. Android/iOS packaging likewise has CLI build scripts,
