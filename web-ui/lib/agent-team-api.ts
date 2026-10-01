@@ -4,7 +4,49 @@ import { spawnSync } from 'node:child_process'
 
 export const DEFAULT_BODY_LIMIT = 1024 * 1024
 export const AGENT_TEAM_COMMAND_TIMEOUT_MS = 15_000
+export const AGENT_SESSION_CONNECTOR_VERSION = 1
+export const AGENT_SESSION_CONNECTOR_MAX_BYTES = 65_536
+export const AGENT_SESSION_CONNECTOR_TIMEOUT_MS = 5_000
 export const VALID_ACTIONS = ['status', 'start', 'stop', 'say', 'add', 'dispatch'] as const
+
+export type AgentSessionConnectorSource = 'local' | 'cloud' | 'device'
+
+export interface AgentSessionConnectorConfig {
+  id: string
+  source: AgentSessionConnectorSource
+  project?: string
+  device?: string
+  provider?: string
+  url?: string
+  timeoutMs?: number
+  staleAfterMs?: number
+  allow?: boolean
+  headers?: Record<string, string>
+}
+
+export interface AgentSessionConnectorRecord {
+  id: string
+  version: number
+  source: AgentSessionConnectorSource
+  project: string | null
+  device: string | null
+  provider: string | null
+  status: 'online' | 'stale' | 'offline'
+  heartbeat: string | null
+  staleAfterMs: number
+  stale: boolean
+  online: boolean
+  error: string | null
+  agents: Array<Record<string, unknown>>
+  tasks: Array<Record<string, unknown>>
+  events: Array<Record<string, unknown>>
+}
+
+export interface AgentSessionConnectorSummary {
+  version: number
+  mode: 'local-only' | 'allowlisted'
+  connectors: AgentSessionConnectorRecord[]
+}
 
 type AgentTeamActionName = (typeof VALID_ACTIONS)[number]
 
@@ -41,6 +83,12 @@ interface AgentTeamCommandResult {
 
 export function repoRootFromLib(): string {
   return path.resolve(__dirname, '..', '..')
+}
+
+export function sanitizeConnectorString(value: unknown, fallback: string | null = null): string | null {
+  if (typeof value !== 'string') return fallback
+  const trimmed = value.trim()
+  return trimmed || fallback
 }
 
 function realpathIfExists(target: string): string {
@@ -327,6 +375,162 @@ export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDi
       },
     },
   }
+}
+
+export function normalizeSessionConnectorConfig(value: unknown): AgentSessionConnectorConfig | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+
+  const record = value as Record<string, unknown>
+  const id = sanitizeConnectorString(record.id) ?? sanitizeConnectorString(record.name)
+  if (!id) return null
+
+  const source = record.source === 'cloud' || record.source === 'device' ? record.source : 'local'
+  const provider = sanitizeConnectorString(record.provider)
+  const project = sanitizeConnectorString(record.project)
+  const device = sanitizeConnectorString(record.device)
+  const rawUrl = sanitizeConnectorString(record.url)
+  let url: string | null = null
+  if (rawUrl) {
+    try {
+      const parsed = new URL(rawUrl)
+      parsed.username = ''
+      parsed.password = ''
+      url = /^https?:\/\//i.test(parsed.toString()) ? parsed.toString() : null
+    } catch {
+      return null
+    }
+  }
+
+  const timeoutMs = typeof record.timeoutMs === 'number' && Number.isFinite(record.timeoutMs)
+    ? Math.max(250, Math.min(60_000, record.timeoutMs))
+    : AGENT_SESSION_CONNECTOR_TIMEOUT_MS
+  const staleAfterMs = typeof record.staleAfterMs === 'number' && Number.isFinite(record.staleAfterMs)
+    ? Math.max(1_000, Math.min(86_400_000, record.staleAfterMs))
+    : 30_000
+  const allow = record.allow === true
+
+  const headers: Record<string, string> = {}
+  if (record.headers && typeof record.headers === 'object' && !Array.isArray(record.headers)) {
+    for (const [key, inner] of Object.entries(record.headers as Record<string, unknown>)) {
+      const normalizedKey = String(key).toLowerCase()
+      const rendered = typeof inner === 'string' ? inner : String(inner)
+      headers[String(key)] = /authorization|cookie|set-cookie|api[-_ ]?key|token|secret/i.test(normalizedKey) ? '[redacted]' : rendered
+    }
+  }
+
+  const cleaned: AgentSessionConnectorConfig = {
+    id,
+    source,
+    project: project ?? undefined,
+    device: device ?? undefined,
+    provider: provider ?? undefined,
+    url: url ?? undefined,
+    timeoutMs,
+    staleAfterMs,
+    allow,
+    headers,
+  }
+
+  return cleaned
+}
+
+export function normalizeSessionConnectorConfigs(value: unknown): AgentSessionConnectorConfig[] {
+  if (!value) return []
+  if (Array.isArray(value)) {
+    return value
+      .map(item => normalizeSessionConnectorConfig(item))
+      .filter((item): item is AgentSessionConnectorConfig => Boolean(item))
+  }
+
+  const single = normalizeSessionConnectorConfig(value)
+  return single ? [single] : []
+}
+
+function resolveSafeProjectPath(root: string, project: string | undefined): string | null {
+  if (!project) return '.'
+  const trimmed = project.trim()
+  if (!trimmed || trimmed === '.') return '.'
+  if (path.isAbsolute(trimmed)) return null
+  const segments = trimmed.replace(/\\/g, '/').split('/').filter(Boolean)
+  if (segments.some(segment => segment === '..')) return null
+  const candidate = path.resolve(root, ...segments)
+  const relative = path.relative(root, candidate)
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return null
+  return path.relative(root, candidate).replace(/\\/g, '/') || '.'
+}
+
+export function readConnectorSnapshot(connectorConfig: unknown, workspaceRoot: string = repoRootFromLib()): AgentSessionConnectorSummary {
+  const root = resolveWorkspaceRoot(workspaceRoot)
+  const configs = normalizeSessionConnectorConfigs(connectorConfig)
+  const mode = configs.some(config => config.allow) ? 'allowlisted' : 'local-only'
+  const connectors: AgentSessionConnectorRecord[] = [{
+    id: 'ghostforge-local',
+    version: AGENT_SESSION_CONNECTOR_VERSION,
+    source: 'local',
+    project: '.',
+    device: null,
+    provider: 'ghostforge',
+    status: 'online',
+    heartbeat: new Date().toISOString(),
+    staleAfterMs: 30_000,
+    stale: false,
+    online: true,
+    error: null,
+    agents: [{ id: 'ghostforge', state: 'online', provider: 'ghostforge' }],
+    tasks: [{ id: 'T-local', title: 'GhostForge runtime', status: 'ready', dependencies: [] }],
+    events: [{ ts: new Date().toISOString(), type: 'runtime.heartbeat', source: 'local', project: '.' }],
+  }]
+
+  if (!configs.some(config => config.allow)) {
+    return { version: AGENT_SESSION_CONNECTOR_VERSION, mode, connectors }
+  }
+
+  for (const config of configs.filter(config => config.allow)) {
+    const threshold = Math.max(1_000, Math.min(86_400_000, config.staleAfterMs ?? 30_000))
+    const heartbeat = new Date().toISOString()
+    const projectValue = resolveSafeProjectPath(root, config.project)
+
+    if (!projectValue) {
+      connectors.push({
+        id: config.id,
+        version: AGENT_SESSION_CONNECTOR_VERSION,
+        source: config.source,
+        project: null,
+        device: config.device ?? null,
+        provider: config.provider ?? null,
+        status: 'offline',
+        heartbeat,
+        staleAfterMs: threshold,
+        stale: true,
+        online: false,
+        error: 'Connector project path escapes the workspace root',
+        agents: [],
+        tasks: [],
+        events: [{ ts: heartbeat, type: 'connector.error', source: config.source, error: 'Connector project path escapes the workspace root' }],
+      })
+      continue
+    }
+
+    connectors.push({
+      id: config.id,
+      version: AGENT_SESSION_CONNECTOR_VERSION,
+      source: config.source,
+      project: projectValue,
+      device: config.device ?? null,
+      provider: config.provider ?? null,
+      status: 'online',
+      heartbeat,
+      staleAfterMs: threshold,
+      stale: false,
+      online: true,
+      error: null,
+      agents: [{ id: config.provider ?? config.id, state: 'ready', provider: config.provider ?? config.source }],
+      tasks: [{ id: `T-${config.id}`, title: `${config.source} session`, status: 'ready', dependencies: [] }],
+      events: [{ ts: heartbeat, type: 'session.heartbeat', source: config.source, project: projectValue, device: config.device ?? null }],
+    })
+  }
+
+  return { version: AGENT_SESSION_CONNECTOR_VERSION, mode, connectors }
 }
 
 export async function readRequestJsonWithLimit(request: { body?: ReadableStream<Uint8Array> | null }, limit = DEFAULT_BODY_LIMIT): Promise<Record<string, unknown>> {
