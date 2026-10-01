@@ -20,9 +20,11 @@ class BridgeContractTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.original_data_dir = server._BRIDGE_DATA_DIR
         self.original_job_hunter_dir = server._JOB_HUNTER_DIR
+        self.original_missing = set(server._MISSING)
         self.original_collab_sessions = server._COLLAB_SESSIONS.copy()
         server._BRIDGE_DATA_DIR = Path(self.tmp.name)
         server._JOB_HUNTER_DIR = Path(self.tmp.name) / "jobs"
+        server._MISSING.discard("system_monitor")
         server._COLLAB_SESSIONS.clear()
         self.client = TestClient(server.app)
         self.headers = {"X-Bridge-Token": server._read_bridge_token()}
@@ -31,6 +33,8 @@ class BridgeContractTests(unittest.TestCase):
         self.client.close()
         server._BRIDGE_DATA_DIR = self.original_data_dir
         server._JOB_HUNTER_DIR = self.original_job_hunter_dir
+        server._MISSING.clear()
+        server._MISSING.update(self.original_missing)
         server._COLLAB_SESSIONS.clear()
         server._COLLAB_SESSIONS.update(self.original_collab_sessions)
         self.tmp.cleanup()
@@ -42,11 +46,20 @@ class BridgeContractTests(unittest.TestCase):
             "/api/workflows",
             "/api/webhook",
             "/api/devices",
+            "/api/devices/status",
+            "/api/remote/setup",
             "/api/release",
         )
         for path in paths:
             with self.subTest(path=path):
                 response = self.client.get(path)
+                self.assertEqual(response.status_code, 401)
+        for path, payload in (
+            ("/api/devices", {"user_id": "contract-test", "id": "device-1"}),
+            ("/api/remote/setup", {"action": "start-websockify"}),
+        ):
+            with self.subTest(path=path, method="POST"):
+                response = self.client.post(path, json=payload)
                 self.assertEqual(response.status_code, 401)
 
     def test_collaboration_get_creates_and_post_persists_message(self):
@@ -362,6 +375,9 @@ class BridgeContractTests(unittest.TestCase):
             },
         )
         self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["device"]["id"], "device-1")
+        self.assertIn("updatedAt", first.json()["device"])
+        self.assertNotIn("user_id", first.json()["device"])
         updated = self.client.post(
             "/api/devices",
             headers=self.headers,
@@ -407,6 +423,107 @@ class BridgeContractTests(unittest.TestCase):
             ).json()["devices"],
             [],
         )
+
+    def test_device_live_status_returns_host_metrics_and_validates_user(self):
+        metrics = {"cpu_percent": 12.5, "ram_percent": 40.0}
+        with patch.object(server, "_get_system_status", return_value=metrics):
+            response = self.client.get(
+                "/api/devices/status?user_id=contract-test", headers=self.headers
+            )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["status"], "online")
+        self.assertEqual(payload["user"], "contract-test")
+        self.assertEqual(payload["metrics"], metrics)
+        self.assertEqual(payload["device"]["platform"], server.platform.system().lower())
+        self.assertEqual(payload["device"]["hostname"], server.socket.gethostname())
+        self.assertIn("updatedAt", payload)
+
+        invalid_user = self.client.get(
+            "/api/devices/status?user_id=../outside", headers=self.headers
+        )
+        self.assertEqual(invalid_user.status_code, 400)
+
+    def test_device_live_status_fails_clearly_when_monitor_is_unavailable(self):
+        server._MISSING.add("system_monitor")
+        response = self.client.get("/api/devices/status", headers=self.headers)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("system_monitor", response.json()["detail"]["error"])
+
+    def test_remote_setup_status_and_start_keep_websocket_listener_loopback_only(self):
+        with patch.object(server, "_probe_loopback_port", return_value=False):
+            status = self.client.get("/api/remote/setup", headers=self.headers)
+        self.assertEqual(status.status_code, 200)
+        self.assertFalse(status.json()["websockify"])
+        self.assertIsNone(status.json()["noVncUrl"])
+
+        with (
+            patch.object(server.shutil, "which", return_value="/usr/bin/websockify"),
+            patch.object(server, "_find_novnc_root", return_value=Path(self.tmp.name)),
+            patch.object(server, "_probe_loopback_port", return_value=False),
+            patch.object(server.subprocess, "Popen") as popen,
+        ):
+            started = self.client.post(
+                "/api/remote/setup",
+                headers=self.headers,
+                json={"action": "start-websockify"},
+            )
+
+        self.assertEqual(started.status_code, 200)
+        self.assertTrue(started.json()["ok"])
+        self.assertTrue(started.json()["started"])
+        self.assertEqual(started.json()["listenerHost"], "127.0.0.1")
+        argv = popen.call_args.args[0]
+        self.assertEqual(argv[1], "127.0.0.1:6080")
+        self.assertEqual(argv[2], "127.0.0.1:5900")
+        self.assertIn("--web", argv)
+        self.assertTrue(popen.call_args.kwargs["close_fds"])
+
+        invalid_action = self.client.post(
+            "/api/remote/setup",
+            headers=self.headers,
+            json={"action": "run-command"},
+        )
+        invalid_request = self.client.post(
+            "/api/remote/setup", headers=self.headers, json={"action": ""}
+        )
+        self.assertEqual(invalid_action.status_code, 400)
+        self.assertEqual(invalid_request.status_code, 422)
+
+    def test_remote_setup_refuses_to_reuse_an_unverified_listener(self):
+        with (
+            patch.object(server.shutil, "which", return_value="/usr/bin/websockify"),
+            patch.object(server, "_find_novnc_root", return_value=Path(self.tmp.name)),
+            patch.object(server, "_probe_loopback_port", return_value=True),
+            patch.object(server.subprocess, "Popen") as popen,
+        ):
+            response = self.client.post(
+                "/api/remote/setup",
+                headers=self.headers,
+                json={"action": "start-websockify"},
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("unverified listener", response.json()["detail"])
+        popen.assert_not_called()
+
+    def test_remote_setup_fails_safely_when_websockify_is_unavailable(self):
+        for websockify, novnc in (
+            (None, Path(self.tmp.name)),
+            ("/usr/bin/websockify", None),
+        ):
+            with (
+                patch.object(server.shutil, "which", return_value=websockify),
+                patch.object(server, "_find_novnc_root", return_value=novnc),
+                patch.object(server.subprocess, "Popen") as popen,
+            ):
+                response = self.client.post(
+                    "/api/remote/setup",
+                    headers=self.headers,
+                    json={"action": "start-websockify"},
+                )
+            self.assertEqual(response.status_code, 503)
+            self.assertIn("websockify and noVNC", response.json()["detail"]["error"])
+            popen.assert_not_called()
 
     def test_release_actions_validate(self):
         status = self.client.get("/api/release", headers=self.headers)
