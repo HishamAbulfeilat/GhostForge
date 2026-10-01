@@ -98,6 +98,37 @@ test('team add preserves orchestration metadata through request ingestion to the
   }
 })
 
+test('team dispatch preserves the leader and defaults assignment to any through boss ingestion', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-team-dispatch-'))
+  const previousStateDir = process.env.GF_AGENT_STATE
+  const env = { ...process.env, GF_AGENT_STATE: dir }
+  try {
+    const cli = spawnSync(process.execPath, [
+      fileURLToPath(new URL('./team.mjs', import.meta.url)),
+      'dispatch', 'Dispatch with defaults',
+    ], { encoding: 'utf8', env })
+    assert.equal(cli.status, 0, cli.stderr)
+
+    process.env.GF_AGENT_STATE = dir
+    const request = JSON.parse(fs.readFileSync(path.join(dir, 'requests.jsonl'), 'utf8'))
+    assert.equal(request.agent, 'any')
+    assert.equal(request.assignee, 'any')
+    assert.equal(request.leader, 'boss')
+
+    const boss = new Boss()
+    const board = { phase: 4, nextId: 1, tasks: [] }
+    boss.ingestRequests(board)
+    const queued = board.tasks[0]
+    assert.equal(queued.agent, 'any')
+    assert.equal(queued.assignee, 'any')
+    assert.equal(queued.leader, 'boss')
+  } finally {
+    if (previousStateDir === undefined) delete process.env.GF_AGENT_STATE
+    else process.env.GF_AGENT_STATE = previousStateDir
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('bus round-trips board, messages, and results', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-bus-'))
   try {

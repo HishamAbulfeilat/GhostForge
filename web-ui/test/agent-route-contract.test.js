@@ -235,7 +235,12 @@ test('POST dispatches start, stop, say, and add without launching the boss', asy
     {
       name: 'add',
       payload: { action: 'add', title: 'Add route tests', kind: 'test', area: ['web-ui/test'] },
-      args: ['add', 'Add route tests', '--kind', 'test', '--area', 'web-ui/test', '--agent', 'any', '--workflow', 'parallel', '--from', 'human'],
+      args: ['add', 'Add route tests', '--kind', 'test', '--area', 'web-ui/test', '--agent', 'any', '--leader', 'boss', '--workflow', 'parallel', '--from', 'human'],
+    },
+    {
+      name: 'dispatch',
+      payload: { action: 'dispatch', title: 'Dispatch with leader', leader: 'copilot-web', assignee: 'copilot-integration' },
+      args: ['add', 'Dispatch with leader', '--kind', 'feature', '--agent', 'copilot-integration', '--leader', 'copilot-web', '--workflow', 'parallel', '--from', 'human'],
     },
   ]
 
