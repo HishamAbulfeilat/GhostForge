@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 
+import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 const README_URL = 'https://raw.githubusercontent.com/Shubhamsaboo/awesome-llm-apps/main/README.md'
+const API_URL = process.env.GF_AWESOME_LLM_API_URL || README_URL
 const CATEGORY_KEYWORDS = {
   agents: ['agent', 'autonomous', 'planner', 'react', 'tool-use'],
   rag: ['rag', 'retrieval', 'vector', 'embedding', 'knowledge', 'search'],
@@ -22,17 +24,23 @@ function usage() {
 Usage:
   npm run awesome-llm-apps
   node scripts/awesome-llm-apps.mjs [options]
+  bash scripts/awesome-llm-apps.sh list
+  bash scripts/awesome-llm-apps.sh search "agent"
 
-By default, lists the Awesome LLM Apps catalog from GitHub.
+By default, lists the Awesome LLM Apps catalog from the configured source.
 
 Options:
+  list               List apps (default)
+  search <query>     Search app names and descriptions
   --category <name>  Filter by category (agents, rag, voice, multi-agent,
                      generative-ui, computer-use, code, creative, other)
   --search <query>   Search app names and descriptions
+  --api-url <url>    Override the catalog fetch URL
+  --fixture <path>   Read a local JSON/README fixture instead of fetching
   --json             Print matching apps as JSON
   -h, --help         Show this help
 
-The catalog is fetched from:
+The default catalog is fetched from:
   https://github.com/Shubhamsaboo/awesome-llm-apps`
 }
 
@@ -40,11 +48,37 @@ function parseArgs(argv) {
   const options = { category: 'all', search: '', json: false, help: false }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
+    if (arg === 'list') {
+      options.command = 'list'
+      continue
+    }
+    if (arg === 'search') {
+      const value = argv[index + 1]
+      if (!value || value.startsWith('--')) throw new Error('search requires a query')
+      options.command = 'search'
+      options.search = value
+      index += 1
+      continue
+    }
     if (arg === '--help' || arg === '-h') {
       return { ...options, help: true }
     }
     if (arg === '--json') {
       options.json = true
+      continue
+    }
+    if (arg === '--api-url' || arg === '--source-url') {
+      const value = argv[index + 1]
+      if (!value || value.startsWith('--')) throw new Error(`${arg} requires a value`)
+      options.apiUrl = value
+      index += 1
+      continue
+    }
+    if (arg === '--fixture' || arg === '--fixture-file') {
+      const value = argv[index + 1]
+      if (!value || value.startsWith('--')) throw new Error(`${arg} requires a value`)
+      options.fixture = value
+      index += 1
       continue
     }
     if (arg === '--category' || arg === '--search') {
@@ -60,6 +94,13 @@ function parseArgs(argv) {
         options.search = value
       }
       index += 1
+      continue
+    }
+    if (arg.startsWith('--')) {
+      throw new Error(`Unknown option: ${arg}`)
+    }
+    if (options.command === 'search') {
+      options.search = arg
       continue
     }
     throw new Error(`Unknown option: ${arg}`)
@@ -125,6 +166,38 @@ function parseReadme(readme) {
   return apps
 }
 
+function coerceApps(raw) {
+  if (Array.isArray(raw)) return raw.map(app => ({
+    id: app.id || (app.name || 'app').toLowerCase().replace(/\s+/g, '-'),
+    name: app.name || 'Untitled app',
+    category: app.category || categorize(app.name || '', app.description || ''),
+    description: app.description || '',
+    url: app.url || 'https://github.com/Shubhamsaboo/awesome-llm-apps',
+  }))
+
+  if (!raw || typeof raw !== 'object') return []
+
+  if (Array.isArray(raw.items)) return coerceApps(raw.items)
+  if (raw.grouped && typeof raw.grouped === 'object') {
+    return Object.values(raw.grouped).flatMap(value => coerceApps(Array.isArray(value) ? value : []))
+  }
+
+  return []
+}
+
+function readFixture(filePath) {
+  const fileText = fs.readFileSync(filePath, 'utf8')
+  const trimmed = fileText.trim()
+  if (!trimmed) return []
+
+  try {
+    const parsed = JSON.parse(fileText)
+    return coerceApps(parsed)
+  } catch {
+    return parseReadme(fileText)
+  }
+}
+
 function filterApps(apps, { category = 'all', search = '' } = {}) {
   const query = search.trim().toLowerCase()
   return apps.filter(app =>
@@ -133,17 +206,41 @@ function filterApps(apps, { category = 'all', search = '' } = {}) {
   )
 }
 
-async function fetchCatalog() {
+async function fetchCatalog(options = {}) {
+  const apiUrl = options.apiUrl || API_URL
+
+  if (options.fixture) {
+    return readFixture(path.resolve(process.cwd(), options.fixture))
+  }
+
   let response
   try {
-    response = await fetch(README_URL, { signal: AbortSignal.timeout(15_000) })
+    response = await fetch(apiUrl, {
+      headers: { Accept: 'application/json, text/plain;q=0.9' },
+      signal: AbortSignal.timeout(15_000),
+    })
   } catch (error) {
-    throw new Error(`Could not fetch the Awesome LLM Apps README: ${error.message}`)
+    throw new Error(`Could not fetch the Awesome LLM Apps catalog: ${error.message}`)
   }
   if (!response.ok) {
-    throw new Error(`Could not fetch the Awesome LLM Apps README (HTTP ${response.status})`)
+    throw new Error(`Could not fetch the Awesome LLM Apps catalog (HTTP ${response.status})`)
   }
-  return parseReadme(await response.text())
+
+  const text = await response.text()
+  const trimmed = text.trim()
+  if (!trimmed) return []
+
+  try {
+    const parsed = JSON.parse(text)
+    const normalized = coerceApps(parsed)
+    if (normalized.length > 0) return normalized
+    return parseReadme(trimmed)
+  } catch {
+    if (apiUrl !== README_URL) {
+      return parseReadme(trimmed)
+    }
+    return parseReadme(trimmed)
+  }
 }
 
 function formatApps(apps) {
@@ -164,11 +261,11 @@ async function main(argv) {
     console.log(usage())
     return
   }
-  const apps = filterApps(await fetchCatalog(), options)
+  const apps = filterApps(await fetchCatalog(options), options)
   console.log(options.json ? JSON.stringify(apps, null, 2) : formatApps(apps))
 }
 
-export { filterApps, formatApps, parseArgs, parseReadme, usage }
+export { coerceApps, fetchCatalog, filterApps, formatApps, parseArgs, parseReadme, readFixture, usage }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
