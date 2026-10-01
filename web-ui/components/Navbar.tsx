@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: '/terminal',    icon: '🖥️', label: 'Terminal' },
   { href: '/maintenance', icon: '🛠️', label: 'Maintenance' },
   { href: '/dashboard',   icon: '📊', label: 'Dashboard' },
+  { href: '/maintainer-world', icon: '🧭', label: 'Monitor' },
   { href: '/agents',      icon: '🤝', label: 'Agents' },
   { href: '/agent-world', icon: '🌐', label: 'Agent World' },
   { href: '/media-tools', icon: '▶️', label: 'Media' },

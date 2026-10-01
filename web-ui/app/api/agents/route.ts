@@ -10,6 +10,7 @@ import {
   resolveWorkspaceRoot,
   runAgentTeamCommand,
 } from '@/lib/agent-team-api'
+import { sanitizePublicAgentResponse } from '@/lib/agent-public-snapshot'
 
 export const dynamic = 'force-dynamic'
 const MAX_BODY_BYTES = 1024 * 1024
@@ -32,6 +33,10 @@ function adminToolsForbidden() {
   return NextResponse.json({ error: 'Admin tools permission required.' }, { status: 403 })
 }
 
+function authenticationRequired() {
+  return NextResponse.json({ error: 'Authentication required.' }, { status: 401 })
+}
+
 async function requireAdminUser(request: NextRequest) {
   const user = await getCurrentUser(request)
   if (!user || !hasPermission(user, 'admin_tools')) return null
@@ -39,7 +44,11 @@ async function requireAdminUser(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  if (!await requireAdminUser(request)) return adminToolsForbidden()
+  const user = await getCurrentUser(request)
+  if (!user) return authenticationRequired()
+  const publicView = request.nextUrl?.searchParams.get('view') === 'public'
+  if (!publicView && !hasPermission(user, 'admin_tools')) return adminToolsForbidden()
+
   const workspaceRoot = resolveWorkspaceRoot(repoRootFromLib())
   let connectorConfig: unknown
   try {
@@ -51,10 +60,13 @@ export async function GET(request: NextRequest) {
 
   try {
     const connectorSnapshot = await readConnectorSnapshot(connectorConfig, workspaceRoot)
-    return NextResponse.json({
+    const response = {
       ...readAgentTeamSnapshot(workspaceRoot),
       connectorSnapshot,
-    })
+    }
+    return NextResponse.json(publicView
+      ? sanitizePublicAgentResponse(response, connectorSnapshot as unknown as Record<string, unknown>)
+      : response)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Agent connector configuration failed.'
     const invalidConfig = /Duplicate connector IDs|Connector ID .* is reserved|configuration exceeds the .* connector limit/.test(message)

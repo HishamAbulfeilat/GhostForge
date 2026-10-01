@@ -8,8 +8,10 @@ const { renderToStaticMarkup } = require('react-dom/server')
 const ts = require('typescript')
 
 const componentPath = path.resolve(__dirname, '../components/agent-world/WorkflowDependencyGraph.tsx')
+const viewPath = path.resolve(__dirname, '../components/AgentWorldView.tsx')
 const pagePath = path.resolve(__dirname, '../app/agent-world/page.tsx')
 const componentSource = fs.readFileSync(componentPath, 'utf8')
+const viewSource = fs.readFileSync(viewPath, 'utf8')
 const pageSource = fs.readFileSync(pagePath, 'utf8')
 const compiledComponent = ts.transpileModule(componentSource, {
   compilerOptions: {
@@ -25,8 +27,9 @@ componentModule._compile(compiledComponent, componentPath)
 const WorkflowDependencyGraph = componentModule.exports.default
 
 test('Agent World renders the workflow graph from loaded snapshot tasks', () => {
-  assert.match(pageSource, /import WorkflowDependencyGraph from ['"]\.\.\/\.\.\/components\/agent-world\/WorkflowDependencyGraph['"]/)
-  assert.match(pageSource, /<WorkflowDependencyGraph tasks=\{state\.data\.tasks\} \/>/)
+  assert.match(pageSource, /variant="product"/)
+  assert.match(viewSource, /import WorkflowDependencyGraph from ['"]@\/components\/agent-world\/WorkflowDependencyGraph['"]/)
+  assert.match(viewSource, /<WorkflowDependencyGraph tasks=\{data\.tasks\} \/>/)
 })
 
 test('workflow graph renders reported nodes and only uniquely resolved dependency edges', () => {

@@ -45,8 +45,9 @@ async function responseError(response: Response): Promise<string> {
 export async function loadAgentWorld(
   fetcher: typeof fetch,
   onLoginRedirect: () => void,
+  variant: 'product' | 'maintainer' = 'maintainer',
 ): Promise<AgentWorldLoadResult> {
-  const response = await fetcher('/api/agents')
+  const response = await fetcher(variant === 'product' ? '/api/agents?view=public' : '/api/agents')
   if (response.status === 401 || response.status === 403) {
     const authResponse = await fetcher('/api/auth/me')
     if (authResponse.status === 401) {
@@ -79,14 +80,35 @@ export async function loadAgentWorld(
   return { status: 'loaded', snapshot, connectorSummary }
 }
 
+function withConnectorSource(record: AgentWorldRecord, connector: AgentWorldRecord): AgentWorldRecord {
+  return {
+    ...record,
+    source: connector.id,
+    connectorSource: connector.source,
+  }
+}
+
+function connectorIsStale(connector: AgentWorldRecord): boolean {
+  return connector.stale === true || connector.status === 'stale'
+}
+
 export function collectAgentWorldData(
   snapshot: AgentWorldRecord,
   connectorSummary?: AgentWorldRecord,
 ): AgentWorldData {
   const connectors = recordList(connectorSummary?.connectors)
   const sessions = [
-    ...recordList(snapshot.sessions),
-    ...connectors.flatMap(connector => recordList(connector.sessions)),
+    ...recordList(snapshot.sessions).map(session => ({
+      ...session,
+      source: typeof session.source === 'string' && session.source.trim()
+        ? session.source
+        : 'ghostforge-runtime',
+    })),
+    ...connectors.flatMap(connector => recordList(connector.sessions).map(session => ({
+      ...withConnectorSource(session, connector),
+      connectorId: connector.id,
+      stale: session.stale === true || connectorIsStale(connector),
+    }))),
   ]
   const runtimeAgents = asRecord(snapshot.agents)
   const runtimeTasks = recordList(snapshot.tasks)
@@ -95,33 +117,37 @@ export function collectAgentWorldData(
     typeof task.id === 'string' ? [task.id] : [],
   ))
   const agents = [
-    ...Object.entries(runtimeAgents ?? {}).map(([id, agent]) => ({ ...asRecord(agent), id, source: 'GhostForge runtime' })),
+    ...Object.entries(runtimeAgents ?? {}).map(([id, agent]) => ({
+      ...asRecord(agent),
+      id,
+      source: 'ghostforge-runtime',
+    })),
     ...connectors.flatMap(connector => recordList(connector.agents)
       .filter(agent => connector.id !== 'ghostforge-local'
         || typeof agent.id !== 'string'
         || !runtimeAgentIds.has(agent.id))
-      .map(agent => ({
-        ...agent,
-        source: connector.id,
-      }))),
+      .map(agent => connector.id === 'ghostforge-local'
+        ? { ...agent, source: connector.id }
+        : withConnectorSource(agent, connector))),
   ]
   const tasks = [
-    ...runtimeTasks.map(task => ({ ...task, source: 'GhostForge runtime' })),
+    ...runtimeTasks.map(task => ({ ...task, source: 'ghostforge-runtime' })),
     ...connectors.flatMap(connector => recordList(connector.tasks)
       .filter(task => connector.id !== 'ghostforge-local'
         || typeof task.id !== 'string'
         || !runtimeTaskIds.has(task.id))
-      .map(task => ({
-        ...task,
-        source: connector.id,
-      }))),
+      .map(task => connector.id === 'ghostforge-local'
+        ? { ...task, source: connector.id }
+        : withConnectorSource(task, connector))),
   ]
   const events = [
-    ...recordList(snapshot.messages).map(message => ({ ...message, type: 'team.message', source: 'GhostForge runtime' })),
-    ...connectors.flatMap(connector => recordList(connector.events).map(event => ({
-      ...event,
-      source: connector.id,
-    }))),
+    ...recordList(snapshot.messages).map(message => ({
+      ...message,
+      type: 'team.message',
+      source: 'ghostforge-runtime',
+    })),
+    ...connectors.flatMap(connector => recordList(connector.events)
+      .map(event => withConnectorSource(event, connector))),
   ]
 
   return { connectors, sessions, agents, tasks, events }

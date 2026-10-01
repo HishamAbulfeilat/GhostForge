@@ -8,8 +8,10 @@ const { renderToStaticMarkup } = require('react-dom/server')
 const ts = require('typescript')
 
 const componentPath = path.resolve(__dirname, '../components/agent-world/AgentOfficeMap.tsx')
+const viewPath = path.resolve(__dirname, '../components/AgentWorldView.tsx')
 const pagePath = path.resolve(__dirname, '../app/agent-world/page.tsx')
 const componentSource = fs.readFileSync(componentPath, 'utf8')
+const viewSource = fs.readFileSync(viewPath, 'utf8')
 const pageSource = fs.readFileSync(pagePath, 'utf8')
 const compiledComponent = ts.transpileModule(componentSource, {
   compilerOptions: {
@@ -27,10 +29,11 @@ const AgentOfficeMap = componentModule.exports.default
 const emptyMessage = 'No sessions were reported by the available snapshots.'
 
 test('Agent World mounts the office map with connector-attributed snapshot sessions', () => {
-  assert.match(pageSource, /import AgentOfficeMap from ['"]\.\.\/\.\.\/components\/agent-world\/AgentOfficeMap['"]/)
-  assert.match(pageSource, /<AgentOfficeMap sessions=\{state\.officeSessions\}/)
-  assert.match(pageSource, /source: typeof session\.source === 'string'[\s\S]*?connector\.id/)
-  assert.match(pageSource, /connector\.stale === true \|\| connector\.status === 'stale'/)
+  assert.match(pageSource, /variant="product"/)
+  assert.match(viewSource, /import AgentOfficeMap from ['"]@\/components\/agent-world\/AgentOfficeMap['"]/)
+  assert.match(viewSource, /<AgentOfficeMap[\s\S]*?sessions=\{data\.sessions\}/)
+  assert.match(viewSource, /<WorkflowDependencyGraph tasks=\{data\.tasks\}/)
+  assert.match(fs.readFileSync(path.resolve(__dirname, '../app/agent-world/agent-world-model.ts'), 'utf8'), /source: connector\.id/)
 })
 
 test('office view groups reported sessions by source and role with reported status and task', () => {

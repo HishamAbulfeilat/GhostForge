@@ -8,6 +8,7 @@ const ts = require('typescript')
 const appDir = path.resolve(__dirname, '../app/agent-world')
 const modelPath = path.join(appDir, 'agent-world-model.ts')
 const pagePath = path.join(appDir, 'page.tsx')
+const viewPath = path.resolve(__dirname, '../components/AgentWorldView.tsx')
 const navbarPath = path.resolve(__dirname, '../components/Navbar.tsx')
 const compiledModel = ts.transpileModule(fs.readFileSync(modelPath, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
@@ -36,9 +37,9 @@ test('Agent World uses available snapshot data and does not synthesize empty ses
   assert.deepEqual(collectAgentWorldData(snapshot), {
     connectors: [],
     sessions: [],
-    agents: [{ state: 'working', id: 'worker', source: 'GhostForge runtime' }],
-    tasks: [{ id: 'T-1', title: 'Test', status: 'in-progress', source: 'GhostForge runtime' }],
-    events: [{ from: 'boss', text: 'Started', ts: '2026-10-01T10:00:00Z', type: 'team.message', source: 'GhostForge runtime' }],
+    agents: [{ state: 'working', id: 'worker', source: 'ghostforge-runtime' }],
+    tasks: [{ id: 'T-1', title: 'Test', status: 'in-progress', source: 'ghostforge-runtime' }],
+    events: [{ from: 'boss', text: 'Started', ts: '2026-10-01T10:00:00Z', type: 'team.message', source: 'ghostforge-runtime' }],
   })
 })
 
@@ -59,10 +60,10 @@ test('Agent World includes federated sessions, agents, tasks, events and connect
   })
 
   assert.equal(data.connectors[0].error, 'Heartbeat timed out')
-  assert.deepEqual(data.sessions, [{ id: 'session-1' }])
-  assert.deepEqual(data.agents, [{ id: 'remote-agent', source: 'remote-desk' }])
-  assert.deepEqual(data.tasks, [{ id: 'remote-task', source: 'remote-desk' }])
-  assert.deepEqual(data.events, [{ type: 'connector.error', error: 'Heartbeat timed out', source: 'remote-desk' }])
+  assert.deepEqual(data.sessions, [{ id: 'session-1', source: 'remote-desk', connectorSource: undefined, connectorId: 'remote-desk', stale: true }])
+  assert.deepEqual(data.agents, [{ id: 'remote-agent', source: 'remote-desk', connectorSource: undefined }])
+  assert.deepEqual(data.tasks, [{ id: 'remote-task', source: 'remote-desk', connectorSource: undefined }])
+  assert.deepEqual(data.events, [{ type: 'connector.error', error: 'Heartbeat timed out', source: 'remote-desk', connectorSource: undefined }])
 })
 
 test('Agent World removes duplicate ghostforge-local agents and tasks from the API response', async () => {
@@ -100,14 +101,14 @@ test('Agent World removes duplicate ghostforge-local agents and tasks from the A
 
   const data = collectAgentWorldData(loaded.snapshot, loaded.connectorSummary)
   assert.deepEqual(data.agents, [
-    { provider: 'copilot', state: 'working', id: 'copilot', source: 'GhostForge runtime' },
+    { provider: 'copilot', state: 'working', id: 'copilot', source: 'ghostforge-runtime' },
     { id: 'local-helper', state: 'idle', source: 'ghostforge-local' },
-    { id: 'copilot', provider: 'remote', state: 'working', source: 'remote-desk' },
+    { id: 'copilot', provider: 'remote', state: 'working', source: 'remote-desk', connectorSource: undefined },
   ])
   assert.deepEqual(data.tasks, [
-    { id: 'T-1', title: 'Local task', status: 'in-progress', source: 'GhostForge runtime' },
+    { id: 'T-1', title: 'Local task', status: 'in-progress', source: 'ghostforge-runtime' },
     { id: 'T-2', title: 'Another local task', status: 'todo', source: 'ghostforge-local' },
-    { id: 'T-1', title: 'Remote task', status: 'todo', source: 'remote-desk' },
+    { id: 'T-1', title: 'Remote task', status: 'todo', source: 'remote-desk', connectorSource: undefined },
   ])
 })
 
@@ -135,6 +136,18 @@ test('403 from agents remains a permission error for signed-in users without adm
   })
 })
 
+test('product Agent World requests the authenticated public snapshot shape', async () => {
+  const calls = []
+  const fetcher = async url => {
+    calls.push(url)
+    return response(200, { snapshot: { agents: {}, tasks: [], messages: [] }, connectorSnapshot: { connectors: [] } })
+  }
+
+  const result = await loadAgentWorld(fetcher, () => assert.fail('Must not redirect'), 'product')
+  assert.equal(result.status, 'loaded')
+  assert.deepEqual(calls, ['/api/agents?view=public'])
+})
+
 test('API errors and unreadable record values are surfaced without rendering objects', async () => {
   await assert.rejects(
     loadAgentWorld(async () => response(500, { error: 'Snapshot unavailable' }), () => {}),
@@ -144,14 +157,20 @@ test('API errors and unreadable record values are surfaced without rendering obj
 })
 
 test('Agent World includes responsive accessible empty, loading, and error states', () => {
-  const source = fs.readFileSync(pagePath, 'utf8')
+  const page = fs.readFileSync(pagePath, 'utf8')
+  const source = fs.readFileSync(viewPath, 'utf8')
   const navbar = fs.readFileSync(navbarPath, 'utf8')
 
-  assert.match(source, /No sessions were reported by the available snapshots\./)
-  assert.match(source, /No connector sources were reported by the agents API\./)
+  assert.match(page, /variant="product"/)
+  assert.match(source, /AbortController/)
+  assert.equal(fs.existsSync(path.resolve(__dirname, '../../THIRD_PARTY_NOTICES.md')), true)
+  assert.match(source, /No real Agent World records yet/)
+  assert.match(source, /never creates placeholder occupancy/)
   assert.match(source, /role="alert"/)
   assert.match(source, /role="status"/)
-  assert.match(source, /sm:grid-cols-2/)
-  assert.match(source, /xl:grid-cols-3/)
+  assert.match(source, /overflow-x-auto/)
+  assert.match(source, /min-w-\[900px\]/)
   assert.match(navbar, /href: '\/agent-world'/)
+  assert.equal((navbar.match(/href: '\/agent-world'/g) ?? []).length, 1)
+  assert.match(navbar, /href: '\/maintainer-world'.*label: 'Monitor'/)
 })

@@ -8,6 +8,7 @@ const ts = require('typescript')
 const routePath = path.resolve(__dirname, '../app/api/agents/route.ts')
 const routeSource = fs.readFileSync(routePath, 'utf8')
 const agentTeamApi = require('../lib/agent-team-api.js')
+const { sanitizePublicAgentResponse } = require('../lib/agent-public-snapshot.ts')
 const state = { user: null, commands: [], connectorReads: 0, commandResult: { status: 0, stdout: 'mock output', stderr: '' } }
 const snapshotFixture = {
   snapshot: {
@@ -54,6 +55,7 @@ const dependencies = {
       return agentTeamApi.readConnectorSnapshot(...args)
     },
   },
+  '@/lib/agent-public-snapshot': { sanitizePublicAgentResponse },
 }
 
 const originalLoad = Module._load
@@ -95,7 +97,7 @@ async function responseBody(response) {
 
 const admin = { role: 'admin', permissions: [] }
 
-test('GET and POST require an authenticated admin_tools user', async t => {
+test('private GET and every POST require admin_tools without reading connectors first', async t => {
   const previousConnectorConfig = process.env.GF_AGENT_SESSION_CONNECTORS
   process.env.GF_AGENT_SESSION_CONNECTORS = JSON.stringify([{
     id: 'private-connector',
@@ -104,23 +106,110 @@ test('GET and POST require an authenticated admin_tools user', async t => {
   }])
   state.connectorReads = 0
   try {
+    state.user = null
+    const unauthenticatedGet = await route.GET({})
+    assert.equal(unauthenticatedGet.status, 401)
+    assert.deepEqual(await responseBody(unauthenticatedGet), { error: 'Authentication required.' })
+
     for (const user of [null, { role: 'user', permissions: [] }]) {
       state.user = user
-      for (const method of ['GET', 'POST']) {
-        await t.test(`${method} rejects ${user ? 'non-admin' : 'unauthenticated'} requests`, async () => {
-          const request = method === 'GET' ? {} : requestWithText('{}')
-          const response = await route[method](request)
-          assert.equal(response.status, 403)
-          assert.deepEqual(await responseBody(response), { error: 'Admin tools permission required.' })
-        })
-      }
+      await t.test(`POST rejects ${user ? 'non-admin' : 'unauthenticated'} requests`, async () => {
+        const response = await route.POST(requestWithText('{}'))
+        assert.equal(response.status, 403)
+        assert.deepEqual(await responseBody(response), { error: 'Admin tools permission required.' })
+      })
     }
+    state.user = { role: 'user', permissions: [] }
+    const forbiddenGet = await route.GET({})
+    assert.equal(forbiddenGet.status, 403)
+    assert.deepEqual(await responseBody(forbiddenGet), { error: 'Admin tools permission required.' })
     assert.deepEqual(state.commands, [])
     assert.equal(state.connectorReads, 0)
   } finally {
     if (previousConnectorConfig === undefined) delete process.env.GF_AGENT_SESSION_CONNECTORS
     else process.env.GF_AGENT_SESSION_CONNECTORS = previousConnectorConfig
   }
+})
+
+test('public GET preserves bounded connector data while removing maintainer-only fields server-side', async () => {
+  state.user = { role: 'user', permissions: [] }
+  snapshotFixture.snapshot.agents.copilot.task = 'Inspect C:\\Users\\operator\\repo token=private'
+  snapshotFixture.snapshot.agents.copilot.model = 'private-model'
+  const previousConnectorConfig = process.env.GF_AGENT_SESSION_CONNECTORS
+  delete process.env.GF_AGENT_SESSION_CONNECTORS
+  try {
+    const response = await route.GET({ nextUrl: { searchParams: new URLSearchParams('view=public') } })
+    const body = await responseBody(response)
+
+    assert.equal(response.status, 200)
+    assert.equal(body.snapshot.agents.copilot.model, undefined)
+    assert.match(body.snapshot.agents.copilot.task, /\[local path redacted\]/)
+    assert.match(body.snapshot.agents.copilot.task, /token=\[redacted\]/)
+    assert.deepEqual(body.snapshot.messages, [])
+    assert.equal(body.connectorSnapshot.connectors[0].id, 'ghostforge-local')
+    assert.equal(body.connectorSnapshot.connectors[0].device, null)
+    assert.equal(body.connectorSnapshot.connectors[0].provider, null)
+    assert.deepEqual(body.connectorSnapshot.connectors[0].sessions, [])
+    assert.deepEqual(body.connectorSnapshot.connectors[0].events, [])
+  } finally {
+    snapshotFixture.snapshot.agents.copilot.task = null
+    snapshotFixture.snapshot.agents.copilot.model = null
+    if (previousConnectorConfig === undefined) delete process.env.GF_AGENT_SESSION_CONNECTORS
+    else process.env.GF_AGENT_SESSION_CONNECTORS = previousConnectorConfig
+  }
+})
+
+test('public response sanitizer removes federated sessions, events, models, devices, and secrets', () => {
+  const sanitized = sanitizePublicAgentResponse({
+    snapshot: {
+      health: 99,
+      running: true,
+      agents: {
+        worker: {
+          provider: 'copilot',
+          state: 'working',
+          task: 'Read /Users/operator/repo api_key=private',
+          model: 'private-model',
+          branch: 'agent/private',
+          strengths: ['security'],
+        },
+      },
+      tasks: [],
+      messages: [{ from: 'boss', to: 'worker', text: 'private message' }],
+      phase: 4,
+      workflow: { leader: 'boss', mode: 'parallel', specialists: ['worker'] },
+    },
+  }, {
+    version: 1,
+    mode: 'allowlisted',
+    connectors: [{
+      id: 'private-device',
+      source: 'device',
+      project: 'GhostForge',
+      device: 'operator-laptop',
+      provider: 'copilot-app',
+      status: 'online',
+      heartbeat: '2026-10-01T12:00:00.000Z',
+      agents: [{ id: 'worker', model: 'private-model', state: 'working' }],
+      tasks: [],
+      sessions: [{ id: 'session-private', task: 'secret=value' }],
+      events: [{ from: 'worker', to: 'boss', text: 'private message' }],
+    }],
+  })
+
+  const snapshot = sanitized.snapshot
+  const connector = sanitized.connectorSnapshot.connectors[0]
+  assert.equal(snapshot.agents.worker.model, undefined)
+  assert.equal(snapshot.agents.worker.branch, undefined)
+  assert.equal(snapshot.agents.worker.strengths, undefined)
+  assert.match(snapshot.agents.worker.task, /\[local path redacted\].*api_key=\[redacted\]/)
+  assert.deepEqual(snapshot.messages, [])
+  assert.deepEqual(snapshot.workflow.specialists, [])
+  assert.equal(connector.device, null)
+  assert.equal(connector.provider, null)
+  assert.deepEqual(connector.sessions, [])
+  assert.deepEqual(connector.events, [])
+  assert.equal(connector.agents[0].model, undefined)
 })
 
 test('GET returns the wrapped agent-team snapshot contract', async () => {
