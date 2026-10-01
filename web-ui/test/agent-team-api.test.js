@@ -1,10 +1,13 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
+const Module = require('node:module')
 const os = require('node:os')
 const path = require('node:path')
+const ts = require('typescript')
 
 const {
+  AGENT_SESSION_CONNECTOR_MAX_BYTES,
   resolveWorkspaceRoot,
   normalizeAgentTeamAction,
   readAgentTeamSnapshot,
@@ -139,21 +142,18 @@ test('snapshot includes workflow leadership and task metadata', () => {
   assert.deepEqual(snapshot.snapshot.tasks[0].acceptanceCriteria, ['Ship', 'Verify'])
 })
 
-test('connector configs default to local-only and redact secrets', () => {
-  const snapshot = readConnectorSnapshot(null)
+test('connector snapshots default to local-only and do not fabricate online runtime data', async t => {
+  const snapshot = await readConnectorSnapshot(null)
   assert.equal(snapshot.version, 1)
   assert.equal(snapshot.mode, 'local-only')
   assert.equal(snapshot.connectors[0].id, 'ghostforge-local')
   assert.equal(snapshot.connectors[0].source, 'local')
   assert.equal(snapshot.connectors[0].project, '.')
-  assert.equal(snapshot.connectors[0].status, 'online')
-  assert.equal(typeof snapshot.connectors[0].heartbeat, 'string')
+  assert.equal(snapshot.connectors[0].status === 'online', snapshot.connectors[0].online)
+  assert.equal(snapshot.connectors[0].agents.some(agent => agent.id === 'ghostforge'), false)
+  assert.equal(snapshot.connectors[0].tasks.some(task => task.id === 'T-local'), false)
   assert.equal(snapshot.connectors[0].staleAfterMs, 30000)
-  assert.equal(snapshot.connectors[0].error, null)
-  assert.equal(typeof snapshot.connectors[0].events[0].ts, 'string')
-  assert.equal(snapshot.connectors[0].events[0].type, 'runtime.heartbeat')
-  assert.equal(snapshot.connectors[0].events[0].source, 'local')
-  assert.equal(snapshot.connectors[0].events[0].project, '.')
+  assert.equal(Array.isArray(snapshot.connectors[0].events), true)
 
   const config = {
     id: 'cloud-sandbox',
@@ -166,7 +166,15 @@ test('connector configs default to local-only and redact secrets', () => {
     headers: { Authorization: 'Bearer secret', 'X-Trace': 'abc' },
   }
 
-  const allowlisted = readConnectorSnapshot(config)
+  const originalFetch = global.fetch
+  global.fetch = async () => mockJsonResponse({
+    heartbeat: new Date().toISOString(),
+    agents: [{ id: 'actual-remote-agent', provider: 'openai-compatible' }],
+    tasks: [],
+    events: [{ ts: new Date().toISOString(), type: 'session.heartbeat', project: 'web-ui', device: 'desk-1' }],
+  })
+  t.after(() => { global.fetch = originalFetch })
+  const allowlisted = await readConnectorSnapshot(config)
   assert.equal(allowlisted.mode, 'allowlisted')
   assert.equal(allowlisted.connectors[1].device, 'desk-1')
   assert.equal(allowlisted.connectors[1].source, 'cloud')
@@ -177,7 +185,7 @@ test('connector configs default to local-only and redact secrets', () => {
   assert.equal(allowlisted.connectors[1].agents[0].provider, 'openai-compatible')
   assert.deepEqual(allowlisted.connectors[1].events[0], { ts: allowlisted.connectors[1].events[0].ts, type: 'session.heartbeat', source: 'cloud', project: 'web-ui', device: 'desk-1' })
 
-  const rejected = readConnectorSnapshot({
+  const rejected = await readConnectorSnapshot({
     id: 'bad-connector',
     source: 'device',
     project: '../outside',
@@ -187,6 +195,244 @@ test('connector configs default to local-only and redact secrets', () => {
   assert.match(rejected.connectors.at(-1).error, /workspace root/i)
   assert.equal(rejected.connectors.at(-1).project, null)
   assert.equal(normalizeSessionConnectorConfig({ id: 'device', headers: { Authorization: 'Bearer bad' } }).headers.Authorization, '[redacted]')
+})
+
+function createConnectorWorkspace({ agents = {}, tasks = [], pid = process.pid } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-connector-workspace-'))
+  const stateDir = path.join(root, '.agent-sync', 'state')
+  fs.mkdirSync(stateDir, { recursive: true })
+  fs.writeFileSync(path.join(stateDir, 'status.json'), JSON.stringify({ pid, agents }))
+  fs.writeFileSync(path.join(stateDir, 'board.json'), JSON.stringify({ tasks }))
+  return { root, stateDir }
+}
+
+function mockJsonResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
+}
+
+function loadTypeScriptAgentTeamApi() {
+  const apiPath = path.resolve(__dirname, '../lib/agent-team-api.ts')
+  const source = fs.readFileSync(apiPath, 'utf8')
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: {
+      esModuleInterop: true,
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020,
+    },
+  }).outputText
+  const loaded = new Module(apiPath, module)
+  loaded.filename = apiPath
+  loaded.paths = Module._nodeModulePaths(path.dirname(apiPath))
+  loaded._compile(compiled, apiPath)
+  return loaded.exports
+}
+
+test('TypeScript and JavaScript connector snapshot adapters stay behaviorally aligned', async t => {
+  const { root } = createConnectorWorkspace({
+    agents: { worker: { state: 'working', provider: 'copilot' } },
+    tasks: [{ id: 'T-11', title: 'Real task', status: 'todo' }],
+  })
+  const previousFetch = global.fetch
+  const heartbeat = new Date().toISOString()
+  global.fetch = async () => mockJsonResponse({
+    heartbeat,
+    agents: [{ id: 'remote-agent', state: 'idle' }],
+    tasks: [{ id: 'T-remote', title: 'Remote task' }],
+    events: [{ ts: heartbeat, type: 'heartbeat' }],
+  })
+  t.after(() => { global.fetch = previousFetch })
+  const config = { id: 'remote', source: 'cloud', allow: true, url: 'https://remote.example/snapshot' }
+  const jsSummary = await readConnectorSnapshot(config, root)
+  const tsSummary = await loadTypeScriptAgentTeamApi().readConnectorSnapshot(config, root)
+  assert.deepEqual(tsSummary, jsSummary)
+})
+
+test('local connector reflects runtime state and reports dead processes offline', async () => {
+  const { root } = createConnectorWorkspace({
+    agents: { worker: { state: 'working', provider: 'copilot', task: 'T-11' } },
+    tasks: [{ id: 'T-11', title: 'Real task', status: 'in-progress', owner: 'worker' }],
+  })
+  const local = (await readConnectorSnapshot(null, root)).connectors[0]
+  assert.equal(local.status, 'online')
+  assert.deepEqual(local.agents, [{
+    id: 'worker',
+    state: 'working',
+    provider: 'copilot',
+    task: 'T-11',
+    role: 'agent',
+    leader: false,
+    strengths: [],
+  }])
+  assert.deepEqual(local.tasks[0], {
+    id: 'T-11',
+    title: 'Real task',
+    kind: 'feature',
+    status: 'in-progress',
+    owner: 'worker',
+    assignee: 'worker',
+    dependencies: [],
+    acceptanceCriteria: [],
+  })
+  assert.equal(local.events.length, 0)
+
+  const offlineRoot = createConnectorWorkspace({ pid: Number.MAX_SAFE_INTEGER })
+  const offline = (await readConnectorSnapshot(null, offlineRoot.root)).connectors[0]
+  assert.equal(offline.status, 'offline')
+  assert.equal(offline.online, false)
+  assert.equal(offline.error, 'Runtime process is not running')
+})
+
+test('local connector bounds agent/task counts and all projected field/list sizes', async () => {
+  const agents = Object.fromEntries(Array.from({ length: 150 }, (_, index) => [
+    `agent-${index}-${'a'.repeat(300)}`,
+    { state: 'x'.repeat(1000), strengths: Array(30).fill('s'.repeat(300)) },
+  ]))
+  const tasks = Array.from({ length: 150 }, (_, index) => ({
+    id: `T-${index}`,
+    title: 't'.repeat(2000),
+    dependencies: Array(30).fill('d'.repeat(300)),
+    acceptanceCriteria: Array(30).fill('c'.repeat(300)),
+  }))
+  const { root } = createConnectorWorkspace({ agents, tasks })
+  const local = (await readConnectorSnapshot(null, root)).connectors[0]
+  assert.equal(local.agents.length, 100)
+  assert.equal(local.tasks.length, 100)
+  assert.ok(local.agents.every(agent => agent.id.length <= 128 && agent.state.length <= 256 && agent.strengths.length <= 10))
+  assert.ok(local.tasks.every(task => task.title.length <= 512 && task.dependencies.length <= 10 && task.acceptanceCriteria.length <= 10))
+  assert.ok(local.tasks.every(task => task.dependencies.every(item => item.length <= 160)))
+})
+
+test('remote connector snapshots are validated and request headers stay with their connector', async t => {
+  const { root } = createConnectorWorkspace()
+  const previousFetch = global.fetch
+  const requests = []
+  global.fetch = async (url, options) => {
+    requests.push({ url: String(url), authorization: options.headers.Authorization })
+    return mockJsonResponse({
+      heartbeat: new Date().toISOString(),
+      agents: [{ id: 'actual-agent', state: 'working', provider: 'remote-provider' }],
+      tasks: [{ id: 'T-remote', title: 'Remote task', status: 'running' }],
+      events: [{ ts: new Date().toISOString(), type: 'session.started', text: 'actual event' }],
+    })
+  }
+  t.after(() => { global.fetch = previousFetch })
+
+  const result = await readConnectorSnapshot([
+    {
+      id: 'cloud-sandbox',
+      source: 'cloud',
+      project: './web-ui',
+      device: 'desk-1',
+      provider: 'openai-compatible',
+      allow: true,
+      url: 'https://cloud.example/snapshot',
+      headers: { Authorization: 'cloud-secret' },
+    },
+    {
+      id: 'device-sandbox',
+      source: 'device',
+      project: '.',
+      allow: true,
+      url: 'https://device.example/snapshot',
+      headers: { Authorization: 'device-secret' },
+    },
+  ], root)
+
+  assert.equal(result.mode, 'allowlisted')
+  assert.deepEqual(requests, [
+    { url: 'https://cloud.example/snapshot', authorization: 'cloud-secret' },
+    { url: 'https://device.example/snapshot', authorization: 'device-secret' },
+  ])
+  const cloud = result.connectors[1]
+  assert.equal(cloud.device, 'desk-1')
+  assert.equal(cloud.source, 'cloud')
+  assert.equal(cloud.project, 'web-ui')
+  assert.equal(cloud.status, 'online')
+  assert.equal(cloud.agents[0].id, 'actual-agent')
+  assert.equal(cloud.tasks[0].id, 'T-remote')
+  assert.equal(cloud.events[0].type, 'session.started')
+  assert.equal(JSON.stringify(result).includes('cloud-secret'), false)
+  assert.equal(JSON.stringify(result).includes('device-secret'), false)
+})
+
+test('duplicate connector IDs fail closed before making any request', async t => {
+  const previousFetch = global.fetch
+  let requests = 0
+  global.fetch = async () => {
+    requests++
+    return mockJsonResponse({})
+  }
+  t.after(() => { global.fetch = previousFetch })
+  await assert.rejects(readConnectorSnapshot([
+    { id: 'same-id', source: 'cloud', allow: true, url: 'https://one.example', headers: { Authorization: 'first' } },
+    { id: 'SAME-ID', source: 'device', allow: true, url: 'https://two.example', headers: { Authorization: 'second' } },
+  ]), /Duplicate connector IDs/)
+  assert.equal(requests, 0)
+})
+
+test('stale and oversized remote snapshots are not reported as online', async t => {
+  const { root } = createConnectorWorkspace()
+  const previousFetch = global.fetch
+  global.fetch = async () => mockJsonResponse({
+    heartbeat: new Date(Date.now() - 60_000).toISOString(),
+    status: 'online',
+    agents: [{ id: 'reported-agent', state: 'ready' }],
+    tasks: [],
+  })
+  t.after(() => { global.fetch = previousFetch })
+
+  const stale = (await readConnectorSnapshot({
+    id: 'stale-cloud',
+    source: 'cloud',
+    allow: true,
+    url: 'https://cloud.example/snapshot',
+    staleAfterMs: 1_000,
+  }, root)).connectors[1]
+  assert.equal(stale.status, 'stale')
+  assert.equal(stale.online, false)
+  assert.equal(stale.stale, true)
+  assert.equal(stale.agents[0].id, 'reported-agent')
+
+  global.fetch = async () => new Response(new Uint8Array(AGENT_SESSION_CONNECTOR_MAX_BYTES + 1))
+  const oversized = (await readConnectorSnapshot({
+    id: 'large-cloud',
+    source: 'cloud',
+    allow: true,
+    url: 'https://cloud.example/snapshot',
+  }, root)).connectors[1]
+  assert.equal(oversized.status, 'offline')
+  assert.equal(oversized.online, false)
+  assert.equal(oversized.error, 'Connector response exceeded the size limit')
+  assert.deepEqual(oversized.agents, [])
+
+  global.fetch = async () => mockJsonResponse({ heartbeat: 'not-a-timestamp', agents: [{ id: 'fake' }] })
+  const invalid = (await readConnectorSnapshot({
+    id: 'invalid-cloud',
+    source: 'cloud',
+    allow: true,
+    url: 'https://cloud.example/snapshot',
+  }, root)).connectors[1]
+  assert.equal(invalid.status, 'offline')
+  assert.equal(invalid.online, false)
+  assert.equal(invalid.error, 'Connector heartbeat is missing or invalid')
+  assert.deepEqual(invalid.agents, [])
+
+  global.fetch = async (_url, options) => new Promise((resolve, reject) => {
+    options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+  })
+  const timeout = (await readConnectorSnapshot({
+    id: 'timeout-cloud',
+    source: 'cloud',
+    allow: true,
+    url: 'https://cloud.example/snapshot',
+    timeoutMs: 250,
+  }, root)).connectors[1]
+  assert.equal(timeout.status, 'offline')
+  assert.equal(timeout.online, false)
+  assert.equal(timeout.error, 'Connector request timed out')
 })
 
 test('request json can be read from a streaming body without Content-Length', async () => {
