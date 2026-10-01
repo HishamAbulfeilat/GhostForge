@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: '/maintenance', icon: '🛠️', label: 'Maintenance' },
   { href: '/dashboard',   icon: '📊', label: 'Dashboard' },
   { href: '/agents',      icon: '🤝', label: 'Agents' },
+  { href: '/media-tools', icon: '▶️', label: 'Media' },
   { href: '/files',       icon: '🗂️', label: 'Files' },
   { href: '/features',    icon: '⚡', label: 'Features' },
   { href: '/orchestrate', icon: '🧠', label: 'Orchestrate' },
