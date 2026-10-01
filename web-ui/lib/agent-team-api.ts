@@ -237,7 +237,8 @@ export function normalizeAgentTeamAction(input: AgentTeamRequestPayload = {}): {
     const kind = String(source.kind ?? 'feature').trim() || 'feature'
     const area = normalizeAreaValue(source.area as string[] | string | undefined)
     const agent = String(source.agent ?? source.assignee ?? 'any').trim() || 'any'
-    const leader = String(source.leader ?? source.boss ?? '').trim() || null
+    const assignee = String(source.assignee ?? agent).trim() || 'any'
+    const leader = String(source.leader ?? source.boss ?? 'boss').trim() || 'boss'
     const workflowMode = String(source.workflow ?? source.mode ?? source.workflowMode ?? 'parallel').trim() || 'parallel'
     const dependencies = normalizeStringList(source.dependencies)
     const acceptanceCriteria = normalizeStringList(source.acceptanceCriteria)
@@ -248,7 +249,7 @@ export function normalizeAgentTeamAction(input: AgentTeamRequestPayload = {}): {
       kind,
       area,
       agent,
-      assignee: agent,
+      assignee,
       leader,
       workflow: workflowMode,
       dependencies,
@@ -315,7 +316,7 @@ export function getStateDirectory(workspaceRoot = repoRootFromLib(), stateDirOve
   }
 }
 
-export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): { snapshot: { health: number | null; running: boolean; agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; since: string | null; cooldownUntil: string | null; leader: boolean; assignee: string | null; role: string | null; strengths: string[] }>; tasks: Array<{ id: string | null; title: string; kind: string; status: string; owner: string | null; assignee: string | null; leader: string | null; dependencies: string[]; acceptanceCriteria: string[] }>; messages: Array<Record<string, unknown>>; phase: number; workflow: { leader: string | null; mode: string; specialists: string[] } } } {
+export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): { snapshot: { health: number | null; running: boolean; agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; since: string | null; cooldownUntil: string | null; leader: boolean; assignee: string | null; role: string | null; strengths: string[]; enabled: boolean }>; boss?: { provider: string | null; state: string; task: string | null; model: string | null; since: string | null; cooldownUntil: string | null; leader: boolean; assignee: string | null; role: string; strengths: string[]; enabled: boolean }; tasks: Array<{ id: string | null; title: string; kind: string; status: string; owner: string | null; assignee: string | null; leader: string | null; dependencies: string[]; acceptanceCriteria: string[] }>; messages: Array<Record<string, unknown>>; phase: number; workflow: { leader: string | null; mode: string; specialists: string[] } } } {
   const root = resolveWorkspaceRoot(workspaceRoot)
   const stateDir = getStateDirectory(root, stateDirOverride)
   const status = asRecord(readJsonFile<unknown>(path.join(stateDir, 'status.json'), null))
@@ -347,8 +348,26 @@ export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDi
       assignee,
       role,
       strengths,
+      enabled: Object.hasOwn(configuredAgents, agentId) && config.enabled === true,
     }]
   }))
+
+  const bossConfig = asRecord(teamConfig.boss)
+  const bossStatus = asRecord(status.boss)
+  const hasBoss = Object.keys(bossConfig).length > 0 || Object.keys(bossStatus).length > 0
+  const boss = hasBoss ? {
+    provider: normalizedString(bossStatus.provider) ?? normalizedString(bossConfig.provider),
+    state: isProcessRunning(typeof status.pid === 'number' ? status.pid : Number.NaN) ? 'working' : 'stopped',
+    task: null,
+    model: normalizedString(bossStatus.model) ?? normalizedString(bossConfig.model),
+    since: null,
+    cooldownUntil: normalizedString(bossStatus.cooldownUntil),
+    leader: true,
+    assignee: null,
+    role: 'boss',
+    strengths: [],
+    enabled: true,
+  } : undefined
 
   const tasks = Array.isArray(board.tasks) ? board.tasks.map(task => {
     const info = asRecord(task)
@@ -373,7 +392,7 @@ export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDi
     }
   }) : []
 
-  const specialists = [...agentIds].filter(agentId => agentId !== workflowLeader)
+  const specialists = [...agentIds].filter(agentId => agents[agentId].enabled && agentId !== workflowLeader)
   const health = status.health
   const validHealth = typeof health === 'number' && Number.isFinite(health) ? health : null
   const pid = status.pid
@@ -387,6 +406,7 @@ export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDi
       health: validHealth,
       running: isProcessRunning(typeof pid === 'number' ? pid : Number.NaN),
       agents,
+      ...(boss ? { boss } : {}),
       tasks,
       messages: readMessages(stateDir),
       phase,

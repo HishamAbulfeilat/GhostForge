@@ -7,7 +7,7 @@
 //   node scripts/agents/team.mjs inbox --for copilot         recent messages
 //   node scripts/agents/team.mjs done  T-004 --agent claude "summary"
 //   node scripts/agents/team.mjs block T-004 --agent claude "reason"
-//   node scripts/agents/team.mjs add "title" [--kind k] [--area a,b] [--agent any] [--leader id] [--assignee id] [--workflow mode] [--dependencies T-001,T-002] [--acceptance-criteria "criterion one;criterion two"] [--from human]
+//   node scripts/agents/team.mjs add|dispatch "title" [--kind k] [--area a,b] [--agent any] [--leader id] [--assignee id] [--workflow mode] [--dependencies T-001,T-002] [--acceptance-criteria "criterion one;criterion two"] [--from human]
 //   node scripts/agents/team.mjs stop                        boss stops after in-flight tasks
 //
 // Works from any worktree: state lives in the main repo (found via git).
@@ -98,19 +98,21 @@ function main() {
       console.log(`recorded ${cmd} for ${id}`)
       break
     }
-    case 'add': {
+    case 'add':
+    case 'dispatch': {
       const title = pos.join(' ')
-      if (!title) throw new Error('usage: add "title" [--kind k] [--area a,b] [--agent any] [--leader id] [--assignee id] [--workflow mode] [--dependencies T-001,T-002] [--acceptance-criteria "criterion one;criterion two"]')
+      if (!title) throw new Error(`usage: ${cmd} "title" [--kind k] [--area a,b] [--agent any] [--leader id] [--assignee id] [--workflow mode] [--dependencies T-001,T-002] [--acceptance-criteria "criterion one;criterion two"]`)
       const listFlag = (value, separator) => value ? String(value).split(separator).map(item => item.trim()).filter(Boolean) : []
+      const agent = String(flags.agent ?? flags.assignee ?? 'any').trim() || 'any'
       const req = {
         title,
         kind: flags.kind,
         area: listFlag(flags.area, ','),
-        agent: flags.agent || 'any',
+        agent,
+        assignee: String(flags.assignee ?? agent).trim() || 'any',
+        leader: String(flags.leader ?? 'boss').trim() || 'boss',
         from: flags.from || 'human',
       }
-      if (flags.assignee) req.assignee = flags.assignee
-      if (flags.leader) req.leader = flags.leader
       if (flags.workflow) req.workflow = flags.workflow
       const dependencies = listFlag(flags.dependencies, ',')
       if (dependencies.length) req.dependencies = dependencies
@@ -125,7 +127,7 @@ function main() {
       console.log('boss will stop after in-flight tasks finish')
       break
     default:
-      console.log('commands: start | status | say | inbox | done | block | add | stop   (see the header of scripts/agents/team.mjs)')
+      console.log('commands: start | status | say | inbox | done | block | add | dispatch | stop   (see the header of scripts/agents/team.mjs)')
   }
 }
 
