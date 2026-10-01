@@ -142,6 +142,30 @@ test('snapshot includes workflow leadership and task metadata', () => {
   assert.deepEqual(snapshot.snapshot.tasks[0].acceptanceCriteria, ['Ship', 'Verify'])
 })
 
+test('snapshots safely default missing and malformed status records', () => {
+  const loadTypeScriptSnapshot = loadTypeScriptAgentTeamApi().readAgentTeamSnapshot
+
+  for (const statusContent of [undefined, 'null', JSON.stringify({ agents: null, boss: null, workflow: null, pid: null })]) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-agent-missing-status-'))
+    const stateDir = path.join(root, '.agent-sync', 'state')
+    fs.mkdirSync(stateDir, { recursive: true })
+    if (statusContent !== undefined) {
+      fs.writeFileSync(path.join(stateDir, 'status.json'), statusContent)
+    }
+
+    const jsSnapshot = readAgentTeamSnapshot(root).snapshot
+    const tsSnapshot = loadTypeScriptSnapshot(root).snapshot
+    assert.deepEqual(tsSnapshot, jsSnapshot)
+    assert.equal(jsSnapshot.health, null)
+    assert.equal(jsSnapshot.running, false)
+    assert.deepEqual(jsSnapshot.agents, {})
+    assert.deepEqual(jsSnapshot.tasks, [])
+    assert.deepEqual(jsSnapshot.messages, [])
+    assert.equal(jsSnapshot.phase, 1)
+    assert.deepEqual(jsSnapshot.workflow, { leader: null, mode: 'parallel', specialists: [] })
+  }
+})
+
 test('connector snapshots default to local-only and do not fabricate online runtime data', async t => {
   const snapshot = await readConnectorSnapshot(null)
   assert.equal(snapshot.version, 1)

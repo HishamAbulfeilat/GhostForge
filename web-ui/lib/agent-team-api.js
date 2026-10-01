@@ -72,6 +72,10 @@ function readJsonFile(filePath, fallback) {
   }
 }
 
+function asRecord(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
 function readMessages(stateDir) {
   const file = path.join(stateDir, 'messages.jsonl')
   if (!fs.existsSync(file)) return []
@@ -219,21 +223,20 @@ function getStateDirectory(workspaceRoot = repoRootFromLib(), stateDirOverride =
 function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE) {
   const root = resolveWorkspaceRoot(workspaceRoot)
   const stateDir = getStateDirectory(root, stateDirOverride)
-  const status = readJsonFile(path.join(stateDir, 'status.json'), null)
-  const board = readJsonFile(path.join(stateDir, 'board.json'), { phase: 1, tasks: [] })
-  const teamConfig = readJsonFile(path.join(root, '.agent-sync', 'team.json'), {})
-  const configuredAgents = teamConfig && typeof teamConfig.agents === 'object' && !Array.isArray(teamConfig.agents)
-    ? teamConfig.agents
-    : {}
-  const reportedAgents = status && typeof status.agents === 'object' && !Array.isArray(status.agents)
-    ? status.agents
-    : {}
+  const status = asRecord(readJsonFile(path.join(stateDir, 'status.json'), null))
+  const board = asRecord(readJsonFile(path.join(stateDir, 'board.json'), { phase: 1, tasks: [] }))
+  const teamConfig = asRecord(readJsonFile(path.join(root, '.agent-sync', 'team.json'), {}))
+  const configuredAgents = asRecord(teamConfig.agents)
+  const reportedAgents = asRecord(status.agents)
   const agentIds = new Set([...Object.keys(configuredAgents), ...Object.keys(reportedAgents)])
-  const bossConfig = teamConfig && typeof teamConfig.boss === 'object' ? teamConfig.boss : {}
-  const statusBoss = status && typeof status.boss === 'object' ? status.boss : {}
+  const bossConfig = asRecord(teamConfig.boss)
+  const statusBoss = asRecord(status.boss)
   const workloadLeader = (typeof statusBoss.leader === 'string' ? statusBoss.leader.trim() : '') || (typeof statusBoss.id === 'string' ? statusBoss.id.trim() : '') || (typeof bossConfig.leader === 'string' ? bossConfig.leader.trim() : '') || (typeof bossConfig.id === 'string' ? bossConfig.id.trim() : '') || (typeof bossConfig.agent === 'string' ? bossConfig.agent.trim() : '') || null
   const workflowLeader = workloadLeader || [...agentIds].find(agentId => /boss|lead|manager/i.test(agentId)) || null
-  const workflowMode = (typeof board.workflow?.mode === 'string' ? board.workflow.mode.trim() : '') || (typeof status?.workflow?.mode === 'string' ? status.workflow.mode.trim() : '') || (typeof teamConfig.workflow?.mode === 'string' ? teamConfig.workflow.mode.trim() : '') || 'parallel'
+  const boardWorkflow = asRecord(board.workflow)
+  const statusWorkflow = asRecord(status.workflow)
+  const teamWorkflow = asRecord(teamConfig.workflow)
+  const workflowMode = (typeof boardWorkflow.mode === 'string' ? boardWorkflow.mode.trim() : '') || (typeof statusWorkflow.mode === 'string' ? statusWorkflow.mode.trim() : '') || (typeof teamWorkflow.mode === 'string' ? teamWorkflow.mode.trim() : '') || 'parallel'
   const agents = {}
 
   for (const agentId of agentIds) {
@@ -285,12 +288,12 @@ function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverri
 
   return {
     snapshot: {
-      health: status?.health ?? null,
-      running: Boolean(status && status.pid && isProcessRunning(status.pid)),
+      health: status.health ?? null,
+      running: Boolean(status.pid && isProcessRunning(status.pid)),
       agents,
       tasks,
       messages: readMessages(stateDir),
-      phase: Number(board.phase ?? status?.phase ?? 1) || 1,
+      phase: Number(board.phase ?? status.phase ?? 1) || 1,
       workflow: {
         leader: workflowLeader,
         mode: workflowMode,
