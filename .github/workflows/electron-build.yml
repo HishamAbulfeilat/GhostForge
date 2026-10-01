@@ -41,10 +41,12 @@ jobs:
           cache-dependency-path: electron-app/package-lock.json
 
       - name: Install Electron dependencies
+        timeout-minutes: 12
         run: npm ci
 
       - name: Prepare Linux packaging prerequisites
         if: matrix.name == 'linux'
+        timeout-minutes: 10
         # Ubuntu 24.04 restricts unprivileged user namespaces via AppArmor, which makes
         # Electron's Chromium sandbox abort ("SUID sandbox helper ... not configured
         # correctly"). Lift the runner restriction instead of disabling the sandbox.
@@ -53,12 +55,15 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Generate Electron icons
+        timeout-minutes: 5
         run: node scripts/generate-icons.js
 
       - name: Type-check Electron app
+        timeout-minutes: 10
         run: npx tsc
 
       - name: Run headless Electron smoke test
+        timeout-minutes: 12
         env:
           GHOSTFORGE_ELECTRON_HEADLESS_SMOKE: '1'
         run: >-
@@ -66,4 +71,5 @@ jobs:
         shell: bash
 
       - name: Package Electron app
+        timeout-minutes: 25
         run: ${{ matrix.build }}
