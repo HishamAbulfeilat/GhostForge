@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: '/agent-world', icon: '🌐', label: 'World' },
   { href: '/maintainer-world', icon: '🧭', label: 'Monitor' },
   { href: '/agents',      icon: '🤝', label: 'Agents' },
+  { href: '/agent-world', icon: '🌐', label: 'Agent World' },
   { href: '/media-tools', icon: '▶️', label: 'Media' },
   { href: '/files',       icon: '🗂️', label: 'Files' },
   { href: '/features',    icon: '⚡', label: 'Features' },

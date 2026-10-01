@@ -1,236 +1,314 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAccess } from '@/components/AccessGuard'
+import {
+  collectAgentWorldData,
+  type AgentWorldRecord,
+} from '@/app/agent-world/agent-world-model'
 import {
   THEME_OPTIONS,
   type AgentWorldEdge,
   type AgentWorldNode,
-  type AgentWorldSnapshot,
+  type AgentWorldProjection,
   type AgentWorldTheme,
   type AgentWorldVariant,
   deriveAgentWorldProjection,
   getThemeStorageKey,
+  layoutWorldNodes,
+  migrateStoredTheme,
 } from '@/lib/agent-world'
 
 type Payload = {
-  snapshot?: AgentWorldSnapshot
+  snapshot?: AgentWorldRecord
+  connectorSnapshot?: AgentWorldRecord
 }
 
 type ThemeStyle = {
   page: string
-  surface: string
-  surfaceStrong: string
+  panel: string
+  panelStrong: string
   line: string
   text: string
   muted: string
   quiet: string
   accent: string
   accentSoft: string
-  progress: string
   focus: string
+  edge: string
+  scene: string
 }
 
 const themeStyles: Record<AgentWorldTheme, ThemeStyle> = {
-  taskville: {
-    page: 'bg-[#080b12] text-white',
-    surface: 'border-slate-700/70 bg-[#111722]',
-    surfaceStrong: 'border-slate-600/70 bg-[#171f2c]',
-    line: 'border-slate-700/70',
+  forge: {
+    page: 'bg-[#070b10] text-white',
+    panel: 'border-sky-900/80 bg-[#0b141d]',
+    panelStrong: 'border-sky-700/70 bg-[#101d28]',
+    line: 'border-sky-900/80',
     text: 'text-white',
-    muted: 'text-sky-100/85',
-    quiet: 'text-sky-100/60',
-    accent: 'bg-cyan-300 text-cyan-950',
-    accentSoft: 'border-cyan-300/30 bg-cyan-300/10 text-cyan-100',
-    progress: 'bg-cyan-300',
-    focus: 'focus-visible:ring-cyan-300',
-  },
-  town: {
-    page: 'bg-[#071611] text-emerald-50',
-    surface: 'border-emerald-800 bg-[#0d241b]',
-    surfaceStrong: 'border-emerald-700 bg-[#123326]',
-    line: 'border-emerald-800',
-    text: 'text-emerald-50',
-    muted: 'text-emerald-100/80',
-    quiet: 'text-emerald-200/60',
-    accent: 'bg-lime-300 text-emerald-950',
-    accentSoft: 'border-lime-300/30 bg-lime-300/10 text-lime-100',
-    progress: 'bg-lime-300',
-    focus: 'focus-visible:ring-lime-300',
+    muted: 'text-sky-100/80',
+    quiet: 'text-sky-200/60',
+    accent: 'bg-orange-400 text-orange-950',
+    accentSoft: 'border-orange-400/40 bg-orange-400/10 text-orange-100',
+    focus: 'focus-visible:ring-orange-300',
+    edge: '#fb923c',
+    scene: 'border-sky-800 bg-[#07131c]',
   },
   office: {
-    page: 'bg-[#e8e2d5] text-stone-950',
-    surface: 'border-stone-300 bg-[#f7f3ea]',
-    surfaceStrong: 'border-stone-400 bg-white',
+    page: 'bg-[#e9e3d6] text-stone-950',
+    panel: 'border-stone-300 bg-[#f5f0e6]',
+    panelStrong: 'border-stone-400 bg-white',
     line: 'border-stone-300',
     text: 'text-stone-950',
     muted: 'text-stone-700',
     quiet: 'text-stone-600',
-    accent: 'bg-orange-700 text-white',
-    accentSoft: 'border-orange-700/30 bg-orange-700/10 text-orange-950',
-    progress: 'bg-orange-700',
-    focus: 'focus-visible:ring-orange-700',
+    accent: 'bg-orange-800 text-white',
+    accentSoft: 'border-orange-800/30 bg-orange-800/10 text-orange-950',
+    focus: 'focus-visible:ring-orange-800',
+    edge: '#9a3412',
+    scene: 'border-stone-400 bg-[#f7f2e8]',
+  },
+  town: {
+    page: 'bg-[#06140f] text-white',
+    panel: 'border-emerald-800 bg-[#0b2118]',
+    panelStrong: 'border-emerald-700 bg-[#103124]',
+    line: 'border-emerald-800',
+    text: 'text-white',
+    muted: 'text-emerald-50/80',
+    quiet: 'text-emerald-100/60',
+    accent: 'bg-lime-300 text-lime-950',
+    accentSoft: 'border-lime-300/40 bg-lime-300/10 text-lime-100',
+    focus: 'focus-visible:ring-lime-300',
+    edge: '#bef264',
+    scene: 'border-emerald-700 bg-[#0b281b]',
   },
 }
 
-function clamp(value: number): number {
-  return Math.min(1, Math.max(0, value))
+const kindLabels: Record<AgentWorldNode['kind'], string> = {
+  agent: 'Agent figure',
+  session: 'Session figure',
+  workflow: 'Workflow station',
+  source: 'Source building',
 }
 
-function ProgressBar({ value, style }: { value: number; style: ThemeStyle }) {
-  const percent = Math.round(clamp(value) * 100)
+function ForgeBackdrop() {
   return (
-    <div
-      className={`h-1.5 w-full overflow-hidden rounded-full ${style.page}`}
-      role="progressbar"
-      aria-label="Status-derived progress"
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={percent}
+    <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
+      <div className="absolute inset-x-0 bottom-0 h-[48%] bg-[linear-gradient(rgba(56,189,248,0.12)_1px,transparent_1px),linear-gradient(90deg,rgba(56,189,248,0.12)_1px,transparent_1px)] bg-[size:48px_48px] [transform:perspective(500px)_rotateX(48deg)] [transform-origin:bottom]" />
+      <div className="absolute start-1/2 top-[10%] h-24 w-40 -translate-x-1/2 rounded-t-full border border-orange-400/50 bg-orange-500/10 shadow-[0_24px_80px_rgba(249,115,22,0.22)]" />
+      <div className="absolute start-[8%] end-[8%] top-[46%] h-px bg-orange-400/30" />
+      <div className="absolute start-[10%] top-[57%] h-28 w-28 rounded-full border border-sky-500/20" />
+      <div className="absolute end-[10%] top-[57%] h-28 w-28 rounded-full border border-sky-500/20" />
+    </div>
+  )
+}
+
+function OfficeBackdrop() {
+  const desks = Array.from({ length: 8 }, (_, index) => ({
+    id: index,
+    left: 11 + (index % 4) * 14,
+    top: 34 + Math.floor(index / 4) * 28,
+  }))
+  return (
+    <div className="absolute inset-0 text-stone-700" aria-hidden="true">
+      <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(120,113,108,0.05)_25%,transparent_25%,transparent_75%,rgba(120,113,108,0.05)_75%),linear-gradient(45deg,rgba(120,113,108,0.05)_25%,transparent_25%,transparent_75%,rgba(120,113,108,0.05)_75%)] bg-[position:0_0,12px_12px] bg-[size:24px_24px]" />
+      <div className="absolute start-[4%] end-[34%] top-[18%] bottom-[9%] border-4 border-stone-400 bg-[#efe8d8]/80 shadow-[8px_8px_0_rgba(87,83,78,0.22)]" />
+      {desks.map(desk => (
+        <span
+          key={desk.id}
+          className="absolute h-9 w-20 border-2 border-stone-600 bg-amber-200 shadow-[4px_4px_0_rgba(87,83,78,0.22)] before:absolute before:start-2 before:top-2 before:h-3 before:w-6 before:border before:border-stone-600 before:bg-sky-100 after:absolute after:end-2 after:top-2 after:h-2 after:w-2 after:bg-emerald-700"
+          style={{ left: `${desk.left}%`, top: `${desk.top}%` }}
+        />
+      ))}
+      <div className="absolute end-[5%] top-[7%] h-[26%] w-[23%] border-4 border-stone-500 bg-white/75 shadow-[6px_6px_0_rgba(87,83,78,0.2)]" />
+      <div className="absolute end-[5%] bottom-[9%] h-[47%] w-[23%] border-4 border-dashed border-orange-800/40 bg-orange-100/60" />
+      <div className="absolute end-[7%] top-[23%] h-8 w-8 border-2 border-emerald-800 bg-emerald-600 shadow-[3px_3px_0_rgba(87,83,78,0.2)]" />
+      <span className="absolute end-[12%] top-[10%] text-xs font-black uppercase tracking-[0.12em]">Boss room</span>
+      <span className="absolute end-[10%] bottom-[12%] text-xs font-black uppercase tracking-[0.12em]">Review pod</span>
+      <span className="absolute start-[7%] top-[20%] text-xs font-black uppercase tracking-[0.12em]">Team floor</span>
+    </div>
+  )
+}
+
+function TownBackdrop() {
+  return (
+    <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
+      <div className="absolute inset-0 bg-[#123c28] bg-[linear-gradient(90deg,rgba(190,242,100,0.04)_1px,transparent_1px),linear-gradient(rgba(190,242,100,0.04)_1px,transparent_1px)] bg-[size:16px_16px]" />
+      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 1000 600" preserveAspectRatio="none">
+        <path d="M30 150 C220 190 260 90 450 160 S760 220 970 140" fill="none" stroke="#d7c18b" strokeWidth="34" strokeLinecap="square" opacity="0.5" />
+        <path d="M80 430 C260 350 390 470 560 390 S780 330 950 460" fill="none" stroke="#a78b62" strokeWidth="42" strokeLinecap="square" opacity="0.42" />
+        <path d="M500 150 V520" fill="none" stroke="#ead9a7" strokeWidth="22" strokeLinecap="square" opacity="0.38" />
+      </svg>
+      <div className="absolute start-[8%] top-[13%] h-24 w-28 border-4 border-amber-950 bg-amber-200 shadow-[8px_8px_0_rgba(2,44,34,0.65)] before:absolute before:-top-8 before:start-[-4px] before:h-8 before:w-28 before:bg-red-700 before:[clip-path:polygon(50%_0,100%_100%,0_100%)] after:absolute after:bottom-0 after:start-1/2 after:h-10 after:w-5 after:-translate-x-1/2 after:bg-amber-950" />
+      <div className="absolute end-[11%] top-[16%] h-20 w-24 border-4 border-sky-950 bg-sky-200 shadow-[8px_8px_0_rgba(2,44,34,0.65)] before:absolute before:-top-7 before:start-[-4px] before:h-7 before:w-24 before:bg-sky-800 before:[clip-path:polygon(50%_0,100%_100%,0_100%)] after:absolute after:bottom-3 after:start-3 after:h-5 after:w-5 after:bg-sky-950" />
+      <div className="absolute start-[15%] bottom-[12%] h-16 w-20 border-4 border-emerald-950 bg-lime-200 shadow-[6px_6px_0_rgba(2,44,34,0.65)]" />
+      <div className="absolute end-[15%] bottom-[10%] h-20 w-28 border-4 border-violet-950 bg-violet-200 shadow-[8px_8px_0_rgba(2,44,34,0.65)]" />
+      <span className="absolute start-[5%] top-[5%] text-xs font-black uppercase tracking-[0.12em] text-emerald-100/70">Source district</span>
+      <span className="absolute start-[5%] bottom-[6%] text-xs font-black uppercase tracking-[0.12em] text-emerald-100/70">Delivery commons</span>
+    </div>
+  )
+}
+
+function FigureGlyph({ node, theme }: { node: AgentWorldNode; theme: AgentWorldTheme }) {
+  const activeTone = node.stale
+    ? 'border-amber-400 bg-amber-400/20'
+    : node.active
+      ? theme === 'office' ? 'border-emerald-700 bg-emerald-100' : 'border-emerald-300 bg-emerald-300/15'
+      : theme === 'office' ? 'border-stone-500 bg-stone-100' : 'border-current bg-current/10'
+
+  if (node.kind === 'source') {
+    return (
+      <span className={`relative block h-12 w-14 border-2 ${activeTone}`}>
+        <span className="absolute -top-3 start-1/2 h-5 w-9 -translate-x-1/2 rotate-45 border-s-2 border-t-2 border-current bg-inherit" />
+        <span className="absolute bottom-0 start-1/2 h-5 w-3 -translate-x-1/2 border border-current" />
+      </span>
+    )
+  }
+
+  if (node.kind === 'workflow') {
+    return (
+      <span className={`relative block h-10 w-16 rounded-sm border-2 ${activeTone}`}>
+        <span className="absolute start-2 end-2 top-2 h-1 bg-current opacity-50" />
+        <span className="absolute start-2 end-5 top-5 h-1 bg-current opacity-40" />
+      </span>
+    )
+  }
+
+  const emote = node.stale ? '…' : node.status === 'blocked' || node.status === 'error' ? '×' : node.active ? '!' : 'z'
+  const pixelFigure = theme === 'office' || theme === 'town'
+
+  return (
+    <span className="relative block h-14 w-12">
+      <span className={`absolute -end-2 -top-3 z-10 min-w-5 border border-current bg-inherit px-1 text-[9px] font-black leading-4 shadow-[2px_2px_0_rgba(0,0,0,0.2)] ${node.active ? 'motion-safe:animate-pulse' : ''}`}>{emote}</span>
+      <span className={`absolute start-1/2 top-1 h-5 w-5 -translate-x-1/2 border-2 ${pixelFigure ? '' : 'rounded-full'} ${activeTone}`}>
+        {pixelFigure && <span className="absolute start-1 top-1 h-1 w-1 bg-current shadow-[8px_0_0_current]" />}
+      </span>
+      <span className={`absolute bottom-1 start-1/2 h-7 w-9 -translate-x-1/2 border-2 ${pixelFigure ? 'shadow-[3px_3px_0_rgba(0,0,0,0.25)]' : 'rounded-t-full'} ${activeTone}`} />
+      {pixelFigure && <span className="absolute bottom-0 start-1/2 h-1 w-11 -translate-x-1/2 bg-black/20" />}
+      {node.leader && <span className="absolute -top-3 start-1/2 -translate-x-1/2 text-sm" aria-hidden="true">◆</span>}
+    </span>
+  )
+}
+
+function WorldNodeFigure({ node, theme, x, y }: { node: AgentWorldNode; theme: AgentWorldTheme; x: number; y: number }) {
+  const style = themeStyles[theme]
+  return (
+    <button
+      type="button"
+      className={`group absolute z-20 w-28 -translate-x-1/2 -translate-y-1/2 rounded-lg px-1 py-1 text-center outline-none motion-safe:transition-transform motion-safe:hover:scale-105 focus-visible:ring-2 ${style.focus}`}
+      style={{ left: `${x / 10}%`, top: `${y / 6}%` }}
+      aria-label={`${kindLabels[node.kind]} ${node.label}. Role ${node.role}. Source ${node.source}. Status ${node.status}. Current task ${node.task}.`}
     >
-      <div className={`h-full rounded-full ${style.progress}`} style={{ width: `${percent}%` }} />
-    </div>
-  )
-}
-
-function NodeCard({ node, theme, compact = false }: { node: AgentWorldNode; theme: AgentWorldTheme; compact?: boolean }) {
-  const style = themeStyles[theme]
-  const state = node.stale ? 'stale' : node.status
-  return (
-    <article className={`flex flex-col border ${compact ? 'min-h-36 rounded-xl p-3' : 'min-h-48 rounded-2xl p-4'} ${style.surfaceStrong}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${style.quiet}`}>{node.kind}</p>
-          <h3 className="mt-1 truncate text-base font-bold">{node.label}</h3>
-        </div>
-        <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${style.accentSoft}`}>
-          {state}
-        </span>
-      </div>
-
-      <p className={`mt-3 line-clamp-2 text-sm ${style.muted}`}>{node.task}</p>
-
-      <dl className={`mt-4 grid grid-cols-2 gap-x-3 gap-y-1 text-xs ${style.quiet}`}>
-        <dt>Role</dt>
-        <dd className="truncate text-end font-medium">{node.role}</dd>
-        <dt>Source</dt>
-        <dd className="truncate text-end font-medium">{node.source}</dd>
-      </dl>
-
-      <div className="mt-auto pt-4">
-        <div className={`mb-1.5 flex items-center justify-between text-[11px] ${style.quiet}`}>
-          <span>Stage progress</span>
-          <span>{Math.round(node.progress * 100)}%</span>
-        </div>
-        <ProgressBar value={node.progress} style={style} />
-      </div>
-
-      {!compact && node.details.length > 0 && (
-        <ul className={`mt-3 space-y-1 text-xs ${style.quiet}`}>
-          {node.details.map(detail => <li key={detail} className="truncate">{detail}</li>)}
-        </ul>
+      <span className="mx-auto flex justify-center" aria-hidden="true"><FigureGlyph node={node} theme={theme} /></span>
+      <span className="mt-1 block truncate text-[11px] font-black">{node.label}</span>
+      <span className={`block truncate text-[9px] uppercase tracking-[0.08em] ${style.quiet}`}>{node.status}</span>
+      {node.progress !== null && (
+        <span
+          className="sr-only"
+          role="progressbar"
+          aria-label={`${node.label} reported progress`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(node.progress * 100)}
+        />
       )}
-    </article>
+      <span className={`pointer-events-none absolute start-1/2 top-full z-40 mt-2 hidden w-56 -translate-x-1/2 border p-3 text-start text-xs shadow-xl group-hover:block group-focus:block ${style.panelStrong}`}>
+        <strong className="block text-sm">{node.label}</strong>
+        <span className={`mt-1 block ${style.muted}`}>{node.role} · {node.source}</span>
+        <span className="mt-2 block">{node.task}</span>
+        {node.details.map(detail => <span key={detail} className={`mt-1 block ${style.quiet}`}>{detail}</span>)}
+      </span>
+    </button>
   )
 }
 
-function TaskVilleStage({ nodes, theme }: { nodes: AgentWorldNode[]; theme: AgentWorldTheme }) {
-  const lanes = [
-    { label: 'In motion', nodes: nodes.filter(node => node.active && !node.stale) },
-    { label: 'Queued', nodes: nodes.filter(node => !node.active && !node.stale && node.status !== 'done' && node.status !== 'completed') },
-    { label: 'Needs attention', nodes: nodes.filter(node => node.stale || ['blocked', 'error', 'stalled'].includes(node.status)) },
-    { label: 'Landed', nodes: nodes.filter(node => ['done', 'completed', 'success'].includes(node.status)) },
-  ].filter(lane => lane.nodes.length)
-  const style = themeStyles[theme]
-
+function EdgeTopology({
+  edges,
+  positions,
+  theme,
+}: {
+  edges: AgentWorldEdge[]
+  positions: Map<string, { x: number; y: number }>
+  theme: AgentWorldTheme
+}) {
+  const color = themeStyles[theme].edge
   return (
-    <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-4">
-      {lanes.map(lane => (
-        <section key={lane.label} aria-labelledby={`lane-${lane.label.replaceAll(' ', '-').toLowerCase()}`}>
-          <div className={`mb-3 flex items-center justify-between border-b pb-2 ${style.line}`}>
-            <h2 id={`lane-${lane.label.replaceAll(' ', '-').toLowerCase()}`} className="font-bold">{lane.label}</h2>
-            <span className={`text-xs ${style.quiet}`}>{lane.nodes.length}</span>
-          </div>
-          <div className="space-y-3">
-            {lane.nodes.map(node => <NodeCard key={node.id} node={node} theme={theme} compact />)}
-          </div>
-        </section>
-      ))}
-    </div>
+    <svg className="absolute inset-0 z-10 h-full w-full" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-label="Live workflow node-edge topology">
+      <defs>
+        <marker id={`world-arrow-${theme}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
+        </marker>
+      </defs>
+      {edges.map(edge => {
+        const from = positions.get(edge.from)
+        const to = positions.get(edge.to)
+        if (!from || !to) return null
+        const bend = Math.max(24, Math.abs(to.y - from.y) * 0.22)
+        const path = `M ${from.x} ${from.y} C ${from.x} ${from.y + bend}, ${to.x} ${to.y - bend}, ${to.x} ${to.y}`
+        return (
+          <path
+            key={edge.id}
+            d={path}
+            fill="none"
+            stroke={color}
+            strokeWidth={edge.type === 'dependency' ? 2.5 : 1.5}
+            strokeDasharray={edge.type === 'message' ? '6 5' : undefined}
+            opacity={edge.type === 'source' ? 0.32 : 0.68}
+            markerEnd={`url(#world-arrow-${theme})`}
+          >
+            <title>{`${edge.from} ${edge.label} ${edge.to}`}</title>
+          </path>
+        )
+      })}
+    </svg>
   )
 }
 
-function TownStage({ nodes, theme }: { nodes: AgentWorldNode[]; theme: AgentWorldTheme }) {
+function SpatialWorld({ projection, theme }: { projection: AgentWorldProjection; theme: AgentWorldTheme }) {
+  const positions = useMemo(() => layoutWorldNodes(projection.nodes, theme), [projection.nodes, theme])
   const style = themeStyles[theme]
-  const districts = [
-    { name: 'Agent quarter', description: 'Configured workers and coordinators', nodes: nodes.filter(node => node.kind === 'agent') },
-    { name: 'Delivery yard', description: 'Work moving through the project', nodes: nodes.filter(node => node.kind === 'workflow') },
-  ].filter(district => district.nodes.length)
 
   return (
-    <div className="grid gap-6 xl:grid-cols-2">
-      {districts.map(district => (
-        <section key={district.name} className={`rounded-[2rem] border p-4 sm:p-5 ${style.surface}`}>
-          <div className="mb-4">
-            <h2 className="text-xl font-black tracking-tight">{district.name}</h2>
-            <p className={`mt-1 text-sm ${style.muted}`}>{district.description}</p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {district.nodes.map(node => <NodeCard key={node.id} node={node} theme={theme} />)}
-          </div>
-        </section>
-      ))}
-    </div>
-  )
-}
-
-function OfficeStage({ nodes, theme }: { nodes: AgentWorldNode[]; theme: AgentWorldTheme }) {
-  const style = themeStyles[theme]
-  const agents = nodes.filter(node => node.kind === 'agent')
-  const workflows = nodes.filter(node => node.kind === 'workflow')
-
-  return (
-    <div className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
-      <section className={`border p-4 sm:p-5 ${style.surface}`}>
-        <div className={`mb-4 flex items-end justify-between border-b pb-3 ${style.line}`}>
-          <div>
-            <h2 className="text-xl font-black tracking-tight">Team floor</h2>
-            <p className={`mt-1 text-sm ${style.muted}`}>Each desk reflects a configured session.</p>
-          </div>
-          <span className={`text-sm ${style.quiet}`}>{agents.length} desks</span>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {agents.map(node => <NodeCard key={node.id} node={node} theme={theme} compact />)}
-        </div>
-      </section>
-      <section className={`border p-4 sm:p-5 ${style.surfaceStrong}`}>
-        <h2 className="text-xl font-black tracking-tight">Review board</h2>
-        <p className={`mt-1 text-sm ${style.muted}`}>Current work, ordered from the live snapshot.</p>
-        <div className="mt-4 space-y-3">
-          {workflows.map(node => <NodeCard key={node.id} node={node} theme={theme} compact />)}
-          {!workflows.length && <p className={`text-sm ${style.quiet}`}>No workflow items are recorded.</p>}
-        </div>
-      </section>
-    </div>
-  )
-}
-
-function WorkflowConnections({ edges, theme }: { edges: AgentWorldEdge[]; theme: AgentWorldTheme }) {
-  const style = themeStyles[theme]
-  return (
-    <section className={`border p-4 sm:p-5 ${style.surface}`} aria-labelledby="workflow-connections">
-      <div className="flex items-end justify-between gap-3">
+    <section aria-labelledby="spatial-world-heading">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 id="workflow-connections" className="text-lg font-black tracking-tight">Workflow graph</h2>
-          <p className={`mt-1 text-sm ${style.muted}`}>Only relationships present in task ownership or session messages are shown.</p>
+          <h2 id="spatial-world-heading" className="text-xl font-black tracking-tight">
+            {THEME_OPTIONS.find(option => option.id === theme)?.label}
+          </h2>
+          <p className={`mt-1 text-sm ${style.muted}`}>
+            Every occupied station and path comes from the current snapshot.
+          </p>
         </div>
-        <span className={`text-sm ${style.quiet}`}>{edges.length}</span>
+        <p className={`text-xs ${style.quiet}`}>Tab through figures for role, status, source, and current task.</p>
       </div>
+      <div className={`overflow-x-auto border ${style.scene}`}>
+        <div className="relative h-[620px] min-w-[900px] overflow-hidden">
+          {theme === 'forge' && <ForgeBackdrop />}
+          {theme === 'office' && <OfficeBackdrop />}
+          {theme === 'town' && <TownBackdrop />}
+          <EdgeTopology edges={projection.edges} positions={positions} theme={theme} />
+          {projection.nodes.map(node => {
+            const position = positions.get(node.id)
+            return position
+              ? <WorldNodeFigure key={node.id} node={node} theme={theme} x={position.x} y={position.y} />
+              : null
+          })}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function TopologyFallback({ edges, theme }: { edges: AgentWorldEdge[]; theme: AgentWorldTheme }) {
+  const style = themeStyles[theme]
+  return (
+    <details className={`border ${style.panel}`}>
+      <summary className={`cursor-pointer px-4 py-3 font-bold outline-none focus-visible:ring-2 ${style.focus}`}>Workflow relationship list</summary>
       {edges.length ? (
-        <ol className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        <ol className={`grid gap-2 border-t p-4 md:grid-cols-2 ${style.line}`}>
           {edges.map(edge => (
-            <li key={edge.id} className={`flex min-w-0 items-center gap-2 border px-3 py-2 text-sm ${style.surfaceStrong}`}>
+            <li key={edge.id} className={`flex min-w-0 items-center gap-2 border px-3 py-2 text-sm ${style.panelStrong}`}>
               <span className="truncate font-semibold">{edge.from}</span>
               <span aria-hidden="true">→</span>
               <span className="truncate font-semibold">{edge.to}</span>
@@ -239,25 +317,23 @@ function WorkflowConnections({ edges, theme }: { edges: AgentWorldEdge[]; theme:
           ))}
         </ol>
       ) : (
-        <p className={`mt-4 text-sm ${style.quiet}`}>No relationships can be derived from the current snapshot.</p>
+        <p className={`border-t px-4 py-3 text-sm ${style.muted}`}>No real relationships were reported.</p>
       )}
-    </section>
+    </details>
   )
 }
 
 function AccessibleSnapshot({ nodes, theme }: { nodes: AgentWorldNode[]; theme: AgentWorldTheme }) {
   const style = themeStyles[theme]
   return (
-    <details className={`border ${style.surface}`}>
-      <summary className={`cursor-pointer px-4 py-3 font-semibold outline-none focus-visible:ring-2 ${style.focus}`}>
-        Accessible snapshot table
-      </summary>
-      <div className="overflow-x-auto border-t">
-        <table className="w-full min-w-[720px] border-collapse text-sm">
-          <caption className="sr-only">Current Agent World nodes and status</caption>
+    <details className={`border ${style.panel}`}>
+      <summary className={`cursor-pointer px-4 py-3 font-bold outline-none focus-visible:ring-2 ${style.focus}`}>Accessible snapshot table</summary>
+      <div className={`overflow-x-auto border-t ${style.line}`}>
+        <table className="w-full min-w-[760px] border-collapse text-sm">
+          <caption className="sr-only">Current real Agent World records</caption>
           <thead>
-            <tr className={style.surfaceStrong}>
-              {['Name', 'Type', 'Role', 'Status', 'Current task', 'Progress'].map(label => (
+            <tr className={style.panelStrong}>
+              {['Name', 'Type', 'Role', 'Source', 'Status', 'Current task'].map(label => (
                 <th key={label} scope="col" className="px-3 py-2 text-start font-bold">{label}</th>
               ))}
             </tr>
@@ -268,9 +344,9 @@ function AccessibleSnapshot({ nodes, theme }: { nodes: AgentWorldNode[]; theme: 
                 <th scope="row" className="px-3 py-2 text-start font-semibold">{node.label}</th>
                 <td className="px-3 py-2">{node.kind}</td>
                 <td className="px-3 py-2">{node.role}</td>
-                <td className="px-3 py-2">{node.stale ? 'stale' : node.status}</td>
+                <td className="px-3 py-2">{node.source}</td>
+                <td className="px-3 py-2">{node.stale ? `${node.status} / stale` : node.status}</td>
                 <td className="max-w-md px-3 py-2">{node.task}</td>
-                <td className="px-3 py-2">{Math.round(node.progress * 100)}%</td>
               </tr>
             ))}
           </tbody>
@@ -282,20 +358,22 @@ function AccessibleSnapshot({ nodes, theme }: { nodes: AgentWorldNode[]; theme: 
 
 function AgentWorldView({ variant, title, subtitle }: { variant: AgentWorldVariant; title: string; subtitle: string }) {
   const { user } = useAccess()
-  const [theme, setTheme] = useState<AgentWorldTheme>('taskville')
-  const [snapshot, setSnapshot] = useState<AgentWorldSnapshot | null>(null)
+  const [theme, setTheme] = useState<AgentWorldTheme>('forge')
+  const [payload, setPayload] = useState<Payload | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const activeRequest = useRef<AbortController | null>(null)
+  const requestSequence = useRef(0)
   const canMaintain = user?.role === 'admin' || user?.permissions.includes('admin_tools')
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(getThemeStorageKey(variant))
-      if (stored === 'taskville' || stored === 'office' || stored === 'town') setTheme(stored)
+      const stored = migrateStoredTheme(localStorage.getItem(getThemeStorageKey(variant)))
+      if (stored) setTheme(stored)
     } catch {
-      // Browser storage is optional; the selected theme still works for this visit.
+      // Storage is optional; the selected scene still works for this visit.
     }
   }, [variant])
 
@@ -303,29 +381,37 @@ function AgentWorldView({ variant, title, subtitle }: { variant: AgentWorldVaria
     try {
       localStorage.setItem(getThemeStorageKey(variant), theme)
     } catch {
-      // Browser storage is optional.
+      // Storage is optional.
     }
   }, [theme, variant])
 
   const load = useCallback(async (background = false) => {
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    activeRequest.current = controller
+    const requestId = ++requestSequence.current
     if (background) setRefreshing(true)
     else setLoading(true)
-
     try {
       const endpoint = variant === 'product' ? '/api/agents?view=public' : '/api/agents'
-      const response = await fetch(endpoint, { cache: 'no-store' })
+      const response = await fetch(endpoint, { cache: 'no-store', signal: controller.signal })
       if (!response.ok) {
         if (response.status === 401) throw new Error('Sign in to load the live Agent World snapshot.')
         if (response.status === 403) throw new Error('The private maintainer world requires the admin_tools permission.')
-        throw new Error(`The agent snapshot request failed (${response.status}).`)
+        const body = await response.json().catch(() => ({})) as { error?: unknown }
+        throw new Error(typeof body.error === 'string' ? body.error : `The agent snapshot request failed (${response.status}).`)
       }
-      const payload = (await response.json()) as Payload
-      setSnapshot(payload.snapshot ?? null)
+      const nextPayload = await response.json() as Payload
+      if (requestId !== requestSequence.current) return
+      setPayload(nextPayload)
       setLastUpdated(new Date())
       setError(null)
     } catch (loadError) {
+      if (controller.signal.aborted || requestId !== requestSequence.current) return
       setError(loadError instanceof Error ? loadError.message : 'The agent snapshot could not be loaded.')
     } finally {
+      if (requestId !== requestSequence.current) return
+      activeRequest.current = null
       setLoading(false)
       setRefreshing(false)
     }
@@ -334,52 +420,58 @@ function AgentWorldView({ variant, title, subtitle }: { variant: AgentWorldVaria
   useEffect(() => {
     void load()
     const timer = window.setInterval(() => { void load(true) }, 20_000)
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearInterval(timer)
+      activeRequest.current?.abort()
+    }
   }, [load])
 
-  const projection = useMemo(() => deriveAgentWorldProjection(snapshot, variant), [snapshot, variant])
+  const projection = useMemo(() => {
+    const snapshot = payload?.snapshot ?? {}
+    const data = collectAgentWorldData(snapshot, payload?.connectorSnapshot)
+    return deriveAgentWorldProjection(data, variant, {
+      health: typeof snapshot.health === 'number' ? snapshot.health : null,
+      phase: typeof snapshot.phase === 'number' ? snapshot.phase : 1,
+      running: snapshot.running === true,
+      workflow: snapshot.workflow && typeof snapshot.workflow === 'object' && !Array.isArray(snapshot.workflow)
+        ? snapshot.workflow as AgentWorldRecord
+        : null,
+    })
+  }, [payload, variant])
   const style = themeStyles[theme]
 
   return (
     <main className={`min-h-[calc(100dvh-49px)] font-plex ${style.page}`}>
       <div className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
-        <header className={`border p-5 sm:p-7 ${style.surfaceStrong}`}>
+        <header className={`border p-5 sm:p-7 ${style.panelStrong}`}>
           <div className="grid gap-6 xl:grid-cols-[1fr_auto] xl:items-end">
             <div>
-              <h1 className="max-w-3xl font-display text-3xl font-black tracking-[-0.03em] sm:text-5xl">{title}</h1>
+              <h1 className="max-w-4xl font-display text-3xl font-black tracking-[-0.03em] sm:text-5xl">{title}</h1>
               <p className={`mt-3 max-w-3xl text-sm sm:text-base ${style.muted}`}>{subtitle}</p>
               <div className={`mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs ${style.quiet}`} aria-live="polite">
                 <span>Phase {projection.summary.phase}</span>
-                <span>{snapshot?.running ? 'Live team process' : 'Stored snapshot'}</span>
+                <span>{payload?.snapshot?.running === true ? 'Live local runtime' : 'Local runtime offline or unknown'}</span>
                 <span>{lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Waiting for snapshot'}</span>
               </div>
             </div>
-
             <div className="space-y-4">
               <nav aria-label="Agent World views" className="flex flex-wrap gap-2 xl:justify-end">
-                <Link href="/agent-world" className={`border px-3 py-2 text-sm font-semibold outline-none focus-visible:ring-2 ${style.surface} ${style.focus}`}>
-                  Agent World
-                </Link>
+                <Link href="/agent-world" className={`border px-3 py-2 text-sm font-semibold outline-none focus-visible:ring-2 ${style.panel} ${style.focus}`}>Agent World</Link>
                 {canMaintain && (
                   <>
-                    <Link href="/maintainer-world" className={`border px-3 py-2 text-sm font-semibold outline-none focus-visible:ring-2 ${style.surface} ${style.focus}`}>
-                      Maintainer World
-                    </Link>
-                    <Link href="/agents" className={`border px-3 py-2 text-sm font-semibold outline-none focus-visible:ring-2 ${style.surface} ${style.focus}`}>
-                      Team controls
-                    </Link>
+                    <Link href="/maintainer-world" className={`border px-3 py-2 text-sm font-semibold outline-none focus-visible:ring-2 ${style.panel} ${style.focus}`}>Maintainer World</Link>
+                    <Link href="/agents" className={`border px-3 py-2 text-sm font-semibold outline-none focus-visible:ring-2 ${style.panel} ${style.focus}`}>Team controls</Link>
                   </>
                 )}
               </nav>
-
               <fieldset>
-                <legend className={`mb-2 text-xs font-bold uppercase tracking-[0.14em] ${style.quiet}`}>World theme</legend>
+                <legend className={`mb-2 text-xs font-bold uppercase tracking-[0.14em] ${style.quiet}`}>Spatial world</legend>
                 <div className="flex flex-wrap gap-2 xl:justify-end">
                   {THEME_OPTIONS.map(option => (
                     <button
                       key={option.id}
                       type="button"
-                      className={`border px-3 py-2 text-start text-sm outline-none motion-safe:transition-colors focus-visible:ring-2 ${style.focus} ${theme === option.id ? style.accent : style.surface}`}
+                      className={`border px-3 py-2 text-start text-sm outline-none motion-safe:transition-colors focus-visible:ring-2 ${style.focus} ${theme === option.id ? style.accent : style.panel}`}
                       onClick={() => setTheme(option.id)}
                       aria-pressed={theme === option.id}
                       title={option.description}
@@ -389,7 +481,7 @@ function AgentWorldView({ variant, title, subtitle }: { variant: AgentWorldVaria
                   ))}
                   <button
                     type="button"
-                    className={`border px-3 py-2 text-sm font-semibold outline-none motion-safe:transition-colors focus-visible:ring-2 disabled:cursor-wait disabled:opacity-60 ${style.surface} ${style.focus}`}
+                    className={`border px-3 py-2 text-sm font-semibold outline-none motion-safe:transition-colors focus-visible:ring-2 disabled:cursor-wait disabled:opacity-60 ${style.panel} ${style.focus}`}
                     onClick={() => void load(true)}
                     disabled={refreshing}
                   >
@@ -401,18 +493,20 @@ function AgentWorldView({ variant, title, subtitle }: { variant: AgentWorldVaria
           </div>
         </header>
 
-        <dl className={`grid border-x border-b sm:grid-cols-3 lg:grid-cols-6 ${style.line}`} aria-label="Agent World summary">
+        <dl className={`grid border-x border-b sm:grid-cols-4 xl:grid-cols-8 ${style.line}`} aria-label="Agent World summary">
           {[
             ['Online', String(projection.summary.online)],
+            ['Sessions', String(projection.summary.sessions)],
             ['Tasks', String(projection.summary.tasks)],
             ['Active', String(projection.summary.active)],
             ['Blocked', String(projection.summary.blocked)],
+            ['Sources', String(projection.summary.sources)],
             ['Health', projection.summary.health === null ? '—' : `${projection.summary.health}%`],
-            ['Theme', THEME_OPTIONS.find(option => option.id === theme)?.label ?? theme],
+            ['World', THEME_OPTIONS.find(option => option.id === theme)?.label ?? theme],
           ].map(([label, value]) => (
             <div key={label} className={`border-b p-3 last:border-b-0 sm:border-b-0 sm:border-e ${style.line}`}>
               <dt className={`text-[11px] font-bold uppercase tracking-[0.12em] ${style.quiet}`}>{label}</dt>
-              <dd className="mt-1 text-lg font-black">{value}</dd>
+              <dd className="mt-1 truncate text-lg font-black">{value}</dd>
             </div>
           ))}
         </dl>
@@ -423,38 +517,23 @@ function AgentWorldView({ variant, title, subtitle }: { variant: AgentWorldVaria
             {error.startsWith('Sign in') && <Link href={`/login?next=/${variant === 'product' ? 'agent-world' : 'maintainer-world'}`} className="font-bold underline">Sign in</Link>}
           </div>
         )}
-
-        {loading && !snapshot && (
-          <div className={`mt-5 border p-6 text-sm ${style.surface}`} role="status">
-            Loading the current Agent World snapshot…
-          </div>
-        )}
-
+        {loading && !payload && <div className={`mt-5 border p-6 text-sm ${style.panel}`} role="status">Loading real local and federated records…</div>}
         {!loading && projection.notices.length > 0 && (
           <div className="mt-5 space-y-2" aria-label="Snapshot notices">
-            {projection.notices.map(notice => (
-              <p key={notice} className={`border px-4 py-3 text-sm ${style.surface}`}>{notice}</p>
-            ))}
+            {projection.notices.map(notice => <p key={notice} className={`border px-4 py-3 text-sm ${style.panel}`}>{notice}</p>)}
           </div>
         )}
-
         {!loading && projection.ready && (
           <div className="mt-7 space-y-6">
-            <section aria-label={`${THEME_OPTIONS.find(option => option.id === theme)?.label} operational map`}>
-              {theme === 'taskville' && <TaskVilleStage nodes={projection.nodes} theme={theme} />}
-              {theme === 'town' && <TownStage nodes={projection.nodes} theme={theme} />}
-              {theme === 'office' && <OfficeStage nodes={projection.nodes} theme={theme} />}
-            </section>
-
-            <WorkflowConnections edges={projection.edges} theme={theme} />
+            <SpatialWorld projection={projection} theme={theme} />
+            <TopologyFallback edges={projection.edges} theme={theme} />
             <AccessibleSnapshot nodes={projection.nodes} theme={theme} />
           </div>
         )}
-
         {!loading && !projection.ready && (
-          <div className={`mt-7 border border-dashed p-8 text-center ${style.surface}`}>
-            <h2 className="text-lg font-bold">No Agent World data yet</h2>
-            <p className={`mt-2 text-sm ${style.muted}`}>Start or configure the agent team, then refresh this view. No placeholder agents are generated.</p>
+          <div className={`mt-7 border border-dashed p-8 text-center ${style.panel}`}>
+            <h2 className="text-lg font-bold">No real Agent World records yet</h2>
+            <p className={`mt-2 text-sm ${style.muted}`}>Start or connect an agent source, then refresh. This view never creates placeholder occupancy.</p>
           </div>
         )}
       </div>

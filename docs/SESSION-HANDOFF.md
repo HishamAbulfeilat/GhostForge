@@ -39,6 +39,10 @@ progress. Keep going until every check is green, then keep improving.
   scheduled task **"GhostForge Boss Watchdog"**; restarts the boss if it died.
   An explicit `team.mjs stop` (STOP file) is respected.
 
+## Claude ⇄ Copilot leadership
+
+Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). When Claude is rate-limited the boss falls back to Copilot automatically and the **interactive Copilot CLI session is acting lead** — its rules and handover steps are in **`prompts/copilot-colead.md`** (paste it into Copilot). Copilot steers via `team.mjs add/say`, never edits this checkout while the boss runs, and logs what it did in History (signed — copilot). When Claude's quota resets, Claude reads History + boss.log and resumes command.
+
 ## Operate it
 
 | Want to… | Command |
@@ -96,6 +100,13 @@ progress. Keep going until every check is green, then keep improving.
   web-ui tests 177/177 ✓. Bug fixed: a task pinned to rate-limited `claude`
   kept the board "active" ~4h (03:47–08:04 UTC) so planning stopped and all
   Copilot workers idled — pinned tasks now fall back to `any`.
+- **2026-10-01 11:15–16:20** — User asked for a Claude-only team. Claude fixed
+  the Linux Electron sandbox CI and 4 high CodeQL alerts, then hit its session
+  limit (reset 16:00); Copilot took over meanwhile (T-094/096/097/098: token-
+  bearing outbound URL validation, desktop smoke exits, React Doctor) and
+  stopped the boss. **All 14 PR #11 checks green → PR #11 merged to `main`
+  (`ccc4c29`).** Team restarted Claude-only (boss opus + claude, claude-2,
+  claude-3) on top of the new `main`.
 
 ## Environment gotchas
 
@@ -108,30 +119,29 @@ progress. Keep going until every check is green, then keep improving.
 ## LIVE STATUS
 
 <!-- LIVE-STATUS:START -->
-_Auto-updated by the boss (pid 28660) at 2026-10-01T08:16:35.024Z._
+_Auto-updated by the boss (pid 29652) at 2026-10-01T11:13:47.966Z._
 
 **Phase 4:** Production-perfect on every surface: every GhostForge feature works end to end and is reachable from the web UI, the TUI, the terminal CLI and JARVIS (feature parity — record gaps in docs/FEATURE-MATRIX.md and close them); the Electron desktop app builds and runs on Windows, macOS and Linux and the Android (Capacitor) app builds, with CI proving it; security hardened (fix every real finding from CodeQL, npm audit, secret/dependency scanners and security reviews); the Agentic OS dashboard (/agents) shows each agent's progress, the todo/in-progress/review/done/blocked board, messages, health and history; accessible, RTL-safe, polished UI. Keep going until every check is green, then keep improving.
 
-**Health:** 100/100 · **merges this run:** 2 · **PR:** none yet · **boss:** claude (fallback copilot)
+**Health:** 100/100 · **merges this run:** 3 · **PR:** none yet · **boss:** copilot
 
-**Board:** todo 0 · in-progress 3 · review 2 · done 78 · blocked 5
+**Board:** todo 5 · in-progress 0 · review 0 · done 85 · blocked 6
 
 **Agents**
-- **claude** (claude): working on T-094
-- **copilot-tui** (copilot): waiting-merge on T-089
-- **copilot-desktop** (copilot): working on T-095
-- **copilot-web** (copilot): working on T-093
+- **copilot-tui** (copilot): idle
+- **copilot-desktop** (copilot): idle
+- **copilot-web** (copilot): idle
 - **copilot-integration** (copilot): idle
-- **copilot-quality** (copilot): waiting-merge on T-092
+- **copilot-quality** (copilot): idle
 
 **In progress / review**
-- T-093 [feature] Add an authenticated web page for snippets, changelog and README — copilot-web
-- T-094 [feature] Add a read-only JARVIS bridge contract for listing users and access profiles — claude
-- T-095 [test] Fix Desktop (linux) CI: Electron headless smoke aborts with 'SUID sandbox helper binary ... not configured correctly' (Ubuntu 24.04 restricts unprivileged user namespaces). In the Linux job add a step before the smoke test: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 (keeps Chromium sandbox ON — do NOT add --no-sandbox to the app). Verify on PR #11 that Desktop (linux) passes — copilot-desktop
-- T-089 [feature] Wire existing users, collab, device-status and awesome-llm-apps scripts into the ghostforge CLI dispatcher — copilot-tui
-- T-092 [docs] Refresh FEATURE-MATRIX n8n, collaboration, users and device rows from current code — copilot-quality
 
 **Next up (todo)**
+- T-099 [feature] Implement the Agentic OS kanban board from the /api/agents snapshot
+- T-100 [bugfix] Fix Android packaged-build CI and document the required local workflow
+- T-101 [bugfix] Correct packaged-app build script names in the terminal CLI and dispatch layer
+- T-102 [security] Resolve remaining CodeQL token-bearing outbound validation findings
+- T-103 [test] Harden desktop CI smoke validation against hangs and Ubuntu sandbox restrictions
 
 **Blocked (needs a human or a fresh approach)**
 - T-041 [feature] Agentic OS dashboard: add a kanban board (todo/in-progress/review/done/blocked) with per-agent progress, current task, model/provider, elapsed time and recent history to /agents, backed by the existing /api/agents snapshot: …e, hiding the snapshot's explicit current task. - Elapsed time is only measured since the dashboard first observed a task; it resets on page load and does not represent time already spent on the task.
@@ -139,28 +149,29 @@ _Auto-updated by the boss (pid 28660) at 2026-10-01T08:16:35.024Z._
 - T-055 [feature] Add TUI and CLI surfaces for workflow runs, n8n, and webhook triggers: …n in the review are absent from the current checkout: the n8n scripts/tests do not exist, scripts/test.js does not run the new regression tests, and tui/index.js has no n8n menu or screen integration.
 - T-081 [feature] Test task: …pts as the file area; it contains no requested behavior, acceptance criteria, or test target to implement. Please reassign T-081 with a concrete objective. Current agent status reports health 100/100.
 - T-086 [feature] Expose packaged app builds in the terminal CLI: …oss review rejected the change: - Electron macOS and Windows builds invoke nonexistent npm scripts: the CLI uses build:macos/build:windows, while electron-app/package.json defines build:mac/build:win.
+- T-096 [security] Resolve remaining CodeQL file-to-HTTP alerts by validating every token-bearing outbound destination in Electron, collaboration, webhooks, and TUI; add regression tests and do not broadly suppress alerts: …tent. - electron-app/src/main/n8n-integration.ts:48 — API keys supplied through the constructor bypass the CR/LF validation in updateConfig and can reach the request header without the new validation.
 
 **Recently done**
-- T-077 [docs] Refresh feature parity matrix after completed workflow surfaces — copilot-quality
-- T-078 [feature] Add TUI webhook management controls — copilot-tui
-- T-079 [feature] Replace bridge job search and autopilot stubs — copilot-integration
-- T-080 [test] Add Electron headless launch smoke validation — copilot-desktop
-- T-082 [feature] Complete Agentic OS kanban dashboard — copilot-web
-- T-083 [feature] Expose live device status and remote setup through JARVIS — copilot-integration
-- T-084 [feature] Add terminal n8n automation controls — copilot-integration
 - T-085 [feature] Add TUI n8n automation screen — copilot-tui
 - T-087 [feature] Add JARVIS n8n bridge contract — claude
 - T-088 [docs] Refresh phase-four feature matrix after surface work — copilot-quality
+- T-089 [feature] Wire existing users, collab, device-status and awesome-llm-apps scripts into the ghostforge CLI dispatcher — copilot-tui
 - T-090 [bugfix] Redo T-086: add a bounded packaged-app build script using the real electron-app npm script names — claude
 - T-091 [chore] Consolidate Android CI into a single workflow (resolve T-043) — copilot-desktop
+- T-092 [docs] Refresh FEATURE-MATRIX n8n, collaboration, users and device rows from current code — claude
+- T-093 [feature] Add an authenticated web page for snippets, changelog and README — claude-2
+- T-094 [feature] Add a read-only JARVIS bridge contract for listing users and access profiles — copilot-tui
+- T-095 [test] Fix Desktop (linux) CI: Electron headless smoke aborts with 'SUID sandbox helper binary ... not configured correctly' (Ubuntu 24.04 restricts unprivileged user namespaces). In the Linux job add a step before the smoke test: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 (keeps Chromium sandbox ON — do NOT add --no-sandbox to the app). Verify on PR #11 that Desktop (linux) passes — lead
+- T-097 [bugfix] Diagnose and fix desktop CI jobs that hang until cancellation on Linux, Windows, and macOS; preserve headless Electron validation and add bounded timeouts — copilot-desktop
+- T-098 [bugfix] Fix the pre-existing React Doctor PushNotificationPanel effect cleanup error and preserve push subscription behavior — copilot-web
 
 **Latest messages**
-- 2026-10-01T03:46 boss → all: …and wired ghostforge/cli dispatch and help. Focused tests 6/6, npm test, health 100/100, syntax and diff checks pass. Commit 531b600. Files: cli/index.js, ghostforge, scripts/n8n.mjs, scripts/n8n.sh, scripts/n8n.test.mjs
-- 2026-10-01T03:46 boss → all: PR to main updated with 75 task(s): https://github.com/HishamAbulfeilat/GhostForge/pull/11
-- 2026-10-01T08:04 boss → all: …no API key sent; 502 on n8n failure. 5 new contract tests; bridge suite 22/22, health 100/100. Files: mark-l-bridge/server.py, mark-l-bridge/test_contract.py Files: mark-l-bridge/server.py, mark-l-bridge/test_contract.py
-- 2026-10-01T08:08 boss → all: Health 100/100. Planned 6 new task(s) for phase 4.
-- 2026-10-01T08:09 boss → all: Boss online. Template: null. Agents: claude, copilot-tui, copilot-desktop, copilot-web, copilot-integration, copilot-quality. Phase 4.
-- 2026-10-01T08:11 boss → human: …ob add a step before the smoke test: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 (keeps Chromium sandbox ON — do NOT add --no-sandbox to the app). Verify on PR #11 that Desktop (linux) passes" as T-095.
-- 2026-10-01T08:14 boss → all: …t that exists in electron-app/package.json, plus arg validation and dry-run/no-spawn. Root npm test and health pass. CLI dispatcher wiring left as follow-up. Files: scripts/package-apps.mjs, scripts/package-apps.test.mjs
-- 2026-10-01T08:15 boss → all: …ease-triggered runs. Added a short install note to the PR validation workflow header so the artifact is easy to find and install. Files: .github/workflows/build-apps.yml, .github/workflows/electron-android-validation.yml
+- 2026-10-01T10:48 boss → boss: Queued "Fix the pre-existing React Doctor PushNotificationPanel effect cleanup error and preserve push subscription behavior" as T-098.
+- 2026-10-01T10:53 boss → all: …ndows/macOS jobs stop on real hangs instead of waiting for GitHub cancellation, while leaving the headless Electron smoke validation in place. Files: .github/workflows/build-apps.yml, .github/workflows/electron-build.yml
+- 2026-10-01T10:54 boss → all: …nmount, reused one service-worker registration to keep subscriptions stable, and kept the existing subscribe/unsubscribe flow intact while avoiding effect cleanup races. Files: web-ui/components/PushNotificationPanel.tsx
+- 2026-10-01T10:55 boss → all: … the access-profile catalog while preventing password hashes and tokens from leaking. Covered with bridge contract tests for auth and sensitive-field checks. Files: mark-l-bridge/server.py, mark-l-bridge/test_contract.py
+- 2026-10-01T10:59 boss → copilot-integration: …Google validators accept non-default ports, allowing credentials to be sent to alternate services on an otherwise allowed hostname. - Regression tests do not exercise any of the newly added Electron URL validation logic.
+- 2026-10-01T11:04 boss → copilot-integration: …untrusted config before validation. If validation throws, the rejected baseUrl remains stored and a subsequent authenticated request can send the n8n API key to that host. Validate a candidate config before assigning it.
+- 2026-10-01T11:11 boss → copilot-tui: …nd behavior inconsistent. - electron-app/src/main/n8n-integration.ts:48 — API keys supplied through the constructor bypass the CR/LF validation in updateConfig and can reach the request header without the new validation.
+- 2026-10-01T11:13 boss → all: Health 100/100. Planned 5 new task(s) for phase 4.
 <!-- LIVE-STATUS:END -->

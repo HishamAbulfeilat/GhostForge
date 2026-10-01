@@ -1,9 +1,11 @@
 {
   "$comment": "Agent team config — read by scripts/agents/boss.mjs. Paths are relative to the repo root. Models: a tier table per provider (deep/balanced/fast); 'auto' lets the provider choose. Task kind → tier lives in scripts/agents/lib/models.mjs.",
   "boss": {
-    "provider": "copilot",
-    "model": "auto",
-    "review": true
+    "provider": "claude",
+    "model": "opus",
+    "review": true,
+    "fallback": "copilot",
+    "fallbackModel": "auto"
   },
   "integration": {
     "branch": "agent/integration",

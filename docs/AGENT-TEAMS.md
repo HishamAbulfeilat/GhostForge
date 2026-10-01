@@ -164,6 +164,13 @@ which in turn uses the same shared runtime state and scripts. If the API or
 bridge is not running, use the CLI/TUI recovery path. Do not launch a second
 boss for each surface; the boss PID lock prevents concurrent supervisors.
 
+The authenticated `/agents` dashboard also supports a lightweight orchestration
+composer: choose the workflow leader, assign specialist roles, select an ordered
+or parallel mode, and attach task dependencies plus acceptance criteria before
+adding a board item. The API snapshot surfaces those values as `workflow`,
+`leader`, and `assignee` metadata so the UI can render team ownership and
+review state without guessing.
+
 ## Permissions and local-runtime limitations
 
 Workers run in their own worktrees. The boss is the only component intended to

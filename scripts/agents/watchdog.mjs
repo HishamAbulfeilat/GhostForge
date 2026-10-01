@@ -28,8 +28,7 @@ function log(dir, msg) {
   fs.appendFileSync(path.join(dir, 'boss.log'), `[${new Date().toISOString()}] watchdog: ${msg}\n`)
 }
 
-export function check(root = ROOT) {
-  const dir = stateDir(root)
+export function check(root = ROOT, dir = stateDir(root)) {
   if (fs.existsSync(path.join(dir, 'STOP'))) return 'stopped-by-user'
   const pid = Number(fs.existsSync(path.join(dir, 'boss.pid')) && fs.readFileSync(path.join(dir, 'boss.pid'), 'utf8'))
   if (isAlive(pid)) return 'alive'
