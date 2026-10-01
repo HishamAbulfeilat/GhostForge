@@ -151,6 +151,7 @@ export const PAGE_ACCESS: PageAccess[] = [
   { path: '/chat',        label: 'Chat',        icon: '💬', permission: 'chat', nav: true },
   { path: '/jobs',        label: 'Jobs',        icon: '🎯', permission: 'job_hunter', nav: true },
   { path: '/terminal',    label: 'Terminal',    icon: '🖥️', permission: 'terminal', nav: true },
+  { path: '/maintenance', label: 'Maintenance', icon: '🛠️', permission: 'terminal', nav: true },
   { path: '/dashboard',   label: 'Dashboard',   icon: '📊', permission: 'system_info', nav: true },
   { path: '/agents',      label: 'Agents',       icon: '🤝', permission: 'admin_tools', nav: true },
   { path: '/files',       label: 'Files',       icon: '🗂️', permission: 'file_read', nav: true },

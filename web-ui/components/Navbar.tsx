@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: '/chat',        icon: '💬', label: 'Chat' },
   { href: '/jobs',        icon: '🎯', label: 'Jobs' },
   { href: '/terminal',    icon: '🖥️', label: 'Terminal' },
+  { href: '/maintenance', icon: '🛠️', label: 'Maintenance' },
   { href: '/dashboard',   icon: '📊', label: 'Dashboard' },
   { href: '/agents',      icon: '🤝', label: 'Agents' },
   { href: '/files',       icon: '🗂️', label: 'Files' },
