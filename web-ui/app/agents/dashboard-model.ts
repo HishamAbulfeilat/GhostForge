@@ -59,8 +59,14 @@ export function getAgentProgress(agentId: string, tasks: Task[]): {
 export function findAgentTask(agentId: string, agent: Agent, tasks: Task[]): Task | null {
   const active = tasks.filter(task => activeStatuses.has(normalizeTaskStatus(task.status)))
   if (agent.task) {
-    const reportedTask = active.find(task => task.id === agent.task)
-    if (reportedTask) return reportedTask
+    const reportedTask = tasks.find(task => task.id === agent.task)
+    return reportedTask ?? {
+      id: agent.task,
+      title: agent.task,
+      kind: 'task',
+      status: 'in-progress',
+      owner: agentId,
+    }
   }
   return active.find(task => task.owner === agentId) ?? null
 }

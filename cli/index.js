@@ -51,6 +51,11 @@ const COMMAND_SPECS = {
     script: path.join(ROOT, 'scripts', 'n8n.mjs'),
     summary: 'List, inspect, and safely trigger n8n workflows',
   },
+  'package-apps': {
+    kind: 'node',
+    script: path.join(ROOT, 'scripts', 'package-apps.mjs'),
+    summary: 'Build packaged desktop or Android apps with bounded commands',
+  },
 }
 
 function buildHelp() {
@@ -71,6 +76,7 @@ function buildHelp() {
     '  device-status      Check device status and push notifications',
     '  awesome-llm-apps   List and search the curated Awesome LLM Apps catalog',
     '  n8n                List, inspect, and trigger active n8n webhooks',
+    '  package-apps       Build macOS, Windows, Linux, or Android packages',
     '  help               Show this help',
     '',
     'Aliases:',
@@ -86,6 +92,7 @@ function buildHelp() {
     '  ghostforge users list',
     '  ghostforge collab create',
     '  ghostforge awesome-llm-apps list',
+    '  ghostforge package-apps linux --dry-run',
     '',
   ].join('\n')
 }
