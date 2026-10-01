@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { useRouter } from 'next/navigation'
 import AgentKanbanBoard from './AgentKanbanBoard'
 import type { Agent, Task } from './dashboard-model'
@@ -241,6 +241,8 @@ function WorkflowTemplatesPanel({
 
 export default function AgentsPage() {
   const router = useRouter()
+  const loadPromise = useRef<Promise<void> | null>(null)
+  const refreshQueued = useRef(false)
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
@@ -257,19 +259,48 @@ export default function AgentsPage() {
   const [acceptanceCriteria, setAcceptanceCriteria] = useState('')
 
   const load = useCallback(async () => {
-    try {
-      const result = await loadDashboard(() => router.replace('/login?next=/agents'))
-      const view = dashboardView(result)
-      setSnapshot(view.snapshot)
-      setNotice(view.notice)
-    } catch (error) {
-      setNotice({ error: true, text: error instanceof Error ? error.message : 'Unable to load agent team.' })
-    } finally {
-      setLoading(false)
+    if (loadPromise.current) {
+      refreshQueued.current = true
+      return loadPromise.current
     }
+
+    const refresh = async () => {
+      do {
+        refreshQueued.current = false
+        try {
+          const result = await loadDashboard(() => router.replace('/login?next=/agents'))
+          const view = dashboardView(result)
+          setSnapshot(view.snapshot)
+          setNotice(view.notice)
+        } catch (error) {
+          setNotice({ error: true, text: error instanceof Error ? error.message : 'Unable to load agent team.' })
+        } finally {
+          setLoading(false)
+        }
+      } while (refreshQueued.current)
+    }
+
+    const pending = refresh().finally(() => { loadPromise.current = null })
+    loadPromise.current = pending
+    return pending
   }, [router])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    if (!snapshot?.running) return
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void load()
+    }
+    const interval = window.setInterval(refreshWhenVisible, 15_000)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [load, snapshot?.running])
 
   useEffect(() => {
     const nextMessages = normalizeMessages(snapshot?.messages)

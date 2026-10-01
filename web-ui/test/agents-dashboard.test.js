@@ -70,6 +70,19 @@ test('agents dashboard retains authenticated snapshot loading and existing team 
   assert.match(page, /Enter a task title before adding it\./)
 })
 
+test('agents dashboard queues refreshes behind one in-flight load and polls only while visible and running', () => {
+  assert.match(page, /const loadPromise = useRef<Promise<void> \| null>\(null\)/)
+  assert.match(page, /if \(loadPromise\.current\) \{\s*refreshQueued\.current = true\s*return loadPromise\.current\s*\}/)
+  assert.match(page, /do \{\s*refreshQueued\.current = false[\s\S]*?\} while \(refreshQueued\.current\)/)
+  assert.match(page, /await load\(\)/)
+  assert.match(page, /if \(!snapshot\?\.running\) return/)
+  assert.match(page, /document\.visibilityState === ['"]visible['"]/)
+  assert.match(page, /window\.setInterval\(refreshWhenVisible, 15_000\)/)
+  assert.match(page, /document\.addEventListener\(['"]visibilitychange['"], refreshWhenVisible\)/)
+  assert.match(page, /window\.clearInterval\(interval\)/)
+  assert.match(page, /document\.removeEventListener\(['"]visibilitychange['"], refreshWhenVisible\)/)
+})
+
 test('kanban groups every required state and normalizes the boss in-progress spelling', () => {
   assert.deepEqual(
     Object.fromEntries(Object.entries(groupTasksByStatus(tasks)).map(([status, items]) => [status, items.map(task => task.id)])),
