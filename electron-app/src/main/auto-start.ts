@@ -40,9 +40,9 @@ export async function enableAutoStart(): Promise<void> {
   if (platform === 'darwin' || platform === 'win32') {
     app.setLoginItemSettings({
       openAtLogin: true,
-      openAsHidden: true,
       path: process.execPath,
-    });
+      openAsHidden: true,
+    } as any);
   } else if (platform === 'linux') {
     ensureLinuxAutostartDir();
     const desktopPath = getLinuxDesktopFilePath();

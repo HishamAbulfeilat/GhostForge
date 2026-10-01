@@ -53,6 +53,13 @@ jobs:
       - name: Type-check Electron app
         run: npx tsc
 
+      - name: Run headless Electron smoke test
+        env:
+          GHOSTFORGE_ELECTRON_HEADLESS_SMOKE: '1'
+        run: >-
+          if [ "${{ matrix.name }}" = "linux" ]; then xvfb-run -a node --test test/headless-launch-smoke.test.mjs; else node --test test/headless-launch-smoke.test.mjs; fi
+        shell: bash
+
       - name: Package Electron app
         run: ${{ matrix.build }}
 
