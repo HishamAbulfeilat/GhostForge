@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Forge World</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&amp;family=IBM+Plex+Sans:wght@400;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: #121010; color: #EDE6DD; font-family: 'IBM Plex Sans', sans-serif">
+  <div style="position: absolute; left: 32px; top: 24px; display: flex; flex-direction: column; gap: 4px">
+    <h1 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 28px">Forge World</h1>
+    <span style="font-size: 13px; color: #B9AFA4">Each worker tends a furnace. The boss holds the anvil — every piece is inspected before it reaches the armory.</span>
+  </div>
+
+  <div style="position: absolute; left: 560px; top: 300px; width: 320px; height: 190px; border-radius: 24px; background: #2B1C12; border: 2px solid #F2A65A; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px">
+    <span aria-hidden="true" style="width: 64px; height: 64px; border-radius: 50%; background: #F2A65A; color: #1A1208; display: flex; align-items: center; justify-content: center; font: 700 22px 'Space Grotesk', sans-serif">B</span>
+    <span style="font: 700 16px 'Space Grotesk', sans-serif">The Anvil · boss</span>
+    <span style="font: 12px 'JetBrains Mono', monospace; color: #E7C9A6">inspecting T-131 · sonnet</span>
+  </div>
+
+  <sc-for list="{{stations}}" as="s" hint-placeholder-count="5">
+    <button type="button" aria-label="{{s.aria}}" style="position: absolute; left: {{s.x}}; top: {{s.y}}; width: 230px; height: 150px; border-radius: 18px; background: #1E1715; border: 2px solid {{s.ring}}; color: #EDE6DD; padding: 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; text-align: start; font-family: 'IBM Plex Sans', sans-serif; cursor: pointer">
+      <span style="display: flex; align-items: center; gap: 10px">
+        <span aria-hidden="true" style="width: 38px; height: 38px; border-radius: 10px; background: {{s.fire}}; display: flex; align-items: center; justify-content: center; font: 700 14px 'JetBrains Mono', monospace; color: #1A1208">{{s.initial}}</span>
+        <span style="display: flex; flex-direction: column"><span style="font-weight: 600; font-size: 14px">{{s.name}}</span><span style="font: 11px 'JetBrains Mono', monospace; color: #B9AFA4">{{s.state}}</span></span>
+      </span>
+      <span style="font-size: 13px; line-height: 1.3">{{s.task}}</span>
+      <span aria-hidden="true" style="height: 6px; border-radius: 3px; background: #33282A; display: block"><span style="display: block; height: 6px; border-radius: 3px; width: {{s.heat}}; background: {{s.fire}}"></span></span>
+    </button>
+  </sc-for>
+
+  <div style="position: absolute; left: 32px; right: 32px; bottom: 28px; height: 130px; border-radius: 18px; background: #1A1413; border: 1px solid #3A2C27; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr))">
+    <sc-for list="{{lanes}}" as="l" hint-placeholder-count="4">
+      <div style="padding: 14px 16px; border-right: 1px solid #3A2C27; display: flex; flex-direction: column; gap: 8px">
+        <span style="font: 600 12px 'JetBrains Mono', monospace; color: {{l.color}}; letter-spacing: 0.06em">{{l.name}}</span>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap">
+          <sc-for list="{{l.items}}" as="i" hint-placeholder-count="2">
+            <span style="padding: 5px 9px; border-radius: 6px; background: #2A201D; border: 1px solid {{l.color}}; font: 12px 'JetBrains Mono', monospace">{{i}}</span>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const F = { forging: ['#F2A65A', '#8A5A2B'], idle: ['#6F6660', '#3A2C27'], review: ['#E9D27A', '#6B5C25'] };
+    const st = (name, state, task, heat, x, y) => ({
+      name, state, task, heat, x, y, initial: name.replace('copilot-', '').slice(0, 2).toUpperCase(),
+      fire: F[state][0], ring: F[state][1], aria: name + ', ' + state + ', ' + task,
+    });
+    const stations = [
+      st('copilot-tui', 'forging', 'T-129 orchestration metadata', '70%', '120px', '130px'),
+      st('copilot-web', 'forging', 'T-127 Agent Office map', '45%', '600px', '110px'),
+      st('copilot-integration', 'forging', 'T-128 workflow graph', '35%', '1080px', '130px'),
+      st('copilot-quality', 'review', 'T-131 at the anvil', '90%', '1080px', '470px'),
+      st('copilot-desktop', 'idle', 'furnace banked — waiting', '0%', '120px', '470px'),
+    ];
+    const lanes = [
+      { name: 'ORE · TODO', color: '#B9AFA4', items: ['team builder', 'BA analysis'] },
+      { name: 'FORGING', color: '#F2A65A', items: ['T-127', 'T-128', 'T-129'] },
+      { name: 'QUENCH · REVIEW', color: '#E9D27A', items: ['T-131'] },
+      { name: 'ARMORY · DONE', color: '#8FD3A8', items: ['T-130', 'T-124', 'T-122'] },
+    ];
+    return { stations, lanes };
+  }
+}
+</script>
+</body>
+</html>
