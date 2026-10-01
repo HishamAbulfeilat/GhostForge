@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent Town</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&amp;family=IBM+Plex+Sans:wght@400;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background-color: #7FA35B; background-image: linear-gradient(#6E9150 1px, transparent 1px), linear-gradient(90deg, #6E9150 1px, transparent 1px); background-size: 48px 48px; color: #1D2416; font-family: 'IBM Plex Sans', sans-serif">
+  <div style="position: absolute; left: 24px; top: 20px; padding: 10px 14px; border-radius: 10px; background: #F4EEDC; border: 2px solid #3B2E1E"><h1 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 24px">Agent Town</h1><span style="font-size: 12px">Tile map + pan/zoom viewport modeled on a16z-infra/ai-town · no simulated movement</span></div>
+
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 432px; width: 1440px; height: 48px; background: #C9B48A"></div>
+  <div aria-hidden="true" style="position: absolute; left: 696px; top: 0; width: 48px; height: 900px; background: #C9B48A"></div>
+
+  <sc-for list="{{buildings}}" as="b" hint-placeholder-count="5">
+    <div style="position: absolute; left: {{b.x}}; top: {{b.y}}; width: {{b.w}}; height: 170px; border-radius: 8px; background: {{b.roof}}; border: 3px solid #3B2E1E; display: flex; flex-direction: column; justify-content: flex-end">
+      <div style="background: #F4EEDC; border-top: 3px solid #3B2E1E; padding: 6px 10px; display: flex; justify-content: space-between; align-items: center">
+        <span style="font: 700 13px 'Space Grotesk', sans-serif">{{b.name}}</span>
+        <span style="font: 600 11px 'JetBrains Mono', monospace">{{b.role}}</span>
+      </div>
+    </div>
+  </sc-for>
+
+  <sc-for list="{{people}}" as="p" hint-placeholder-count="6">
+    <button type="button" aria-label="{{p.aria}}" style="position: absolute; left: {{p.x}}; top: {{p.y}}; width: 180px; background: transparent; border: 0; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; font-family: 'IBM Plex Sans', sans-serif; color: #1D2416">
+      <span style="max-width: 180px; padding: 6px 8px; border-radius: 8px; background: #FFFFFF; border: 2px solid #3B2E1E; font-size: 11px; text-align: center">{{p.say}}</span>
+      <span aria-hidden="true" style="width: 28px; height: 36px; border-radius: 10px 10px 4px 4px; background: {{p.color}}; border: 3px solid #3B2E1E"></span>
+      <span style="font: 600 11px 'JetBrains Mono', monospace; background: #3B2E1E; color: #FFFFFF; padding: 2px 6px; border-radius: 4px">{{p.name}}</span>
+    </button>
+  </sc-for>
+
+  <div style="position: absolute; right: 24px; top: 20px; display: flex; flex-direction: column; gap: 8px">
+    <button type="button" aria-label="Zoom in" style="width: 44px; height: 44px; border-radius: 10px; border: 2px solid #3B2E1E; background: #F4EEDC; font: 700 20px 'Space Grotesk', sans-serif">+</button>
+    <button type="button" aria-label="Zoom out" style="width: 44px; height: 44px; border-radius: 10px; border: 2px solid #3B2E1E; background: #F4EEDC; font: 700 20px 'Space Grotesk', sans-serif">−</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const buildings = [
+      { name: 'Town Hall', role: 'BOSS', x: '560px', y: '160px', w: '320px', roof: '#B5523B' },
+      { name: 'Workshop', role: 'IN PROGRESS', x: '96px', y: '160px', w: '420px', roof: '#4C7DA0' },
+      { name: 'Review Tower', role: 'REVIEW', x: '930px', y: '160px', w: '260px', roof: '#C99A2E' },
+      { name: 'Archive', role: 'DONE', x: '930px', y: '560px', w: '400px', roof: '#4F8A62' },
+      { name: 'Clinic', role: 'BLOCKED', x: '96px', y: '560px', w: '300px', roof: '#A0525F' },
+    ];
+    const P = (name, say, color, x, y) => ({ name, say, color, x, y, aria: name + ': ' + say });
+    const people = [
+      P('boss', 'Reviewing T-131', '#F2A65A', '630px', '70px'),
+      P('copilot-tui', 'T-129 metadata', '#7CC4EA', '110px', '70px'),
+      P('copilot-web', 'T-127 office map', '#7CC4EA', '300px', '70px'),
+      P('copilot-integration', 'T-128 graph', '#7CC4EA', '200px', '350px'),
+      P('copilot-quality', 'T-131 in review', '#E9D27A', '980px', '70px'),
+      P('copilot-desktop', 'Idle on the square', '#C7CDD3', '760px', '500px'),
+    ];
+    return { buildings, people };
+  }
+}
+</script>
+</body>
+</html>
