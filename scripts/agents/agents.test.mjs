@@ -123,3 +123,18 @@ test('scoreOf weights checks and ignores skipped ones', () => {
   assert.equal(scoreOf([{ ok: true, weight: 10 }, { ok: false, skipped: true, weight: 90 }]), 100)
   assert.equal(scoreOf([]), 0)
 })
+
+test('releaseStuckTasks frees todo tasks pinned to a cooling-down or unknown agent', async () => {
+  const { releaseStuckTasks } = await import('./boss.mjs')
+  const now = Date.parse('2026-10-01T04:00:00Z')
+  const tasks = [
+    { id: 'T-1', status: 'todo', agent: 'claude' },
+    { id: 'T-2', status: 'todo', agent: 'copilot-web' },
+    { id: 'T-3', status: 'todo', agent: 'gone' },
+    { id: 'T-4', status: 'in-progress', agent: 'claude' },
+    { id: 'T-5', status: 'todo', agent: 'any' },
+  ]
+  const state = { claude: { cooldownUntil: '2026-10-01T04:20:00Z' }, 'copilot-web': { cooldownUntil: null } }
+  assert.equal(releaseStuckTasks(tasks, state, now), 2)
+  assert.deepEqual(tasks.map(t => t.agent), ['any', 'copilot-web', 'any', 'claude', 'any'])
+})
