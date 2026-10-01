@@ -198,6 +198,17 @@ export function releaseStuckTasks(tasks, state, now = Date.now()) {
   return released
 }
 
+/**
+ * Model for a boss review: the deep model (`boss.model`) for security work and
+ * large diffs, where review quality matters most; the cheaper `boss.reviewModel`
+ * for routine changes. Saves boss tokens without thinning high-risk reviews.
+ */
+export function bossModelFor(kind, diffLines, boss = {}) {
+  if (!boss.reviewModel) return boss.model
+  if (kind === 'security' || diffLines > (boss.deepReviewOverLines ?? 600)) return boss.model
+  return boss.reviewModel
+}
+
 /** Next todo task for an agent: allowed owner, no area overlap with busy tasks, preferring its strengths. */
 export function pickTask(tasks, agentId, strengths = []) {
   const busy = tasks.filter(t => t.status === 'in-progress' || t.status === 'review')
@@ -535,7 +546,7 @@ class Boss {
     }
   }
 
-  async readonlyRun(file, logName, timeoutMs, mode = 'review') {
+  async readonlyRun(file, logName, timeoutMs, mode = 'review', model = this.cfg.boss.model) {
     const rel = path.relative(path.join(this.intWt, '.agent-sync', 'state'), file).replace(/\\/g, '/')
     const eccFile = stageECCContext(this.intWt, buildECCContext(this.ecc, this.eccCache, { mode }))
     const boss = this.cfg.boss
@@ -549,7 +560,7 @@ class Boss {
       // it for cooldownMinutes and let the fallback (e.g. Copilot) boss instead.
       const primaryCooling = this.bossCooldownUntil && Date.parse(this.bossCooldownUntil) > Date.now()
       if (!primaryCooling || !boss.fallback) {
-        const run = await this.runAgent({ ...opts, provider: boss.provider, model: boss.model, config: boss.config ?? boss.providerConfig ?? {} })
+        const run = await this.runAgent({ ...opts, provider: boss.provider, model, config: boss.config ?? boss.providerConfig ?? {} })
         if (!boss.fallback || (run.code === 0 && lastJSON(run.output))) return run
         if (run.code !== 0 || RATE_LIMIT_RE.test(run.output)) {
           this.bossCooldownUntil = new Date(Date.now() + this.cfg.cooldownMinutes * 60_000).toISOString()
@@ -575,7 +586,8 @@ class Boss {
       'Reply with your reasoning, then a final line of JSON only: {"approve": true|false, "issues": ["…"]}',
     ].join('\n')
     const file = stagePrompt(this.intWt, 'reviews', `${task.id}.md`, content)
-    const run = await this.readonlyRun(file, 'boss-review.log', 20 * 60_000)
+    const model = bossModelFor(task.kind, diff.split('\n').length, this.cfg.boss)
+    const run = await this.readonlyRun(file, 'boss-review.log', 20 * 60_000, 'review', model)
     const verdict = lastJSON(run.output)
     if (!verdict || typeof verdict.approve !== 'boolean') {
       this.log(`review of ${task.id} unparseable — relying on health checks`)
@@ -636,7 +648,7 @@ class Boss {
       'End with one line of JSON only: {"phaseComplete": false, "tasks": [{"title": "…", "kind": "feature|bugfix|test|refactor|docs|security|chore", "area": ["path/"], "agent": "any|<enabled-worker-id>", "notes": "…"}]}',
     ].join('\n')
     const file = stagePrompt(this.intWt, 'reviews', `plan-phase${board.phase}.md`, content)
-    const run = await this.readonlyRun(file, 'boss-plan.log', 30 * 60_000, 'planning')
+    const run = await this.readonlyRun(file, 'boss-plan.log', 30 * 60_000, 'planning', this.cfg.boss.planModel ?? this.cfg.boss.model)
     return lastJSON(run.output)
   }
 

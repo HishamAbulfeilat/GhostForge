@@ -3,6 +3,9 @@
   "boss": {
     "provider": "claude",
     "model": "opus",
+    "reviewModel": "sonnet",
+    "planModel": "opus",
+    "deepReviewOverLines": 600,
     "review": true,
     "fallback": "copilot",
     "fallbackModel": "auto"

@@ -127,6 +127,15 @@ test('scoreOf weights checks and ignores skipped ones', () => {
   assert.equal(scoreOf([]), 0)
 })
 
+test('bossModelFor uses the deep model for security and large diffs, the review model otherwise', async () => {
+  const { bossModelFor } = await import('./boss.mjs')
+  const boss = { model: 'opus', reviewModel: 'sonnet' }
+  assert.equal(bossModelFor('feature', 120, boss), 'sonnet')
+  assert.equal(bossModelFor('security', 10, boss), 'opus')
+  assert.equal(bossModelFor('bugfix', 900, boss), 'opus')
+  assert.equal(bossModelFor('feature', 120, { model: 'opus' }), 'opus', 'no reviewModel → single model')
+})
+
 test('releaseStuckTasks frees todo tasks pinned to a cooling-down or unknown agent', async () => {
   const { releaseStuckTasks } = await import('./boss.mjs')
   const now = Date.parse('2026-10-01T04:00:00Z')
