@@ -68,7 +68,10 @@ export async function POST(request: NextRequest) {
   try {
     const payload = await readRequestJsonWithLimit(request, MAX_BODY_BYTES)
     const normalized = normalizeAgentTeamAction(payload)
-    const result = runAgentTeamCommand(normalized.action, payload, { workspaceRoot: repoRootFromLib() })
+    const commandPayload = normalized.action === 'add' || normalized.action === 'dispatch'
+      ? { ...normalized, leader: normalized.leader || 'boss', assignee: normalized.assignee || normalized.agent || 'any' }
+      : normalized
+    const result = runAgentTeamCommand(normalized.action, commandPayload, { workspaceRoot: repoRootFromLib() })
 
     if (!result.ok) {
       return NextResponse.json({ error: result.output || 'Agent-team command failed.' }, { status: 500 })
