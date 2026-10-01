@@ -1,4 +1,5 @@
 import type { Workflow } from '@/lib/workflows/store'
+import { validateBridgeUrl } from '../../../lib/bridge-url'
 
 export const MAX_RUN_STEPS = 100
 
@@ -30,11 +31,20 @@ export async function runWorkflowOnBridge(
   if (workflow.steps.length === 0) throw new RunError('Workflow has no steps to run', 400)
   if (workflow.steps.length > MAX_RUN_STEPS) throw new RunError(`Workflow has more than ${MAX_RUN_STEPS} steps`, 400)
 
+  // The bridge token must only ever go to the local bridge (loopback unless
+  // GF_ALLOW_REMOTE_BRIDGE=1), so validate the destination before any request.
+  let baseUrl: string
+  try {
+    baseUrl = validateBridgeUrl(bridge.url)
+  } catch (error) {
+    throw new RunError(error instanceof Error ? error.message : 'Invalid bridge URL', 500)
+  }
+
   const doFetch = bridge.fetchImpl ?? fetch
   const call = async (method: string, query: string, body?: unknown) => {
     let res: Response
     try {
-      res = await doFetch(`${bridge.url}/api/workflows${query}`, {
+      res = await doFetch(`${baseUrl}/api/workflows${query}`, {
         method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bridge.token}` },
         body: body === undefined ? undefined : JSON.stringify(body),

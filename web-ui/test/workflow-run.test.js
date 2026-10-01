@@ -16,6 +16,7 @@ const hooks = Module.registerHooks({
 })
 
 const { runWorkflowOnBridge, RunError, MAX_RUN_STEPS } = require('../app/api/workflows/run.ts')
+const { getMarkLBridgeUrl, validateBridgeUrl } = require('../lib/bridge-url.ts')
 const route = readFileSync(resolve(__dirname, '../app/api/workflows/route.ts'), 'utf8')
 const page = readFileSync(resolve(__dirname, '../app/workflows/page.tsx'), 'utf8')
 
@@ -32,7 +33,7 @@ function fakeBridge(handler) {
     calls.push(call)
     return handler(call)
   }
-  return { calls, config: { url: 'http://bridge', token: 'tok', fetchImpl } }
+  return { calls, config: { url: 'http://127.0.0.1:8765', token: 'tok', fetchImpl } }
 }
 
 test('run mirrors the workflow, runs it with bounded max_steps, then removes the mirror', async () => {
@@ -63,10 +64,42 @@ test('bridge rejection of unsupported steps surfaces as 422 and the mirror is st
 })
 
 test('unreachable bridge and bridge failures map to 502', async () => {
-  const down = { url: 'http://bridge', token: 't', fetchImpl: async () => { throw new Error('ECONNREFUSED') } }
+  const down = { url: 'http://127.0.0.1:8765', token: 't', fetchImpl: async () => { throw new Error('ECONNREFUSED') } }
   await assert.rejects(runWorkflowOnBridge('a', workflow([step('s1')]), down), err => err.status === 502 && /port 8765/.test(err.message))
   const broken = fakeBridge(() => reply(500, {}))
   await assert.rejects(runWorkflowOnBridge('a', workflow([step('s1')]), broken.config), err => err.status === 502)
+})
+
+test('the bridge token is never sent to a non-loopback or malformed bridge URL', async () => {
+  const saved = process.env.GF_ALLOW_REMOTE_BRIDGE
+  delete process.env.GF_ALLOW_REMOTE_BRIDGE
+  try {
+    for (const url of ['https://attacker.example', 'http://127.0.0.1:8765/path', 'http://user:pw@localhost:8765', 'file:///etc/passwd', 'not a url']) {
+      const bridge = fakeBridge(() => reply(200, {}))
+      await assert.rejects(
+        runWorkflowOnBridge('a', workflow([step('s1')]), { ...bridge.config, url }),
+        err => err instanceof RunError && err.status === 500,
+      )
+      assert.equal(bridge.calls.length, 0)
+    }
+    const local = fakeBridge(call => call.method === 'DELETE' ? reply(200, { ok: true })
+      : call.body.action ? reply(200, { workflow: { id: 'b-1', status: 'done', steps: [] } }) : reply(200, { workflow: { id: 'b-1' } }))
+    await runWorkflowOnBridge('a', workflow([step('s1')]), { ...local.config, url: 'http://localhost:8765/' })
+    assert.match(local.calls[0].url, /^http:\/\/localhost:8765\/api\/workflows$/)
+  } finally {
+    if (saved === undefined) delete process.env.GF_ALLOW_REMOTE_BRIDGE
+    else process.env.GF_ALLOW_REMOTE_BRIDGE = saved
+  }
+})
+
+test('bridge URL validation accepts local origins and requires explicit remote opt-in', () => {
+  assert.equal(validateBridgeUrl('http://127.0.0.1:8765/'), 'http://127.0.0.1:8765')
+  assert.equal(validateBridgeUrl('http://localhost:8765'), 'http://localhost:8765')
+  assert.equal(validateBridgeUrl('https://bridge.example', true), 'https://bridge.example')
+  assert.throws(() => validateBridgeUrl('https://bridge.example'), /not loopback/)
+  assert.throws(() => validateBridgeUrl('http://localhost:8765/api'), /scheme, host/)
+  assert.throws(() => validateBridgeUrl('http://user:pass@localhost:8765'), /scheme, host/)
+  assert.equal(getMarkLBridgeUrl({ MARKL_BRIDGE_URL: ' http://localhost:9000/ ' }), 'http://localhost:9000')
 })
 
 test('empty and oversized workflows are rejected without calling the bridge', async () => {
