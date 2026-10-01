@@ -26,7 +26,17 @@ function check(label, fn) {
     console.log(`  ✓ ${label}`);
   } catch (err) {
     failures++;
-    console.error(`  ✗ ${label}\n      ${err.message}`);
+    const childOutput = ['stdout', 'stderr']
+      .map(stream => {
+        const value = err && err[stream];
+        if (!value || !value.length) return '';
+        const text = Buffer.isBuffer(value) ? value.toString('utf8') : String(value);
+        return text.trim()
+          ? `\n      child ${stream}:\n${text.trim().split(/\r?\n/).map(line => `        ${line}`).join('\n')}`
+          : '';
+      })
+      .join('');
+    console.error(`  ✗ ${label}\n      ${err.message}${childOutput}`);
   }
 }
 
