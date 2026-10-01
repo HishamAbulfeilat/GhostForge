@@ -59,6 +59,11 @@ test('bridge URL is loopback-only by default and bridge authentication is explic
     }).baseUrl,
     'https://example.test',
   )
+  assert.throws(() => resolveBridgeConfig({
+    ...env,
+    MARKL_BRIDGE_URL: 'https://example.test:8443',
+    GF_ALLOW_REMOTE_BRIDGE: '1',
+  }), /default port/)
   assert.throws(() => resolveBridgeConfig({ MARKL_BRIDGE_TOKEN: 'token\r\nvalue' }), /invalid characters/)
 })
 

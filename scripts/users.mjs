@@ -122,6 +122,9 @@ function resolveBaseUrl(env = process.env) {
   if (!loopback && env.GF_ALLOW_REMOTE_WEB_UI !== '1') {
     throw new Error('GF_WEB_UI_URL is not loopback; set GF_ALLOW_REMOTE_WEB_UI=1 to opt in')
   }
+  if (!loopback && parsed.port && parsed.port !== (parsed.protocol === 'https:' ? '443' : '80')) {
+    throw new Error('Remote GF_WEB_UI_URL must use the default port')
+  }
   return parsed.origin
 }
 

@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { validateOutboundUrl } from './outbound-url';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
 
 const CREDENTIALS_DIR = join(homedir(), '.ghostforge', 'credentials');
@@ -169,7 +170,13 @@ async function apiRequest(
     fetchOptions.body = JSON.stringify(options.body);
   }
 
-  const res = await fetch(url, fetchOptions);
+  const safeUrl = validateOutboundUrl(url, [
+    'oauth2.googleapis.com',
+    'people.googleapis.com',
+    'login.microsoftonline.com',
+    'graph.microsoft.com',
+  ], 'Contacts API');
+  const res = await fetch(safeUrl, fetchOptions);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`Contacts API error ${res.status}: ${text.slice(0, 200)}`);

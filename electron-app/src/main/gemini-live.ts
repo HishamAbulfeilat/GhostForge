@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron';
 import type { JarvisMemory } from './memory';
 import type { VoiceboxIntegration } from './voicebox-integration';
+import { validateOutboundUrl } from './outbound-url';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -252,7 +253,12 @@ export class GeminiLiveVoice {
       // NOT accept custom headers (standard WebSocket API) or a first-message
       // auth frame — sending { type: 'auth', key } breaks the handshake.
       // Do not move the key into a header or a setup message.
-      const url = `${WS_URL}?key=${this.config.apiKey}`;
+      const url = validateOutboundUrl(
+        `${WS_URL}?key=${encodeURIComponent(this.config.apiKey)}`,
+        ['generativelanguage.googleapis.com'],
+        'Gemini Live',
+        ['wss:'],
+      ).toString();
 
       try {
         this.ws = new WebSocket(url);

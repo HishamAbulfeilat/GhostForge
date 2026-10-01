@@ -56,6 +56,9 @@ function collabBridgeConfig(env = process.env) {
   if (!loopback && env.GF_ALLOW_REMOTE_BRIDGE !== '1') {
     throw new Error('MARKL_BRIDGE_URL is not loopback; set GF_ALLOW_REMOTE_BRIDGE=1 to opt in.');
   }
+  if (!loopback && parsedUrl.port && parsedUrl.port !== (parsedUrl.protocol === 'https:' ? '443' : '80')) {
+    throw new Error('Remote MARKL_BRIDGE_URL must use the default port.');
+  }
 
   let token = env.MARKL_BRIDGE_TOKEN?.trim();
   if (!token) {
