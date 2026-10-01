@@ -171,6 +171,12 @@ adding a board item. The API snapshot surfaces those values as `workflow`,
 `leader`, and `assignee` metadata so the UI can render team ownership and
 review state without guessing.
 
+The same dashboard now embeds **Agent World**, a snapshot-derived virtual forge
+with workflow topology, project/source filters, and accessible board/table
+fallbacks. The focused `/agent-world` route reuses the same authenticated shell.
+See [AGENT-WORLD.md](AGENT-WORLD.md) for the optional frontend federation
+contract and connector integration rules.
+
 ## Permissions and local-runtime limitations
 
 Workers run in their own worktrees. The boss is the only component intended to
