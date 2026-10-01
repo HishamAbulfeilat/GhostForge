@@ -11,6 +11,8 @@ import {
   type AgentWorldData,
   type AgentWorldRecord,
 } from './agent-world-model'
+import AgentWorldSwitcher, { type AgentWorldView } from './AgentWorldSwitcher'
+import ForgeWorldScene from './ForgeWorldScene'
 
 type PageState =
   | { status: 'loading' }
@@ -138,7 +140,9 @@ function SourceList({ connectors }: { connectors: AgentWorldRecord[] }) {
 export default function AgentWorldPage() {
   const router = useRouter()
   const [state, setState] = useState<PageState>({ status: 'loading' })
+  const [world, setWorld] = useState<AgentWorldView>('forge')
 
+  const changeWorld = useCallback((view: AgentWorldView) => setWorld(view), [])
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
@@ -177,6 +181,7 @@ export default function AgentWorldPage() {
             Refresh
           </button>
         </header>
+        <AgentWorldSwitcher onChange={changeWorld} />
 
         {state.status === 'loading' && <p role="status" className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">Loading Agent World snapshot…</p>}
         {state.status === 'redirecting' && <p role="status" className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">Redirecting to sign in…</p>}
@@ -190,12 +195,38 @@ export default function AgentWorldPage() {
         {state.status === 'loaded' && (
           <>
             <p role="status" className="text-xs text-gf-muted">Federated summary: {state.mode}</p>
-            <SourceList connectors={state.data.connectors} />
-            <AgentOfficeMap sessions={state.officeSessions} emptyMessage="No sessions were reported by the available snapshots." />
-            <DataList title="Agents" records={state.data.agents} empty="No agents were reported by the available snapshots." fields={['source', 'provider', 'state', 'role', 'model', 'task']} />
-            <WorkflowDependencyGraph tasks={state.data.tasks} />
-            <DataList title="Tasks" records={state.data.tasks} empty="No tasks were reported by the available snapshots." fields={['source', 'status', 'kind', 'owner', 'assignee', 'description']} />
-            <DataList title="Events" records={state.data.events} empty="No events were reported by the available snapshots." fields={['source', 'from', 'to', 'status', 'error', 'text']} />
+            {world === 'forge' && (
+              <>
+                <ForgeWorldScene agents={state.data.agents} tasks={state.data.tasks} boss={state.data.boss} />
+                <SourceList connectors={state.data.connectors} />
+              </>
+            )}
+            {world === 'town' && (
+              <section aria-labelledby="agent-town-heading" className="rounded-2xl border border-gf-line bg-gf-surface p-5">
+                <h2 id="agent-town-heading" className="font-display text-lg font-semibold">Agent Town</h2>
+                <p className="mt-2 text-sm text-gf-muted">Agent Town is a separate managed world. Its scene is not included in the current GhostForge snapshot.</p>
+              </section>
+            )}
+            {world === 'office' && (
+              <AgentOfficeMap sessions={state.officeSessions} emptyMessage="No sessions were reported by the available snapshots." />
+            )}
+            {world === 'maintainer' && (
+              <>
+                <SourceList connectors={state.data.connectors} />
+                <DataList title="Events" records={state.data.events} empty="No events were reported by the available snapshots." fields={['source', 'from', 'to', 'status', 'error', 'text']} />
+              </>
+            )}
+            {world === 'team' && (
+              <>
+                {state.data.boss && (
+                  <DataList title="Boss" records={[{ ...state.data.boss, id: state.data.boss.id ?? 'boss' }]} empty="No boss details were reported." fields={['source', 'provider', 'state', 'role', 'model', 'task']} />
+                )}
+                <DataList title="Agents" records={state.data.agents} empty="No agents were reported by the available snapshots." fields={['source', 'provider', 'state', 'role', 'model', 'task']} />
+                <WorkflowDependencyGraph tasks={state.data.tasks} />
+                <DataList title="Tasks" records={state.data.tasks} empty="No tasks were reported by the available snapshots." fields={['source', 'status', 'kind', 'owner', 'assignee', 'description']} />
+                <DataList title="Events" records={state.data.events} empty="No events were reported by the available snapshots." fields={['source', 'from', 'to', 'status', 'error', 'text']} />
+              </>
+            )}
           </>
         )}
       </div>

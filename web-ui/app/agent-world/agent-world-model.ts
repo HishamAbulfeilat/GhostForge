@@ -6,6 +6,7 @@ export type AgentWorldData = {
   agents: AgentWorldRecord[]
   tasks: AgentWorldRecord[]
   events: AgentWorldRecord[]
+  boss?: AgentWorldRecord
 }
 
 export type AgentWorldLoadResult =
@@ -105,6 +106,10 @@ export function collectAgentWorldData(
         source: connector.id,
       }))),
   ]
+  const bossRecord = asRecord(snapshot.boss)
+  const boss = bossRecord
+    ? { ...bossRecord, source: typeof bossRecord.source === 'string' ? bossRecord.source : 'GhostForge runtime' }
+    : undefined
   const tasks = [
     ...runtimeTasks.map(task => ({ ...task, source: 'GhostForge runtime' })),
     ...connectors.flatMap(connector => recordList(connector.tasks)
@@ -124,7 +129,7 @@ export function collectAgentWorldData(
     }))),
   ]
 
-  return { connectors, sessions, agents, tasks, events }
+  return { connectors, sessions, agents, tasks, events, ...(boss ? { boss } : {}) }
 }
 
 export function recordText(record: AgentWorldRecord, fields: string[]): string[] {
