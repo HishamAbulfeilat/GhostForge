@@ -61,6 +61,9 @@ test('uses loopback bridge defaults and explicit remote opt-in', () => {
   assert.equal(resolveBridgeConfig({
     ...env, MARKL_BRIDGE_URL: 'https://example.test', GF_ALLOW_REMOTE_BRIDGE: '1',
   }).baseUrl, 'https://example.test')
+  assert.throws(() => resolveBridgeConfig({
+    ...env, MARKL_BRIDGE_URL: 'https://example.test:8443', GF_ALLOW_REMOTE_BRIDGE: '1',
+  }), /default port/)
 })
 
 test('create, get, and post use authenticated bridge contracts', async () => {

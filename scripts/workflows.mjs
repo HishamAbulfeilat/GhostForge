@@ -164,6 +164,9 @@ function resolveBaseUrl(env = process.env) {
   if (!loopback && env.GF_ALLOW_REMOTE_BRIDGE !== '1') {
     throw new Error('MARKL_BRIDGE_URL is not loopback; set GF_ALLOW_REMOTE_BRIDGE=1 to opt in')
   }
+  if (!loopback && parsed.port && parsed.port !== (parsed.protocol === 'https:' ? '443' : '80')) {
+    throw new Error('Remote MARKL_BRIDGE_URL must use the default port')
+  }
   return parsed.origin
 }
 

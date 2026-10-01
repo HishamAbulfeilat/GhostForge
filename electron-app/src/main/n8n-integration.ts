@@ -1,5 +1,6 @@
 import type { N8nWorkflow } from '../shared/types';
 import { N8N } from '../shared/constants';
+import { validateOutboundUrl } from './outbound-url';
 
 interface N8nConfig {
   baseUrl: string;
@@ -22,6 +23,17 @@ export class N8nIntegration {
       baseUrl: config?.baseUrl || N8N.defaultUrl,
       apiKey: config?.apiKey,
     };
+    this.validateBaseUrl();
+  }
+
+  private validateBaseUrl(): URL {
+    return validateOutboundUrl(
+      this.config.baseUrl,
+      ['localhost', '127.0.0.1', '::1'],
+      'n8n',
+      ['http:', 'https:'],
+      ['5678'],
+    );
   }
 
   // ── Connection ─────────────────────────────────────────────────────────────
@@ -233,5 +245,6 @@ export class N8nIntegration {
 
   updateConfig(updates: Partial<N8nConfig>): void {
     this.config = { ...this.config, ...updates };
+    this.validateBaseUrl();
   }
 }
