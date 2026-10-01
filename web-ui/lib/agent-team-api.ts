@@ -207,7 +207,7 @@ export function getStateDirectory(workspaceRoot = repoRootFromLib(), stateDirOve
   return resolveWorkspaceRoot(root, stateDir)
 }
 
-export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): { snapshot: { health: number | null; running: boolean; agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; cooldownUntil: string | null }>; tasks: Array<{ id: string | null; title: string; kind: string; status: string; owner: string | null }>; messages: Array<Record<string, unknown>>; phase: number } } {
+export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): { snapshot: { health: number | null; running: boolean; agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; since: string | null; cooldownUntil: string | null }>; tasks: Array<{ id: string | null; title: string; kind: string; status: string; owner: string | null }>; messages: Array<Record<string, unknown>>; phase: number } } {
   const root = resolveWorkspaceRoot(workspaceRoot)
   const stateDir = getStateDirectory(root, stateDirOverride)
   const status = asRecord(readJsonFile<unknown>(path.join(stateDir, 'status.json'), null))
@@ -225,6 +225,7 @@ export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDi
       state: normalizedString(info.state) ?? 'unknown',
       task: normalizedString(info.task),
       model: normalizedString(info.model),
+      since: normalizedString(info.since),
       cooldownUntil: normalizedString(info.cooldownUntil),
     }]
   }))
