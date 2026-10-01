@@ -1,22 +1,159 @@
 {
   "$comment": "Agent team config — read by scripts/agents/boss.mjs. Paths are relative to the repo root. Models: a tier table per provider (deep/balanced/fast); 'auto' lets the provider choose. Task kind → tier lives in scripts/agents/lib/models.mjs.",
-  "boss": { "provider": "claude", "model": "opus", "review": true, "fallback": "copilot", "fallbackModel": "auto" },
-  "integration": { "branch": "agent/integration", "worktree": "../gf-integration", "base": "main" },
+  "boss": {
+    "provider": "claude",
+    "model": "opus",
+    "review": true
+  },
+  "integration": {
+    "branch": "agent/integration",
+    "worktree": "../gf-integration",
+    "base": "main"
+  },
   "agents": {
-    "claude":  { "provider": "claude",  "enabled": true, "worktree": "../gf-claude", "branch": "agent/claude/work", "strengths": ["plan", "architecture", "security", "review", "refactor", "test", "bugfix"] },
-    "copilot-tui": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-tui", "branch": "agent/copilot/boss-tui", "strengths": ["test", "bugfix", "feature"] },
-    "copilot-desktop": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-desktop", "branch": "agent/copilot/boss-desktop", "strengths": ["bugfix", "test", "feature"] },
-    "copilot-web": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-web", "branch": "agent/copilot/boss-web", "strengths": ["test", "feature", "bugfix", "refactor"] },
-    "copilot-integration": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-integration", "branch": "agent/copilot/boss-integration", "strengths": ["test", "security", "bugfix"] },
-    "copilot-quality": { "provider": "copilot", "enabled": true, "worktree": "../gf-boss-quality", "branch": "agent/copilot/boss-quality", "strengths": ["refactor", "security", "docs", "chore", "test"] },
-    "codex":   { "provider": "codex",   "enabled": false, "worktree": "../gf-codex",   "branch": "agent/codex/work",   "strengths": ["feature", "bugfix", "test"] },
-    "gemini":  { "provider": "gemini",  "enabled": false, "worktree": "../gf-gemini",  "branch": "agent/gemini/work",  "strengths": ["docs", "feature", "chore"] }
+    "claude": {
+      "provider": "claude",
+      "enabled": true,
+      "worktree": "../gf-claude",
+      "branch": "agent/claude/work",
+      "strengths": [
+        "plan",
+        "architecture",
+        "security",
+        "review",
+        "refactor",
+        "test",
+        "bugfix"
+      ]
+    },
+    "copilot-tui": {
+      "provider": "copilot",
+      "enabled": false,
+      "worktree": "../gf-boss-tui",
+      "branch": "agent/copilot/boss-tui",
+      "strengths": [
+        "test",
+        "bugfix",
+        "feature"
+      ]
+    },
+    "copilot-desktop": {
+      "provider": "copilot",
+      "enabled": false,
+      "worktree": "../gf-boss-desktop",
+      "branch": "agent/copilot/boss-desktop",
+      "strengths": [
+        "bugfix",
+        "test",
+        "feature"
+      ]
+    },
+    "copilot-web": {
+      "provider": "copilot",
+      "enabled": false,
+      "worktree": "../gf-boss-web",
+      "branch": "agent/copilot/boss-web",
+      "strengths": [
+        "test",
+        "feature",
+        "bugfix",
+        "refactor"
+      ]
+    },
+    "copilot-integration": {
+      "provider": "copilot",
+      "enabled": false,
+      "worktree": "../gf-boss-integration",
+      "branch": "agent/copilot/boss-integration",
+      "strengths": [
+        "test",
+        "security",
+        "bugfix"
+      ]
+    },
+    "copilot-quality": {
+      "provider": "copilot",
+      "enabled": false,
+      "worktree": "../gf-boss-quality",
+      "branch": "agent/copilot/boss-quality",
+      "strengths": [
+        "refactor",
+        "security",
+        "docs",
+        "chore",
+        "test"
+      ]
+    },
+    "codex": {
+      "provider": "codex",
+      "enabled": false,
+      "worktree": "../gf-codex",
+      "branch": "agent/codex/work",
+      "strengths": [
+        "feature",
+        "bugfix",
+        "test"
+      ]
+    },
+    "gemini": {
+      "provider": "gemini",
+      "enabled": false,
+      "worktree": "../gf-gemini",
+      "branch": "agent/gemini/work",
+      "strengths": [
+        "docs",
+        "feature",
+        "chore"
+      ]
+    },
+    "claude-2": {
+      "provider": "claude",
+      "enabled": true,
+      "strengths": [
+        "feature",
+        "bugfix",
+        "test",
+        "security",
+        "refactor",
+        "docs",
+        "chore"
+      ],
+      "worktree": "../gf-claude-2",
+      "branch": "agent/claude/work-2"
+    },
+    "claude-3": {
+      "provider": "claude",
+      "enabled": true,
+      "strengths": [
+        "feature",
+        "bugfix",
+        "test",
+        "security",
+        "refactor",
+        "docs",
+        "chore"
+      ],
+      "worktree": "../gf-claude-3",
+      "branch": "agent/claude/work-3"
+    }
   },
   "models": {
-    "claude":  { "deep": "opus", "balanced": "sonnet", "fast": "haiku" },
-    "copilot": { "deep": "auto", "balanced": "auto", "fast": "auto" }
+    "claude": {
+      "deep": "opus",
+      "balanced": "sonnet",
+      "fast": "haiku"
+    },
+    "copilot": {
+      "deep": "auto",
+      "balanced": "auto",
+      "fast": "auto"
+    }
   },
-  "pr": { "everyMerges": 5, "autoMerge": false, "title": "Agent team: GhostForge improvements" },
+  "pr": {
+    "everyMerges": 5,
+    "autoMerge": false,
+    "title": "Agent team: GhostForge improvements"
+  },
   "tickSeconds": 20,
   "taskTimeoutMinutes": 60,
   "maxAttempts": 3,

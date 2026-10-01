@@ -45,7 +45,12 @@ jobs:
 
       - name: Prepare Linux packaging prerequisites
         if: matrix.name == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm
+        # Ubuntu 24.04 restricts unprivileged user namespaces via AppArmor, which makes
+        # Electron's Chromium sandbox abort ("SUID sandbox helper ... not configured
+        # correctly"). Lift the runner restriction instead of disabling the sandbox.
+        run: |
+          sudo apt-get update && sudo apt-get install -y rpm
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Generate Electron icons
         run: node scripts/generate-icons.js
