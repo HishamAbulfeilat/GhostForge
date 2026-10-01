@@ -21,7 +21,7 @@ function makeFixture() {
       { name: 'Browser Pilot', description: 'Controls a browser for routine tasks.', category: 'computer-use', url: 'https://example.com/browser-pilot' },
     ],
   }), 'utf8')
-  return fixture
+  return { dir, fixture }
 }
 
 test('shell help explains list and search usage', () => {
@@ -33,30 +33,38 @@ test('shell help explains list and search usage', () => {
 })
 
 test('list command can read a fixture without network access', () => {
-  const fixture = makeFixture()
-  const result = spawnSync('bash', [SHELL_SCRIPT, 'list', '--fixture', fixture, '--json'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: { ...process.env, GF_AWESOME_LLM_API_URL: 'https://example.invalid' },
-  })
+  const { dir, fixture } = makeFixture()
+  try {
+    const result = spawnSync('bash', [SHELL_SCRIPT, 'list', '--fixture', fixture, '--json'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: { ...process.env, GF_AWESOME_LLM_API_URL: 'https://example.invalid' },
+    })
 
-  assert.equal(result.status, 0, result.stderr)
-  const apps = JSON.parse(result.stdout)
-  assert.equal(apps.length, 3)
-  assert.deepEqual(apps.map(app => app.name), ['Agent OS', 'Voice Notes', 'Browser Pilot'])
+    assert.equal(result.status, 0, result.stderr)
+    const apps = JSON.parse(result.stdout)
+    assert.equal(apps.length, 3)
+    assert.deepEqual(apps.map(app => app.name), ['Agent OS', 'Voice Notes', 'Browser Pilot'])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('search command filters a fixture by app name and description', () => {
-  const fixture = makeFixture()
-  const result = spawnSync('bash', [SHELL_SCRIPT, 'search', 'voice', '--fixture', fixture], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  })
+  const { dir, fixture } = makeFixture()
+  try {
+    const result = spawnSync('bash', [SHELL_SCRIPT, 'search', 'voice', '--fixture', fixture], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    })
 
-  assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /Voice Notes/)
-  assert.doesNotMatch(result.stdout, /Agent OS/)
-  assert.doesNotMatch(result.stdout, /Browser Pilot/)
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /Voice Notes/)
+    assert.doesNotMatch(result.stdout, /Agent OS/)
+    assert.doesNotMatch(result.stdout, /Browser Pilot/)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('fetch failures include a clear catalog error message', () => {

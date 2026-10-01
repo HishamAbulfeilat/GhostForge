@@ -28,6 +28,7 @@ surface. The evidence column names the implementation that was checked.
 | Project open, project list, scaffolding | ⚠️ | ✅ | ✅ | ❌ | `app/setup`, `screenProjects`/`screenOpenProject`, `scripts/create-project.sh` |
 | Setup and environment configuration | ✅ | ✅ | ✅ | ❌ | `app/setup`, `screenSetup`, `scripts/setup-env.sh`/`scripts/env-manager.sh` |
 | AI agents dashboard and dispatch | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgents`, `scripts/agents/team.mjs`, `/api/mark-l/agents/*` |
+| Agent World (federated agent and connector operations) | ✅ | ⚠️ | ⚠️ | ⚠️ | `app/agent-world` and `Navbar` (`/agent-world`); `/api/agents` snapshots; `screenAgentTeam`, `scripts/agents/team.mjs`, bridge `/api/mark-l/agents/*` provide lower-level agent surfaces |
 | Agent teams, crews, tasks, messages | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgentTeam`, `scripts/agents/team.mjs`, `/api/mark-l/agents/crew/*` |
 | JARVIS assistant | ✅ | ✅ | ⚠️ | ✅ | `app/jarvis`, `screenJarvis`, `app/api/jarvis/route.ts`, bridge health/chat |
 | Voice input (STT) | ✅ | ✅ | ✅ | ❌ | `app/jarvis`, `screenVoice`, `scripts/voice.sh`, `app/api/jarvis/stt` |
@@ -68,7 +69,7 @@ surface. The evidence column names the implementation that was checked.
 | Git hooks, upgrades and release tooling | ✅ | ✅ | ✅ | ✅ | `app/maintenance`, `screenGitHooks`/`screenUpgrade`, `scripts/git-hooks.sh`/`upgrade.sh`/`release.sh`, bridge `/api/release` (status/prepare/notes/deploy) |
 | API docs/types/mock generation | ✅ | ✅ | ✅ | ❌ | `app/api-docs`, `app/api-types`, `app/mock-api`, `app/api/execute`, `screenAPITypes`/`screenMockApi`, `scripts/api-docs.sh`/`api-types.sh`/`api-mock.sh` |
 | i18n and RTL tooling | ⚠️ | ✅ | ✅ | ❌ | `app/layout.tsx`, `screenRTL`, `scripts/i18n.sh`/`rtl.sh` |
-| Snippets, changelog, README and onboarding | ❌ | ✅ | ✅ | ❌ | `screenSnippets`/`screenChangelogViewer`/`screenReadme`/`screenOnboardDev`, `scripts/snippet-manager.sh`/`changelog.sh`/`onboard-dev.sh` |
+| Snippets, changelog, README and onboarding | ✅ | ✅ | ✅ | ❌ | `/snippets` (authenticated direct route; not a Navbar item) and `/api/snippets` for snippets, `CHANGELOG.md`, and `README.md`; `screenSnippets`/`screenChangelogViewer`/`screenReadme`/`screenOnboardDev`, `scripts/snippet-manager.sh`/`changelog.sh`/`onboard-dev.sh` |
 | Tickets, Azure DevOps and estimates | ⚠️ | ✅ | ✅ | ❌ | `screenTickets`/`screenAdo`/`screenEstimate`, `scripts/ticket.sh`/`ado.sh`/`estimate.sh` |
 | Performance, bundle, unused-code and dependency health | ⚠️ | ✅ | ✅ | ❌ | `screenPerf`/`screenBundle`/`screenUnused`, `scripts/perf.sh`/`bundle.sh`/`unused.sh`/`dep-health.sh` |
 | Free APIs/models and provider setup | ✅ | ✅ | ✅ | ❌ | `app/models`, `screenFreeAPIs`/`screenFreeModels`, `scripts/free-models.sh`/`free-models.sh` |
@@ -98,14 +99,17 @@ or blocked-work claims:
 
 ## Validation
 
-Snapshot checked 2026-10-01:
+Snapshot checked 2026-10-01 (web routes and navigation re-audited):
 
 - `node --check tui/index.js` — PASS (TUI syntax).
 - `npm test` — PASS (root smoke suite).
 - `node scripts/agents/health.mjs` — PASS (health 100/100).
 
-The TUI source audit confirmed `screenN8n`, `screenCollaboration`, and device screens
-are reachable from the menu. The CLI dispatcher (`cli/index.js`) now wires
+The web route/navigation audit confirmed `/snippets` serves snippets and the
+repository README/changelog through its authenticated API, and `/agent-world`
+is linked from `Navbar`. The TUI source audit confirmed `screenN8n`,
+`screenCollaboration`, and device screens are reachable from the menu. The CLI
+dispatcher (`cli/index.js`) now wires
 `ghostforge n8n`, `ghostforge collab`, `ghostforge users`, and `ghostforge device-status`
 commands to their respective implementation scripts. The bridge provides `/api/n8n/workflows`,
 `/api/n8n/trigger`, `/api/jarvis/collab`, `/api/devices`, and `/api/devices/status`
