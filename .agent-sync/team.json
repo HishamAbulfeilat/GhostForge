@@ -3,7 +3,9 @@
   "boss": {
     "provider": "claude",
     "model": "opus",
-    "review": true
+    "review": true,
+    "fallback": "copilot",
+    "fallbackModel": "auto"
   },
   "integration": {
     "branch": "agent/integration",
@@ -28,7 +30,7 @@
     },
     "copilot-tui": {
       "provider": "copilot",
-      "enabled": false,
+      "enabled": true,
       "worktree": "../gf-boss-tui",
       "branch": "agent/copilot/boss-tui",
       "strengths": [
@@ -39,7 +41,7 @@
     },
     "copilot-desktop": {
       "provider": "copilot",
-      "enabled": false,
+      "enabled": true,
       "worktree": "../gf-boss-desktop",
       "branch": "agent/copilot/boss-desktop",
       "strengths": [
@@ -50,7 +52,7 @@
     },
     "copilot-web": {
       "provider": "copilot",
-      "enabled": false,
+      "enabled": true,
       "worktree": "../gf-boss-web",
       "branch": "agent/copilot/boss-web",
       "strengths": [
@@ -62,7 +64,7 @@
     },
     "copilot-integration": {
       "provider": "copilot",
-      "enabled": false,
+      "enabled": true,
       "worktree": "../gf-boss-integration",
       "branch": "agent/copilot/boss-integration",
       "strengths": [
@@ -73,7 +75,7 @@
     },
     "copilot-quality": {
       "provider": "copilot",
-      "enabled": false,
+      "enabled": true,
       "worktree": "../gf-boss-quality",
       "branch": "agent/copilot/boss-quality",
       "strengths": [

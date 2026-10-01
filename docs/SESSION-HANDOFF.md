@@ -39,6 +39,10 @@ progress. Keep going until every check is green, then keep improving.
   scheduled task **"GhostForge Boss Watchdog"**; restarts the boss if it died.
   An explicit `team.mjs stop` (STOP file) is respected.
 
+## Claude ⇄ Copilot leadership
+
+Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). When Claude is rate-limited the boss falls back to Copilot automatically and the **interactive Copilot CLI session is acting lead** — its rules and handover steps are in **`prompts/copilot-colead.md`** (paste it into Copilot). Copilot steers via `team.mjs add/say`, never edits this checkout while the boss runs, and logs what it did in History (signed — copilot). When Claude's quota resets, Claude reads History + boss.log and resumes command.
+
 ## Operate it
 
 | Want to… | Command |
