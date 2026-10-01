@@ -11,7 +11,9 @@
     "agents:status": "node scripts/agents/team.mjs status",
     "agents:stop": "node scripts/agents/team.mjs stop",
     "agents:watchdog": "node scripts/agents/watchdog.mjs",
-    "test:agents": "node --test scripts/agents/*.test.mjs"
+    "test:agents": "node --test scripts/agents/*.test.mjs",
+    "awesome-llm-apps": "node scripts/awesome-llm-apps.mjs",
+    "test:awesome-llm-apps": "node --test scripts/awesome-llm-apps.test.mjs"
   },
   "dependencies": {
     "node-pty": "^1.1.0",
