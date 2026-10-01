@@ -319,6 +319,42 @@ test('local connector reflects runtime state and reports dead processes offline'
   assert.deepEqual(offline.sessions, [])
 })
 
+test('local connector uses the configured custom state directory for snapshot and heartbeat', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-connector-custom-state-'))
+  const defaultStateDir = path.join(root, '.agent-sync', 'state')
+  const customStateDir = path.join(root, 'custom-state')
+  fs.mkdirSync(defaultStateDir, { recursive: true })
+  fs.mkdirSync(customStateDir, { recursive: true })
+  fs.writeFileSync(path.join(defaultStateDir, 'status.json'), JSON.stringify({
+    pid: Number.MAX_SAFE_INTEGER,
+    agents: { defaultWorker: { state: 'idle' } },
+  }))
+  fs.writeFileSync(path.join(customStateDir, 'status.json'), JSON.stringify({
+    pid: process.pid,
+    agents: { customWorker: { state: 'working', provider: 'copilot', task: 'T-130' } },
+  }))
+  fs.writeFileSync(path.join(customStateDir, 'board.json'), JSON.stringify({
+    tasks: [{ id: 'T-130', title: 'Use configured state', status: 'in-progress', owner: 'customWorker' }],
+  }))
+
+  const previous = process.env.GF_AGENT_STATE
+  process.env.GF_AGENT_STATE = customStateDir
+  try {
+    const jsSummary = await readConnectorSnapshot(null, root)
+    const tsSummary = await loadTypeScriptAgentTeamApi().readConnectorSnapshot(null, root)
+    const local = jsSummary.connectors[0]
+
+    assert.deepEqual(tsSummary, jsSummary)
+    assert.equal(local.status, 'online')
+    assert.equal(local.heartbeat, new Date(fs.statSync(path.join(customStateDir, 'status.json')).mtimeMs).toISOString())
+    assert.deepEqual(local.agents.map(agent => agent.id), ['customWorker'])
+    assert.equal(local.tasks[0].id, 'T-130')
+  } finally {
+    if (previous === undefined) delete process.env.GF_AGENT_STATE
+    else process.env.GF_AGENT_STATE = previous
+  }
+})
+
 test('remote connector sessions are bounded, sanitized, and scoped to connector identity', async t => {
   const { root } = createConnectorWorkspace()
   const heartbeat = new Date().toISOString()

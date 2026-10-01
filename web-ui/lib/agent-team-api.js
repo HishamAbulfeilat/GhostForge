@@ -518,9 +518,10 @@ function offlineConnector(config, project, error) {
   }
 }
 
-function projectLocalConnector(root) {
-  const snapshot = readAgentTeamSnapshot(root).snapshot
-  const statusFile = path.join(getStateDirectory(root), 'status.json')
+function projectLocalConnector(root, stateDirOverride) {
+  const stateDir = getStateDirectory(root, stateDirOverride)
+  const snapshot = readAgentTeamSnapshot(root, stateDir).snapshot
+  const statusFile = path.join(stateDir, 'status.json')
   let heartbeat = null
   try {
     heartbeat = new Date(fs.statSync(statusFile).mtimeMs).toISOString()
@@ -687,7 +688,7 @@ async function readRemoteConnector(config, headers, project) {
   }
 }
 
-async function readConnectorSnapshot(connectorConfig, workspaceRoot = repoRootFromLib()) {
+async function readConnectorSnapshot(connectorConfig, workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE) {
   const root = resolveWorkspaceRoot(workspaceRoot)
   const rawConfigs = rawConnectorEntries(connectorConfig)
   if (rawConfigs.length > AGENT_SESSION_CONNECTOR_MAX_COUNT) {
@@ -705,7 +706,7 @@ async function readConnectorSnapshot(connectorConfig, workspaceRoot = repoRootFr
     seen.add(normalizedId)
   }
   const mode = configs.some(({ config }) => config.allow) ? 'allowlisted' : 'local-only'
-  const local = projectLocalConnector(root)
+  const local = projectLocalConnector(root, stateDirOverride)
   const remotes = await Promise.all(configs
     .filter(({ config }) => config.allow && (config.source === 'cloud' || config.source === 'device'))
     .map(({ config, headers }) => readRemoteConnector(
