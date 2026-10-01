@@ -8,6 +8,10 @@ export const AGENT_SESSION_CONNECTOR_VERSION = 1
 export const AGENT_SESSION_CONNECTOR_MAX_BYTES = 65_536
 export const AGENT_SESSION_CONNECTOR_TIMEOUT_MS = 5_000
 export const VALID_ACTIONS = ['status', 'start', 'stop', 'say', 'add', 'dispatch'] as const
+const AGENT_SESSION_CONNECTOR_MAX_COUNT = 20
+const AGENT_SESSION_CONNECTOR_MAX_RECORDS = 100
+const AGENT_SESSION_CONNECTOR_MAX_STRING_LENGTH = 256
+const AGENT_SESSION_CONNECTOR_MAX_LIST_ITEMS = 10
 
 export type AgentSessionConnectorSource = 'local' | 'cloud' | 'device'
 
@@ -381,14 +385,14 @@ export function normalizeSessionConnectorConfig(value: unknown): AgentSessionCon
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
 
   const record = value as Record<string, unknown>
-  const id = sanitizeConnectorString(record.id) ?? sanitizeConnectorString(record.name)
+  const id = boundedConnectorString(record.id, 128) ?? boundedConnectorString(record.name, 128)
   if (!id) return null
 
   const source = record.source === 'cloud' || record.source === 'device' ? record.source : 'local'
-  const provider = sanitizeConnectorString(record.provider)
-  const project = sanitizeConnectorString(record.project)
-  const device = sanitizeConnectorString(record.device)
-  const rawUrl = sanitizeConnectorString(record.url)
+  const provider = boundedConnectorString(record.provider)
+  const project = boundedConnectorString(record.project)
+  const device = boundedConnectorString(record.device)
+  const rawUrl = boundedConnectorString(record.url, 2048)
   let url: string | null = null
   if (rawUrl) {
     try {
@@ -411,9 +415,9 @@ export function normalizeSessionConnectorConfig(value: unknown): AgentSessionCon
 
   const headers: Record<string, string> = {}
   if (record.headers && typeof record.headers === 'object' && !Array.isArray(record.headers)) {
-    for (const [key, inner] of Object.entries(record.headers as Record<string, unknown>)) {
+    for (const [key, inner] of Object.entries(record.headers as Record<string, unknown>).slice(0, 32)) {
       const normalizedKey = String(key).toLowerCase()
-      const rendered = typeof inner === 'string' ? inner : String(inner)
+      const rendered = boundedConnectorString(typeof inner === 'string' ? inner : String(inner), 2048) ?? ''
       headers[String(key)] = /authorization|cookie|set-cookie|api[-_ ]?key|token|secret/i.test(normalizedKey) ? '[redacted]' : rendered
     }
   }
@@ -432,6 +436,30 @@ export function normalizeSessionConnectorConfig(value: unknown): AgentSessionCon
   }
 
   return cleaned
+}
+
+function boundedConnectorString(value: unknown, maxLength = AGENT_SESSION_CONNECTOR_MAX_STRING_LENGTH): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed ? trimmed.slice(0, maxLength) : null
+}
+
+function rawConnectorEntries(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+  return value && typeof value === 'object' ? [value] : []
+}
+
+function connectorRequestHeaders(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const headers: Record<string, string> = {}
+  for (const [key, rawValue] of Object.entries(value as Record<string, unknown>).slice(0, 32)) {
+    const name = key.trim()
+    const rendered = typeof rawValue === 'string' ? rawValue : String(rawValue)
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\r\n]/.test(rendered)) continue
+    if (/^(host|content-length|connection|transfer-encoding)$/i.test(name)) continue
+    headers[name] = rendered.slice(0, 2048)
+  }
+  return headers
 }
 
 export function normalizeSessionConnectorConfigs(value: unknown): AgentSessionConnectorConfig[] {
@@ -459,78 +487,295 @@ function resolveSafeProjectPath(root: string, project: string | undefined): stri
   return path.relative(root, candidate).replace(/\\/g, '/') || '.'
 }
 
-export function readConnectorSnapshot(connectorConfig: unknown, workspaceRoot: string = repoRootFromLib()): AgentSessionConnectorSummary {
-  const root = resolveWorkspaceRoot(workspaceRoot)
-  const configs = normalizeSessionConnectorConfigs(connectorConfig)
-  const mode = configs.some(config => config.allow) ? 'allowlisted' : 'local-only'
-  const connectors: AgentSessionConnectorRecord[] = [{
+function projectedString(value: unknown, maxLength = AGENT_SESSION_CONNECTOR_MAX_STRING_LENGTH): string | null {
+  return boundedConnectorString(value, maxLength)
+}
+
+function projectedStringList(value: unknown, maxItems = AGENT_SESSION_CONNECTOR_MAX_LIST_ITEMS): string[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, maxItems)
+    .map(item => projectedString(item, 160))
+    .filter((item): item is string => Boolean(item))
+}
+
+function projectAgentRecords(agents: unknown): Array<Record<string, unknown>> {
+  if (!agents || typeof agents !== 'object') return []
+  const entries: Array<[unknown, unknown]> = Array.isArray(agents)
+    ? agents.slice(0, AGENT_SESSION_CONNECTOR_MAX_RECORDS).map(item => [asRecord(item).id, item])
+    : Object.entries(agents as Record<string, unknown>).slice(0, AGENT_SESSION_CONNECTOR_MAX_RECORDS)
+  return entries.flatMap(([key, rawValue]) => {
+    const value = asRecord(rawValue)
+    if (!Object.keys(value).length) return []
+    const id = projectedString(typeof key === 'string' ? key : value.id, 128)
+    if (!id) return []
+    const result: Record<string, unknown> = { id }
+    for (const field of ['state', 'provider', 'task', 'model', 'since', 'cooldownUntil', 'assignee', 'role']) {
+      const fieldValue = projectedString(value[field])
+      if (fieldValue) result[field] = fieldValue
+    }
+    if (typeof value.leader === 'boolean') result.leader = value.leader
+    if (Array.isArray(value.strengths)) result.strengths = projectedStringList(value.strengths)
+    return [result]
+  })
+}
+
+function projectTaskRecords(tasks: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(tasks)) return []
+  return tasks.slice(0, AGENT_SESSION_CONNECTOR_MAX_RECORDS).flatMap(rawValue => {
+    const value = asRecord(rawValue)
+    if (!Object.keys(value).length) return []
+    const result: Record<string, unknown> = {}
+    for (const field of ['id', 'title', 'kind', 'status', 'owner', 'assignee', 'leader']) {
+      const fieldValue = projectedString(value[field], field === 'title' ? 512 : 128)
+      if (fieldValue) result[field] = fieldValue
+    }
+    if (Array.isArray(value.dependencies)) result.dependencies = projectedStringList(value.dependencies)
+    if (Array.isArray(value.acceptanceCriteria)) result.acceptanceCriteria = projectedStringList(value.acceptanceCriteria)
+    return [result]
+  })
+}
+
+function projectEventRecords(events: unknown, source: AgentSessionConnectorSource): Array<Record<string, unknown>> {
+  if (!Array.isArray(events)) return []
+  return events.slice(-AGENT_SESSION_CONNECTOR_MAX_RECORDS).flatMap(rawValue => {
+    const value = asRecord(rawValue)
+    const ts = normalizedHeartbeat(value.ts)
+    const type = projectedString(value.type, 128)
+    if (!ts || !type) return []
+    const result: Record<string, unknown> = { ts, type, source }
+    for (const field of ['project', 'device', 'from', 'to', 'text', 'error']) {
+      const fieldValue = projectedString(value[field], field === 'text' ? 512 : 256)
+      if (fieldValue) result[field] = fieldValue
+    }
+    return [result]
+  })
+}
+
+function normalizedHeartbeat(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 64) return null
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp)) return null
+  const date = new Date(timestamp)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
+
+function connectorStatus(heartbeat: string | null, staleAfterMs: number, active = true): AgentSessionConnectorRecord['status'] {
+  if (!heartbeat || !active) return 'offline'
+  const age = Date.now() - Date.parse(heartbeat)
+  if (!Number.isFinite(age) || age < -60_000) return 'offline'
+  return age > staleAfterMs ? 'stale' : 'online'
+}
+
+function offlineConnector(config: AgentSessionConnectorConfig, project: string | null, error: string): AgentSessionConnectorRecord {
+  const eventTime = new Date().toISOString()
+  return {
+    id: config.id,
+    version: AGENT_SESSION_CONNECTOR_VERSION,
+    source: config.source,
+    project,
+    device: config.device ?? null,
+    provider: config.provider ?? null,
+    status: 'offline',
+    heartbeat: null,
+    staleAfterMs: config.staleAfterMs ?? 30_000,
+    stale: true,
+    online: false,
+    error,
+    agents: [],
+    tasks: [],
+    events: [{ ts: eventTime, type: 'connector.error', source: config.source, error }],
+  }
+}
+
+function projectLocalConnector(root: string): AgentSessionConnectorRecord {
+  const snapshot = readAgentTeamSnapshot(root).snapshot
+  const statusFile = path.join(getStateDirectory(root), 'status.json')
+  let heartbeat: string | null = null
+  try {
+    heartbeat = new Date(fs.statSync(statusFile).mtimeMs).toISOString()
+  } catch {
+    // Missing/unreadable runtime status is represented explicitly as offline below.
+  }
+  const staleAfterMs = 30_000
+  const status = connectorStatus(heartbeat, staleAfterMs, snapshot.running)
+  const messages = Array.isArray(snapshot.messages) ? snapshot.messages.slice(-AGENT_SESSION_CONNECTOR_MAX_RECORDS).map(message => ({
+    ts: message?.ts,
+    type: 'runtime.message',
+    from: message?.from,
+    to: message?.to,
+    text: message?.text,
+  })) : []
+  return {
     id: 'ghostforge-local',
     version: AGENT_SESSION_CONNECTOR_VERSION,
     source: 'local',
     project: '.',
     device: null,
     provider: 'ghostforge',
-    status: 'online',
-    heartbeat: new Date().toISOString(),
-    staleAfterMs: 30_000,
-    stale: false,
-    online: true,
-    error: null,
-    agents: [{ id: 'ghostforge', state: 'online', provider: 'ghostforge' }],
-    tasks: [{ id: 'T-local', title: 'GhostForge runtime', status: 'ready', dependencies: [] }],
-    events: [{ ts: new Date().toISOString(), type: 'runtime.heartbeat', source: 'local', project: '.' }],
-  }]
-
-  if (!configs.some(config => config.allow)) {
-    return { version: AGENT_SESSION_CONNECTOR_VERSION, mode, connectors }
+    status,
+    heartbeat,
+    staleAfterMs,
+    stale: status !== 'online',
+    online: status === 'online',
+    error: status === 'offline'
+      ? !heartbeat
+        ? 'Runtime status is unavailable'
+        : !snapshot.running
+          ? 'Runtime process is not running'
+          : 'Runtime heartbeat is outside the valid time range'
+      : null,
+    agents: projectAgentRecords(snapshot.agents),
+    tasks: projectTaskRecords(snapshot.tasks),
+    events: projectEventRecords(messages, 'local'),
   }
+}
 
-  for (const config of configs.filter(config => config.allow)) {
-    const threshold = Math.max(1_000, Math.min(86_400_000, config.staleAfterMs ?? 30_000))
-    const heartbeat = new Date().toISOString()
-    const projectValue = resolveSafeProjectPath(root, config.project)
-
-    if (!projectValue) {
-      connectors.push({
-        id: config.id,
-        version: AGENT_SESSION_CONNECTOR_VERSION,
-        source: config.source,
-        project: null,
-        device: config.device ?? null,
-        provider: config.provider ?? null,
-        status: 'offline',
-        heartbeat,
-        staleAfterMs: threshold,
-        stale: true,
-        online: false,
-        error: 'Connector project path escapes the workspace root',
-        agents: [],
-        tasks: [],
-        events: [{ ts: heartbeat, type: 'connector.error', source: config.source, error: 'Connector project path escapes the workspace root' }],
-      })
-      continue
+async function readConnectorPayload(response: Response): Promise<Record<string, unknown>> {
+  if (!response.ok) throw new Error(`Connector returned HTTP status ${response.status}`)
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > AGENT_SESSION_CONNECTOR_MAX_BYTES) {
+    throw new Error('Connector response exceeded the size limit')
+  }
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('Connector response body is unavailable')
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    if (!value) continue
+    total += value.byteLength
+    if (total > AGENT_SESSION_CONNECTOR_MAX_BYTES) {
+      await reader.cancel()
+      throw new Error('Connector response exceeded the size limit')
     }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  let payload: unknown
+  try {
+    payload = JSON.parse(new TextDecoder().decode(bytes))
+  } catch {
+    throw new Error('Connector response was not valid JSON')
+  }
+  const record = asRecord(payload)
+  if (!Object.keys(record).length) throw new Error('Connector snapshot must be an object')
+  const nested = asRecord(record.snapshot)
+  return Object.keys(nested).length ? nested : record
+}
 
-    connectors.push({
+function validateConnectorPayload(payload: Record<string, unknown>): string {
+  const heartbeat = normalizedHeartbeat(payload.heartbeat)
+  if (!heartbeat) throw new Error('Connector heartbeat is missing or invalid')
+  for (const field of ['agents', 'tasks', 'events']) {
+    if (payload[field] !== undefined && !Array.isArray(payload[field])) {
+      throw new Error(`Connector ${field} must be an array`)
+    }
+  }
+  if (payload.status !== undefined && !['online', 'stale', 'offline'].includes(String(payload.status))) {
+    throw new Error('Connector status is invalid')
+  }
+  if (payload.online !== undefined && typeof payload.online !== 'boolean') {
+    throw new Error('Connector online status is invalid')
+  }
+  return heartbeat
+}
+
+async function readRemoteConnector(
+  config: AgentSessionConnectorConfig,
+  headers: Record<string, string>,
+  project: string | null,
+): Promise<AgentSessionConnectorRecord> {
+  const staleAfterMs = config.staleAfterMs ?? 30_000
+  if (!project) return offlineConnector(config, null, 'Connector project path escapes the workspace root')
+  if (!config.url) return offlineConnector(config, project, 'Connector URL is not configured')
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs ?? AGENT_SESSION_CONNECTOR_TIMEOUT_MS)
+  try {
+    const response = await fetch(config.url, {
+      method: 'GET',
+      headers: { accept: 'application/json', ...headers },
+      signal: controller.signal,
+      redirect: 'error',
+    })
+    const payload = await readConnectorPayload(response)
+    const heartbeat = validateConnectorPayload(payload)
+    const reportedOffline = payload.status === 'offline' || payload.online === false
+    const heartbeatStatus = connectorStatus(heartbeat, staleAfterMs)
+    const status = reportedOffline || heartbeatStatus === 'offline'
+      ? 'offline'
+      : payload.status === 'stale'
+        ? 'stale'
+        : heartbeatStatus
+    const agents = projectAgentRecords(payload.agents ?? [])
+    const tasks = projectTaskRecords(payload.tasks ?? [])
+    const events = projectEventRecords(payload.events ?? [], config.source)
+    if (status === 'offline') {
+      const error = reportedOffline ? 'Connector reports offline' : 'Connector heartbeat is outside the valid time range'
+      return { ...offlineConnector(config, project, error), heartbeat }
+    }
+    return {
       id: config.id,
       version: AGENT_SESSION_CONNECTOR_VERSION,
       source: config.source,
-      project: projectValue,
+      project,
       device: config.device ?? null,
       provider: config.provider ?? null,
-      status: 'online',
+      status,
       heartbeat,
-      staleAfterMs: threshold,
-      stale: false,
-      online: true,
+      staleAfterMs,
+      stale: status === 'stale',
+      online: status === 'online',
       error: null,
-      agents: [{ id: config.provider ?? config.id, state: 'ready', provider: config.provider ?? config.source }],
-      tasks: [{ id: `T-${config.id}`, title: `${config.source} session`, status: 'ready', dependencies: [] }],
-      events: [{ ts: heartbeat, type: 'session.heartbeat', source: config.source, project: projectValue, device: config.device ?? null }],
-    })
+      agents,
+      tasks,
+      events,
+    }
+  } catch (error) {
+    const message = controller.signal.aborted
+      ? 'Connector request timed out'
+      : error instanceof Error && /^Connector (?:returned HTTP status \d+|response exceeded the size limit|response body is unavailable|response was not valid JSON|snapshot must be an object|heartbeat is missing or invalid|agents must be an array|tasks must be an array|events must be an array|status is invalid|online status is invalid)/.test(error.message)
+        ? error.message
+        : 'Connector request failed'
+    return offlineConnector(config, project, message)
+  } finally {
+    clearTimeout(timer)
   }
+}
 
-  return { version: AGENT_SESSION_CONNECTOR_VERSION, mode, connectors }
+export async function readConnectorSnapshot(connectorConfig: unknown, workspaceRoot: string = repoRootFromLib()): Promise<AgentSessionConnectorSummary> {
+  const root = resolveWorkspaceRoot(workspaceRoot)
+  const rawConfigs = rawConnectorEntries(connectorConfig)
+  if (rawConfigs.length > AGENT_SESSION_CONNECTOR_MAX_COUNT) {
+    throw new Error(`Connector configuration exceeds the ${AGENT_SESSION_CONNECTOR_MAX_COUNT} connector limit`)
+  }
+  const configs = rawConfigs.map(raw => ({
+    config: normalizeSessionConnectorConfig(raw),
+    headers: connectorRequestHeaders(asRecord(raw).headers),
+  })).filter((entry): entry is { config: AgentSessionConnectorConfig; headers: Record<string, string> } => Boolean(entry.config))
+  const seen = new Set<string>()
+  for (const { config } of configs) {
+    const normalizedId = config.id.toLowerCase()
+    if (normalizedId === 'ghostforge-local') throw new Error('Connector ID "ghostforge-local" is reserved')
+    if (seen.has(normalizedId)) throw new Error('Duplicate connector IDs are not allowed')
+    seen.add(normalizedId)
+  }
+  const mode = configs.some(({ config }) => config.allow) ? 'allowlisted' : 'local-only'
+  const local = projectLocalConnector(root)
+  const remotes = await Promise.all(configs
+    .filter(({ config }) => config.allow && (config.source === 'cloud' || config.source === 'device'))
+    .map(({ config, headers }) => readRemoteConnector(
+      config,
+      headers,
+      resolveSafeProjectPath(root, config.project),
+    )))
+
+  return { version: AGENT_SESSION_CONNECTOR_VERSION, mode, connectors: [local, ...remotes] }
 }
 
 export async function readRequestJsonWithLimit(request: { body?: ReadableStream<Uint8Array> | null }, limit = DEFAULT_BODY_LIMIT): Promise<Record<string, unknown>> {
