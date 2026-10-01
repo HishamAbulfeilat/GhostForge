@@ -89,6 +89,8 @@ test('provider adapters deny pushes for workers and are read-only for the boss',
   assert.ok(!commandFor('codex', { prompt: 'p', model: 'auto', mode: 'work' }).args.includes('-m'), 'auto → provider default')
   assert.throws(() => commandFor('nope', {}), /Unknown provider/)
   assert.ok(RATE_LIMIT_RE.test('Error: 429 Too Many Requests'))
+  assert.ok(RATE_LIMIT_RE.test("You've hit your session limit · resets 5:40am (Asia/Amman)"), 'Claude session-limit message')
+  assert.ok(RATE_LIMIT_RE.test("You've hit your weekly limit"))
   assert.equal(winQuote('a b'), '"a b"')
   assert.equal(winQuote('--model'), '--model')
 })
