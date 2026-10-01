@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import AgentOfficeMap from '../../components/agent-world/AgentOfficeMap'
 import WorkflowDependencyGraph from '../../components/agent-world/WorkflowDependencyGraph'
 import {
   collectAgentWorldData,
@@ -13,7 +14,7 @@ import {
 
 type PageState =
   | { status: 'loading' }
-  | { status: 'loaded'; data: AgentWorldData; mode: string }
+  | { status: 'loaded'; data: AgentWorldData; officeSessions: AgentWorldRecord[]; mode: string }
   | { status: 'denied'; message: string }
   | { status: 'error'; message: string }
   | { status: 'redirecting' }
@@ -23,6 +24,34 @@ function timestamp(record: AgentWorldRecord): string {
   if (typeof value !== 'string' && typeof value !== 'number') return 'Time unavailable'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString()
+}
+
+function recordList(value: unknown): AgentWorldRecord[] {
+  return Array.isArray(value)
+    ? value.filter((record): record is AgentWorldRecord => (
+      record !== null && typeof record === 'object' && !Array.isArray(record)
+    ))
+    : []
+}
+
+function officeSessions(snapshot: AgentWorldRecord, connectorSummary?: AgentWorldRecord): AgentWorldRecord[] {
+  const runtimeSessions = recordList(snapshot.sessions).map(session => ({
+    ...session,
+    source: typeof session.source === 'string' && session.source.trim()
+      ? session.source
+      : 'GhostForge runtime',
+  }))
+  const connectors = recordList(connectorSummary?.connectors)
+  const federatedSessions = connectors.flatMap(connector => recordList(connector.sessions).map(session => ({
+    ...session,
+    source: typeof session.source === 'string' && session.source.trim()
+      ? session.source
+      : typeof connector.id === 'string' && connector.id.trim()
+        ? connector.id
+        : 'Unknown source',
+    stale: session.stale === true || connector.stale === true || connector.status === 'stale',
+  })))
+  return [...runtimeSessions, ...federatedSessions]
 }
 
 function DataList({
@@ -118,6 +147,7 @@ export default function AgentWorldPage() {
         setState({
           status: 'loaded',
           data: collectAgentWorldData(result.snapshot, result.connectorSummary),
+          officeSessions: officeSessions(result.snapshot, result.connectorSummary),
           mode: typeof result.connectorSummary?.mode === 'string' ? result.connectorSummary.mode : 'summary unavailable',
         })
       } else if (result.status === 'denied') {
@@ -161,7 +191,7 @@ export default function AgentWorldPage() {
           <>
             <p role="status" className="text-xs text-gf-muted">Federated summary: {state.mode}</p>
             <SourceList connectors={state.data.connectors} />
-            <DataList title="Sessions" records={state.data.sessions} empty="No sessions were reported by the available snapshots." fields={['source', 'project', 'device', 'status', 'state', 'provider']} />
+            <AgentOfficeMap sessions={state.officeSessions} emptyMessage="No sessions were reported by the available snapshots." />
             <DataList title="Agents" records={state.data.agents} empty="No agents were reported by the available snapshots." fields={['source', 'provider', 'state', 'role', 'model', 'task']} />
             <WorkflowDependencyGraph tasks={state.data.tasks} />
             <DataList title="Tasks" records={state.data.tasks} empty="No tasks were reported by the available snapshots." fields={['source', 'status', 'kind', 'owner', 'assignee', 'description']} />
