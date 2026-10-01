@@ -25,6 +25,7 @@ const {
   buildDependencyGraph,
   findAgentTask,
   formatElapsed,
+  getEnabledAgentIds,
   getAgentProgress,
   groupTasksByStatus,
   normalizeTaskStatus,
@@ -59,7 +60,7 @@ test('agents dashboard retains authenticated snapshot loading and existing team 
   assert.match(page, /aria-label="Message recipient"/)
   assert.match(page, /aria-label="Task kind"/)
   assert.match(page, /Phase/)
-  assert.match(page, /<AgentKanbanBoard agents=\{snapshot\.agents\} tasks=\{snapshot\.tasks\} messages=\{displayMessages\}/)
+  assert.match(page, /<AgentKanbanBoard agents=\{snapshot\.boss \? \{ \.\.\.snapshot\.agents, boss: snapshot\.boss \} : snapshot\.agents\} tasks=\{snapshot\.tasks\} messages=\{displayMessages\}/)
   assert.match(accessGuard, /pathname !== '\/agents'/)
   assert.match(loginPage, /searchParams\.get\('next'\) \?\? searchParams\.get\('from'\)/)
   assert.match(page, /role=\{notice\.error \? 'alert' : 'status'\}/)
@@ -75,12 +76,33 @@ test('agents dashboard queues refreshes behind one in-flight load and polls only
   assert.match(page, /if \(loadPromise\.current\) \{\s*refreshQueued\.current = true\s*return loadPromise\.current\s*\}/)
   assert.match(page, /do \{\s*refreshQueued\.current = false[\s\S]*?\} while \(refreshQueued\.current\)/)
   assert.match(page, /await load\(\)/)
-  assert.match(page, /if \(!snapshot\?\.running\) return/)
+  assert.match(page, /function subscribeToDashboardUpdates\(load: \(\) => Promise<void>, running: boolean \| undefined\): \(\(\) => void\) \| undefined \{\s*if \(!running\) return/)
   assert.match(page, /document\.visibilityState === ['"]visible['"]/)
   assert.match(page, /window\.setInterval\(refreshWhenVisible, 15_000\)/)
   assert.match(page, /document\.addEventListener\(['"]visibilitychange['"], refreshWhenVisible\)/)
   assert.match(page, /window\.clearInterval\(interval\)/)
   assert.match(page, /document\.removeEventListener\(['"]visibilitychange['"], refreshWhenVisible\)/)
+  assert.match(page, /new AbortController\(\)/)
+  assert.match(page, /controller\?\.abort\(\)/)
+  assert.match(page, /signal\s*\}\)/)
+  assert.match(page, /if \(loadController\.current === controller\) \{\s*loadController\.current = null\s*loadPromise\.current = null\s*\}/)
+  assert.match(page, /loadController\.current = null\s*loadPromise\.current = null\s*controller\?\.abort\(\)/)
+})
+
+test('dashboard assignment pickers exclude disabled agents and fall back to boss/any', () => {
+  const agents = {
+    enabled: { provider: 'copilot', state: 'idle', task: null, model: null, since: null, cooldownUntil: null, enabled: true },
+    disabled: { provider: 'claude', state: 'idle', task: null, model: null, since: null, cooldownUntil: null, enabled: false },
+    boss: { provider: 'claude', state: 'working', task: null, model: 'opus', since: null, cooldownUntil: null, enabled: true },
+  }
+  assert.deepEqual(getEnabledAgentIds(agents), ['enabled', 'boss'])
+  assert.match(page, /getEnabledAgentIds\(snapshot\.agents\)\.filter\(id => id !== 'boss'\)/)
+  assert.match(page, /keepAvailableSelection\(current, 'boss', enabledAgentIds\)/)
+  assert.match(page, /keepAvailableSelection\(current, 'any', enabledAgentIds\)/)
+  assert.match(page, /keepAvailableSelection\(current, 'all', recipientIds\)/)
+  assert.match(page, /value=\{assignee\}/)
+  assert.match(page, /confirmTeamStop\(\(\) => void run\('stop', \{ action: 'stop' \}\)\)/)
+  assert.match(page, /AbortController/)
 })
 
 test('kanban groups every required state and normalizes the boss in-progress spelling', () => {
@@ -180,12 +202,13 @@ test('history is bounded, hydration-safe, and page has no duplicate worker or ta
   assert.match(board, /dateTime=\{teamMessage\.datetime\}/)
   assert.match(board, /No recent team history\./)
   assert.match(board, /now === null \|\| .*formatElapsed\(agent\.since, now\)/)
-  assert.match(page, /normalizeMessages\(snapshot\?\.messages\)/)
+  assert.match(page, /formatDisplayMessages\(snapshot\?\.messages\)/)
   assert.match(page, /Unknown sender/)
   assert.match(page, /Unknown recipient/)
   assert.doesNotMatch(page, /aria-labelledby="workers-heading"/)
   assert.doesNotMatch(page, /snapshot\.tasks\.map/)
-  assert.match(page, /useEffect\(\(\) => \{[\s\S]*date\.toLocaleString\(/)
+  assert.match(page, /function formatDisplayMessages[\s\S]*date\.toLocaleString\(/)
+  assert.match(page, /useEffect\(\(\) => \{\s*setDisplayMessages\(formatDisplayMessages\(snapshot\?\.messages\)\)/)
   assert.doesNotMatch(page, /function normalizeMessages[\s\S]{0,500}toLocaleString\(/)
   assert.doesNotMatch(page, /Math\.random|Date\.now\s*\(/)
   assert.doesNotMatch(`${page}\n${board}`, /\b(?:ml|mr|pl|pr)-\d|\btext-(?:left|right)\b/)

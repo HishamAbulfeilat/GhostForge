@@ -5,6 +5,7 @@ export type Agent = {
   model: string | null
   since: string | null
   cooldownUntil: string | null
+  enabled?: boolean
 }
 
 export type Task = {
@@ -31,6 +32,12 @@ export const BOARD_COLUMNS = ['todo', 'in-progress', 'review', 'done', 'blocked'
 export type BoardStatus = (typeof BOARD_COLUMNS)[number]
 
 const activeStatuses = new Set<BoardStatus>(['in-progress', 'review'])
+
+export function getEnabledAgentIds(agents: Record<string, Agent>): string[] {
+  return Object.entries(agents)
+    .filter(([, agent]) => agent.enabled !== false)
+    .map(([id]) => id)
+}
 
 export function buildDependencyGraph(tasks: Task[]): DependencyGraphNode[] {
   const idIndexes = new Map<string, number[]>()
