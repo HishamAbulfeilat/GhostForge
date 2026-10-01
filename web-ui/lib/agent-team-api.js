@@ -200,6 +200,7 @@ function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverri
       state: typeof info.state === 'string' && info.state.trim() ? info.state.trim() : 'unknown',
       task: typeof info.task === 'string' && info.task.trim() ? info.task.trim() : null,
       model: typeof info.model === 'string' && info.model.trim() ? info.model.trim() : null,
+      since: typeof info.since === 'string' && info.since.trim() ? info.since.trim() : null,
       cooldownUntil: typeof info.cooldownUntil === 'string' && info.cooldownUntil.trim() ? info.cooldownUntil.trim() : null,
     }
   }
