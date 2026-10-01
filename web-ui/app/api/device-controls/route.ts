@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAuthorizedRequest } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 import { ensureMarkLivBridge } from '@/lib/mark-liv-bridge'
 import { getLiveBridgeToken } from '@/lib/bridge-token'
 
@@ -29,6 +30,8 @@ export async function POST(req: NextRequest) {
   const target = body.target
   const action = typeof body.action === 'string' ? body.action.trim().toLowerCase() : ''
   if (target !== 'youtube' && target !== 'game-updater') return invalid('target must be youtube or game-updater')
+  const access = await requirePermission(req, target === 'youtube' ? 'youtube' : 'game_manager')
+  if (access instanceof NextResponse) return access
   const actions = target === 'youtube' ? YOUTUBE_ACTIONS : GAME_ACTIONS
   if (!actions.has(action)) return invalid(`Unsupported ${target} action`)
 
