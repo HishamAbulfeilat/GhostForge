@@ -745,6 +745,8 @@ class WorkflowStepRequest(BaseModel):
 class WorkflowRequest(BaseModel):
     user_id: str = "default"
     id: Optional[str] = None
+    action: Optional[str] = None
+    max_steps: int = Field(default=100, ge=1, le=100)
     name: Optional[str] = None
     goal: Optional[str] = None
     status: Optional[str] = None
@@ -887,6 +889,59 @@ def _workflow_progress(workflow: dict[str, Any]) -> dict[str, int]:
     steps = workflow.get("steps") or []
     done = sum(1 for step in steps if step.get("status") in ("done", "skipped"))
     return {"done": done, "total": len(steps), "pct": round(done / len(steps) * 100) if steps else 0}
+
+
+def _fail_workflow(workflow: dict[str, Any], message: str) -> None:
+    workflow["status"] = "failed"
+    workflow["updatedAt"] = _iso_now()
+    workflow.setdefault("log", []).append({"at": workflow["updatedAt"], "msg": message})
+
+
+def _run_workflow(workflow: dict[str, Any], max_steps: int) -> dict[str, Any]:
+    steps = workflow.get("steps") or []
+    if len(steps) > max_steps:
+        raise ValueError(f"Workflow contains {len(steps)} steps; maximum is {max_steps}")
+    by_id = {step.get("id"): step for step in steps}
+    if len(by_id) != len(steps) or None in by_id:
+        raise ValueError("Workflow contains duplicate or missing step ids")
+    for step in steps:
+        unknown = [dep for dep in step.get("deps", []) if dep not in by_id]
+        if unknown:
+            raise ValueError(f"Step {step['id']} references missing dependency {unknown[0]}")
+    completed: set[str] = set()
+    for _ in steps:
+        progressed = False
+        for step in steps:
+            if step["id"] in completed or step.get("status") in ("done", "skipped"):
+                completed.add(step["id"])
+                continue
+            if any(dep not in completed for dep in step.get("deps", [])):
+                continue
+            kind = step.get("kind", "manual")
+            ref = step.get("ref", "")
+            if kind == "manual":
+                step["status"] = "skipped"
+                message = "Skipped: manual steps require a human"
+            elif kind == "command" and ref in ("bridge:health", "bridge:release-status"):
+                step["status"] = "running"
+                result = health() if ref == "bridge:health" else _release_status()
+                step["status"] = "done"
+                message = f"Completed {ref}" if result is None else f"Completed {ref}: {str(result)[:500]}"
+            else:
+                step["status"] = "failed"
+                message = f"Unsupported workflow step: kind={kind!r}, ref={ref!r}"
+                step.setdefault("log", []).append({"at": _iso_now(), "msg": message})
+                raise ValueError(message)
+            step.setdefault("log", []).append({"at": _iso_now(), "msg": message})
+            completed.add(step["id"])
+            progressed = True
+        if len(completed) == len(steps):
+            break
+        if not progressed:
+            raise ValueError("Workflow dependencies contain a cycle or blocked step")
+    workflow["status"] = "done"
+    workflow["updatedAt"] = _iso_now()
+    return workflow
 
 
 def _workflow_step(value: WorkflowStepRequest | dict[str, Any]) -> dict[str, Any]:
@@ -1670,6 +1725,26 @@ def workflows_get(user_id: str = "default", id: Optional[str] = None):
 
 @app.post("/api/workflows", dependencies=[Depends(require_token)])
 def workflows_create(req: WorkflowRequest):
+    if req.action is not None:
+        if req.action != "run":
+            raise HTTPException(status_code=400, detail="Unknown workflow action")
+        if not req.id:
+            raise HTTPException(status_code=400, detail="Workflow id required")
+        user_id = _safe_user(req.user_id)
+        workflows = _read_store("workflows", user_id, [])
+        workflow = next((item for item in workflows if item.get("id") == req.id), None)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        workflow["status"] = "running"
+        workflow["updatedAt"] = _iso_now()
+        try:
+            _run_workflow(workflow, req.max_steps)
+        except ValueError as exc:
+            _fail_workflow(workflow, str(exc))
+            _write_store("workflows", user_id, workflows)
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        _write_store("workflows", user_id, workflows)
+        return {"workflow": workflow, "progress": _workflow_progress(workflow)}
     if not req.name or not req.name.strip():
         raise HTTPException(status_code=400, detail="A workflow name is required")
     user_id = _safe_user(req.user_id)
