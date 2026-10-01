@@ -177,6 +177,139 @@ async function screenDeviceStatus() {
   }
 }
 
+function parseWorkflowMaxSteps(value) {
+  const raw = String(value ?? '').trim();
+  if (!/^\d+$/.test(raw)) {
+    throw new Error('Enter a whole number from 1 to 100.');
+  }
+  const maxSteps = Number(raw);
+  if (!Number.isSafeInteger(maxSteps) || maxSteps < 1 || maxSteps > 100) {
+    throw new Error('Enter a whole number from 1 to 100.');
+  }
+  return maxSteps;
+}
+
+function safeWorkflowText(value) {
+  return String(value ?? '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+}
+
+async function screenWorkflows() {
+  while (true) {
+    sectionHeader('🔁  Workflows', 'Review saved workflows and run through the authenticated bridge');
+    let data;
+    try {
+      data = await collabBridgeRequest('/api/workflows');
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeWorkflowText(error.message || 'Could not load workflows.')}`));
+      console.log(T.muted('  Check MARKL_BRIDGE_TOKEN and that the local bridge is running.'));
+      await pressEnter();
+      return;
+    }
+
+    if (!Array.isArray(data.workflows) ||
+        data.workflows.some(workflow => !workflow || typeof workflow.id !== 'string' ||
+          typeof workflow.name !== 'string' || !Array.isArray(workflow.steps))) {
+      console.log(T.warning('\n  ⚠ The workflows API returned an invalid workflow list.'));
+      await pressEnter();
+      return;
+    }
+
+    const workflows = data.workflows;
+    if (workflows.length === 0) {
+      console.log(T.muted('\n  No workflows found.'));
+    } else {
+      const table = new Table({
+        head: ['Workflow', 'ID', 'Status', 'Steps'],
+        style: { head: ['cyan'] },
+        colWidths: [32, 20, 14, 8],
+        wordWrap: true,
+      });
+      for (const workflow of workflows) {
+        table.push([
+          safeWorkflowText(workflow.name),
+          safeWorkflowText(workflow.id),
+          safeWorkflowText(workflow.status || 'unknown'),
+          workflow.steps.length,
+        ]);
+      }
+      console.log(table.toString());
+    }
+
+    const action = await select({
+      message: T.white('Workflow action:'),
+      choices: [
+        ...(workflows.length
+          ? [{ name: T.accent('▶  Run a workflow'), value: 'run' }]
+          : []),
+        { name: T.accent('↻  Refresh workflows'), value: 'refresh' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+    if (action === 'refresh') continue;
+
+    const workflowId = await select({
+      message: 'Select a workflow to run:',
+      choices: workflows.map(workflow => ({
+        name: `${safeWorkflowText(workflow.name)} (${safeWorkflowText(workflow.id)})`,
+        value: workflow.id,
+      })),
+      pageSize: 15,
+    });
+    const workflow = workflows.find(item => item.id === workflowId);
+    if (!workflow) {
+      console.log(T.warning('\n  ⚠ The selected workflow is no longer in the list.'));
+      await pressEnter();
+      continue;
+    }
+
+    const defaultMaxSteps = String(Math.min(Math.max(workflow.steps.length, 1), 100));
+    const maxStepsText = await input({
+      message: 'Maximum workflow steps allowed (1-100):',
+      default: defaultMaxSteps,
+      validate(value) {
+        try {
+          parseWorkflowMaxSteps(value);
+          return true;
+        } catch (error) {
+          return error.message;
+        }
+      },
+    });
+    let maxSteps;
+    try {
+      maxSteps = parseWorkflowMaxSteps(maxStepsText);
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeWorkflowText(error.message)}`));
+      await pressEnter();
+      continue;
+    }
+
+    console.log(T.muted('\n  The bridge runs only its existing allowlisted command steps; manual steps are skipped.'));
+    const approved = await confirm({ message: 'Run this workflow through the bridge?', default: false });
+    if (!approved) continue;
+
+    try {
+      const result = await collabBridgeRequest('/api/workflows', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'run', id: workflow.id, max_steps: maxSteps }),
+      });
+      if (!result.workflow || result.workflow.id !== workflow.id ||
+          typeof result.workflow.status !== 'string') {
+        throw new Error('The workflows API returned an invalid run result.');
+      }
+      console.log(T.success(
+        `\n  ✔ Workflow ${safeWorkflowText(workflow.name)} finished with status "${safeWorkflowText(result.workflow.status)}".`,
+      ));
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ Workflow run failed: ${safeWorkflowText(error.message || 'Unknown bridge error.')}`));
+    }
+    await pressEnter();
+  }
+}
+
 function safeUsersText(value) {
   return String(value ?? '')
     .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
@@ -818,6 +951,7 @@ async function screenHome() {
       menuChoice(T.cyan.bold,    '📡  Device & Push Status',       'check host status · send a push notification preview', 'device-status'),
       menuChoice(T.accent.bold,  '🤝  Collaboration & Sharing',   'create or join sessions · send messages · copy share links', 'collaboration'),
       menuChoice(T.accent.bold,  '👥  User Administration',       'list users · owner-only role, status, and permission controls', 'users'),
+      menuChoice(T.accent.bold,  '🔁  Workflows',                  'review saved workflows · run bounded, allowlisted steps', 'workflows'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
       menuChoice(T.white.bold,   '🍎  Mac Control',               'control Mac with natural language → AppleScript', 'maccontrol'),
       menuChoice(T.muted,        '🌅  Daily Digest',              'morning summary: tickets, security, deps, git', 'digest'),
@@ -6993,6 +7127,7 @@ async function main() {
         case 'device-status': await screenDeviceStatus(); break;
         case 'collaboration': await screenCollaboration(); break;
         case 'users':         await screenUsers(); break;
+        case 'workflows':     await screenWorkflows(); break;
         case 'freeapis':     await screenFreeAPIs(); break;
         case 'audit':        await screenAuditLog(); break;
         case 'dashboard':    await screenDashboard(); break; // lazy
