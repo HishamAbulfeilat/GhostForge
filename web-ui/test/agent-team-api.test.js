@@ -45,7 +45,7 @@ test('GF_AGENT_STATE is honored when reading snapshots', () => {
     pid: process.pid,
     phase: 7,
     agents: {
-      copilot: { provider: 'reported-copilot', state: 'working', task: 'T-001', model: 'gpt-4', cooldownUntil: '2024-01-01T00:00:00Z' },
+      copilot: { provider: 'reported-copilot', state: 'working', task: 'T-001', model: 'gpt-4', since: '2024-01-01T00:00:00Z', cooldownUntil: '2024-01-01T00:00:00Z' },
       reportedOnly: { provider: 'reported-only', state: 'idle' },
     },
   }))
@@ -73,6 +73,7 @@ test('GF_AGENT_STATE is honored when reading snapshots', () => {
     assert.equal(snapshot.snapshot.agents.configuredOnly.provider, 'configured-only')
     assert.equal(snapshot.snapshot.agents.reportedOnly.provider, 'reported-only')
     assert.equal(snapshot.snapshot.agents.copilot.state, 'working')
+    assert.equal(snapshot.snapshot.agents.copilot.since, '2024-01-01T00:00:00Z')
     assert.equal(snapshot.snapshot.messages[0].text, 'hello')
   } finally {
     if (previous === undefined) delete process.env.GF_AGENT_STATE

@@ -2,15 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-
-type Agent = {
-  provider: string | null
-  state: string
-  task: string | null
-  model: string | null
-  cooldownUntil: string | null
-}
-type Task = { id: string | null; title: string; kind: string; status: string; owner: string | null }
+import AgentKanbanBoard from './AgentKanbanBoard'
+import type { Agent, Task } from './dashboard-model'
 type Snapshot = {
   health: number | null
   running: boolean
@@ -108,14 +101,6 @@ const action = (payload: Record<string, unknown>): RequestInit => ({
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(payload),
 })
-
-const stateStyle: Record<string, string> = {
-  working: 'bg-cyan-950 text-cyan-200',
-  running: 'bg-cyan-950 text-cyan-200',
-  done: 'bg-emerald-950 text-emerald-200',
-  blocked: 'bg-amber-950 text-amber-200',
-  error: 'bg-red-950 text-red-200',
-}
 
 export default function AgentsPage() {
   const router = useRouter()
@@ -216,21 +201,9 @@ export default function AgentsPage() {
               ].map(([label, value]) => <div key={label} className="rounded-2xl border border-gf-line bg-gf-surface p-4"><div className="text-xs uppercase tracking-wide text-gf-muted">{label}</div><div className="mt-1 font-display text-xl font-semibold">{value}</div></div>)}
             </section>
 
-            <section aria-labelledby="workers-heading">
-              <h2 id="workers-heading" className="mb-3 font-display text-lg font-semibold">Workers</h2>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {Object.entries(snapshot.agents).map(([id, agent]) => <article key={id} className="rounded-2xl border border-gf-line bg-gf-surface p-4">
-                  <div className="flex items-center justify-between gap-2"><h3 className="truncate font-semibold">{id}</h3><span className={`rounded-full px-2 py-1 text-xs ${stateStyle[agent.state] || 'bg-white/10 text-white/70'}`}>{agent.state}</span></div>
-                  <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs text-gf-muted"><dt>Provider</dt><dd className="truncate text-gf-ink">{agent.provider || '—'}</dd><dt>Model</dt><dd className="truncate text-gf-ink">{agent.model || '—'}</dd><dt>Task</dt><dd className="truncate text-gf-ink">{agent.task || 'Idle'}</dd></dl>
-                </article>)}
-              </div>
-            </section>
+            <AgentKanbanBoard agents={snapshot.agents} tasks={snapshot.tasks} messages={displayMessages} />
 
-            <section className="grid gap-6 lg:grid-cols-2">
-              <div>
-                <h2 className="mb-3 font-display text-lg font-semibold">Tasks</h2>
-                <div className="flex flex-col gap-2">{snapshot.tasks.length ? snapshot.tasks.map(task => <div key={task.id || task.title} className="rounded-xl border border-gf-line bg-gf-surface p-3"><div className="flex flex-wrap justify-between gap-2 text-sm font-semibold"><span>{task.title || 'Untitled task'}</span><span className="text-xs text-gf-muted">{task.status}</span></div><div className="mt-1 text-xs text-gf-muted">{task.kind} · {task.owner || 'unassigned'}</div></div>) : <p className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">No tasks on the board.</p>}</div>
-              </div>
+            <section>
               <div>
                 <h2 className="mb-3 font-display text-lg font-semibold">Team controls</h2>
                 <div className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-4">
@@ -240,22 +213,6 @@ export default function AgentsPage() {
               </div>
             </section>
 
-            <section aria-labelledby="messages-heading">
-              <h2 id="messages-heading" className="mb-3 font-display text-lg font-semibold">Messages</h2>
-              {displayMessages.length ? (
-                <ol className="flex flex-col gap-2">
-                  {displayMessages.map(teamMessage => (
-                    <li key={`${teamMessage.timestamp}-${teamMessage.from}-${teamMessage.to}-${teamMessage.text}`} className="rounded-xl border border-gf-line bg-gf-surface p-3">
-                      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-gf-muted">
-                        <span className="min-w-0 truncate"><span className="font-semibold text-gf-ink">{teamMessage.from}</span> <span aria-hidden="true">→</span> <span className="font-semibold text-gf-ink">{teamMessage.to}</span></span>
-                        <time dateTime={teamMessage.datetime}>{teamMessage.timestamp}</time>
-                      </div>
-                      <p className="mt-2 break-words text-sm text-gf-ink">{teamMessage.text}</p>
-                    </li>
-                  ))}
-                </ol>
-              ) : <p className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">No team messages yet.</p>}
-            </section>
           </>
         )}
       </div>
