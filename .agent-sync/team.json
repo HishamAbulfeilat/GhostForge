@@ -1,8 +1,8 @@
 {
   "$comment": "Agent team config — read by scripts/agents/boss.mjs. Paths are relative to the repo root. Models: a tier table per provider (deep/balanced/fast); 'auto' lets the provider choose. Task kind → tier lives in scripts/agents/lib/models.mjs.",
   "boss": {
-    "provider": "copilot",
-    "model": "auto",
+    "provider": "claude",
+    "model": "opus",
     "review": true
   },
   "integration": {
@@ -13,7 +13,7 @@
   "agents": {
     "claude": {
       "provider": "claude",
-      "enabled": false,
+      "enabled": true,
       "worktree": "../gf-claude",
       "branch": "agent/claude/work",
       "strengths": [
@@ -28,7 +28,7 @@
     },
     "copilot-tui": {
       "provider": "copilot",
-      "enabled": true,
+      "enabled": false,
       "worktree": "../gf-boss-tui",
       "branch": "agent/copilot/boss-tui",
       "strengths": [
@@ -39,7 +39,7 @@
     },
     "copilot-desktop": {
       "provider": "copilot",
-      "enabled": true,
+      "enabled": false,
       "worktree": "../gf-boss-desktop",
       "branch": "agent/copilot/boss-desktop",
       "strengths": [
@@ -50,7 +50,7 @@
     },
     "copilot-web": {
       "provider": "copilot",
-      "enabled": true,
+      "enabled": false,
       "worktree": "../gf-boss-web",
       "branch": "agent/copilot/boss-web",
       "strengths": [
@@ -62,7 +62,7 @@
     },
     "copilot-integration": {
       "provider": "copilot",
-      "enabled": true,
+      "enabled": false,
       "worktree": "../gf-boss-integration",
       "branch": "agent/copilot/boss-integration",
       "strengths": [
@@ -73,7 +73,7 @@
     },
     "copilot-quality": {
       "provider": "copilot",
-      "enabled": true,
+      "enabled": false,
       "worktree": "../gf-boss-quality",
       "branch": "agent/copilot/boss-quality",
       "strengths": [
@@ -108,7 +108,7 @@
     },
     "claude-2": {
       "provider": "claude",
-      "enabled": false,
+      "enabled": true,
       "strengths": [
         "feature",
         "bugfix",
@@ -123,7 +123,7 @@
     },
     "claude-3": {
       "provider": "claude",
-      "enabled": false,
+      "enabled": true,
       "strengths": [
         "feature",
         "bugfix",
