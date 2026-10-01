@@ -59,21 +59,24 @@ test('addTask dedupes open tasks by title', () => {
 
 test('bus round-trips board, messages, and results', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-bus-'))
-  fs.mkdirSync(path.join(dir, 'results'))
-  const board = loadBoard(dir)
-  addTask(board, { title: 't', kind: 'chore' })
-  saveBoard(dir, board)
-  assert.equal(loadBoard(dir).tasks[0].id, 'T-001')
+  try {
+    fs.mkdirSync(path.join(dir, 'results'))
+    const board = loadBoard(dir)
+    addTask(board, { title: 't', kind: 'chore' })
+    saveBoard(dir, board)
+    assert.equal(loadBoard(dir).tasks[0].id, 'T-001')
 
-  say(dir, 'claude', 'copilot', 'hi')
-  say(dir, 'boss', 'all', 'broadcast')
-  say(dir, 'copilot', 'gemini', 'not for claude')
-  assert.deepEqual(readMessages(dir, { to: 'claude' }).map(m => m.text), ['hi', 'broadcast'])
+    say(dir, 'claude', 'copilot', 'hi')
+    say(dir, 'boss', 'all', 'broadcast')
+    say(dir, 'copilot', 'gemini', 'not for claude')
+    assert.deepEqual(readMessages(dir, { to: 'claude' }).map(m => m.text), ['hi', 'broadcast'])
 
-  writeResult(dir, 'T-001', { agent: 'claude', outcome: 'done', summary: 's' })
-  assert.equal(takeResult(dir, 'T-001').outcome, 'done')
-  assert.equal(takeResult(dir, 'T-001'), null, 'result is consumed once')
-  fs.rmSync(dir, { recursive: true, force: true })
+    writeResult(dir, 'T-001', { agent: 'claude', outcome: 'done', summary: 's' })
+    assert.equal(takeResult(dir, 'T-001').outcome, 'done')
+    assert.equal(takeResult(dir, 'T-001'), null, 'result is consumed once')
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('provider adapters deny pushes for workers and are read-only for the boss', () => {
@@ -97,10 +100,13 @@ test('provider adapters deny pushes for workers and are read-only for the boss',
 
 test('runtime prompts are staged inside the executing worktree', () => {
   const worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-prompt-'))
-  const file = stagePrompt(worktree, 'tasks', 'T-001-copilot.md', 'task prompt')
-  assert.equal(file, path.join(worktree, '.agent-sync', 'state', 'tasks', 'T-001-copilot.md'))
-  assert.equal(fs.readFileSync(file, 'utf8'), 'task prompt')
-  fs.rmSync(worktree, { recursive: true, force: true })
+  try {
+    const file = stagePrompt(worktree, 'tasks', 'T-001-copilot.md', 'task prompt')
+    assert.equal(file, path.join(worktree, '.agent-sync', 'state', 'tasks', 'T-001-copilot.md'))
+    assert.equal(fs.readFileSync(file, 'utf8'), 'task prompt')
+  } finally {
+    fs.rmSync(worktree, { recursive: true, force: true })
+  }
 })
 
 test('team config: every enabled worker has its own provider, worktree and branch', () => {

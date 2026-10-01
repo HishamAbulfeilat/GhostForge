@@ -6,10 +6,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { check, isAlive } from './watchdog.mjs'
 
-function tempState() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-watchdog-'))
-  process.env.GF_AGENT_STATE = dir
-  return dir
+function withTempRoot(run) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-watchdog-'))
+  const dir = path.join(root, '.agent-sync', 'state')
+  try {
+    return run(root, dir)
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 }
 
 test('isAlive: the current process is alive, pid 0/NaN is not', () => {
@@ -19,15 +23,19 @@ test('isAlive: the current process is alive, pid 0/NaN is not', () => {
 })
 
 test('check: an explicit STOP is respected (no restart)', () => {
-  const dir = tempState()
-  fs.writeFileSync(path.join(dir, 'STOP'), 'user')
-  assert.equal(check(), 'stopped-by-user')
-  assert.equal(fs.existsSync(path.join(dir, 'boss.log')), false)
+  withTempRoot((root, dir) => {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'STOP'), 'user')
+    assert.equal(check(root, dir), 'stopped-by-user')
+    assert.equal(fs.existsSync(path.join(dir, 'boss.log')), false)
+  })
 })
 
 test('check: a live boss pid is left alone', () => {
-  const dir = tempState()
-  fs.writeFileSync(path.join(dir, 'boss.pid'), String(process.pid))
-  assert.equal(check(), 'alive')
-  assert.equal(fs.existsSync(path.join(dir, 'boss.log')), false)
+  withTempRoot((root, dir) => {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'boss.pid'), String(process.pid))
+    assert.equal(check(root, dir), 'alive')
+    assert.equal(fs.existsSync(path.join(dir, 'boss.log')), false)
+  })
 })
