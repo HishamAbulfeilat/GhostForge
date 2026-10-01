@@ -48,6 +48,8 @@ export function addTask(board, t) {
   const task = {
     id: `T-${String(board.nextId++).padStart(3, '0')}`,
     title: t.title, kind: t.kind, area: t.area ?? [], agent: t.agent ?? 'any',
+    assignee: t.assignee ?? null, leader: t.leader ?? null, workflow: t.workflow ?? 'parallel',
+    dependencies: t.dependencies ?? [], acceptanceCriteria: t.acceptanceCriteria ?? [],
     status: 'todo', owner: null, attempts: 0, notes: t.notes ?? '',
     phase: t.phase ?? board.phase, createdAt: now, updatedAt: now,
   }

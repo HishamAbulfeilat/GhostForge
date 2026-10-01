@@ -7,7 +7,7 @@
 //   node scripts/agents/team.mjs inbox --for copilot         recent messages
 //   node scripts/agents/team.mjs done  T-004 --agent claude "summary"
 //   node scripts/agents/team.mjs block T-004 --agent claude "reason"
-//   node scripts/agents/team.mjs add "title" [--kind k] [--area a,b] [--agent any] [--from human]
+//   node scripts/agents/team.mjs add "title" [--kind k] [--area a,b] [--agent any] [--leader id] [--assignee id] [--workflow mode] [--dependencies T-001,T-002] [--acceptance-criteria "criterion one;criterion two"] [--from human]
 //   node scripts/agents/team.mjs stop                        boss stops after in-flight tasks
 //
 // Works from any worktree: state lives in the main repo (found via git).
@@ -100,8 +100,22 @@ function main() {
     }
     case 'add': {
       const title = pos.join(' ')
-      if (!title) throw new Error('usage: add "title" [--kind k] [--area a,b] [--agent any]')
-      const req = { title, kind: flags.kind, area: flags.area ? String(flags.area).split(',') : [], agent: flags.agent || 'any', from: flags.from || 'human' }
+      if (!title) throw new Error('usage: add "title" [--kind k] [--area a,b] [--agent any] [--leader id] [--assignee id] [--workflow mode] [--dependencies T-001,T-002] [--acceptance-criteria "criterion one;criterion two"]')
+      const listFlag = (value, separator) => value ? String(value).split(separator).map(item => item.trim()).filter(Boolean) : []
+      const req = {
+        title,
+        kind: flags.kind,
+        area: listFlag(flags.area, ','),
+        agent: flags.agent || 'any',
+        from: flags.from || 'human',
+      }
+      if (flags.assignee) req.assignee = flags.assignee
+      if (flags.leader) req.leader = flags.leader
+      if (flags.workflow) req.workflow = flags.workflow
+      const dependencies = listFlag(flags.dependencies, ',')
+      if (dependencies.length) req.dependencies = dependencies
+      const acceptanceCriteria = listFlag(flags['acceptance-criteria'], ';')
+      if (acceptanceCriteria.length) req.acceptanceCriteria = acceptanceCriteria
       fs.appendFileSync(path.join(dir, 'requests.jsonl'), JSON.stringify(req) + '\n')
       console.log('queued for the boss')
       break

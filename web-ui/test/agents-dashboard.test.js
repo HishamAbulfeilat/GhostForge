@@ -22,6 +22,7 @@ modelModule.paths = Module._nodeModulePaths(path.dirname(modelPath))
 modelModule._compile(compiledModel, modelPath)
 const {
   countOpenTasks,
+  buildDependencyGraph,
   findAgentTask,
   formatElapsed,
   getAgentProgress,
@@ -69,6 +70,19 @@ test('agents dashboard retains authenticated snapshot loading and existing team 
   assert.match(page, /Enter a task title before adding it\./)
 })
 
+test('agents dashboard queues refreshes behind one in-flight load and polls only while visible and running', () => {
+  assert.match(page, /const loadPromise = useRef<Promise<void> \| null>\(null\)/)
+  assert.match(page, /if \(loadPromise\.current\) \{\s*refreshQueued\.current = true\s*return loadPromise\.current\s*\}/)
+  assert.match(page, /do \{\s*refreshQueued\.current = false[\s\S]*?\} while \(refreshQueued\.current\)/)
+  assert.match(page, /await load\(\)/)
+  assert.match(page, /if \(!snapshot\?\.running\) return/)
+  assert.match(page, /document\.visibilityState === ['"]visible['"]/)
+  assert.match(page, /window\.setInterval\(refreshWhenVisible, 15_000\)/)
+  assert.match(page, /document\.addEventListener\(['"]visibilitychange['"], refreshWhenVisible\)/)
+  assert.match(page, /window\.clearInterval\(interval\)/)
+  assert.match(page, /document\.removeEventListener\(['"]visibilitychange['"], refreshWhenVisible\)/)
+})
+
 test('kanban groups every required state and normalizes the boss in-progress spelling', () => {
   assert.deepEqual(
     Object.fromEntries(Object.entries(groupTasksByStatus(tasks)).map(([status, items]) => [status, items.map(task => task.id)])),
@@ -104,6 +118,48 @@ test('worker progress comes from assigned outcomes and current-task lookup honor
   assert.match(board, /Current task/)
   assert.match(board, /Provider/)
   assert.match(board, /Model/)
+})
+
+test('dependency graph resolves task links and safely reports missing, ambiguous, and cyclic references', () => {
+  const graph = buildDependencyGraph([
+    { ...tasks[0], dependencies: ['T-2', ' missing ', 'T-4', 'T-2'] },
+    { ...tasks[1], dependencies: ['T-1'] },
+    { ...tasks[2], id: 'T-4' },
+    { ...tasks[3], id: 'T-4' },
+  ])
+
+  assert.deepEqual(graph.map(node => ({
+    key: node.key,
+    dependencies: node.dependencyNodeKeys,
+    missing: node.missingDependencies,
+    ambiguous: node.ambiguousDependencies,
+    cyclic: node.cyclic,
+  })), [
+    { key: 'task-0', dependencies: ['task-1'], missing: ['missing'], ambiguous: ['T-4'], cyclic: true },
+    { key: 'task-1', dependencies: ['task-0'], missing: [], ambiguous: [], cyclic: true },
+    { key: 'task-2', dependencies: [], missing: [], ambiguous: [], cyclic: false },
+    { key: 'task-3', dependencies: [], missing: [], ambiguous: [], cyclic: false },
+  ])
+  assert.deepEqual(buildDependencyGraph([]), [])
+})
+
+test('dependency graph exposes acceptance criteria through keyboard-operable UI and responsive task links', () => {
+  const graph = buildDependencyGraph([{
+    ...tasks[0],
+    dependencies: ['T-2'],
+    acceptanceCriteria: ['  Criterion one ', '', 'Criterion two'],
+  }])
+  assert.equal(graph[0].task.acceptanceCriteria[0], '  Criterion one ')
+  assert.match(board, /buildDependencyGraph\(tasks\)/)
+  assert.match(board, /aria-labelledby="workflow-dependencies-heading"/)
+  assert.match(board, /<ol className="grid list-none gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3"/)
+  assert.match(board, /href=\{`#\$\{dependency\.anchorId\}`\}/)
+  assert.match(board, /<details/)
+  assert.match(board, /<summary className=/)
+  assert.match(board, /Acceptance criteria \(\{criteria\.length\}\)/)
+  assert.match(board, /Unavailable task:/)
+  assert.match(board, /Ambiguous task ID:/)
+  assert.match(board, /Circular dependency/)
 })
 
 test('elapsed time uses the boss since timestamp and handles malformed or future timestamps', () => {
