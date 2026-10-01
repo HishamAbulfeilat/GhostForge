@@ -776,6 +776,9 @@ class DeviceRequest(BaseModel):
 class ReleaseRequest(BaseModel):
     action: str = "status"
     kind: str = "patch"
+    environment: str = "staging"
+    target: str = "static"
+    notes: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -922,11 +925,34 @@ def _run_workflow(workflow: dict[str, Any], max_steps: int) -> dict[str, Any]:
             if kind == "manual":
                 step["status"] = "skipped"
                 message = "Skipped: manual steps require a human"
-            elif kind == "command" and ref in ("bridge:health", "bridge:release-status"):
+            elif kind == "command" and ref in (
+                "bridge:health",
+                "bridge:release-status",
+                "bridge:deploy",
+                "bridge:deploy-azure",
+                "bridge:azure-deploy",
+            ):
                 step["status"] = "running"
-                result = health() if ref == "bridge:health" else _release_status()
+                if ref == "bridge:health":
+                    result = health()
+                elif ref == "bridge:release-status":
+                    result = _release_status()
+                else:
+                    result = _deploy_azure()
                 step["status"] = "done"
                 message = f"Completed {ref}" if result is None else f"Completed {ref}: {str(result)[:500]}"
+            elif kind == "command" and ref.startswith("bridge:deploy"):
+                step["status"] = "running"
+                ref_parts = ref.split(":")
+                environment = "staging"
+                target = "static"
+                if len(ref_parts) > 2:
+                    environment = ref_parts[2]
+                if len(ref_parts) > 3:
+                    target = ref_parts[3]
+                result = _deploy_azure(environment=environment, target=target)
+                step["status"] = "done"
+                message = f"Completed {ref}: {str(result)[:500]}"
             else:
                 step["status"] = "failed"
                 message = f"Unsupported workflow step: kind={kind!r}, ref={ref!r}"
@@ -955,6 +981,79 @@ def _workflow_step(value: WorkflowStepRequest | dict[str, Any]) -> dict[str, Any
         "status": data.get("status") if data.get("status") in ("pending", "running", "done", "failed", "blocked", "skipped") else "pending",
         "notes": str(data.get("notes") or "")[:4000],
         "log": list(data.get("log") or [])[-50:],
+    }
+
+
+_DEPLOY_ENVIRONMENTS = {"staging", "production", "dev"}
+_DEPLOY_TARGET_ALIASES = {
+    "static": "static",
+    "azure-static": "static",
+    "static-web-apps": "static",
+    "swa": "static",
+    "app": "app-service",
+    "app-service": "app-service",
+    "appservice": "app-service",
+    "node": "app-service",
+    "service": "app-service",
+    "eas": "eas",
+    "eas-build": "eas",
+    "expo": "eas",
+    "mobile": "eas",
+}
+
+
+def _normalize_deploy_environment(value: str) -> str:
+    environment = (value or "staging").strip().lower()
+    if environment not in _DEPLOY_ENVIRONMENTS:
+        raise ValueError("Unsupported deployment environment; allowed: staging, production, dev")
+    return environment
+
+
+def _normalize_deploy_target(value: str) -> str:
+    target = (value or "static").strip().lower().replace("_", "-")
+    target = _DEPLOY_TARGET_ALIASES.get(target, target)
+    allowed = {"static", "app-service", "eas"}
+    if target not in allowed:
+        raise ValueError("Unsupported deployment target; allowed: static, app-service, eas")
+    return target
+
+
+def _deploy_azure(environment: str = "staging", target: str = "static") -> dict[str, Any]:
+    normalized_environment = _normalize_deploy_environment(environment)
+    normalized_target = _normalize_deploy_target(target)
+    script = Path(__file__).resolve().parent.parent / "scripts" / "deploy-azure.sh"
+    if not script.exists():
+        raise RuntimeError("Azure deployment script is not available")
+    deploy_type_map = {"static": "1", "app-service": "2", "eas": "3"}
+    command = [
+        "bash",
+        str(script),
+        "--env",
+        normalized_environment,
+        "--type",
+        deploy_type_map[normalized_target],
+    ]
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=str(script.parent.parent),
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+            env={**os.environ, "GF_NON_INTERACTIVE": "1"},
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"Azure deployment is unavailable: {exc}") from exc
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "deployment command failed").strip()
+        raise RuntimeError(f"Azure deployment failed: {detail[:1000]}")
+    out = (proc.stdout or proc.stderr or "Deployment started").strip()
+    return {
+        "environment": normalized_environment,
+        "target": normalized_target,
+        "output": out[:4000],
+        "script": str(script),
     }
 
 
@@ -1866,10 +1965,18 @@ def release_get():
 
 @app.post("/api/release", dependencies=[Depends(require_token)])
 def release_post(req: ReleaseRequest):
-    if req.action not in ("status", "prepare", "notes"):
+    if req.action not in ("status", "prepare", "notes", "deploy"):
         raise HTTPException(status_code=400, detail="Unknown release action")
     if req.action == "prepare" and req.kind not in ("patch", "minor", "major"):
         raise HTTPException(status_code=400, detail="Invalid release kind")
+    if req.action == "deploy":
+        try:
+            deployment = _deploy_azure(environment=req.environment, target=req.target)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"action": "deploy", "kind": req.kind, "environment": deployment["environment"], "target": deployment["target"], "result": deployment["output"]}
     return {"action": req.action, **_release_status(), "kind": req.kind}
 
 
