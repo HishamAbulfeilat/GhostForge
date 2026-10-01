@@ -8,6 +8,8 @@
   "scripts": {
     "postinstall": "node scripts/fix-node-pty-perms.js",
     "test": "node scripts/test.js",
+    "monitor": "node tools/dev-monitor/server.mjs",
+    "test:monitor": "node --test tools/dev-monitor/server.test.mjs",
     "agents:setup": "node scripts/agents/boss.mjs setup",
     "ecc:setup": "node scripts/agents/ecc-setup.mjs",
     "agents:start": "node scripts/agents/boss.mjs start",
