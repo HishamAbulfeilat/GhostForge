@@ -15,11 +15,13 @@ function jsonResponse(data, status = 200) {
   }
 }
 
-test('help explains workflow management without claiming step execution', () => {
+test('help documents bounded workflow execution', () => {
   const result = spawnSync(process.execPath, [cliPath, '--help'], { encoding: 'utf8' })
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /Usage:/)
-  assert.match(result.stdout, /does not execute steps/i)
+  assert.match(result.stdout, /workflows run <workflow-id> \[--max-steps <1-100>\]/)
+  assert.match(result.stdout, /allowlisted command steps/i)
+  assert.match(result.stdout, /manual steps are skipped/i)
   assert.match(result.stdout, /MARKL_BRIDGE_TOKEN/)
 })
 
@@ -41,6 +43,10 @@ test('parses workflow list, create, update, step status, show, and delete comman
     command: 'step', id: 'wf-1', stepId: 'step-1', status: 'done', notes: 'Reviewed', json: false,
   })
   assert.deepEqual(parseArgs(['show', 'wf-1']), { command: 'show', id: 'wf-1', json: false })
+  assert.deepEqual(parseArgs(['run', 'wf-1']), { command: 'run', id: 'wf-1', maxSteps: 100, json: false })
+  assert.deepEqual(parseArgs(['run', 'wf-1', '--max-steps', '5', '--json']), {
+    command: 'run', id: 'wf-1', maxSteps: 5, json: true,
+  })
   assert.deepEqual(parseArgs(['delete', 'wf-1']), { command: 'delete', id: 'wf-1', json: false })
 })
 
@@ -51,9 +57,41 @@ test('rejects missing values, duplicate options, invalid statuses, and extra arg
   assert.throws(() => parseArgs(['update', 'wf-1', '--status', 'complete']), /workflow status/)
   assert.throws(() => parseArgs(['step', 'wf-1', 'step-1', 'complete']), /step status/)
   assert.throws(() => parseArgs(['show', '../workflow']), /workflow ID/)
+  assert.throws(() => parseArgs(['run']), /workflow ID/)
+  assert.throws(() => parseArgs(['run', '../workflow']), /workflow ID/)
+  assert.throws(() => parseArgs(['run', 'wf-1', '--max-steps']), /requires a value/)
+  assert.throws(() => parseArgs(['run', 'wf-1', '--max-steps', '5', '--max-steps', '6']), /only be provided once/)
+  for (const value of ['2.5', '3abc', '1e2', '-1', '+2', '0', '101']) {
+    assert.throws(
+      () => parseArgs(['run', 'wf-1', '--max-steps', value]),
+      /--max-steps must be an integer between 1 and 100/,
+      `expected "${value}" to be rejected`,
+    )
+  }
   assert.throws(() => parseArgs(['list', 'unexpected']), /Unknown option or argument/)
   assert.throws(() => parseArgs(['delete', 'wf-1', 'wf-2']), /Unknown option or argument/)
   assert.throws(() => parseArgs(['create', '--name', 'Plan', '--name', 'Again']), /only be provided once/)
+})
+
+test('run sends an authenticated bounded POST request and formats progress', async () => {
+  const calls = []
+  const responseData = {
+    workflow: { id: 'wf-1', name: 'Release', status: 'done', steps: [] },
+    progress: { done: 2, total: 2, pct: 100 },
+  }
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init })
+    return jsonResponse(responseData)
+  }
+  const options = parseArgs(['run', 'wf-1', '--max-steps', '4'])
+  const data = await request(options, { MARKL_BRIDGE_TOKEN: 'bridge-token' }, fetchImpl)
+
+  assert.equal(calls[0].url, 'http://127.0.0.1:8765/api/workflows')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.equal(calls[0].init.headers.Authorization, 'Bearer bridge-token')
+  assert.equal(calls[0].init.headers['Content-Type'], 'application/json')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { action: 'run', id: 'wf-1', max_steps: 4 })
+  assert.match(formatResult(options, data), /wf-1 finished \(done\): 2\/2 steps \(100%\)/)
 })
 
 test('bridge hosts default to loopback and tokens are sent only as bearer credentials', () => {
@@ -160,4 +198,21 @@ test('API errors and malformed success responses fail clearly', async () => {
       jsonResponse({ ok: false })),
     /Workflow not found/,
   )
+  await assert.rejects(
+    request(parseArgs(['run', 'wf-1']), { MARKL_BRIDGE_TOKEN: 'token' }, async () =>
+      jsonResponse({ detail: 'Unsupported workflow step' }, 422)),
+    /422: Unsupported workflow step/,
+  )
+  for (const data of [
+    { workflow: { id: 'wf-1', status: 'done' } },
+    { workflow: { id: 'wf-2', status: 'done' }, progress: { done: 1, total: 1, pct: 100 } },
+    { workflow: { id: 'wf-1', status: 'running' }, progress: { done: 0, total: 1, pct: 0 } },
+    { workflow: { id: 'wf-1', status: 'done' }, progress: { done: 2, total: 1, pct: 100 } },
+    { workflow: { id: 'wf-1', status: 'done' }, progress: { done: 0, total: 1, pct: 101 } },
+  ]) {
+    await assert.rejects(
+      request(parseArgs(['run', 'wf-1']), { MARKL_BRIDGE_TOKEN: 'token' }, async () => jsonResponse(data)),
+      /valid completed run result|requested workflow/,
+    )
+  }
 })
