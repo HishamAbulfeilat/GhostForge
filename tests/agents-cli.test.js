@@ -41,6 +41,8 @@ test('agents add forwards title and flags to team.mjs in isolated state', () => 
       kind: 'feature',
       area: ['cli', 'tests'],
       agent: 'any',
+      assignee: 'any',
+      leader: 'boss',
       from: 'test',
     })
   } finally {

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>GhostForge Dev Monitor</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">LOCAL · READ ONLY</p>
+        <h1>GhostForge Dev Monitor</h1>
+      </div>
+      <div class="refresh">
+        <span id="connection" class="connection" role="status">Connecting…</span>
+        <span>Refreshes every 5 seconds</span>
+      </div>
+    </header>
+    <main>
+      <section class="stats" aria-label="Team overview">
+        <article class="stat"><span>Phase</span><strong id="phase">—</strong></article>
+        <article class="stat"><span>Health</span><strong id="health">—</strong></article>
+        <article class="stat"><span>Agents</span><strong id="agent-count">—</strong></article>
+        <article class="stat"><span>Tasks</span><strong id="task-count">—</strong></article>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">TEAM</p><h2>Boss &amp; workers</h2></div></div>
+        <div id="agents" class="card-grid"><p class="muted">Loading agent state…</p></div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">LOCAL SESSIONS</p><h2>CLI sessions for this repository</h2></div></div>
+        <div id="sessions" class="card-grid"><p class="muted">Loading local session metadata…</p></div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">WORKFLOW</p><h2>Task dependency graph</h2></div></div>
+        <div id="graph" class="graph-wrap"><p class="muted">Loading board tasks…</p></div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">BOARD</p><h2>Tasks</h2></div></div>
+        <div id="tasks" class="task-list"><p class="muted">Loading tasks…</p></div>
+      </section>
+      <section class="panel">
+        <div class="panel-heading"><div><p class="eyebrow">MESSAGE BUS</p><h2>Recent messages</h2></div></div>
+        <ol id="messages" class="message-list"><li class="muted">Loading messages…</li></ol>
+      </section>
+    </main>
+    <footer><span id="updated">Waiting for first snapshot</span><span>Only loopback · No transcripts or credentials</span></footer>
+  </body>
+</html>
