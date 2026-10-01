@@ -3,13 +3,13 @@ import { isAuthorizedRequest } from '@/lib/auth'
 import { requirePermission } from '@/lib/access'
 import { ensureMarkLivBridge } from '@/lib/mark-liv-bridge'
 import { getLiveBridgeToken } from '@/lib/bridge-token'
+import { getMarkLBridgeUrl } from '@/lib/bridge-url'
 
 export const dynamic = 'force-dynamic'
 
 const YOUTUBE_ACTIONS = new Set(['play', 'summarize', 'get_info', 'trending'])
 const GAME_ACTIONS = new Set(['list', 'update', 'schedule', 'cancel_schedule', 'schedule_status', 'download_status'])
 const YOUTUBE_URL = /^https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\//i
-const BRIDGE_URL = (process.env.MARKL_BRIDGE_URL || 'http://127.0.0.1:8765').replace(/\/+$/, '')
 
 function invalid(message: string) {
   return NextResponse.json({ error: message }, { status: 400 })
@@ -65,9 +65,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Validated: loopback only unless GF_ALLOW_REMOTE_BRIDGE=1, so the bridge token never leaves the host.
+    const bridgeUrl = getMarkLBridgeUrl()
     if (!(await ensureMarkLivBridge())) throw new Error('Bridge is not running and could not be started.')
     const endpoint = target === 'youtube' ? '/api/mark-l/youtube' : '/api/mark-l/game-updater'
-    const response = await fetch(`${BRIDGE_URL}${endpoint}`, {
+    const response = await fetch(`${bridgeUrl}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -76,10 +78,11 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(180_000),
     })
-    const responseBody = await response.json().catch(() => null) as { data?: unknown; detail?: string } | null
     if (!response.ok) {
+      const responseBody = await response.json().catch(() => null) as { detail?: string } | null
       throw new Error(typeof responseBody?.detail === 'string' ? responseBody.detail : `Bridge request failed (${response.status}).`)
     }
+    const responseBody = await response.json().catch(() => null) as { data?: unknown } | null
     const result = typeof responseBody?.data === 'string'
       ? responseBody.data
       : responseBody?.data == null ? 'Done.' : JSON.stringify(responseBody.data, null, 2)

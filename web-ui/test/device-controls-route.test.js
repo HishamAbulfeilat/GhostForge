@@ -20,3 +20,9 @@ test('device controls route forwards only to the matching bridge endpoint', () =
   assert.match(route, /Authorization: `Bearer \$\{getLiveBridgeToken\(\)\}`/)
   assert.match(route, /AbortSignal\.timeout\(180_000\)/)
 })
+
+test('device controls route only sends the bridge token to a validated bridge URL', () => {
+  assert.match(route, /const bridgeUrl = getMarkLBridgeUrl\(\)/)
+  assert.match(route, /fetch\(`\$\{bridgeUrl\}\$\{endpoint\}`/)
+  assert.doesNotMatch(route, /process\.env\.MARKL_BRIDGE_URL/)
+})
