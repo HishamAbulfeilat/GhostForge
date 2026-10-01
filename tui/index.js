@@ -15,6 +15,7 @@ import ora from 'ora';
 import { execSync, spawn, spawnSync } from 'child_process';
 import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname, join } from 'path';
+import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { filterMenuChoices, groupCommandChoices } from './lib/menu-search.js';
 import { readRecentCommands, rememberCommand } from './lib/recent-commands.js';
@@ -27,6 +28,8 @@ import { runTeamCommand, startAgentTeam } from './lib/agent-team.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const BASE = ROOT;
+const COLLAB_BRIDGE_URL = 'http://127.0.0.1:8765';
+const COLLAB_SESSION_ID = /^[a-z0-9]{8,64}$/i;
 const VERSION = existsSync(resolve(ROOT, 'VERSION'))
   ? readFileSync(resolve(ROOT, 'VERSION'), 'utf8').trim()
   : '4.0.0';
@@ -35,6 +38,96 @@ const SCRIPTS_COUNT = existsSync(resolve(ROOT, 'scripts'))
   ? readdirSync(resolve(ROOT, 'scripts')).filter(file => file.endsWith('.sh')).length
   : 0;
 figlet.defaults({ fontPath: resolve(__dirname, 'node_modules/figlet/fonts') });
+
+function collabBridgeConfig(env = process.env) {
+  const rawUrl = env.MARKL_BRIDGE_URL?.trim() || COLLAB_BRIDGE_URL;
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    throw new Error('MARKL_BRIDGE_URL must be an absolute http(s) URL.');
+  }
+  if (!['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password ||
+      !['', '/'].includes(parsedUrl.pathname) || parsedUrl.search || parsedUrl.hash) {
+    throw new Error('MARKL_BRIDGE_URL must contain only an http(s) scheme, host, and optional port.');
+  }
+  const loopback = ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(parsedUrl.hostname);
+  if (!loopback && env.GF_ALLOW_REMOTE_BRIDGE !== '1') {
+    throw new Error('MARKL_BRIDGE_URL is not loopback; set GF_ALLOW_REMOTE_BRIDGE=1 to opt in.');
+  }
+
+  let token = env.MARKL_BRIDGE_TOKEN?.trim();
+  if (!token) {
+    const tokenPath = join(homedir(), '.ghostforge', 'bridge', 'token');
+    try {
+      token = readFileSync(tokenPath, 'utf8').trim();
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        throw new Error(`Bridge token not found. Set MARKL_BRIDGE_TOKEN or create ${tokenPath}.`);
+      }
+      throw new Error(`Could not read bridge token at ${tokenPath}: ${error.message}`);
+    }
+  }
+  if (!token) throw new Error('Bridge token is empty. Set MARKL_BRIDGE_TOKEN or check the bridge token file.');
+  if (/[\r\n]/.test(token)) throw new Error('Bridge token contains invalid characters.');
+  return { baseUrl: parsedUrl.origin, token };
+}
+
+function safeCollabText(value) {
+  return String(value ?? '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+}
+
+async function collabBridgeRequest(pathname, init = {}) {
+  const { baseUrl, token } = collabBridgeConfig();
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${pathname}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        ...init.headers,
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch (error) {
+    if (error.name === 'TimeoutError') throw new Error('The collaboration bridge request timed out.');
+    throw new Error(`Could not reach the collaboration bridge: ${safeCollabText(error.message)}`);
+  }
+
+  const text = await response.text();
+  let parsedBody;
+  try {
+    parsedBody = text ? JSON.parse(text) : {};
+  } catch {
+    parsedBody = { detail: safeCollabText(text).slice(0, 300) };
+  }
+  const body = parsedBody && typeof parsedBody === 'object' ? parsedBody : {};
+  if (!response.ok) {
+    throw new Error(safeCollabText(body.detail || body.error || `Bridge request failed (${response.status}).`));
+  }
+  return body.data ?? body;
+}
+
+function collabShareUrl(id, sharePath = `/jarvis?session=${encodeURIComponent(id)}`) {
+  const base = process.env.GF_WEB_UI_URL?.trim() || 'http://127.0.0.1:3000';
+  let webUrl;
+  try {
+    webUrl = new URL(base);
+  } catch {
+    throw new Error('GF_WEB_UI_URL must be an absolute http(s) URL to build a share link.');
+  }
+  if (!['http:', 'https:'].includes(webUrl.protocol) || webUrl.username || webUrl.password ||
+      !['', '/'].includes(webUrl.pathname) || webUrl.search || webUrl.hash) {
+    throw new Error('GF_WEB_UI_URL must contain only an http(s) scheme, host, and optional port.');
+  }
+  const safePath = /^\/jarvis\?session=[a-z0-9]{8,64}$/i.test(sharePath)
+    ? sharePath
+    : `/jarvis?session=${encodeURIComponent(id)}`;
+  return new URL(safePath, webUrl.origin).toString();
+}
 
 const cliArgs = process.argv.slice(2);
 if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
@@ -79,6 +172,80 @@ async function screenDeviceStatus() {
     });
     const output = (result.stdout || result.stderr || '').trim();
     console.log(result.status === 0 ? T.success(`\n  ✔ ${output}`) : T.warning(`\n  ⚠ ${output || 'Device command failed.'}`));
+    await pressEnter();
+  }
+}
+
+async function screenCollaboration() {
+  let sessionId = '';
+  let shareUrl = '';
+  while (true) {
+    sectionHeader('🤝  Collaboration & Sharing', 'Create or join a bridge-backed session and send messages');
+    const choices = [
+      { name: T.success('➕  Create a session'), value: 'create' },
+      { name: T.accent('↪  Load a session by ID'), value: 'load' },
+      { name: T.white('✉  Send a message'), value: 'send' },
+      ...(shareUrl ? [{ name: T.cyan('🔗  Copy share link'), value: 'copy' }] : []),
+      { name: T.muted('← Back'), value: 'back' },
+    ];
+    const action = await select({ message: 'Collaboration action:', choices });
+    if (action === 'back') return;
+
+    try {
+      if (action === 'create') {
+        const session = await collabBridgeRequest('/api/jarvis/collab');
+        if (typeof session.id !== 'string' || !COLLAB_SESSION_ID.test(session.id)) {
+          throw new Error('The bridge returned an invalid session ID.');
+        }
+        sessionId = session.id;
+        shareUrl = collabShareUrl(sessionId, session.shareUrl);
+        console.log(T.success(`\n  ✔ Session created: ${safeCollabText(sessionId)}`));
+        console.log(T.cyan(`  Share link: ${safeCollabText(shareUrl)}`));
+      } else if (action === 'load') {
+        const requestedId = (await input({ message: 'Session ID:' })).trim();
+        if (!COLLAB_SESSION_ID.test(requestedId)) {
+          throw new Error('Session ID must be 8–64 letters or numbers.');
+        }
+        const session = await collabBridgeRequest(`/api/jarvis/collab?id=${encodeURIComponent(requestedId)}`);
+        if (session.id !== requestedId) throw new Error('The bridge returned a different session ID.');
+        sessionId = requestedId;
+        shareUrl = collabShareUrl(sessionId);
+        console.log(T.success(`\n  ✔ Loaded session: ${safeCollabText(sessionId)}`));
+        if (Number.isFinite(session.participants)) {
+          console.log(T.muted(`  Participants: ${session.participants}`));
+        }
+        if (Array.isArray(session.messages) && session.messages.length) {
+          console.log(T.white('\n  Recent messages:'));
+          for (const message of session.messages.slice(-10)) {
+            const role = safeCollabText(message?.role || 'unknown');
+            const content = safeCollabText(message?.content || '');
+            console.log(`  ${role}: ${content}`);
+          }
+        } else {
+          console.log(T.muted('  No messages yet.'));
+        }
+      } else if (action === 'send') {
+        if (!sessionId) throw new Error('Create or load a session before sending a message.');
+        const content = (await input({ message: 'Message (up to 10,000 characters):' })).trim();
+        if (!content) throw new Error('Message cannot be empty.');
+        if (content.length > 10_000) throw new Error('Message must be at most 10,000 characters.');
+        await collabBridgeRequest('/api/jarvis/collab', {
+          method: 'POST',
+          body: JSON.stringify({ id: sessionId, role: 'user', content }),
+        });
+        console.log(T.success('\n  ✔ Message sent.'));
+      } else if (action === 'copy') {
+        if (!shareUrl) throw new Error('Create or load a session before copying a share link.');
+        if (crossPlatformCopy(shareUrl)) console.log(T.success('\n  ✔ Share link copied to clipboard.'));
+        else console.log(T.warning('\n  ⚠ Clipboard unavailable; copy the share link shown above.'));
+        console.log(T.cyan(`  ${safeCollabText(shareUrl)}`));
+      }
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeCollabText(error.message || 'Collaboration request failed.')}`));
+      if (/bridge/i.test(error.message || '')) {
+        console.log(T.muted('  Check that the bridge is running and its token is available.'));
+      }
+    }
     await pressEnter();
   }
 }
@@ -509,6 +676,7 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '🎨  Design Resources',          'DESIGN.md templates (74 sites) + awesome-design tools', 'designresources'),
       menuChoice(T.accent.bold,  '📱  Install on Device',         'PWA · Android APK · iOS IPA · Desktop', 'deviceinstall'),
       menuChoice(T.cyan.bold,    '📡  Device & Push Status',       'check host status · send a push notification preview', 'device-status'),
+      menuChoice(T.accent.bold,  '🤝  Collaboration & Sharing',   'create or join sessions · send messages · copy share links', 'collaboration'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
       menuChoice(T.white.bold,   '🍎  Mac Control',               'control Mac with natural language → AppleScript', 'maccontrol'),
       menuChoice(T.muted,        '🌅  Daily Digest',              'morning summary: tickets, security, deps, git', 'digest'),
@@ -5650,6 +5818,7 @@ async function screenCommandCenter() {
     else if (dest === 'remote')  { console.log(T.cyan('\n  Opening remote: http://localhost:3001/remote\n')); try { execSync('open http://localhost:3001/remote 2>/dev/null', { stdio: 'ignore' }); } catch {} await pressEnter(); }
     else if (dest === 'deviceinstall') await screenDeviceInstall();
     else if (dest === 'device-status') await screenDeviceStatus();
+    else if (dest === 'collaboration') await screenCollaboration();
     else if (dest === 'freemodels') await screenFreeModels();
     else if (dest === 'freeapis') await screenFreeAPIs();
     else if (dest === 'audit')   await screenAuditLog();
@@ -6681,6 +6850,7 @@ async function main() {
         case 'guideme':      await screenGuideMe(); break;
         case 'deviceinstall': await screenDeviceInstall(); break;
         case 'device-status': await screenDeviceStatus(); break;
+        case 'collaboration': await screenCollaboration(); break;
         case 'freeapis':     await screenFreeAPIs(); break;
         case 'audit':        await screenAuditLog(); break;
         case 'dashboard':    await screenDashboard(); break; // lazy
