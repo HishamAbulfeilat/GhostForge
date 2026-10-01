@@ -1777,32 +1777,191 @@ def collab_post(req: CollabMessageRequest):
 
 
 # ---------------------------------------------------------------------------
-# Jobs (bridge-safe action contract; heavy search/apply work remains in web UI)
+# Job Hunter bridge-safe adapter
 # ---------------------------------------------------------------------------
+
+_JOB_HUNTER_DIR = Path.home() / ".ghostforge" / "jobs"
+
+
+def _job_hunter_user_dir(user_id: str) -> Path:
+    safe = _safe_user(user_id)
+    return _JOB_HUNTER_DIR / safe
+
+
+def _job_hunter_read_json(path: Path, default: Any = None) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def _job_hunter_write_json(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{secrets.token_hex(4)}.tmp")
+    tmp.write_text(json.dumps(value, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _job_hunter_profile(user_id: str) -> dict[str, Any]:
+    path = _job_hunter_user_dir(user_id) / "profile.json"
+    data = _job_hunter_read_json(path, {})
+    return data if isinstance(data, dict) else {}
+
+
+def _job_hunter_jobs(user_id: str) -> list[dict[str, Any]]:
+    path = _job_hunter_user_dir(user_id) / "jobs.json"
+    jobs = _job_hunter_read_json(path, [])
+    return jobs if isinstance(jobs, list) else []
+
+
+def _bridge_jobs(user_id: str) -> list[dict[str, Any]]:
+    jobs = _read_store("jobs", user_id, None)
+    return jobs if isinstance(jobs, list) else _job_hunter_jobs(user_id)
+
+
+def _persist_jobs(user_id: str, jobs: list[dict[str, Any]]) -> None:
+    _write_store("jobs", user_id, jobs)
+    _job_hunter_write_json(_job_hunter_user_dir(user_id) / "jobs.json", jobs)
+
+
+def _job_hunter_missing_fields(profile: dict[str, Any]) -> list[str]:
+    applicant = profile.get("applicant") or {}
+    missing: list[str] = []
+    if not profile.get("cv"):
+        missing.append("CV")
+    if not applicant.get("firstName"):
+        missing.append("First name")
+    if not applicant.get("lastName"):
+        missing.append("Last name")
+    if not applicant.get("email"):
+        missing.append("Email")
+    if not applicant.get("phone"):
+        missing.append("Phone")
+    return missing
+
+
+def _job_hunter_terms(profile: dict[str, Any], requested: list[str]) -> list[str]:
+    base = requested if requested else ((profile.get("preferences") or {}).get("titles") or [])
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for term in base[:5]:
+        value = str(term or "").strip()
+        key = value.lower()
+        if value and key not in seen:
+            cleaned.append(value)
+            seen.add(key)
+    return cleaned
+
+
+def _job_hunter_matches(job: dict[str, Any], terms: list[str]) -> bool:
+    haystack = " ".join(
+        [
+            str(job.get("title") or ""),
+            str(job.get("company") or ""),
+            str(job.get("description") or ""),
+            str(job.get("location") or ""),
+        ]
+    ).lower()
+    return any(term.lower() in haystack for term in terms)
+
+
+def _job_hunter_prepare_matches(user_id: str, jobs: list[dict[str, Any]], terms: list[str], limit: int) -> tuple[int, int]:
+    matched = [job for job in jobs if not job.get("status") == "dismissed" and _job_hunter_matches(job, terms)]
+    prepared = 0
+    for job in matched:
+        if prepared >= limit:
+            break
+        if job.get("status") not in {"found", "ready", "failed", "needs_user"}:
+            continue
+        job["status"] = "ready"
+        job.setdefault("log", [])
+        job["log"].append({"at": _iso_now(), "msg": "Bridge autopilot prepared for review"})
+        job["updatedAt"] = _iso_now()
+        prepared += 1
+    if prepared:
+        _persist_jobs(user_id, jobs)
+    return len(matched), prepared
 
 
 @app.get("/api/jobs", dependencies=[Depends(require_token)])
 def jobs_get(user_id: str = "default"):
-    jobs = _read_store("jobs", user_id, [])
-    return {"jobs": jobs, "ready": {"hasCv": False, "missing": []}, "autopilot": {"enabled": False, "submittedToday": 0}}
+    user = _safe_user(user_id)
+    profile = _job_hunter_profile(user)
+    jobs = _bridge_jobs(user)
+    autopilot = (profile.get("autopilot") or {})
+    submitted_by_day = autopilot.get("submittedByDay") or {}
+    submitted_today = sum(int(v) for v in submitted_by_day.values() if isinstance(v, (int, float)))
+    return {
+        "jobs": jobs,
+        "ready": {
+            "hasCv": bool(profile.get("cv")),
+            "missing": _job_hunter_missing_fields(profile),
+            "titles": (profile.get("preferences") or {}).get("titles", []),
+        },
+        "autopilot": {
+            "enabled": bool(autopilot.get("enabled")),
+            "submittedToday": submitted_today,
+            "dailyLimit": autopilot.get("dailyLimit", 5),
+            "minScore": autopilot.get("minScore", 75),
+        },
+    }
 
 
 @app.post("/api/jobs", dependencies=[Depends(require_token)])
 def jobs_post(req: JobActionRequest):
     user_id = _safe_user(req.user_id)
-    jobs = _read_store("jobs", user_id, [])
     if req.action == "search":
-        result = {"terms": [str(term)[:120] for term in req.terms[:5]], "found": 0, "matched": 0, "added": 0, "prepared": 0}
+        profile = _job_hunter_profile(user_id)
+        if not profile.get("cv"):
+            raise HTTPException(status_code=400, detail="Upload your CV first")
+        terms = _job_hunter_terms(profile, [str(term) for term in req.terms])
+        if not terms:
+            raise HTTPException(status_code=400, detail="Add at least one target role")
+        jobs = _bridge_jobs(user_id)
+        matched = [job for job in jobs if job.get("status") != "dismissed" and _job_hunter_matches(job, terms)]
+        prepared = 0
+        queue = [job for job in matched if job.get("status") in {"found", "ready", "failed", "needs_user"}][: max(0, min(req.auto_prepare, 5))]
+        for job in queue:
+            if job.get("status") != "ready":
+                job["status"] = "ready"
+                job["updatedAt"] = _iso_now()
+                job.setdefault("log", []).append({"at": _iso_now(), "msg": "Bridge search prepared for approval"})
+                prepared += 1
+        if queue:
+            _persist_jobs(user_id, jobs)
+        result = {"terms": terms, "found": len(jobs), "matched": len(matched), "added": len(matched), "prepared": prepared}
         return {"result": result}
     if req.action in ("prepare", "approve", "dismiss"):
+        jobs = _bridge_jobs(user_id)
         job = next((item for item in jobs if item.get("id") == req.id), None)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         job["status"] = {"prepare": "ready", "approve": "submitted", "dismiss": "dismissed"}[req.action]
-        _write_store("jobs", user_id, jobs)
+        _persist_jobs(user_id, jobs)
         return {"job": job}
     if req.action == "autopilot":
-        return {"report": {"found": 0, "prepared": 0, "submitted": 0, "needsUser": 0, "failed": 0}}
+        profile = _job_hunter_profile(user_id)
+        autopilot = profile.get("autopilot") or {}
+        if isinstance(autopilot, dict) and autopilot.get("enabled") is False:
+            return {"report": {"found": 0, "prepared": 0, "submitted": 0, "needsUser": 0, "failed": 0, "reason": "Autopilot is off"}}
+        terms = _job_hunter_terms(profile, [])
+        if not profile.get("cv"):
+            raise HTTPException(status_code=400, detail="Upload your CV first")
+        if not terms:
+            raise HTTPException(status_code=400, detail="Add at least one target role")
+        jobs = _bridge_jobs(user_id)
+        matched = [job for job in jobs if job.get("status") != "dismissed" and _job_hunter_matches(job, terms)]
+        prepared_limit = max(0, int(autopilot.get("dailyLimit", 3) or 3))
+        found_count, prepared = _job_hunter_prepare_matches(user_id, jobs, terms, prepared_limit)
+        report = {
+            "found": found_count,
+            "prepared": prepared,
+            "submitted": 0,
+            "needsUser": max(0, found_count - prepared),
+            "failed": 0,
+            "reason": "Bridge-safe autopilot is in review-only mode; no external submit is allowed",
+        }
+        return {"report": report}
     raise HTTPException(status_code=400, detail="Unknown action")
 
 
