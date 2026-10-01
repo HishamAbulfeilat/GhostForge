@@ -2,6 +2,9 @@
   "name": "ghostforge",
   "version": "5.3.1",
   "private": true,
+  "bin": {
+    "ghostforge": "bin/ghostforge"
+  },
   "scripts": {
     "postinstall": "node scripts/fix-node-pty-perms.js",
     "test": "node scripts/test.js",
