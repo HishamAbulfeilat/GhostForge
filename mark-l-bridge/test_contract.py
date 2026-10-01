@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -364,6 +365,35 @@ class BridgeContractTests(unittest.TestCase):
         self.assertEqual(notes.json()["action"], "notes")
         self.assertEqual(invalid_action.status_code, 400)
         self.assertEqual(invalid_kind.status_code, 400)
+
+    def test_release_deploy_requires_validated_environment_and_target(self):
+        with patch.object(
+            server,
+            "_deploy_azure",
+            return_value={"environment": "production", "target": "app-service", "output": "ok"},
+        ) as deploy_mock:
+            response = self.client.post(
+                "/api/release",
+                headers=self.headers,
+                json={"action": "deploy", "environment": "production", "target": "app-service"},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()["environment"], "production")
+            self.assertEqual(response.json()["target"], "app-service")
+            deploy_mock.assert_called_once_with(environment="production", target="app-service")
+
+        invalid_environment = self.client.post(
+            "/api/release",
+            headers=self.headers,
+            json={"action": "deploy", "environment": "qa", "target": "static"},
+        )
+        invalid_target = self.client.post(
+            "/api/release",
+            headers=self.headers,
+            json={"action": "deploy", "environment": "staging", "target": "docker"},
+        )
+        self.assertEqual(invalid_environment.status_code, 400)
+        self.assertEqual(invalid_target.status_code, 400)
 
 
 if __name__ == "__main__":
