@@ -162,6 +162,86 @@ class BridgeContractTests(unittest.TestCase):
         self.assertEqual(missing_id.status_code, 400)
         self.assertEqual(invalid_user.status_code, 400)
 
+    def test_workflow_run_executes_allowlisted_steps_and_persists_progress(self):
+        created = self.client.post(
+            "/api/workflows",
+            headers=self.headers,
+            json={
+                "user_id": "contract-test",
+                "name": "Safe run",
+                "steps": [
+                    {"id": "health", "title": "Health", "kind": "command", "ref": "bridge:health"},
+                    {"id": "human", "title": "Human review", "kind": "manual", "deps": ["health"]},
+                ],
+            },
+        )
+        self.assertEqual(created.status_code, 200)
+        workflow_id = created.json()["workflow"]["id"]
+        run = self.client.post(
+            "/api/workflows",
+            headers=self.headers,
+            json={"user_id": "contract-test", "action": "run", "id": workflow_id},
+        )
+        self.assertEqual(run.status_code, 200)
+        self.assertEqual(run.json()["workflow"]["status"], "done")
+        self.assertEqual(run.json()["progress"], {"done": 2, "total": 2, "pct": 100})
+        self.assertEqual(run.json()["workflow"]["steps"][0]["status"], "done")
+        self.assertEqual(run.json()["workflow"]["steps"][1]["status"], "skipped")
+
+        loaded = self.client.get(
+            f"/api/workflows?user_id=contract-test&id={workflow_id}",
+            headers=self.headers,
+        )
+        self.assertEqual(loaded.json()["workflow"]["status"], "done")
+
+    def test_workflow_run_rejects_unsupported_and_unbounded_steps(self):
+        created = self.client.post(
+            "/api/workflows",
+            headers=self.headers,
+            json={
+                "user_id": "contract-test",
+                "name": "Unsafe run",
+                "steps": [{"id": "shell", "title": "Shell", "kind": "command", "ref": "npm test"}],
+            },
+        )
+        workflow_id = created.json()["workflow"]["id"]
+        rejected = self.client.post(
+            "/api/workflows",
+            headers=self.headers,
+            json={"user_id": "contract-test", "action": "run", "id": workflow_id},
+        )
+        self.assertEqual(rejected.status_code, 422)
+        self.assertIn("Unsupported workflow step", rejected.json()["detail"])
+        self.assertEqual(
+            self.client.get(
+                f"/api/workflows?user_id=contract-test&id={workflow_id}",
+                headers=self.headers,
+            ).json()["workflow"]["status"],
+            "failed",
+        )
+
+        too_many = self.client.post(
+            "/api/workflows",
+            headers=self.headers,
+            json={
+                "user_id": "contract-test",
+                "name": "Bounded run",
+                "steps": [{"title": f"Step {i}"} for i in range(2)],
+            },
+        )
+        limited = self.client.post(
+            "/api/workflows",
+            headers=self.headers,
+            json={
+                "user_id": "contract-test",
+                "action": "run",
+                "id": too_many.json()["workflow"]["id"],
+                "max_steps": 1,
+            },
+        )
+        self.assertEqual(limited.status_code, 422)
+        self.assertIn("maximum is 1", limited.json()["detail"])
+
     def test_webhook_config_events_and_log_deletion_persist(self):
         config = [{"id": "build", "url": "https://example.invalid/hook"}]
         saved_config = self.client.post(
