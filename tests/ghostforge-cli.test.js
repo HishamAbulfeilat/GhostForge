@@ -1,0 +1,39 @@
+#!/usr/bin/env node
+
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const { spawnSync } = require('node:child_process')
+const path = require('node:path')
+
+const { buildHelp, parseArgs, resolveCommand, main } = require('../cli/index.js')
+
+const ROOT = path.resolve(__dirname, '..')
+
+test('ghostforge help includes the supported commands', () => {
+  const help = buildHelp()
+  assert.match(help, /ghostforge marketplace/)
+  assert.match(help, /ghostforge agent-team/)
+  assert.match(help, /ghostforge workflows/)
+  assert.match(help, /ghostforge jobs/)
+})
+
+test('parseArgs normalizes terminal aliases', () => {
+  assert.deepEqual(parseArgs(['team', 'status']), { command: 'agent-team', args: ['status'] })
+  assert.deepEqual(parseArgs(['workflow', 'list']), { command: 'workflows', args: ['list'] })
+  assert.equal(resolveCommand('jobs').summary.includes('Job Hunter'), true)
+})
+
+test('main dispatches the agent-team status command', () => {
+  const exit = main(['team', 'status'], { env: process.env })
+  assert.equal(exit, 0)
+})
+
+test('ghostforge --help exits cleanly via the shell launcher', () => {
+  const result = spawnSync('bash', [path.join(ROOT, 'ghostforge'), '--help'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: process.env,
+  })
+  assert.equal(result.status, 0)
+  assert.match(result.stdout, /ghostforge marketplace/)
+})
