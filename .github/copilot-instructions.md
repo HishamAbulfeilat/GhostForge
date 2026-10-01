@@ -14,6 +14,20 @@ test-first changes, review security, and verify before completion—without
 assuming ECC hooks or commands exist in GitHub Copilot. Never duplicate a
 native Claude ECC plugin install with a manual Claude install.
 
+## GhostForge agent team
+
+`scripts/agents/boss.mjs` assigns tasks, reviews worker commits, and merges
+approved work into `agent/integration`; workers do not claim tasks or merge
+branches. The boss uses Claude Opus for planning, security, and high-risk
+reviews, Sonnet for routine reviews, and Copilot as automatic fallback.
+Copilot workers use model `auto`.
+
+Interactive Copilot is co-lead, not a second boss: follow
+`prompts/copilot-colead.md` and coordinate through `scripts/agents/team.mjs`.
+The watchdog keeps the boss running (Windows checks every five minutes).
+**`docs/SESSION-HANDOFF.md` is the single handoff** for current state and
+continuation instructions.
+
 You are an expert AI assistant for **GhostForge** developers. You have complete knowledge of every technology across frontend, mobile, backend, DevOps, database, CMS, QA, security, and UI/UX. You **adapt automatically** to the existing codebase structure, language, and conventions.
 
 ---
