@@ -41,10 +41,10 @@ surface. The evidence column names the implementation that was checked.
 | Memory (CRUD, semantic search, import/export) | ✅ | ⚠️ | ✅ | ✅ | `app/jarvis`, `scripts/setup-memory.sh`, `/api/mark-l/memory/*` |
 | Proactive assistant, morning briefing and inbox | ✅ | ⚠️ | ✅ | ❌ | `app/api/jarvis/proactive`, `app/api/jarvis/morning`, `scripts/daily-digest.sh` |
 | Jarvis collaboration and sharing | ✅ | ✅ | ❌ | ✅ | `app/api/jarvis/collab`, `CollabShare`, `screenCollaboration`, bridge `/api/jarvis/collab` |
-| Job Hunter (search, profile, CV, GitHub) | ✅ | ⚠️ | ✅ | ⚠️ | `app/jobs`, `JobHunterWidget`, `scripts/job-hunter.mjs`/`scripts/jobs.sh`, bridge `/api/jobs` (limited actions; search/autopilot are stubs) |
-| Workflow engine and workflow runs | ⚠️ | ❌ | ⚠️ | ✅ | `app/workflows`/`/api/workflows` manage workflows and statuses but expose no run action, `scripts/workflows.mjs` stores metadata/statuses only, bridge `/api/workflows` (`action=run` executes bounded allowlisted steps); no TUI workflow screen |
+| Job Hunter (search, profile, CV, GitHub) | ✅ | ⚠️ | ✅ | ✅ | `app/jobs`, `JobHunterWidget`, `scripts/job-hunter.mjs`/`scripts/jobs.sh`, bridge `/api/jobs` backed by the real user-scoped profile and review-only autopilot flow |
+| Workflow engine and workflow runs | ⚠️ | ✅ | ✅ | ✅ | `app/workflows`/`/api/workflows`, `screenWorkflows`, `scripts/workflows.mjs`, bridge `/api/workflows?action=run` executes only allowlisted command steps and enforces `--max-steps 1-100` |
 | n8n automation | ✅ | ⚠️ | ❌ | ❌ | `app/automation`, `electron-app/src/main/n8n-integration.ts` |
-| Webhooks and trigger automation | ✅ | ❌ | ✅ | ✅ | `app/automation`, `/api/webhook`, `scripts/webhooks.mjs`, bridge `/api/webhook`; no TUI screen |
+| Webhooks and trigger automation | ✅ | ✅ | ✅ | ✅ | `app/automation`, `screenWebhooks`, `/api/webhook`, `scripts/webhooks.mjs`, bridge webhook config/log/clear contract |
 | Orchestrated multi-agent work | ✅ | ⚠️ | ✅ | ✅ | `app/orchestrate`, `OrchestratePanel`, `/api/jarvis/orchestrate`, `/api/mark-l/agents` |
 | Remote setup and device management | ✅ | ✅ | ✅ | ⚠️ | `app/remote`, `app/api/remote/setup`, `screenDeviceInstall`, `scripts/setup-https.sh`, bridge `/api/devices` (registry only) |
 | Push notifications | ✅ | ✅ | ✅ | ❌ | `app/notifications`, `PushNotificationPanel`, `app/api/push`/service worker, `screenDeviceStatus`, `scripts/device-status.mjs push` |
@@ -80,24 +80,30 @@ surface. The evidence column names the implementation that was checked.
 
 ## Concrete gaps
 
-Completed T-051 through T-073 surfaces are reflected in the matrix above and
-are not repeated here. The checklist records concrete missing or partial
-cross-surface work; `⚠️` cells are intentionally called out where they mark a
-specific limitation.
+Completed workflow and webhook surfaces are reflected in the matrix above and
+are not repeated here. The checklist records the remaining verified cross-surface
+work; `⚠️` cells are intentionally called out where they mark a specific
+limitation.
 
-- [ ] Add a TUI workflow screen and a terminal CLI workflow run command; the
-  TUI has no workflow surface, while `scripts/workflows.mjs` intentionally
-  manages stored metadata and step statuses without executing steps.
-- [ ] Add TUI controls for webhook trigger management and n8n automation; the
-  web UI and terminal CLI expose webhooks, while n8n remains an Electron/web
-  integration rather than a TUI or CLI surface.
-- [ ] Extend the JARVIS jobs contract beyond limited state actions and stub
-  search/autopilot responses.
 - [ ] Provide JARVIS live device-status and remote-setup operations beyond the
   current persisted device registry.
 - [ ] Add a TUI and terminal CLI surface for Electron-only desktop
   integrations and packaged mobile apps, or document them as desktop-only
   capabilities.
+
+## Validation guidance
+
+Treat any matrix row as verified only when the underlying surface is present and
+its relevant checks pass in this repository.
+
+- Run `node scripts/agents/health.mjs` after any refresh to recheck the full
+  repo contract, typecheck, lint, and bridge integration status.
+- Recheck the TUI implementation directly in `tui/index.js` (`screenWorkflows`,
+  `screenWebhooks`, and the menu dispatch table) and keep the corresponding
+  workflow/webhook tests as evidence.
+- Recheck the terminal CLI in `scripts/workflows.mjs` and `scripts/webhooks.mjs`
+  and verify the bounded `--max-steps` and allowlisted bridge contracts remain in
+  place.
 
 ## Audit sources
 
@@ -105,8 +111,9 @@ The matrix was derived from these implementation surfaces in this revision:
 
 - Web: `web-ui/app/**`, `web-ui/components/**`, and `web-ui/app/api/**`.
 - TUI: `tui/index.js` screen declarations and the dispatch table near the
-  program loop.
-- CLI: every executable script in `scripts/`, including the agent-team
-  commands under `scripts/agents/`.
+  program loop, including `screenWorkflows` and `screenWebhooks`.
+- CLI: the executable scripts in `scripts/`, especially `scripts/workflows.mjs`
+  and `scripts/webhooks.mjs`, plus the agent-team commands under
+  `scripts/agents/`.
 - JARVIS: route decorators and handlers in `mark-l-bridge/server.py`, plus
   the Mark-LV/OpenJarvis adapters it calls.
