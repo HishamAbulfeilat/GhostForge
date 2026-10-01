@@ -244,6 +244,21 @@ function killTree(child) {
   else child.kill('SIGTERM')
 }
 
+/**
+ * Kill processes a finished worker left running inside its worktree (dev
+ * servers, watchers). Left alone they lock node_modules on Windows, which
+ * breaks the next `npm ci` and every later task in that worktree.
+ */
+function killStrays(worktree) {
+  const wt = path.resolve(worktree)
+  if (IS_WIN) {
+    const ps = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne ${process.pid} -and $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf('${wt.replace(/'/g, "''")}', [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
+    spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 30_000 })
+  } else {
+    spawnSync('pkill', ['-f', wt], { timeout: 30_000 })
+  }
+}
+
 /** Read a file, or `fallback` when it doesn't exist — avoids existsSync-then-read races. */
 function readOr(file, fallback = null, encoding = 'utf8') {
   try { return fs.readFileSync(file, encoding) } catch (e) { if (e.code === 'ENOENT') return fallback; throw e }
@@ -510,6 +525,7 @@ export class Boss {
         })
       } finally {
         clearECCContext(eccFile)
+        killStrays(wt)
       }
 
       // Keep work the agent forgot to commit.
