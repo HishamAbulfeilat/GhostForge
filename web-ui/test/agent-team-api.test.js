@@ -53,6 +53,25 @@ test('add preserves leader, assignee, workflow, and acceptance metadata', () => 
   assert.deepEqual(normalized.acceptanceCriteria, ['Test coverage', 'Health passes'])
 })
 
+test('TypeScript agent-team actions keep a non-null leader and separate assignee defaults', () => {
+  const api = loadTypeScriptAgentTeamApi()
+  const defaulted = api.normalizeAgentTeamAction({ action: 'add', title: 'Use safe defaults' })
+  assert.equal(defaulted.leader, 'boss')
+  assert.equal(defaulted.agent, 'any')
+  assert.equal(defaulted.assignee, 'any')
+
+  const assigned = api.normalizeAgentTeamAction({
+    action: 'dispatch',
+    title: 'Keep explicit assignment',
+    agent: 'any',
+    assignee: 'copilot-web',
+    leader: 'copilot-tui',
+  })
+  assert.equal(assigned.leader, 'copilot-tui')
+  assert.equal(assigned.agent, 'any')
+  assert.equal(assigned.assignee, 'copilot-web')
+})
+
 test('GF_AGENT_STATE is honored when reading snapshots', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-agent-snapshot-'))
   const stateDir = path.join(root, 'custom-state')
@@ -140,6 +159,43 @@ test('snapshot includes workflow leadership and task metadata', () => {
   assert.equal(snapshot.snapshot.tasks[0].assignee, 'copilot')
   assert.deepEqual(snapshot.snapshot.tasks[0].dependencies, ['T-041'])
   assert.deepEqual(snapshot.snapshot.tasks[0].acceptanceCriteria, ['Ship', 'Verify'])
+})
+
+test('TypeScript snapshot exposes the boss and marks disabled workers unavailable', () => {
+  const api = loadTypeScriptAgentTeamApi()
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-agent-boss-snapshot-'))
+  const stateDir = path.join(root, '.agent-sync', 'state')
+  fs.mkdirSync(stateDir, { recursive: true })
+  fs.writeFileSync(path.join(root, '.agent-sync', 'team.json'), JSON.stringify({
+    boss: { provider: 'claude', model: 'opus' },
+    agents: {
+      active: { provider: 'copilot', enabled: true },
+      disabled: { provider: 'claude', enabled: false },
+    },
+  }))
+  fs.writeFileSync(path.join(stateDir, 'status.json'), JSON.stringify({
+    pid: Number.MAX_SAFE_INTEGER,
+    boss: { provider: 'copilot', fallback: 'copilot', cooldownUntil: '2026-10-01T00:00:00Z' },
+    agents: { active: { state: 'idle' }, disabled: { state: 'idle' } },
+  }))
+
+  const snapshot = api.readAgentTeamSnapshot(root).snapshot
+  assert.equal(snapshot.workflow.leader, null)
+  assert.equal(snapshot.agents.active.enabled, true)
+  assert.equal(snapshot.agents.disabled.enabled, false)
+  assert.deepEqual(snapshot.boss, {
+    provider: 'copilot',
+    state: 'stopped',
+    task: null,
+    model: 'opus',
+    since: null,
+    cooldownUntil: '2026-10-01T00:00:00Z',
+    leader: true,
+    assignee: null,
+    role: 'boss',
+    strengths: [],
+    enabled: true,
+  })
 })
 
 test('snapshots safely default missing and malformed status records', () => {
