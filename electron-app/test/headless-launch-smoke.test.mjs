@@ -13,11 +13,13 @@ import {
 
 const electronAppDir = fileURLToPath(new URL('..', import.meta.url))
 const electronBin = process.platform === 'win32'
-  ? join(electronAppDir, 'node_modules', 'electron', 'dist', 'electron.exe')
+  ? join(electronAppDir, 'node_modules', '.bin', 'electron.cmd')
   : join(electronAppDir, 'node_modules', '.bin', 'electron')
 
 test('Electron app launches in headless CI mode and reaches the bridge', async () => {
-  const child = spawn(electronBin, ['.', HEADLESS_SMOKE_ARG], {
+  const child = spawn(process.platform === 'win32' ? 'cmd' : electronBin, process.platform === 'win32'
+    ? ['/d', '/s', '/c', electronBin, '.', HEADLESS_SMOKE_ARG]
+    : ['.', HEADLESS_SMOKE_ARG], {
     cwd: electronAppDir,
     env: {
       ...process.env,
