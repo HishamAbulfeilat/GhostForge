@@ -56,8 +56,8 @@ surface. The evidence column names the implementation that was checked.
 | Marketplace catalog and install state | ✅ | ✅ | ✅ | ⚠️ | `app/marketplace`, `screenMarketplace`, `scripts/marketplace.sh` |
 | Custom model/API keys | ✅ | ⚠️ | ✅ | ⚠️ | `app/models`, `/api/models/custom`, `/api/models/keys`, bridge model install |
 | OpenJarvis health, doctor and ask | ✅ | ⚠️ | ✅ | ✅ | `OpenJarvisPanel`, `app/api/openjarvis`, `scripts/mark-liv.sh`, `/api/openjarvis/*` |
-| Mark-LV tools and tool runner | ⚠️ | ✅ | ✅ | ✅ | `MarkLPanel`, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-liv/tools` and `/run` |
-| Weather, flights and reminders | ⚠️ | ✅ | ✅ | ✅ | `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-l/weather`, `/flight-finder`, `/reminder` |
+| Mark-LV tools and tool runner | ✅ | ✅ | ✅ | ✅ | `MarkLPanel`, `MarkLivToolsPanel` on `app/jarvis` via `app/api/mark-liv-tools`, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-liv/tools` and `/run` |
+| Weather, flights and reminders | ✅ | ✅ | ✅ | ✅ | `MarkLivToolsPanel` on `app/jarvis` via `app/api/mark-liv-tools`, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-l/weather`, `/flight-finder`, `/reminder` |
 | YouTube and game updater | ✅ | ✅ | ✅ | ✅ | `DeviceControlsPanel`, dashboard, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-l/youtube`, `/game-updater` |
 | Files/process control | ✅ | ✅ | ✅ | ✅ | `app/files`, `screenOpenProject`, `scripts/open-project.sh`, `/api/mark-l/file-process` |
 | Code helper and developer agent | ⚠️ | ✅ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/explain.sh`, `/api/mark-l/code-helper`, `/dev-agent` |
