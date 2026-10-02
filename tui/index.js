@@ -743,6 +743,34 @@ function safeUsersText(value) {
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
 }
 
+async function screenWorlds() {
+  while (true) {
+    sectionHeader('🌍  Agent Worlds', 'Manage the local AI Town world runtime');
+    const action = await select({
+      message: T.white('AI Town action:'),
+      choices: [
+        { name: T.success('▶  Start AI Town'), value: 'start' },
+        { name: T.warning('■  Stop AI Town'), value: 'stop' },
+        { name: T.accent('●  Check AI Town status'), value: 'status' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+
+    const result = spawnSync(process.execPath, [resolve(ROOT, 'scripts/worlds.mjs'), action, 'ai-town'], {
+      cwd: ROOT,
+      stdio: 'inherit',
+      windowsHide: true,
+    });
+    if (result.error) {
+      console.log(T.danger(`\n  ✖  Could not run AI Town ${action}: ${result.error.message}`));
+    } else if (result.status !== 0) {
+      console.log(T.warning('\n  ⚠  AI Town command did not complete successfully.'));
+    }
+    await pressEnter();
+  }
+}
+
 async function screenUsers() {
   while (true) {
     sectionHeader('👥  User Administration', 'List users and manage role, active status, and permissions');
@@ -1379,6 +1407,7 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '🤝  Collaboration & Sharing',   'create or join sessions · send messages · copy share links', 'collaboration'),
       menuChoice(T.accent.bold,  '👥  User Administration',       'list users · owner-only role, status, and permission controls', 'users'),
       menuChoice(T.accent.bold,  '🔁  Workflows',                  'review saved workflows · run bounded, allowlisted steps', 'workflows'),
+      menuChoice(T.cyan.bold,    '🌍  Agent Worlds',               'start, stop, and check the local AI Town runtime', 'worlds'),
       menuChoice(T.accent.bold,  '⚡  n8n Automation',             'list and safely trigger active workflow webhooks', 'n8n'),
       menuChoice(T.accent.bold,  '🪝  Webhooks',                   'inspect triggers · replace config · review logs', 'webhooks'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
@@ -7557,6 +7586,7 @@ async function main() {
         case 'collaboration': await screenCollaboration(); break;
         case 'users':         await screenUsers(); break;
         case 'workflows':     await screenWorkflows(); break;
+        case 'worlds':        await screenWorlds(); break;
         case 'n8n':            await screenN8n(); break;
         case 'webhooks':      await screenWebhooks(); break;
         case 'freeapis':     await screenFreeAPIs(); break;

@@ -6,7 +6,7 @@
  *   1. tui/index.js parses (syntax check)
  *   2. marketplace catalog + registry are valid JSON with unique item ids
  *   3. every catalog item has the required fields
- *   4. node:test unit tests under tests/*.test.js pass
+ *   4. focused runtime tests and node:test unit tests pass
  *
  * The web-ui unit tests run in their own CI step (they need node_modules).
  * Exits non-zero on the first failure so it works in CI.
@@ -73,6 +73,14 @@ check('Awesome LLM Apps CLI smoke tests pass', () => {
   execFileSync(
     process.execPath,
     ['--test', 'scripts/awesome-llm-apps.test.mjs'],
+    { cwd: ROOT, stdio: 'pipe' }
+  );
+});
+
+check('managed worlds runtime tests pass', () => {
+  execFileSync(
+    process.execPath,
+    ['--test', 'scripts/worlds.test.mjs'],
     { cwd: ROOT, stdio: 'pipe' }
   );
 });

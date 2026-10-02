@@ -30,6 +30,11 @@ start agents or sessions; refresh requests a new snapshot. A failed or denied
 request is shown as an error, access-denied state, or sign-in redirect rather
 than being presented as an empty successful snapshot.
 
+The Agent Town selector also exposes a separately managed a16z AI Town world.
+Its Start/Stop controls manage the local Convex and frontend runtime, and Open
+embeds the frontend in an iframe. This external world is independent of the
+agent/session snapshot. See [AI Town setup and smoke test](AI-TOWN.md).
+
 ## Local-only default and connector configuration
 
 With `GF_AGENT_SESSION_CONNECTORS` unset or empty, the API makes no external
