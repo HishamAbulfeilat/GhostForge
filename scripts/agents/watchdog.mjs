@@ -53,6 +53,12 @@ function install() {
   fs.writeFileSync(vbs, `CreateObject("WScript.Shell").Run "${q(process.execPath)} ${q(fileURLToPath(import.meta.url))}", 0, False\r\n`)
   const r = spawnSync('schtasks', ['/Create', '/F', '/TN', TASK_NAME, '/SC', 'MINUTE', '/MO', '5', '/TR', `wscript.exe //B "${vbs}"`], { encoding: 'utf8', windowsHide: true })
   console.log((r.stdout || r.stderr).trim())
+  // schtasks defaults to "don't start on batteries / stop on battery", which
+  // silently paused the team for 8h one night on a laptop. Allow battery runs
+  // and catch up after sleep.
+  const ps = `$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable; Set-ScheduledTask -TaskName '${TASK_NAME}' -Settings $s | Out-Null; 'battery runs allowed'`
+  const b = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8', windowsHide: true })
+  console.log((b.stdout || b.stderr).trim())
 }
 
 function uninstall() {
