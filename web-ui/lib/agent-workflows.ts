@@ -84,7 +84,9 @@ function stringList(value: unknown, field: string, maxItems: number, maxLength: 
 }
 
 function exactKeys(source: Record<string, unknown>, keys: readonly string[]): boolean {
-  return Object.keys(source).length === keys.length && Object.keys(source).every(key => keys.includes(key))
+  if (Object.keys(source).length !== keys.length) return false
+  const allowed = new Set(keys)
+  return Object.keys(source).every(key => allowed.has(key))
 }
 
 function requireRecord(value: unknown, field: string): Record<string, unknown> {
@@ -151,6 +153,9 @@ function validateWorkflow(input: unknown): AgentWorkflowInput {
       throw new AgentWorkflowError(`Task ${index + 1} dependencies cannot contain duplicates.`)
     }
     const acceptanceCriteria = stringList(task.acceptanceCriteria, `Task ${index + 1} acceptance criterion`, 20, 240)
+    if (acceptanceCriteria.length === 0) {
+      throw new AgentWorkflowError(`Task ${index + 1} must include at least one acceptance criterion.`)
+    }
     return {
       id,
       title,
@@ -168,6 +173,7 @@ function validateWorkflow(input: unknown): AgentWorkflowInput {
     throw new AgentWorkflowError('Workflow task titles must be unique.')
   }
   const workerIds = new Set(workers.map(worker => worker.id))
+  if (workerIds.has(leader)) throw new AgentWorkflowError('The workflow leader cannot also be a worker.')
   workerIds.add(leader)
   for (const task of tasks) {
     if (!workerIds.has(task.assignee)) throw new AgentWorkflowError(`Task "${task.title}" is assigned to a worker outside this team.`)

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import WorkflowDependencyGraph from '@/components/agent-world/WorkflowDependencyGraph'
 import type { AgentWorldRecord } from '../../agent-world/agent-world-model'
 
@@ -93,6 +94,7 @@ function resolveTeamTemplateAgents(ids: string[], agents: Agent[]): string[] {
 }
 
 export default function AgentWorkflowBuilderPage() {
+  const router = useRouter()
   const [agents, setAgents] = useState<Agent[]>([])
   const [liveTasks, setLiveTasks] = useState<AgentWorldRecord[]>([])
   const [teamTemplates, setTeamTemplates] = useState<TeamTemplate[]>([])
@@ -106,13 +108,32 @@ export default function AgentWorkflowBuilderPage() {
     tasks: [newTask('boss', 'step-1')],
   })
   const [loading, setLoading] = useState(true)
+  const [authorized, setAuthorized] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
   const [templateName, setTemplateName] = useState('')
 
   const agentById = useMemo(() => new Map(agents.map(agent => [agent.id, agent])), [agents])
-  const workerIds = workflow.workers.map(worker => worker.id)
+  const workerIds = useMemo(() => new Set(workflow.workers.map(worker => worker.id)), [workflow.workers])
   const load = useCallback(async (signal?: AbortSignal) => {
+    const authResponse = await fetch('/api/auth/me', { signal })
+    if (authResponse.status === 401) {
+      router.replace('/login?next=/agents/builder')
+      return
+    }
+    if (!authResponse.ok) throw new Error(`Unable to verify access (${authResponse.status}).`)
+    const authData = await authResponse.json() as {
+      user?: { role?: string; permissions?: string[] }
+      isAdmin?: boolean
+    }
+    const user = authData.user
+    if (!user) throw new Error('Unable to verify your account.')
+    if (!(authData.isAdmin || user.role === 'admin' || user.permissions?.includes('admin_tools'))) {
+      setAuthorized(false)
+      setNotice({ error: true, message: 'Your account needs the admin_tools permission to access the team and workflow builder.' })
+      return
+    }
+    setAuthorized(true)
     const [snapshotData, templatesData] = await Promise.all([
       fetch('/api/agents', { signal }).then(readJson<{ snapshot: { agents: Record<string, AgentRecord>; boss?: AgentRecord; tasks?: AgentWorldRecord[] } }>),
       fetch('/agents/builder/templates', { signal }).then(readJson<{ teamTemplates: TeamTemplate[]; workflowTemplates: WorkflowTemplate[] }>),
@@ -137,7 +158,7 @@ export default function AgentWorkflowBuilderPage() {
         })
       return { ...current, leader, workers }
     })
-  }, [])
+  }, [router])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -305,7 +326,7 @@ export default function AgentWorkflowBuilderPage() {
         </header>
 
         {notice && <p role={notice.error ? 'alert' : 'status'} className={`rounded-xl border px-4 py-3 text-sm ${notice.error ? 'border-red-900 bg-red-950/60 text-red-200' : 'border-emerald-900 bg-emerald-950/50 text-emerald-200'}`}>{notice.message}</p>}
-        {loading ? <p role="status" className="rounded-2xl border border-gf-line bg-gf-surface p-6 text-sm text-gf-muted">Loading team and workflow templates…</p> : (
+        {loading ? <p role="status" className="rounded-2xl border border-gf-line bg-gf-surface p-6 text-sm text-gf-muted">Loading team and workflow templates…</p> : !authorized ? null : (
           <>
             <section className="rounded-2xl border border-gf-line bg-gf-surface p-4" aria-labelledby="workflow-team-heading">
               <h2 id="workflow-team-heading" className="font-display text-lg font-semibold">Team composition</h2>
@@ -344,7 +365,7 @@ export default function AgentWorkflowBuilderPage() {
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   {agents.filter(agent => agent.id !== workflow.leader).map(agent => (
                     <label key={agent.id} className="flex min-h-11 items-center gap-3 rounded-lg border border-gf-line p-3 text-sm">
-                      <input type="checkbox" checked={workerIds.includes(agent.id)} onChange={event => changeWorkers(agent.id, event.target.checked)} />
+                      <input type="checkbox" checked={workerIds.has(agent.id)} onChange={event => changeWorkers(agent.id, event.target.checked)} />
                       <span className="min-w-0"><strong>{agent.id}</strong><span className="ms-2 text-xs text-gf-muted">{agent.provider ?? 'unknown'} · {agent.model ?? 'auto'}</span></span>
                     </label>
                   ))}
@@ -402,7 +423,7 @@ export default function AgentWorkflowBuilderPage() {
                           }} placeholder="T-120, T-121" className="min-h-9 rounded-lg border border-gf-line2 bg-gf-bar px-3 text-sm text-gf-ink" /></label>
                         </fieldset>
                       )}
-                      <label className="flex flex-col gap-1 text-xs text-gf-muted sm:col-span-3"><span>Acceptance criteria (one per line)</span><textarea rows={3} maxLength={240 * 20} value={task.acceptanceCriteria.join('\n')} onChange={event => updateTask(task.id, { acceptanceCriteria: event.target.value.split('\n').map(value => value.trim()).filter(Boolean) })} className="rounded-lg border border-gf-line2 bg-gf-bar px-3 py-2 text-sm text-gf-ink" /></label>
+                      <label className="flex flex-col gap-1 text-xs text-gf-muted sm:col-span-3"><span>Acceptance criteria (required, one per line)</span><textarea rows={3} maxLength={240 * 20} value={task.acceptanceCriteria.join('\n')} onChange={event => updateTask(task.id, { acceptanceCriteria: event.target.value.split('\n').map(value => value.trim()).filter(Boolean) })} className="rounded-lg border border-gf-line2 bg-gf-bar px-3 py-2 text-sm text-gf-ink" /></label>
                     </div>
                   </li>
                 ))}
