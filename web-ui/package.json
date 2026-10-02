@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "node server.js",
     "start:next": "next start",
-    "test": "node --test test/*.test.js app/agents/builder/*.test.js app/agents/builder/launch/*.test.js app/agents/builder/templates/*.test.js app/agent-world/town/*.test.js",
+    "test": "node --test test/*.test.js app/agents/builder/*.test.js app/agents/builder/launch/*.test.js app/agents/builder/templates/*.test.js app/agent-world/town/*.test.js app/agent-world/office/*.test.js",
     "test:e2e": "playwright test",
     "lint": "eslint ."
   },
@@ -29,6 +29,7 @@
     "mammoth": "^1.13.0",
     "next": "^15.5.26",
     "novnc-next": "^1.0.0",
+    "phaser": "^3.90.0",
     "pixi-viewport": "^5.1.0",
     "pixi.js": "^7.4.3",
     "playwright-core": "^1.63.0",
