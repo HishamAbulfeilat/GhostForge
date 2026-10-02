@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { profileForTitle } from '@/lib/title-profiles'
+import { bridgeReadiness, modelReadiness } from './readiness.js'
 
 interface ProfileView {
   id: string
@@ -23,6 +24,71 @@ const TITLE_CHIPS = ['Software Engineer', 'DevOps Engineer', 'Data Analyst', 'Pr
 // Privileged capabilities called out when a title does NOT include them
 const RESTRICTED_NOTE: Record<string, string> = {
   remote: 'Remote access', mac_control: 'System control', admin_tools: 'Admin tools', terminal: 'Terminal',
+}
+
+interface ReadinessRow {
+  id: string
+  label: string
+  state: 'configured' | 'missing' | 'unreachable'
+  detail: string
+  action: string
+}
+
+const READINESS_STYLE: Record<ReadinessRow['state'], { label: string; cls: string }> = {
+  configured: { label: 'Configured', cls: 'bg-emerald-500/15 text-emerald-300' },
+  missing: { label: 'Missing', cls: 'bg-amber-500/15 text-amber-300' },
+  unreachable: { label: 'Unreachable', cls: 'bg-red-500/15 text-red-300' },
+}
+
+async function fetchJson(url: string): Promise<unknown> {
+  try {
+    const res = await fetch(url)
+    return res.ok ? await res.json() : null
+  } catch {
+    return null
+  }
+}
+
+function ReadinessSection() {
+  const [rows, setRows] = useState<ReadinessRow[] | null>(null)
+  const [checking, setChecking] = useState(false)
+
+  const check = async () => {
+    setChecking(true)
+    const [bridge, models] = await Promise.all([fetchJson('/api/bridge-status'), fetchJson('/api/models')])
+    setRows([
+      modelReadiness(models as Parameters<typeof modelReadiness>[0]),
+      bridgeReadiness(bridge as Parameters<typeof bridgeReadiness>[0]),
+    ] as ReadinessRow[])
+    setChecking(false)
+  }
+
+  useEffect(() => { void check() }, [])
+
+  return (
+    <div className="flex flex-col gap-2.5" data-testid="setup-readiness">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs uppercase tracking-[0.08em] text-gf-muted">Readiness</span>
+        <button type="button" onClick={() => void check()} disabled={checking}
+          className="min-h-9 rounded-lg border border-gf-line2 px-3 text-sm text-gf-accent-ink disabled:opacity-60">
+          {checking ? 'Checking…' : 'Re-check'}
+        </button>
+      </div>
+      {!rows && <p className="text-sm text-gf-muted">Checking…</p>}
+      <ul className="flex flex-col gap-2.5">
+        {rows?.map(r => (
+          <li key={r.id} className="flex flex-col gap-1 rounded-xl border border-gf-line bg-gf-surface p-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium">{r.label}</span>
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${READINESS_STYLE[r.state].cls}`}>{READINESS_STYLE[r.state].label}</span>
+            </div>
+            <span className="text-gf-muted">{r.detail}</span>
+            {r.state !== 'configured' && <span className="text-gf-accent-ink">Next: {r.action}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 export default function SetupPage() {
@@ -158,6 +224,8 @@ export default function SetupPage() {
             </div>
             <span className="text-sm text-gf-muted">{state.isAdmin ? 'Every page and every tool, including user management.' : profile?.description}</span>
           </div>
+
+          {state.isAdmin && <ReadinessSection />}
 
           {!state.isAdmin && profile && (
             <>
