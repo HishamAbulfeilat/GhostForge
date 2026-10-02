@@ -26,5 +26,9 @@ Local deviations from upstream `Game.ts` (everything else is verbatim):
 - Status text no longer mentions Colyseus or a WebSocket endpoint.
 - The three hard-coded desk labels ("Alice's Desk", "Bob's Desk", "Vacant") read "Desk".
 - The WASD/arrow key handler ignores Ctrl/Meta/Alt chords so browser shortcuts still work.
+- Each thought-bubble re-show cancels the pending 6s hide (`thoughtHide?.remove(false)`)
+  before scheduling a new one. Upstream fires every stale hide, so a bubble
+  re-shown within 6s disappeared early; the snapshot adapter re-shows the
+  current task every 5s (`THOUGHT_REFRESH_MS`), so it now stays visible.
 
 See `/THIRD_PARTY_NOTICES.md` for the character sprite credits.

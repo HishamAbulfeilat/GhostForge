@@ -19,6 +19,13 @@ export interface AgentFields {
 
 export type LayoutItem = { id: string; type: string; x: number; y: number; label?: string };
 
+/** How long the vendored scene shows a thought bubble after each change. */
+export const THOUGHT_HIDE_MS = 6000;
+/**
+ * Re-notify period for agents with a current task. It must be shorter than
+ * THOUGHT_HIDE_MS; the scene cancels the stale hide on every re-show (see
+ * NOTICE.md), so the bubble stays up for as long as the task lasts.
+ */
 export const THOUGHT_REFRESH_MS = 5000;
 
 export class SnapshotAgent implements AgentFields {
@@ -152,8 +159,8 @@ export class SnapshotOffice {
         this.ensureThoughtRefresh();
     }
 
-    // The scene hides a thought bubble 6s after each change; re-notify agents
-    // that still have a current task so the bubble stays visible while it lasts.
+    // The scene hides a thought bubble THOUGHT_HIDE_MS after each change;
+    // re-notify agents that still have a current task before that happens.
     private ensureThoughtRefresh() {
         if (this.timer || this.disposed) return;
         this.timer = setInterval(() => {
@@ -176,6 +183,11 @@ let currentOffice: SnapshotOffice | undefined;
 /** Binds the office the next OfficeScene will join. */
 export function bindSnapshotOffice(office: SnapshotOffice | undefined) {
     currentOffice = office;
+}
+
+/** Unbinds the office, unless a newer office has been bound since. */
+export function releaseSnapshotOffice(office: SnapshotOffice) {
+    if (currentOffice === office) currentOffice = undefined;
 }
 
 export type Room<_State = unknown> = SnapshotOffice['room'];

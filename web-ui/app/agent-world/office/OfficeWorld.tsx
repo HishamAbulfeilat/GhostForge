@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentWorldData, AgentWorldRecord } from '../agent-world-model'
 import { adaptAgentOfficeSnapshot } from './agent-office-model.js'
 import { eventBus } from '../../../vendor/agent-office/src/events'
-import { SnapshotOffice, bindSnapshotOffice } from '../../../vendor/agent-office/src/snapshot-room'
+import type { SnapshotOffice } from '../../../vendor/agent-office/src/snapshot-room'
+import { startOfficeSession } from './office-session'
 
 type OfficeWorldProps = {
   data: Pick<AgentWorldData, 'agents' | 'tasks'>
@@ -22,19 +23,18 @@ export default function OfficeWorld({ data, boss }: OfficeWorldProps) {
   const [sceneError, setSceneError] = useState<string>()
   const selected = model.agents.find(agent => agent.id === selectedId)
 
-  if (!officeRef.current) officeRef.current = new SnapshotOffice()
+  const modelRef = useRef(model)
+  modelRef.current = model
 
   useEffect(() => {
     officeRef.current?.update(model.agents, model.layout)
   }, [model])
 
   // Client-only: Phaser touches window on import, so the scene is loaded here.
+  // The office is created and disposed in this one effect (see office-session).
   useEffect(() => {
     const host = hostRef.current
-    const office = officeRef.current
-    if (!host || !office) return
-    let cancelled = false
-    let game: import('phaser').Game | undefined
+    if (!host) return
 
     const onFocus = (event: Event) => {
       const detail = (event as CustomEvent).detail as { id?: string } | null
@@ -42,15 +42,15 @@ export default function OfficeWorld({ data, boss }: OfficeWorldProps) {
     }
     eventBus.addEventListener('agent-focus', onFocus)
 
-    void (async () => {
-      try {
+    const session = startOfficeSession(
+      modelRef.current,
+      async (isCancelled) => {
         const [{ default: Phaser }, { OfficeScene }] = await Promise.all([
           import('phaser'),
           import('../../../vendor/agent-office/src/game/Game'),
         ])
-        if (cancelled) return
-        bindSnapshotOffice(office)
-        game = new Phaser.Game({
+        if (isCancelled()) return undefined
+        const game = new Phaser.Game({
           type: Phaser.AUTO,
           parent: host,
           width: host.clientWidth || 800,
@@ -60,24 +60,22 @@ export default function OfficeWorld({ data, boss }: OfficeWorldProps) {
           scale: { mode: Phaser.Scale.RESIZE },
           input: { keyboard: { capture: [] } },
         })
-      } catch (error) {
-        if (!cancelled) setSceneError(error instanceof Error ? error.message : 'Unable to load Agent Office.')
-      }
-    })()
+        return () => {
+          // Stop first so the scene removes its window key handlers.
+          try { game.scene.stop('OfficeScene') } catch { /* scene was never started */ }
+          game.destroy(true)
+        }
+      },
+      (error) => setSceneError(error instanceof Error ? error.message : 'Unable to load Agent Office.'),
+    )
+    officeRef.current = session.office
 
     return () => {
-      cancelled = true
       eventBus.removeEventListener('agent-focus', onFocus)
-      if (game) {
-        // Stop first so the scene removes its window key handlers.
-        try { game.scene.stop('OfficeScene') } catch { /* scene was never started */ }
-        game.destroy(true)
-      }
-      bindSnapshotOffice(undefined)
+      officeRef.current = null
+      session.stop()
     }
   }, [])
-
-  useEffect(() => () => officeRef.current?.dispose(), [])
 
   return (
     <section aria-labelledby="agent-office-heading" className="min-w-0 rounded-2xl border border-gf-line bg-gf-surface p-4">

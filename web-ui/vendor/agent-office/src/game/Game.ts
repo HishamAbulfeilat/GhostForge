@@ -612,6 +612,8 @@ export class OfficeScene extends Phaser.Scene {
                     let prevX = agent.x;
                     let prevY = agent.y;
                     let lastAction = '';
+                    // GhostForge deviation: keep the pending hide so a re-show can cancel it.
+                    let thoughtHide: Phaser.Time.TimerEvent | undefined;
 
                     agent.onChange(() => {
                         this.tweens.add({
@@ -653,7 +655,8 @@ export class OfficeScene extends Phaser.Scene {
                         if (agent.thought && agent.thought !== '') {
                             thoughtBubble.setText(agent.thought);
                             thoughtBubble.setVisible(true);
-                            this.time.delayedCall(6000, () => thoughtBubble.setVisible(false));
+                            thoughtHide?.remove(false);
+                            thoughtHide = this.time.delayedCall(6000, () => thoughtBubble.setVisible(false));
                         }
 
                         // --- SYSTEM LOG EVENT ---
