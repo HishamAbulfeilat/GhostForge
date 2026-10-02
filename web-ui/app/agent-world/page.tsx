@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import AgentOfficeMap from '../../components/agent-world/AgentOfficeMap'
 import WorkflowDependencyGraph from '../../components/agent-world/WorkflowDependencyGraph'
+import AgentOfficeControls from './AgentOfficeControls'
 import AiTownControls from './AiTownControls'
 import {
   collectAgentWorldData,
@@ -253,6 +254,7 @@ export default function AgentWorldPage() {
             )}
             {world === 'office' && (
               <>
+                <AgentOfficeControls />
                 <OfficeWorld data={state.data} boss={state.data.boss} />
                 <AgentOfficeMap sessions={state.officeSessions} emptyMessage="No sessions were reported by the available snapshots." />
               </>
