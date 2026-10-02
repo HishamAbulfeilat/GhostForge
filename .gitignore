@@ -51,7 +51,10 @@ voice-pipeline/*.pyc
 
 # Agent team runtime state (board, messages, logs) — local only
 .agent-sync/state/
-apps/worlds/agent-office/checkout/
+# World-app checkouts (local clones of upstream repos) — tracked setup scripts/docs only
+apps/worlds/*/checkout/
+apps/worlds/*/upstream/
+apps/worlds/*/.git/
 
 # oh-my-claudecode local session state
 .omc/
