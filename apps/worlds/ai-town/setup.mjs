@@ -1,5 +1,10 @@
 #!/usr/bin/env node
-// Clones ai-town at the pinned commit into ./checkout/ (gitignored) and installs it.
-import { setupWorld } from '../../../scripts/worlds/lib.mjs'
 
-setupWorld('ai-town')
+import { setupAiTown } from '../../../scripts/worlds.mjs'
+
+try {
+  setupAiTown()
+} catch (error) {
+  console.error(`AI Town setup failed: ${error instanceof Error ? error.message : String(error)}`)
+  process.exitCode = 1
+}
