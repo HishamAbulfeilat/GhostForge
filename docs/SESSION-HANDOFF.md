@@ -112,8 +112,8 @@ Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). 
 
 - Windows host, no tmux; Git Bash + PowerShell. Node v23 (odd release — some
   native modules have no prebuilds, e.g. the `omc` CLI's better-sqlite3).
-- `gh` must be logged in as **HishamAbulfeilat** (a second account,
-  `habulfeilat_ejadasa`, caused 403 push failures before 2026-10-01).
+- `gh` must be logged in as **HishamAbulfeilat** (a second, old work account
+  caused 403 push failures before 2026-10-01).
 - Worker worktrees live next to the repo: `C:\Users\User\Desktop\gf-*`.
 
 ## LIVE STATUS
