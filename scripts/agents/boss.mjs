@@ -562,7 +562,9 @@ export class Boss {
         return
       }
       const base = git(wt, 'rev-parse', 'HEAD')
-      const route = routeModel(a.provider, task, this.cfg.models)
+      // An agent may pin its own tier table (team.json agents.<id>.models) over the team-wide one.
+      const models = a.models ? { ...this.cfg.models, [a.provider]: { ...this.cfg.models?.[a.provider], ...a.models } } : this.cfg.models
+      const route = routeModel(a.provider, task, models)
       Object.assign(st, { state: 'working', task: task.id, model: route.model, since: new Date().toISOString() })
 
       const taskContent = fill(this.template, {

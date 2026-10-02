@@ -21,14 +21,21 @@
       "worktree": "../gf-claude",
       "branch": "agent/claude/work",
       "strengths": [
-        "plan",
-        "architecture",
         "security",
+        "architecture",
+        "plan",
         "review",
+        "bugfix",
         "refactor",
         "test",
-        "bugfix"
-      ]
+        "feature"
+      ],
+      "role": "lead engineer: security, architecture, hard bugs",
+      "models": {
+        "deep": "opus",
+        "balanced": "opus",
+        "fast": "sonnet"
+      }
     },
     "copilot-tui": {
       "provider": "copilot",
@@ -117,28 +124,39 @@
         "feature",
         "bugfix",
         "test",
-        "security",
         "refactor",
+        "security",
         "docs",
         "chore"
       ],
       "worktree": "../gf-claude-2",
-      "branch": "agent/claude/work-2"
+      "branch": "agent/claude/work-2",
+      "role": "feature engineer",
+      "models": {
+        "deep": "opus",
+        "balanced": "sonnet",
+        "fast": "sonnet"
+      }
     },
     "claude-3": {
       "provider": "claude",
       "enabled": true,
       "strengths": [
-        "feature",
-        "bugfix",
-        "test",
-        "security",
-        "refactor",
         "docs",
-        "chore"
+        "chore",
+        "test",
+        "refactor",
+        "bugfix",
+        "feature"
       ],
       "worktree": "../gf-claude-3",
-      "branch": "agent/claude/work-3"
+      "branch": "agent/claude/work-3",
+      "role": "docs, chores and quick fixes",
+      "models": {
+        "deep": "opus",
+        "balanced": "sonnet",
+        "fast": "haiku"
+      }
     }
   },
   "models": {
