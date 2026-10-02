@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import AgentOfficeMap from '../../components/agent-world/AgentOfficeMap'
@@ -22,10 +22,12 @@ const TownWorld = dynamic(() => import('./town/TownWorld'), {
 
 type PageState =
   | { status: 'loading' }
-  | { status: 'loaded'; data: AgentWorldData; officeSessions: AgentWorldRecord[]; mode: string }
+  | { status: 'loaded'; data: AgentWorldData; officeSessions: AgentWorldRecord[]; mode: string; refreshing?: boolean; refreshError?: string }
   | { status: 'denied'; message: string }
   | { status: 'error'; message: string }
   | { status: 'redirecting' }
+
+const POLL_INTERVAL_MS = 15_000
 
 function timestamp(record: AgentWorldRecord): string {
   const value = record.heartbeat ?? record.ts ?? record.timestamp
@@ -149,10 +151,20 @@ export default function AgentWorldPage() {
   const [world, setWorld] = useState<AgentWorldView>('forge')
 
   const changeWorld = useCallback((view: AgentWorldView) => setWorld(view), [])
+  const controllerRef = useRef<AbortController | null>(null)
   const load = useCallback(async () => {
-    setState({ status: 'loading' })
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
+    const { signal } = controller
+    // Keep the last loaded snapshot visible while refreshing; only the first load shows the loading state.
+    setState(prev => (prev.status === 'loaded' ? { ...prev, refreshing: true } : { status: 'loading' }))
     try {
-      const result = await loadAgentWorld(fetch, () => router.replace('/login?next=/agent-world'))
+      const result = await loadAgentWorld(
+        (input, init) => fetch(input, { ...init, signal }),
+        () => router.replace('/login?next=/agent-world'),
+      )
+      if (signal.aborted) return
       if (result.status === 'loaded') {
         setState({
           status: 'loaded',
@@ -166,14 +178,28 @@ export default function AgentWorldPage() {
         setState({ status: 'redirecting' })
       }
     } catch (error) {
-      setState({
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Unable to load Agent World.',
-      })
+      if (signal.aborted) return
+      const message = error instanceof Error ? error.message : 'Unable to load Agent World.'
+      setState(prev => (
+        prev.status === 'loaded'
+          ? { ...prev, refreshing: false, refreshError: message }
+          : { status: 'error', message }
+      ))
     }
   }, [router])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void load()
+    const tick = () => { if (document.visibilityState !== 'hidden') void load() }
+    const timer = setInterval(tick, POLL_INTERVAL_MS)
+    const onVisible = () => { if (document.visibilityState === 'visible') void load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      controllerRef.current?.abort()
+    }
+  }, [load])
 
   return (
     <main className="min-h-[calc(100dvh-64px)] bg-gf-bg px-4 py-6 font-plex text-gf-ink lg:px-8">
@@ -183,7 +209,7 @@ export default function AgentWorldPage() {
             <h1 className="font-display text-2xl font-bold tracking-tight">🌐 Agent World</h1>
             <p className="mt-1 text-sm text-gf-muted">Live operations from the available agent and connector snapshots.</p>
           </div>
-          <button type="button" onClick={() => void load()} disabled={state.status === 'loading'} className="min-h-10 rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent disabled:opacity-50">
+          <button type="button" onClick={() => void load()} disabled={state.status === 'loading' || (state.status === 'loaded' && state.refreshing === true)} className="min-h-10 rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent disabled:opacity-50">
             Refresh
           </button>
         </header>
@@ -200,7 +226,13 @@ export default function AgentWorldPage() {
         )}
         {state.status === 'loaded' && (
           <>
-            <p role="status" className="text-xs text-gf-muted">Federated summary: {state.mode}</p>
+            <p role="status" className="text-xs text-gf-muted">Federated summary: {state.mode}{state.refreshing ? ' · Refreshing…' : ''}</p>
+            {state.refreshError && (
+              <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-900 bg-red-950/60 p-3 text-sm text-red-100">
+                <p>Refresh failed — showing the last snapshot. {state.refreshError}</p>
+                <button type="button" onClick={() => void load()} className="min-h-9 rounded-lg border border-red-700 px-3 font-semibold hover:bg-red-900/50">Retry</button>
+              </div>
+            )}
             {world === 'forge' && (
               <>
                 <ForgeWorldScene agents={state.data.agents} tasks={state.data.tasks} boss={state.data.boss} />
