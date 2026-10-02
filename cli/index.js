@@ -21,6 +21,11 @@ const COMMAND_SPECS = {
     script: path.join(ROOT, 'scripts', 'workflows.mjs'),
     summary: 'Create, list, update, and run workflow definitions',
   },
+  worlds: {
+    kind: 'node',
+    script: path.join(ROOT, 'scripts', 'worlds.mjs'),
+    summary: 'Manage local GhostForge world applications',
+  },
   jobs: {
     kind: 'bash',
     script: path.join(ROOT, 'scripts', 'jobs.sh'),
@@ -70,6 +75,7 @@ function buildHelp() {
     '  agent-team         Agent-team status, tasks, and communication',
     '  agents             Alias for agent-team controls',
     '  workflows         Workflow list, create, update, run, and step controls',
+    '  worlds            Start, stop, and check the local AI Town world',
     '  jobs               Job Hunter: CV, search, prepare, and approval flows',
     '  users              List and update authenticated users and permissions',
     '  collab             Create, view, and post to collaboration sessions',
@@ -88,6 +94,7 @@ function buildHelp() {
     '  ghostforge marketplace list',
     '  ghostforge agent-team status',
     '  ghostforge workflows list',
+    '  ghostforge worlds status ai-town',
     '  ghostforge jobs search',
     '  ghostforge users list',
     '  ghostforge collab create',
