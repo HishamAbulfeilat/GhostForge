@@ -70,8 +70,10 @@ test('workflow validation checks team membership, task shape, and dependency gra
 
   const cases = [
     validWorkflow({ workers: [] }),
+    validWorkflow({ workers: [{ id: 'boss', provider: 'claude', model: 'opus' }] }),
     validWorkflow({ mode: 'random' }),
     validWorkflow({ tasks: [{ ...validWorkflow().tasks[0], id: 'bad id' }] }),
+    validWorkflow({ tasks: [{ ...validWorkflow().tasks[0], acceptanceCriteria: [] }] }),
     validWorkflow({ tasks: [{ ...validWorkflow().tasks[0], dependsOn: ['missing'] }] }),
     validWorkflow({ tasks: [
       { ...validWorkflow().tasks[0], dependsOn: ['verify'] },
