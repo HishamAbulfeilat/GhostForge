@@ -40,6 +40,8 @@ const tasks = [
 ]
 
 test('agents dashboard retains authenticated snapshot loading and existing team controls', () => {
+  assert.match(page, /href="\/agents\/builder"/)
+  assert.match(page, /Team \+ workflow builder/)
   assert.match(page, /fetch\(['"]\/api\/agents['"]/)
   assert.match(page, /fetch\(['"]\/api\/auth\/me['"]/)
   assert.match(page, /authResponse\.status === 401/)
@@ -69,6 +71,10 @@ test('agents dashboard retains authenticated snapshot loading and existing team 
   assert.match(page, /Unable to load agent team\./)
   assert.match(page, /Enter a message before sending\./)
   assert.match(page, /Enter a task title before adding it\./)
+  const builder = fs.readFileSync(path.join(appDir, 'builder', 'page.tsx'), 'utf8')
+  assert.match(builder, /fetch\('\/api\/auth\/me'/)
+  assert.match(builder, /router\.replace\('\/login\?next=\/agents\/builder'\)/)
+  assert.match(builder, /user\.permissions\?\.includes\('admin_tools'\)/)
 })
 
 test('agents dashboard queues refreshes behind one in-flight load and polls only while visible and running', () => {
