@@ -24,7 +24,10 @@ test('/agent-world office view mounts Start/Stop/Open controls with a sandboxed 
   assert.match(page, /world === 'office' && \([\s\S]*?<AgentOfficeControls \/>/)
   const controls = read('agent-world/AgentOfficeControls.tsx')
   assert.match(controls, /fetch\('\/api\/worlds\/agent-office'/)
-  for (const label of ['Start', 'Stop', 'Open']) assert.ok(controls.includes(`\n            ${label}\n`) || controls.includes(`'${label}'`), label)
+  // Whitespace/line-ending tolerant: Windows checkouts use CRLF.
+  assert.match(controls, />\s*Start\s*<\/button>/, 'Start')
+  assert.match(controls, />\s*Stop\s*<\/button>/, 'Stop')
+  assert.match(controls, /'Open'/, 'Open')
   assert.match(controls, /<iframe[\s\S]*?sandbox="allow-forms allow-scripts allow-same-origin"/)
   assert.match(controls, /src=\{status\.url\}/)
   assert.doesNotMatch(controls, /\b(ml|mr|pl|pr)-\d|text-(left|right)\b/, 'logical utilities only (RTL)')
