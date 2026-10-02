@@ -22,11 +22,13 @@ export type ViewportProps = {
 export default PixiComponent('Viewport', {
   create(props: ViewportProps) {
     const { app, viewportRef, ...viewportProps } = props;
+    // GhostForge: pixi-viewport 5.1 ships stale typings (`interaction`) while its
+    // runtime reads `events`; the cast is the only deviation from upstream.
     const viewport = new Viewport({
       events: app.renderer.events,
       passiveWheel: false,
       ...viewportProps,
-    });
+    } as ConstructorParameters<typeof Viewport>[0]);
     if (viewportRef) {
       viewportRef.current = viewport;
     }
