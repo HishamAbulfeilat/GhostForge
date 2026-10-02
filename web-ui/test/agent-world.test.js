@@ -9,6 +9,8 @@ const appDir = path.resolve(__dirname, '../app/agent-world')
 const modelPath = path.join(appDir, 'agent-world-model.ts')
 const pagePath = path.join(appDir, 'page.tsx')
 const navbarPath = path.resolve(__dirname, '../components/Navbar.tsx')
+const switcherPath = path.join(appDir, 'AgentWorldSwitcher.tsx')
+const townPath = path.join(appDir, 'town/TownWorld.tsx')
 const compiledModel = ts.transpileModule(fs.readFileSync(modelPath, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText
@@ -146,9 +148,14 @@ test('API errors and unreadable record values are surfaced without rendering obj
 test('Agent World includes responsive accessible empty, loading, and error states', () => {
   const source = fs.readFileSync(pagePath, 'utf8')
   const navbar = fs.readFileSync(navbarPath, 'utf8')
+  const switcher = fs.readFileSync(switcherPath, 'utf8')
+  const town = fs.readFileSync(townPath, 'utf8')
 
   assert.match(source, /No sessions were reported by the available snapshots\./)
   assert.match(source, /No connector sources were reported by the agents API\./)
+  assert.match(source, /<TownWorld data=\{state\.data\} boss=\{state\.data\.boss\} \/>/)
+  assert.match(switcher, /new URLSearchParams\(window\.location\.search\)\.get\('world'\)/)
+  assert.match(town, /dynamic\(\(\) => import\('\.\.\/\.\.\/\.\.\/vendor\/ai-town\/src\/components\/Game'\), \{\s*ssr: false,/)
   assert.match(source, /role="alert"/)
   assert.match(source, /role="status"/)
   assert.match(source, /sm:grid-cols-2/)

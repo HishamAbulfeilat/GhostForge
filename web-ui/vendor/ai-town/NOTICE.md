@@ -4,6 +4,9 @@ https://github.com/a16z-infra/ai-town at commit
 
 The upstream MIT license is included as `LICENSE`. Upstream renderer code and
 world-map data are retained in `src/components/` and `data/`; the GhostForge
-snapshot adapter is maintained under `web-ui/app/agent-world/town/`.
+snapshot adapter is maintained under `web-ui/app/agent-world/town/`. The
+renderer is mounted with GhostForge snapshot data; upstream Convex/Clerk
+simulation and authentication integrations are not included.
 
-See `THIRD_PARTY_NOTICES.md` for the separately credited game art.
+See the repository-root `THIRD_PARTY_NOTICES.md` for asset licenses and
+attributions.

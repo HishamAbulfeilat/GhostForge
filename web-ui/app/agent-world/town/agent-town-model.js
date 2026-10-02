@@ -105,12 +105,19 @@ function adaptAgentTownSnapshot(snapshot = {}) {
   const agents = records(snapshot.agents)
   const tasks = records(snapshot.tasks)
   const boss = asRecord(snapshot.boss) ?? agents.find(isBossRecord) ?? null
-  const ordinaryAgents = agents.filter(agent => agent !== boss && !isBossRecord(agent))
+  const bossId = boss && (identity(boss) || 'boss')
+  const ordinaryAgents = agents.filter(agent =>
+    agent !== boss && !isBossRecord(agent) && identity(agent) !== bossId,
+  )
   const players = ordinaryAgents
     .map((agent, index) => toCharacter(agent, index, tasks))
     .filter(Boolean)
   if (boss) {
-    const mappedBoss = toCharacter(boss, players.length, tasks, true)
+    const mappedBoss = toCharacter({
+      ...boss,
+      id: bossId,
+      name: text(boss, ['name', 'displayName']) || 'GhostForge Boss',
+    }, players.length, tasks, true)
     if (mappedBoss && !players.some(player => player.id === mappedBoss.id)) players.unshift(mappedBoss)
   }
   return players

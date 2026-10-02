@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="384" height="256" viewBox="0 0 384 256" shape-rendering="crispEdges">
+  <defs>
+    <symbol id="person" viewBox="0 0 32 32">
+      <path fill="#29243b" d="M11 4h10v3h3v8h-2v4h-2v3h5v3h2v4H5v-4h2v-3h5v-3h-2v-4H8V7h3z"/>
+      <path fill="#e8b990" d="M11 8h10v7h-2v4h-6v-4h-2z"/>
+      <path fill="#29243b" d="M11 7h10v3h-2v2h-2v-2h-3v2h-2V9h-1z"/>
+      <path fill="#ffffff" d="M12 13h2v2h-2zm6 0h2v2h-2z"/>
+      <path fill="#493c52" d="M14 16h4v1h-4z"/>
+    </symbol>
+    <symbol id="f1" viewBox="0 0 32 32"><use href="#person"/><path fill="#287c78" d="M10 20h12v7H10z"/><path fill="#e3b341" d="M14 20h4v3h-4z"/></symbol>
+    <symbol id="f2" viewBox="0 0 32 32"><use href="#person"/><path fill="#5268a5" d="M10 20h12v7H10z"/><path fill="#d7d2e6" d="M11 6h10v2H11z"/></symbol>
+    <symbol id="f3" viewBox="0 0 32 32"><use href="#person"/><path fill="#9a567a" d="M10 20h12v7H10z"/><path fill="#d9a44d" d="M9 7h3v5H9zm11-3h3v8h-3z"/></symbol>
+    <symbol id="f4" viewBox="0 0 32 32"><use href="#person"/><path fill="#4d744c" d="M10 20h12v7H10z"/><path fill="#d6d2c8" d="M11 5h10v3H11z"/></symbol>
+    <symbol id="f5" viewBox="0 0 32 32"><use href="#person"/><path fill="#b7683d" d="M10 20h12v7H10z"/><path fill="#382b25" d="M9 5h14v3H9z"/></symbol>
+    <symbol id="f6" viewBox="0 0 32 32"><use href="#person"/><path fill="#7654a1" d="M10 20h12v7H10z"/><path fill="#e7c454" d="M10 6h3v5h-3zm10-2h3v8h-3z"/></symbol>
+    <symbol id="f7" viewBox="0 0 32 32"><use href="#person"/><path fill="#3971a0" d="M10 20h12v7H10z"/><path fill="#e2bd91" d="M11 5h10v3H11z"/></symbol>
+    <symbol id="f8" viewBox="0 0 32 32"><use href="#person"/><path fill="#a74648" d="M10 20h12v7H10z"/><path fill="#20202b" d="M9 5h14v3H9z"/></symbol>
+  </defs>
+  <g>
+    <use href="#f1" x="0" y="0"/><use href="#f1" x="32" y="0"/><use href="#f1" x="64" y="0"/>
+    <use href="#f1" x="0" y="32"/><use href="#f1" x="32" y="32"/><use href="#f1" x="64" y="32"/>
+    <use href="#f1" x="0" y="64"/><use href="#f1" x="32" y="64"/><use href="#f1" x="64" y="64"/>
+    <use href="#f1" x="0" y="96"/><use href="#f1" x="32" y="96"/><use href="#f1" x="64" y="96"/>
+    <use href="#f8" x="96" y="0"/><use href="#f8" x="128" y="0"/><use href="#f8" x="160" y="0"/>
+    <use href="#f8" x="96" y="32"/><use href="#f8" x="128" y="32"/><use href="#f8" x="160" y="32"/>
+    <use href="#f8" x="96" y="64"/><use href="#f8" x="128" y="64"/><use href="#f8" x="160" y="64"/>
+    <use href="#f8" x="96" y="96"/><use href="#f8" x="128" y="96"/><use href="#f8" x="160" y="96"/>
+    <use href="#f3" x="192" y="0"/><use href="#f3" x="224" y="0"/><use href="#f3" x="256" y="0"/>
+    <use href="#f3" x="192" y="32"/><use href="#f3" x="224" y="32"/><use href="#f3" x="256" y="32"/>
+    <use href="#f3" x="192" y="64"/><use href="#f3" x="224" y="64"/><use href="#f3" x="256" y="64"/>
+    <use href="#f3" x="192" y="96"/><use href="#f3" x="224" y="96"/><use href="#f3" x="256" y="96"/>
+    <use href="#f4" x="288" y="0"/><use href="#f4" x="320" y="0"/><use href="#f4" x="352" y="0"/>
+    <use href="#f4" x="288" y="32"/><use href="#f4" x="320" y="32"/><use href="#f4" x="352" y="32"/>
+    <use href="#f4" x="288" y="64"/><use href="#f4" x="320" y="64"/><use href="#f4" x="352" y="64"/>
+    <use href="#f4" x="288" y="96"/><use href="#f4" x="320" y="96"/><use href="#f4" x="352" y="96"/>
+    <use href="#f5" x="0" y="128"/><use href="#f5" x="32" y="128"/><use href="#f5" x="64" y="128"/>
+    <use href="#f5" x="0" y="160"/><use href="#f5" x="32" y="160"/><use href="#f5" x="64" y="160"/>
+    <use href="#f5" x="0" y="192"/><use href="#f5" x="32" y="192"/><use href="#f5" x="64" y="192"/>
+    <use href="#f5" x="0" y="224"/><use href="#f5" x="32" y="224"/><use href="#f5" x="64" y="224"/>
+    <use href="#f6" x="96" y="128"/><use href="#f6" x="128" y="128"/><use href="#f6" x="160" y="128"/>
+    <use href="#f6" x="96" y="160"/><use href="#f6" x="128" y="160"/><use href="#f6" x="160" y="160"/>
+    <use href="#f6" x="96" y="192"/><use href="#f6" x="128" y="192"/><use href="#f6" x="160" y="192"/>
+    <use href="#f6" x="96" y="224"/><use href="#f6" x="128" y="224"/><use href="#f6" x="160" y="224"/>
+    <use href="#f7" x="192" y="128"/><use href="#f7" x="224" y="128"/><use href="#f7" x="256" y="128"/>
+    <use href="#f7" x="192" y="160"/><use href="#f7" x="224" y="160"/><use href="#f7" x="256" y="160"/>
+    <use href="#f7" x="192" y="192"/><use href="#f7" x="224" y="192"/><use href="#f7" x="256" y="192"/>
+    <use href="#f7" x="192" y="224"/><use href="#f7" x="224" y="224"/><use href="#f7" x="256" y="224"/>
+    <use href="#f2" x="288" y="128"/><use href="#f2" x="320" y="128"/><use href="#f2" x="352" y="128"/>
+    <use href="#f2" x="288" y="160"/><use href="#f2" x="320" y="160"/><use href="#f2" x="352" y="160"/>
+    <use href="#f2" x="288" y="192"/><use href="#f2" x="320" y="192"/><use href="#f2" x="352" y="192"/>
+    <use href="#f2" x="288" y="224"/><use href="#f2" x="320" y="224"/><use href="#f2" x="352" y="224"/>
+  </g>
+</svg>

@@ -45,6 +45,39 @@ test('renders explicit boss data as its own character and avoids a duplicate bos
   assert.equal(characters[0].isThinking, true)
 })
 
+test('uses a stable boss identity when the snapshot omits one', () => {
+  const characters = adaptAgentTownSnapshot({
+    agents: [{ id: 'worker' }],
+    boss: { state: 'working' },
+    tasks: [],
+  })
+
+  assert.equal(characters.length, 2)
+  assert.deepEqual(characters[0], {
+    id: 'boss',
+    name: 'GhostForge Boss',
+    character: 'f8',
+    description: '',
+    status: 'working',
+    role: 'boss',
+    x: 22,
+    y: 16,
+    isBoss: true,
+    isSpeaking: false,
+    isThinking: true,
+  })
+})
+
+test('keeps explicit boss data instead of a duplicate worker character', () => {
+  const characters = adaptAgentTownSnapshot({
+    agents: [{ id: 'worker' }, { id: 'boss', name: 'Agent row' }],
+    boss: { id: 'boss', name: 'GhostForge Boss' },
+    tasks: [],
+  })
+
+  assert.deepEqual(characters.map(character => character.id), ['boss', 'worker'])
+})
+
 test('keeps missing or malformed snapshot data empty instead of inventing agents', () => {
   assert.deepEqual(adaptAgentTownSnapshot(), [])
   assert.deepEqual(adaptAgentTownSnapshot({ agents: null, tasks: [null, 'invalid'] }), [])

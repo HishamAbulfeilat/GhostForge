@@ -13,6 +13,7 @@ import {
 } from './agent-world-model'
 import AgentWorldSwitcher, { type AgentWorldView } from './AgentWorldSwitcher'
 import ForgeWorldScene from './ForgeWorldScene'
+import TownWorld from './town/TownWorld'
 
 type PageState =
   | { status: 'loading' }
@@ -202,10 +203,7 @@ export default function AgentWorldPage() {
               </>
             )}
             {world === 'town' && (
-              <section aria-labelledby="agent-town-heading" className="rounded-2xl border border-gf-line bg-gf-surface p-5">
-                <h2 id="agent-town-heading" className="font-display text-lg font-semibold">Agent Town</h2>
-                <p className="mt-2 text-sm text-gf-muted">Agent Town is a separate managed world. Its scene is not included in the current GhostForge snapshot.</p>
-              </section>
+              <TownWorld data={state.data} boss={state.data.boss} />
             )}
             {world === 'office' && (
               <AgentOfficeMap sessions={state.officeSessions} emptyMessage="No sessions were reported by the available snapshots." />
