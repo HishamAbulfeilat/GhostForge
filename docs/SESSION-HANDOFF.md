@@ -5,6 +5,62 @@ what is going on.** The top half is written by humans/lead agents; the
 `LIVE STATUS` block at the bottom is rewritten automatically by the boss every
 couple of minutes while the agent team runs.
 
+## ▶ START HERE — state at 2026-10-02 12:00 (Asia/Amman)
+
+**Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
+(main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
+Copilot worktree under `GhostForge\copilot-worktrees\`). If the main repo is
+still at `Desktop\GhostForge-public`, run
+`powershell -ExecutionPolicy Bypass -File C:\Users\User\Desktop\GhostForge\finish-move.ps1`
+from a terminal that is NOT inside the repo (Claude Code and the Copilot app
+closed) — it moves the repo, repairs git worktrees, reinstalls the watchdog
+(allowed on battery) and restarts the boss.
+
+**Team now:** boss = Claude (Opus plans/security/large diffs, Sonnet routine
+reviews) with Copilot fallback; workers = 5 Copilot CLI agents (model `auto`).
+Claude workers are disabled to save Claude tokens. Interactive Copilot is
+co-lead (`prompts/copilot-colead.md`).
+
+**Done (merged / on main):** PR #11 merged to `main` (ccc4c29, all 14 checks
+green). Since then on `agent/integration` (PR to main opens every 5 merges):
+`/agents` command center + kanban + workflow graph + team/workflow builder
+(T-135), Agent World switcher + Forge World (T-133), standalone Dev Monitor
+(T-136 → `npm run monitor`, http://127.0.0.1:4177), OpenRouter/OmniRoute model
+gateways in GhostForge routing (T-137), marketplace entries for gstack, ruflo,
+ponytail, agentic-os, hermes-workspace (T-138, catalog only), docs aligned to
+the boss model (T-139), BA analysis `docs/PRODUCT-ANALYSIS.md` (T-140), Claude
+Design reference for all screens in `docs/design/agent-worlds/`
+(canvas https://claude.ai/artifact/6bSqAGRGFDSHJemEVfdbeC).
+
+**In flight:** T-143 AI Town run as its README (finished in `c18ef40`, pinned as
+`wip/T-143-done` — merge it, don't redo); T-141 AI Town front-end with our
+agents, T-142 Agent Office front-end (redo), T-144 Agent Office run as its README
+(`wip/T-144-agent-office-runtime`); T-132 Agent World branch integration is
+blocked — redo from `wip/T-132-agent-world` WITHOUT the stray gitlink
+`apps/worlds/agent-office/checkout` (checkouts must stay gitignored).
+
+**Open items for the human:**
+1. OmniRoute for Claude Code: installed + `scripts/claude-free.ps1` ready, but
+   it needs an OpenRouter key and an OmniRoute API key (dashboard at
+   http://127.0.0.1:20128). Its old DB `~/.omniroute/storage.sqlite` can't be
+   decrypted (missing STORAGE_ENCRYPTION_KEY) — restore the key or move the DB.
+2. `/doctor` findings awaiting a yes/no: disable 10 unused plugins (frontend-
+   design, skill-creator, code-simplifier, claude-md-management,
+   claude-code-setup, figma, huggingface-skills, feature-dev, commit-commands,
+   firecrawl); set auto mode as default; quiet ECC GateGuard's routine fact
+   prompts (env `GATEGUARD_BASH_ROUTINE_DISABLED=1`,
+   `ECC_DISABLED_HOOKS=pre:edit-write:gateguard-fact-force`).
+3. Install gstack/ruflo/ponytail into Claude Code itself? (currently catalog only)
+4. Restart Claude Code to load the downloaded update (2.1.287).
+5. Run `/claude-security` last, after the above.
+6. A Copilot prototype of the agents kanban/page is preserved in `git stash`
+   ("copilot prototype: agents kanban/page") — apply or drop.
+
+**Lessons (don't repeat):** narrow task areas made workers block — workers may
+now edit shared files (package.json, mounting page, tests, notices); orphaned
+`next dev` previews lock node_modules — the boss now kills strays; the
+watchdog task must be allowed to run on battery.
+
 ## Mission
 
 Make GhostForge production-perfect: every feature works end to end and is
