@@ -118,3 +118,36 @@ Windows permissions prevent creating a file symlink).
 - `web-ui` (`npm audit --json`): 0 vulnerabilities, 495 total dependencies.
 
 No fixable advisories were found in either at scan time.
+
+### mcp, tui and extension (T-168, 2026-10-02)
+
+The CI audit gate in `.github/workflows/security.yml` now covers
+`. web-ui electron-app mcp tui extension`. Each was audited with
+`npm audit --omit=dev --audit-level=high`:
+
+- `mcp`: 2 high + 5 moderate before the fix. High: `ip-address` 10.2.0
+  (SSRF/trust-boundary misclassification, via `express-rate-limit` in the MCP
+  SDK) and `hono` 4.12.30 (via `@hono/node-server` in the MCP SDK). Moderate:
+  `qs`, `body-parser`, `express`. Fixed with `npm audit fix` (no `--force`).
+  These are lockfile-only patch/minor bumps: `hono` 4.13.12,
+  `@hono/node-server` 1.19.17, `ip-address` 10.7.3, `qs` 6.16.0,
+  `body-parser` 1.20.8, `express` 4.22.3, `fast-uri` 3.1.8. After: **0
+  vulnerabilities**. Smoke: `npm ci && npm test` passes (7 pass, 1 skip that
+  needs Windows symlink rights). A stdio `initialize` + `tools/list` handshake
+  against `node index.js` returns the server info and tool list.
+- `tui`: 2 high + 2 moderate before the fix. `blessed-contrib` pinned its own
+  nested `lodash` 4.17.23 (code injection via `_.template`, prototype pollution
+  in `_.unset`/`_.omit`), and `map-canvas` pinned its own nested `xml2js`
+  0.4.23 (prototype pollution). The only fix `npm audit fix` offered was a
+  `--force` downgrade to `blessed-contrib` 4.8.13, which is a breaking change.
+  Instead, `package.json` `overrides` pins `lodash` to `^4.18.1` and `xml2js`
+  to `^0.6.2`, the versions already declared as direct dependencies. After:
+  **0 vulnerabilities**. Smoke: `node --check tui/index.js` passes. In a clean
+  `npm ci --omit=dev` from the lockfile, `blessed-contrib`, `map-canvas` and
+  `xml2js` load and parse correctly, and `lodash` resolves to 4.18.1 everywhere.
+- `extension`: **0 vulnerabilities** (1 prod dependency). No change needed.
+
+Note: `tui/node_modules/` is still tracked in git even though `.gitignore`
+ignores it. That checked-in copy is stale and predates these fixes. The
+lockfile is authoritative, so run `npm ci` in `tui/` instead of relying on the
+checked-in tree. Untracking it is left as a follow-up.

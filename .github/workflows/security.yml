@@ -63,7 +63,7 @@ jobs:
       - name: Audit every package
         run: |
           FAIL=0
-          for dir in . web-ui electron-app; do
+          for dir in . web-ui electron-app mcp tui extension; do
             [ -f "$dir/package-lock.json" ] || continue
             echo "::group::npm audit $dir"
             (cd "$dir" && npm audit --omit=dev --audit-level=high) || FAIL=1
