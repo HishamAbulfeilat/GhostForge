@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import AgentKanbanBoard from './AgentKanbanBoard'
 import { getEnabledAgentIds, type Agent, type Task } from './dashboard-model'
@@ -458,6 +459,9 @@ export default function AgentsPage() {
             <p className="mt-1 text-sm text-gf-muted">Monitor providers, workers, tasks and team health.</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link href="/agents/builder" className="inline-flex min-h-9 items-center rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent">
+              Team + workflow builder
+            </Link>
             <button type="button" disabled={busy !== null} onClick={() => void run('start', { action: 'start' })}
               className="min-h-9 rounded-lg bg-gf-ok px-3 text-sm font-semibold text-gf-bg disabled:opacity-50">Start team</button>
             <button type="button" disabled={busy !== null} onClick={() => confirmTeamStop(() => void run('stop', { action: 'stop' }))}

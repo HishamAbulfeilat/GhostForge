@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "node server.js",
     "start:next": "next start",
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/*.test.js app/agents/builder/*.test.js app/agents/builder/launch/*.test.js app/agents/builder/templates/*.test.js",
     "test:e2e": "playwright test",
     "lint": "eslint ."
   },
