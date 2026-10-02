@@ -737,6 +737,86 @@ async function screenWebhooks() {
   }
 }
 
+const MEMORY_USER_ID = 'default';
+const MEMORY_LIST_LIMIT = 20;
+
+function memoryErrorMessage(error) {
+  const message = safeCollabText(error?.message || 'Memory request failed.');
+  if (/^Could not reach the collaboration bridge|timed out/.test(message)) {
+    return 'Bridge offline: cannot reach the GhostForge bridge on :8765. Start it with mark-l-bridge/start.sh and retry.';
+  }
+  return message;
+}
+
+function printMemories(memories, limit = MEMORY_LIST_LIMIT) {
+  if (!memories.length) {
+    console.log(T.muted('\n  No memories found.'));
+    return;
+  }
+  console.log('');
+  for (const memory of memories.slice(0, limit)) {
+    const meta = memory?.metadata && typeof memory.metadata === 'object' ? memory.metadata : {};
+    const text = safeCollabText(memory?.memory ?? memory?.content ?? '').slice(0, 160);
+    const category = safeCollabText(meta.category || '');
+    console.log(`  ${T.accent(safeCollabText(memory?.id || '?'))}${category ? T.muted(` [${category}]`) : ''}`);
+    console.log(`    ${text}`);
+  }
+  if (memories.length > limit) console.log(T.muted(`\n  … ${memories.length - limit} more not shown`));
+}
+
+async function screenMemory() {
+  while (true) {
+    sectionHeader('🧠  Memory', 'List, search, add and delete JARVIS memories via the bridge');
+    const action = await select({
+      message: T.white('Memory action:'),
+      choices: [
+        { name: T.success('📋  List recent memories'), value: 'list' },
+        { name: T.accent('🔍  Semantic search'), value: 'search' },
+        { name: T.brand('➕  Add memory'), value: 'add' },
+        { name: T.danger('🗑️   Delete memory'), value: 'delete' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+
+    try {
+      if (action === 'list') {
+        const result = await collabBridgeRequest(`/api/mark-l/memory/list/${encodeURIComponent(MEMORY_USER_ID)}`);
+        const memories = Array.isArray(result) ? result : [];
+        const created = m => String(m?.metadata?.created_at || m?.created_at || '');
+        memories.sort((a, b) => created(b).localeCompare(created(a)));
+        printMemories(memories);
+      } else if (action === 'search') {
+        const query = (await input({ message: 'Search query:' })).trim();
+        if (!query) continue;
+        const result = await collabBridgeRequest('/api/mark-l/memory/search', {
+          method: 'POST',
+          body: JSON.stringify({ query, user_id: MEMORY_USER_ID, top_k: 5 }),
+        });
+        printMemories(Array.isArray(result) ? result : []);
+      } else if (action === 'add') {
+        const content = (await input({ message: 'Memory to store:' })).trim();
+        if (!content) continue;
+        const result = await collabBridgeRequest('/api/mark-l/memory/add', {
+          method: 'POST',
+          body: JSON.stringify({ content, user_id: MEMORY_USER_ID }),
+        });
+        console.log(T.success(`\n  ✔ Memory saved${result?.id ? ` (${safeCollabText(result.id)})` : ''}.`));
+      } else if (action === 'delete') {
+        const id = (await input({ message: 'Memory id to delete:' })).trim();
+        if (!id) continue;
+        const approved = await confirm({ message: `Delete memory ${safeCollabText(id)}?`, default: false });
+        if (!approved) continue;
+        await collabBridgeRequest(`/api/mark-l/memory/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        console.log(T.success('\n  ✔ Memory deleted.'));
+      }
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${memoryErrorMessage(error)}`));
+    }
+    await pressEnter();
+  }
+}
+
 function safeUsersText(value) {
   return String(value ?? '')
     .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
@@ -1418,7 +1498,8 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '🤝  Collaboration & Sharing',   'create or join sessions · send messages · copy share links', 'collaboration'),
       menuChoice(T.accent.bold,  '👥  User Administration',       'list users · owner-only role, status, and permission controls', 'users'),
       menuChoice(T.accent.bold,  '🔁  Workflows',                  'review saved workflows · run bounded, allowlisted steps', 'workflows'),
-      menuChoice(T.cyan.bold,    '🌍  Agent Worlds',               'start, stop, and check AI Town and Agent Office', 'worlds'),
+      menuChoice(T.accent.bold,  '🧠  Memory',                    'list · search · add · delete JARVIS memories via the bridge', 'memory'),
+      menuChoice(T.cyan.bold,    '🌍  Agent Worlds',              'start, stop, and check AI Town and Agent Office', 'worlds'),
       menuChoice(T.accent.bold,  '⚡  n8n Automation',             'list and safely trigger active workflow webhooks', 'n8n'),
       menuChoice(T.accent.bold,  '🪝  Webhooks',                   'inspect triggers · replace config · review logs', 'webhooks'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
@@ -7598,6 +7679,7 @@ async function main() {
         case 'users':         await screenUsers(); break;
         case 'workflows':     await screenWorkflows(); break;
         case 'worlds':        await screenWorlds(); break;
+        case 'memory':        await screenMemory(); break;
         case 'n8n':            await screenN8n(); break;
         case 'webhooks':      await screenWebhooks(); break;
         case 'freeapis':     await screenFreeAPIs(); break;
