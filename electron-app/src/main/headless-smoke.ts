@@ -51,6 +51,31 @@ export async function runBoundedCleanup(tasks: readonly CleanupTask[], timeoutMs
   }
 }
 
+export interface ShutdownOutcomeHooks {
+  smoke: boolean;
+  log: (message: string) => void;
+  error: (message: string, error: unknown) => void;
+  quit: () => void;
+  exit: (code: number) => void;
+}
+
+/**
+ * Emits the clean marker and quits only when cleanup fully succeeded; any
+ * failure or timeout emits the failure marker (smoke mode) and exits non-zero.
+ */
+export async function reportShutdownOutcome(cleanup: Promise<void>, hooks: ShutdownOutcomeHooks): Promise<void> {
+  try {
+    await cleanup;
+  } catch (error) {
+    hooks.error('[electron] shutdown cleanup failed:', error);
+    if (hooks.smoke) hooks.log(HEADLESS_CLEANUP_FAILED_LOG);
+    hooks.exit(1);
+    return;
+  }
+  if (hooks.smoke) hooks.log(HEADLESS_CLEAN_LOG);
+  hooks.quit();
+}
+
 export function isHeadlessSmokeMode(
   args: readonly string[] = process.argv,
   env: NodeJS.ProcessEnv = process.env,

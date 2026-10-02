@@ -228,20 +228,28 @@ class BridgeManager extends EventEmitter {
     this.appendLog('[bridge-manager] Sending SIGTERM…');
     this.process.kill('SIGTERM');
 
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        if (this.process) {
-          this.appendLog('[bridge-manager] SIGTERM timeout — sending SIGKILL');
-          this.process.kill('SIGKILL');
-        }
-        resolve();
+    const child = this.process;
+    const exited = await new Promise<boolean>((resolve) => {
+      const killTimer = setTimeout(() => {
+        this.appendLog('[bridge-manager] SIGTERM timeout — sending SIGKILL');
+        child.kill('SIGKILL');
       }, SIGKILL_TIMEOUT_MS);
+      const giveUpTimer = setTimeout(() => {
+        clearTimeout(killTimer);
+        resolve(false);
+      }, SIGKILL_TIMEOUT_MS * 2);
 
-      this.process!.on('exit', () => {
-        clearTimeout(timer);
-        resolve();
+      child.once('exit', () => {
+        clearTimeout(killTimer);
+        clearTimeout(giveUpTimer);
+        resolve(true);
       });
     });
+
+    if (!exited) {
+      // Keep this.process so a later stop attempt can still target the child.
+      throw new Error('Bridge process did not exit after SIGKILL');
+    }
 
     this.process = null;
     this.setStatus('stopped');

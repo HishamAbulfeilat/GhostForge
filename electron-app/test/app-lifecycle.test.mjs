@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
 import {
+  HEADLESS_CLEAN_LOG,
+  HEADLESS_CLEANUP_FAILED_LOG,
+  reportShutdownOutcome,
   runBoundedCleanup,
   shouldMinimizeWindowToTray,
 } from '../dist/main/headless-smoke.js'
@@ -62,8 +65,58 @@ test('quit wiring bypasses close-to-tray and only reports smoke success after cl
   assert.match(daemonSource, /label: 'Quit JARVIS',[\s\S]*?app\.quit\(\)/)
   assert.match(source, /if \(cleanupPromise\) return/)
   assert.match(source, /if \(cleanupComplete\) return/)
-  assert.match(source, /cleanupPromise\.then\(\(\) => \{[\s\S]*?HEADLESS_CLEAN_LOG/)
-  assert.match(source, /cleanupPromise\.then\(\(\) => \{[\s\S]*?cleanupComplete = true/)
-  assert.match(source, /HEADLESS_CLEANUP_FAILED_LOG[\s\S]{0,240}app\.exit\(1\)/)
+  assert.match(source, /reportShutdownOutcome\(cleanupPromise, \{[\s\S]*?quit: \(\) => \{[\s\S]*?cleanupComplete = true;[\s\S]*?app\.quit\(\)/)
+  assert.match(source, /reportShutdownOutcome\(cleanupPromise, \{[\s\S]*?exit: \(code\) => app\.exit\(code\)/)
+  assert.doesNotMatch(source, /HEADLESS_CLEAN_LOG/)
   assert.match(source, /name: 'bridge', run: \(\) => bridgeManager\.stopBridge\(\)/)
+})
+
+function makeHooks(smoke) {
+  const events = []
+  return {
+    events,
+    hooks: {
+      smoke,
+      log: (message) => events.push(['log', message]),
+      error: (message) => events.push(['error', message]),
+      quit: () => events.push(['quit']),
+      exit: (code) => events.push(['exit', code]),
+    },
+  }
+}
+
+test('shutdown outcome emits clean marker and quits only after successful cleanup', async () => {
+  const { events, hooks } = makeHooks(true)
+  await reportShutdownOutcome(runBoundedCleanup([{ name: 'ok', run: () => {} }], 100), hooks)
+  assert.deepEqual(events, [['log', HEADLESS_CLEAN_LOG], ['quit']])
+})
+
+test('shutdown outcome emits failure marker and exits non-zero when a task fails', async () => {
+  const { events, hooks } = makeHooks(true)
+  await reportShutdownOutcome(
+    runBoundedCleanup([{ name: 'bridge', run: () => { throw new Error('still running') } }], 100),
+    hooks,
+  )
+  assert.deepEqual(events.map(([kind]) => kind), ['error', 'log', 'exit'])
+  assert.deepEqual(events[1], ['log', HEADLESS_CLEANUP_FAILED_LOG])
+  assert.deepEqual(events[2], ['exit', 1])
+  assert.ok(!events.some(([kind, value]) => kind === 'log' && value === HEADLESS_CLEAN_LOG))
+  assert.ok(!events.some(([kind]) => kind === 'quit'))
+})
+
+test('shutdown outcome emits failure marker and exits non-zero when cleanup times out', async () => {
+  const { events, hooks } = makeHooks(true)
+  await reportShutdownOutcome(
+    runBoundedCleanup([{ name: 'stalled', run: () => new Promise(() => {}) }], 20),
+    hooks,
+  )
+  assert.deepEqual(events.map(([kind]) => kind), ['error', 'log', 'exit'])
+  assert.deepEqual(events[1], ['log', HEADLESS_CLEANUP_FAILED_LOG])
+  assert.deepEqual(events[2], ['exit', 1])
+})
+
+test('shutdown failure outside smoke mode still exits non-zero without markers', async () => {
+  const { events, hooks } = makeHooks(false)
+  await reportShutdownOutcome(Promise.reject(new Error('boom')), hooks)
+  assert.deepEqual(events.map(([kind]) => kind), ['error', 'exit'])
 })
