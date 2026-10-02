@@ -18,7 +18,8 @@ const NAV_ITEMS = [
   { href: '/features',    icon: '⚡', label: 'Features' },
   { href: '/orchestrate', icon: '🧠', label: 'Orchestrate' },
   { href: '/workflows',   icon: '🗺️', label: 'Flows' },
-  { href: '/users',       icon: '👥', label: 'Users' },
+  { href: '/snippets',    icon: '📋', label: 'Snippets' },
+  { href: '/users',      icon: '👥', label: 'Users' },
   { href: '/marketplace', icon: '🏪', label: 'Market' },
   { href: '/settings',    icon: '⚙️', label: 'Settings' },
 ]
