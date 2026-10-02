@@ -7,8 +7,7 @@ surface named in the column:
 - **Web UI** means a page/component in `web-ui/app` or a web API that powers a
   visible page.
 - **TUI** means a reachable screen/command in `tui/index.js`.
-- **Terminal CLI** means a direct entry point under `scripts/` (the scripts are
-  the current CLI; `bin/ghostforge` is only a wrapper at this revision).
+- **Terminal CLI** means a direct entry point via the CLI dispatcher (`cli/index.js` → scripts/*, or direct scripts); `bin/ghostforge` is a wrapper at this revision.
 - **JARVIS** means a handler in `mark-l-bridge/server.py`, including the
   Mark-LV and opt-in OpenJarvis APIs.
 
@@ -27,9 +26,9 @@ surface. The evidence column names the implementation that was checked.
 | Command catalog / feature launcher | ✅ | ✅ | ✅ | ❌ | `app/features`, `screenCommands`/`screenCommandCenter`, `scripts/*` |
 | Project open, project list, scaffolding | ⚠️ | ✅ | ✅ | ❌ | `app/setup`, `screenProjects`/`screenOpenProject`, `scripts/create-project.sh` |
 | Setup and environment configuration | ✅ | ✅ | ✅ | ❌ | `app/setup`, `screenSetup`, `scripts/setup-env.sh`/`scripts/env-manager.sh` |
-| AI agents dashboard and dispatch | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgents`, `scripts/agents/team.mjs`, `/api/mark-l/agents/*` |
-| Agent World (federated agent and connector operations) | ✅ | ⚠️ | ⚠️ | ⚠️ | `app/agent-world` and `Navbar` (`/agent-world`); `/api/agents` snapshots; `screenAgentTeam`, `scripts/agents/team.mjs`, bridge `/api/mark-l/agents/*` provide lower-level agent surfaces |
-| Agent teams, crews, tasks, messages | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgentTeam`, `scripts/agents/team.mjs`, `/api/mark-l/agents/crew/*` |
+| AI agents dashboard and dispatch | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgents`, `cli/index.js` → `scripts/agents/team.mjs`, `/api/mark-l/agents/*` |
+| Agent World (federated agent and connector operations) | ✅ | ⚠️ | ⚠️ | ⚠️ | `app/agent-world` (worlds: forge/town/office/team); `screenWorlds` and `screenAgentTeam`; `cli/index.js` → `scripts/worlds.mjs` and `scripts/agents/team.mjs`; bridge `/api/mark-l/agents/*` provides lower-level operations |
+| Agent teams, crews, tasks, messages | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgentTeam`, `cli/index.js` → `scripts/agents/team.mjs` (teams only; crews via bridge), `/api/mark-l/agents/crew/*` |
 | JARVIS assistant | ✅ | ✅ | ⚠️ | ✅ | `app/jarvis`, `screenJarvis`, `app/api/jarvis/route.ts`, bridge health/chat |
 | Voice input (STT) | ✅ | ✅ | ✅ | ❌ | `app/jarvis`, `screenVoice`, `scripts/voice.sh`, `app/api/jarvis/stt` |
 | Voice output (TTS) | ✅ | ✅ | ✅ | ❌ | `app/jarvis`, `screenVoice`, `scripts/voice.sh`, `app/api/jarvis/tts` |
@@ -99,7 +98,7 @@ or blocked-work claims:
 
 ## Validation
 
-Snapshot checked 2026-10-01 (web routes and navigation re-audited):
+Snapshot checked 2026-10-02 (re-audited AI agents, Agent World, teams/crews, and project rows):
 
 - `node --check tui/index.js` — PASS (TUI syntax).
 - `npm test` — PASS (root smoke suite).
