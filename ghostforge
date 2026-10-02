@@ -44,6 +44,8 @@ Usage:
   ghostforge device-status [args]      Check device status and push notifications
   ghostforge awesome-llm-apps [args]  List and search the curated Awesome LLM Apps catalog
   ghostforge n8n [args]                List, inspect, and trigger n8n workflows
+  ghostforge worlds <start|stop|status|setup> [ai-town|agent-office|all]
+                                        Manage the Agent Worlds (loopback only)
   ghostforge <command>                 Run scripts/<command>.sh (legacy)
   ghostforge --open PATH                Run open-project.sh directly
   ghostforge --command health [PATH]
