@@ -42,6 +42,18 @@ function check(label, fn) {
 
 console.log('GhostForge smoke test\n');
 
+check('no stray gitlinks (mode-160000) tracked in git', () => {
+  const output = execFileSync('git', ['ls-files', '-s'], { cwd: ROOT, stdio: 'pipe', encoding: 'utf8' });
+  const strayGitlinks = output.split('\n').filter(line => line.match(/^160000/));
+  if (strayGitlinks.length) {
+    const paths = strayGitlinks.map(line => line.split('\t')[1]).join(', ');
+    throw new Error(
+      `found stray gitlinks (submodule pointers): ${paths}\n` +
+      `Remove them with: git rm --cached ${strayGitlinks.map(line => line.split('\t')[1]).join(' ')}`
+    );
+  }
+});
+
 check('tui/index.js parses', () => {
   // execFileSync (no shell) avoids any command-string construction.
   execFileSync(process.execPath, ['--check', 'tui/index.js'], { cwd: ROOT, stdio: 'pipe' });

@@ -7,7 +7,7 @@ import { join } from 'path'
 import { randomBytes } from 'crypto'
 import { generateWithFallback } from '@/lib/ai'
 import { requirePermission } from '@/lib/access'
-import { knownAppleScript, validateAppleScript } from '@/lib/apple-automation'
+import { SHELL_SCRIPT_TEMPLATES, knownAppleScript, validateAppleScript } from '@/lib/apple-automation'
 
 const execAsync = promisify(exec)
 export const dynamic = 'force-dynamic'
@@ -19,6 +19,7 @@ STRICT RULES:
 - Always wrap risky operations in try...on error errMsg...end try blocks.
 - For contacts, use the display name as given (e.g. "Rawzi").
 - Prefer iMessage over Teams when the request is ambiguous about which app to use.
+- Never use "do shell script" except by copying the screenshot or battery pattern below character for character; any other shell call is rejected.
 
 COMMON PATTERNS — use these exactly:
 
@@ -65,8 +66,7 @@ set volume with output muted
 -- or: set volume without output muted
 
 6. Take a screenshot:
-do shell script "screencapture ~/Desktop/screenshot-$(date +%Y%m%d-%H%M%S).png"
-display notification "Screenshot saved to Desktop" with title "GhostForge"
+${SHELL_SCRIPT_TEMPLATES.screenshot}
 
 7. Show a notification:
 display notification "Your message" with title "GhostForge" subtitle "Subtitle"
@@ -78,7 +78,7 @@ tell application "Safari"
 end tell
 
 9. Get battery level:
-do shell script "pmset -g batt | grep -o '[0-9]*%'"
+${SHELL_SCRIPT_TEMPLATES.batteryStatus}
 
 10. Lock screen:
 tell application "System Events" to keystroke "q" using {command down, control down}

