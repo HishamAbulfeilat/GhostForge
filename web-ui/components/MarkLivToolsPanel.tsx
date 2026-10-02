@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Wrench } from 'lucide-react'
+import { coerceParam, paramWidget } from '@/lib/mark-liv-tool-params'
 
 interface MarkLivToolsPanelProps {
   ringColor?: string
@@ -31,16 +32,6 @@ const TABS: Array<{ id: Tab; label: string }> = [
 interface Outcome {
   kind: 'result' | 'error' | 'confirm'
   text: string
-}
-
-/** Turn a form value into the JSON type the tool's schema declares. */
-function coerceParam(value: string, type?: string): unknown {
-  if (type === 'integer' || type === 'number') {
-    const n = Number(value)
-    return Number.isFinite(n) ? n : value
-  }
-  if (type === 'boolean') return value === 'true'
-  return value
 }
 
 /**
@@ -321,19 +312,20 @@ export default function MarkLivToolsPanel({ ringColor = '#1a6fff' }: MarkLivTool
                 {Object.entries(selectedTool.parameters?.properties ?? {}).map(([key, param]) => {
                   const required = selectedTool.parameters?.required?.includes(key) ?? false
                   const id = fid(`param-${key}`)
+                  const widget = paramWidget(param)
                   return (
                     <div key={key}>
                       <label htmlFor={id} className={labelClass}>
-                        {key}{required ? ' *' : ''}{param.type ? ` (${param.type})` : ''}
+                        {key}{required ? ' *' : ''}{param.type ? ` (${param.type.toLowerCase()})` : ''}
                       </label>
-                      {param.enum?.length ? (
+                      {widget === 'enum' ? (
                         <select id={id} value={toolParams[key] ?? ''} required={required}
                           onChange={e => setToolParams(p => ({ ...p, [key]: e.target.value }))}
                           className={`${inputClass} bg-black`} style={inputStyle}>
                           <option value="">—</option>
-                          {param.enum.map(v => <option key={v} value={v}>{v}</option>)}
+                          {(param.enum ?? []).map(v => <option key={v} value={v}>{v}</option>)}
                         </select>
-                      ) : param.type === 'boolean' ? (
+                      ) : widget === 'boolean' ? (
                         <select id={id} value={toolParams[key] ?? ''} required={required}
                           onChange={e => setToolParams(p => ({ ...p, [key]: e.target.value }))}
                           className={`${inputClass} bg-black`} style={inputStyle}>
@@ -343,7 +335,7 @@ export default function MarkLivToolsPanel({ ringColor = '#1a6fff' }: MarkLivTool
                         </select>
                       ) : (
                         <input id={id} value={toolParams[key] ?? ''} required={required}
-                          type={param.type === 'integer' || param.type === 'number' ? 'number' : 'text'}
+                          type={widget === 'number' ? 'number' : 'text'}
                           placeholder={param.description?.slice(0, 80)}
                           onChange={e => setToolParams(p => ({ ...p, [key]: e.target.value }))}
                           className={inputClass} style={inputStyle} />
