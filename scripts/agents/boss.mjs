@@ -199,6 +199,32 @@ export function releaseStuckTasks(tasks, state, now = Date.now()) {
 }
 
 /**
+ * Move todo tasks whose dependency is blocked or unknown to blocked (cascading),
+ * with a clear lastFailure. Otherwise they stay todo forever, keep the board
+ * "active", and stall planning. Returns how many were blocked.
+ */
+export function blockTasksWithUnavailableDependencies(tasks) {
+  let blocked = 0
+  for (let changed = true; changed;) {
+    changed = false
+    for (const t of tasks) {
+      if (t.status !== 'todo') continue
+      const bad = (t.dependencies ?? []).map(id => ({ id, dep: tasks.find(x => x.id === id) }))
+        .filter(({ dep }) => !dep || dep.status === 'blocked')
+      if (!bad.length) continue
+      t.status = 'blocked'
+      t.owner = null
+      t.lastFailure = `Unavailable dependenc${bad.length > 1 ? 'ies' : 'y'}: ` +
+        bad.map(({ id, dep }) => `${id} (${dep ? 'blocked' : 'unknown'})`).join(', ')
+      t.updatedAt = new Date().toISOString()
+      blocked++
+      changed = true
+    }
+  }
+  return blocked
+}
+
+/**
  * Model for a boss review: the deep model (`boss.model`) for security work and
  * large diffs, where review quality matters most; the cheaper `boss.reviewModel`
  * for routine changes. Saves boss tokens without thinning high-risk reviews.
@@ -210,9 +236,11 @@ export function bossModelFor(kind, diffLines, boss = {}) {
 }
 
 /** Next todo task for an agent: allowed owner, no area overlap with busy tasks, preferring its strengths. */
-export function pickTask(tasks, agentId, strengths = []) {
+export function pickTask(tasks, agentId, strengths = [], now = Date.now()) {
   const busy = tasks.filter(t => t.status === 'in-progress' || t.status === 'review')
   const eligible = tasks.filter(t => t.status === 'todo'
+    && (!t.holdUntil || Date.parse(t.holdUntil) <= now)
+    && (t.dependencies ?? []).every(d => tasks.find(x => x.id === d)?.status === 'done')
     && (t.agent === 'any' || t.agent === agentId)
     && !busy.some(b => areasOverlap(b.area, t.area)))
   const pref = t => { const i = strengths.indexOf(t.kind); return i < 0 ? 99 : i }
@@ -484,6 +512,19 @@ export class Boss {
     this.log(`${task.id} ${blocked ? 'blocked' : 'bounced'} (${agentId}): ${tail(reason, 300)}`)
   }
 
+  /**
+   * No reviewer verdict on a security task: park it as todo with a cooldown and
+   * keep the worker's commits (pinned by a ref) for re-review. Unlike bounce(),
+   * this does not burn an attempt.
+   */
+  holdForReview(task, agentId, base, head) {
+    const holdUntil = new Date(Date.now() + this.cfg.cooldownMinutes * 60_000).toISOString()
+    gitTry(this.intWt, 'update-ref', `refs/agent-hold/${task.id}`, head)
+    this.updateTask(task.id, { status: 'todo', owner: null, holdUntil, held: { agent: agentId, base, head } })
+    this.say(agentId, `${task.id} held for re-review until ${holdUntil}: reviewer gave no verdict on this security change.`)
+    this.log(`${task.id} held (${agentId}) until ${holdUntil}; commits kept at refs/agent-hold/${task.id}`)
+  }
+
   // ── Task lifecycle ──
 
   async work(agentId, task) {
@@ -495,6 +536,23 @@ export class Boss {
       if (git(wt, 'status', '--porcelain')) git(wt, 'stash', 'push', '-u', '-m', `boss: leftovers before ${task.id}`)
       git(wt, 'checkout', '-B', a.branch, this.intBranch)
       this.syncDeps(wt)
+      if (task.held && gitTry(wt, 'cat-file', '-e', `${task.held.head}^{commit}`).ok) {
+        // Re-review of commits kept by holdForReview — no new agent run.
+        const { base: heldBase, head: heldHead } = task.held
+        git(wt, 'checkout', '-B', a.branch, heldHead)
+        Object.assign(st, { state: 'waiting-merge', task: task.id, since: new Date().toISOString() })
+        this.updateTask(task.id, { status: 'review', holdUntil: null, held: null })
+        this.log(`${agentId} ← ${task.id} re-review of held commits`)
+        this.integration = this.integration
+          .then(() => this.integrate(agentId, task, heldBase, heldHead, null))
+          .catch(e => {
+            this.log(`integrate error: ${e.stack}`)
+            gitTry(this.intWt, 'merge', '--abort')
+            this.bounce(task, agentId, `Boss integration error: ${e.message}`)
+          })
+        await this.integration
+        return
+      }
       const base = git(wt, 'rev-parse', 'HEAD')
       const route = routeModel(a.provider, task, this.cfg.models)
       Object.assign(st, { state: 'working', task: task.id, model: route.model, since: new Date().toISOString() })
@@ -616,6 +674,10 @@ export class Boss {
     const run = await this.readonlyRun(file, 'boss-review.log', 20 * 60_000, 'review', model)
     const verdict = lastJSON(run.output)
     if (!verdict || typeof verdict.approve !== 'boolean') {
+      if (task.kind === 'security') {
+        this.log(`review of ${task.id} (security) got no verdict — holding for re-review`)
+        return { approve: false, hold: true }
+      }
       this.log(`review of ${task.id} unparseable — relying on health checks`)
       return { approve: true }
     }
@@ -625,6 +687,10 @@ export class Boss {
   async integrate(agentId, task, base, head, result) {
     const a = this.cfg.agents[agentId]
     const verdict = await this.review(task, agentId, base, head)
+    if (verdict.hold) {
+      this.holdForReview(task, agentId, base, head)
+      return
+    }
     if (!verdict.approve) {
       this.bounce(task, agentId, `Boss review rejected the change:\n- ${(verdict.issues ?? []).join('\n- ')}`)
       return
@@ -759,6 +825,8 @@ export class Boss {
     const board = this.board()
     this.ingestRequests(board)
     const now = Date.now()
+    const depBlocked = blockTasksWithUnavailableDependencies(board.tasks)
+    if (depBlocked) this.log(`blocked ${depBlocked} task(s) with unavailable dependencies`)
     const released = releaseStuckTasks(board.tasks, this.state, now)
     if (released) this.log(`released ${released} task(s) pinned to an unavailable agent`)
     saveBoard(this.dir, board)
@@ -768,7 +836,7 @@ export class Boss {
       if (st.cooldownUntil && Date.parse(st.cooldownUntil) > now) continue
       st.cooldownUntil = null
       const b = this.board()
-      const task = pickTask(b.tasks, id, a.strengths)
+      const task = pickTask(b.tasks, id, a.strengths, now)
       if (!task) continue
       Object.assign(task, { status: 'in-progress', owner: id, updatedAt: new Date().toISOString() })
       saveBoard(this.dir, b)

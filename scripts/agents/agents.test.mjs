@@ -228,3 +228,65 @@ test('releaseStuckTasks frees todo tasks pinned to a cooling-down or unknown age
   assert.equal(releaseStuckTasks(tasks, state, now), 2)
   assert.deepEqual(tasks.map(t => t.agent), ['any', 'copilot-web', 'any', 'claude', 'any'])
 })
+
+test('blockTasksWithUnavailableDependencies blocks todo tasks whose dependency is blocked or unknown, cascading', async () => {
+  const { blockTasksWithUnavailableDependencies } = await import('./boss.mjs')
+  const tasks = [
+    { id: 'T-1', status: 'blocked' },
+    { id: 'T-2', status: 'todo', dependencies: ['T-1'] },
+    { id: 'T-3', status: 'todo', dependencies: ['T-2'] },
+    { id: 'T-4', status: 'todo', dependencies: ['T-99'] },
+    { id: 'T-5', status: 'todo', dependencies: ['T-6'] },
+    { id: 'T-6', status: 'in-progress' },
+    { id: 'T-7', status: 'todo' },
+  ]
+  assert.equal(blockTasksWithUnavailableDependencies(tasks), 3)
+  assert.deepEqual(tasks.map(t => t.status), ['blocked', 'blocked', 'blocked', 'blocked', 'todo', 'in-progress', 'todo'])
+  assert.match(tasks[1].lastFailure, /T-1 \(blocked\)/)
+  assert.match(tasks[3].lastFailure, /T-99 \(unknown\)/)
+})
+
+test('pickTask skips tasks with incomplete dependencies or an active hold cooldown', () => {
+  const now = Date.parse('2026-10-02T10:00:00Z')
+  const tasks = [
+    { id: 'T-1', status: 'done', area: ['a/'], agent: 'any', kind: 'feature', phase: 1 },
+    { id: 'T-2', status: 'todo', area: ['b/'], agent: 'any', kind: 'feature', phase: 1, dependencies: ['T-3'] },
+    { id: 'T-3', status: 'todo', area: ['c/'], agent: 'any', kind: 'feature', phase: 1, holdUntil: '2026-10-02T10:30:00Z' },
+    { id: 'T-4', status: 'todo', area: ['d/'], agent: 'any', kind: 'feature', phase: 1, dependencies: ['T-1'] },
+  ]
+  assert.equal(pickTask(tasks, 'x', [], now).id, 'T-4')
+  assert.equal(pickTask(tasks, 'x', [], Date.parse('2026-10-02T11:00:00Z')).id, 'T-3', 'hold expired')
+})
+
+test('a security review with no verdict is held (no attempt burned); other kinds rely on health checks', async () => {
+  const stub = {
+    cfg: { boss: { review: true }, cooldownMinutes: 10 },
+    log() {}, intWt: fs.mkdtempSync(path.join(os.tmpdir(), 'gf-hold-')),
+    readonlyRun: async () => ({ output: 'no json here', code: 0 }),
+  }
+  const { execFileSync } = await import('node:child_process')
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+  const review = Boss.prototype.review.bind(stub)
+  assert.deepEqual(await review({ id: 'T-1', kind: 'security', title: 't', area: [] }, 'a', head, head), { approve: false, hold: true })
+  assert.deepEqual(await review({ id: 'T-2', kind: 'feature', title: 't', area: [] }, 'a', head, head), { approve: true })
+
+  const updates = []
+  const holder = {
+    cfg: { cooldownMinutes: 10 }, intWt: root, log() {}, say() {},
+    updateTask: (id, patch) => updates.push([id, patch]),
+  }
+  const holdRef = 'refs/agent-hold/T-TEST-161'
+  try {
+    Boss.prototype.holdForReview.call(holder, { id: 'T-TEST-161', attempts: 1 }, 'claude-2', 'base1', head)
+    const [, patch] = updates[0]
+    assert.equal(patch.status, 'todo')
+    assert.equal(patch.owner, null)
+    assert.ok(Date.parse(patch.holdUntil) > Date.now())
+    assert.deepEqual(patch.held, { agent: 'claude-2', base: 'base1', head })
+    assert.ok(!('attempts' in patch), 'hold must not burn an attempt')
+    assert.equal(execFileSync('git', ['rev-parse', holdRef], { cwd: root, encoding: 'utf8' }).trim(), head, 'commits pinned by ref')
+  } finally {
+    spawnSync('git', ['update-ref', '-d', holdRef], { cwd: root })
+  }
+})
