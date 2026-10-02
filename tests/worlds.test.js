@@ -130,3 +130,97 @@ test('cli prints help and rejects bad arguments without side effects', () => {
   assert.equal(bad.status, 2)
   assert.match(bad.stderr, /unknown world/)
 })
+
+const configure = () => import(pathToFileURL(path.join(ROOT, 'apps', 'worlds', 'agent-office', 'configure.mjs')).href)
+
+// Minimal copies of the upstream lines (58f11f9b) that the T-144 patches target.
+const UPSTREAM = {
+  'packages/server/src/index.ts': "colyseusServer.listen(PORT).then(() => {\n    console.log(`[Server] AgentOffice Engine listening on ws://localhost:${PORT}`);\n});\n",
+  'packages/server/src/rooms/OfficeRoom.ts': "import { OllamaAdapter } from '@agent-office/adapters';\nimport { MemoryStore } from '../memory/MemoryStore';\n\nclass R {\n    private ollamaAdapter = new OllamaAdapter('http://localhost:11434');\n    a = { provider: 'ollama',\n                    model: 'llama3.2:latest', };\n    b = { provider: 'ollama',\n                    model: 'llama3.2:latest', };\n}\n",
+  'packages/server/src/memory/MemoryStore.ts': "    constructor(ollamaUrl: string = 'http://localhost:11434') {\n",
+  'packages/adapters/src/OpenAICompatibleAdapter.ts': "            headers: {\n                'Authorization': `Bearer ${this.apiKey}`,\n",
+  'packages/ui/vite.config.ts': "    server: {\n        port: 5173,\n        proxy: {\n            '/api': 'http://localhost:3000',\n        }\n    },\n",
+}
+
+test('agent-office patches bind loopback, move the UI to 5174 and read the LLM from env', async () => {
+  const { applyPatches, PATCHED_FILES, PATCH_MARKER, UI_PORT, SERVER_PORT } = await configure()
+  assert.deepEqual([...PATCHED_FILES].sort(), Object.keys(UPSTREAM).sort())
+  const out = applyPatches(UPSTREAM)
+  assert.match(out['packages/server/src/index.ts'], /listen\(PORT, '127\.0\.0\.1'\)/)
+  const room = out['packages/server/src/rooms/OfficeRoom.ts']
+  assert.ok(room.includes(PATCH_MARKER))
+  assert.doesNotMatch(room, /localhost|provider: 'ollama',|model: 'llama3\.2:latest',/)
+  assert.match(room, /OMNIROUTE_URL/)
+  assert.match(room, /OLLAMA_HOST/)
+  assert.doesNotMatch(room, /OPENAI_API_KEY|OPENROUTER_API_KEY/)
+  assert.equal((room.match(/provider: modelProvider,/g) || []).length, 2)
+  assert.doesNotMatch(out['packages/server/src/memory/MemoryStore.ts'], /localhost/)
+  assert.match(out['packages/adapters/src/OpenAICompatibleAdapter.ts'], /this\.apiKey \? \{ 'Authorization'/)
+  const vite = out['packages/ui/vite.config.ts']
+  assert.match(vite, /host: '127\.0\.0\.1'/)
+  assert.ok(vite.includes(`port: ${UI_PORT},`) && vite.includes('strictPort: true,'))
+  assert.ok(vite.includes(`'/api': 'http://127.0.0.1:${SERVER_PORT}'`))
+  // Drifted upstream text fails loudly instead of running an unpatched app.
+  assert.throws(() => applyPatches({ ...UPSTREAM, 'packages/server/src/index.ts': 'app.listen(3000)' }), /upstream text not found/)
+})
+
+test('agent-office world: pinned commit, configure hook, core-first build, no port clash with ai-town', async () => {
+  const { WORLDS, ENV_ALLOW } = await lib()
+  const office = WORLDS['agent-office']
+  assert.equal(office.repo, 'https://github.com/harishkotra/agent-office.git')
+  assert.match(office.commit, /^58f11f9b[0-9a-f]{32}$/)
+  assert.equal(typeof office.configure, 'function')
+  assert.deepEqual(office.prepare[0][1], ['run', 'build', '--workspace=@agent-office/core'])
+  const ports = office.services.map(s => s.port)
+  assert.deepEqual(ports, [3000, 5174])
+  for (const port of WORLDS['ai-town'].services.map(s => s.port)) assert.ok(!ports.includes(port))
+  const ui = office.services.find(s => s.open)
+  assert.deepEqual(ui.args.slice(-5), ['--host', '127.0.0.1', '--port', '5174', '--strictPort'])
+  assert.equal(office.services.find(s => s.name === 'server').health, '/api/offices')
+  assert.ok(ENV_ALLOW.includes('AGENT_OFFICE_MODEL_GATEWAY_API_KEY'))
+})
+
+test('agent-office start refuses an unconfigured checkout', async () => {
+  const { startWorld } = await lib()
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-worlds-ao-'))
+  try {
+    const dir = path.join(root, 'apps', 'worlds', 'agent-office', 'checkout')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'package.json'), '{}')
+    assert.throws(() => startWorld('agent-office', { root, log: () => {} }), /not configured/)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('statusWorld is running only when every smoke URL answers HTTP 200', async () => {
+  const { statusWorld, probeHttp, writePid, stateRoot, pidFile, WORLDS } = await lib()
+  const http = require('node:http')
+  assert.equal(await probeHttp(80, '/', { host: '192.168.1.5' }), null)
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-worlds-http-'))
+  const previous = process.env.GF_AGENT_STATE
+  process.env.GF_AGENT_STATE = path.join(root, 'state')
+  const servers = []
+  try {
+    const listen = (port, code) => new Promise(resolve => {
+      const s = http.createServer((req, res) => { res.statusCode = code; res.end('ok') })
+      s.once('error', () => resolve(false))
+      s.listen(port, '127.0.0.1', () => { servers.push(s); resolve(true) })
+    })
+    const [server, ui] = WORLDS['agent-office'].services
+    if (!(await listen(server.port, 200)) || !(await listen(ui.port, 500))) return // ports busy on this machine
+    for (const svc of [server, ui]) writePid(pidFile(stateRoot(root), 'agent-office', svc.name), process.pid, svc.port)
+    let status = await statusWorld('agent-office', { root, timeoutMs: 500 })
+    assert.equal(status.status, 'starting')
+    assert.equal(status.services[0].httpStatus, 200)
+    assert.equal(status.services[1].httpStatus, 500)
+    assert.equal(status.url, 'http://127.0.0.1:5174/')
+    await new Promise(resolve => servers.pop().close(resolve))
+    await listen(ui.port, 200)
+    status = await statusWorld('agent-office', { root, timeoutMs: 500 })
+    assert.equal(status.status, 'running')
+  } finally {
+    await Promise.all(servers.map(s => new Promise(resolve => s.close(resolve))))
+    if (previous === undefined) delete process.env.GF_AGENT_STATE
+    else process.env.GF_AGENT_STATE = previous
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})
