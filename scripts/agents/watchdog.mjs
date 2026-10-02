@@ -58,7 +58,9 @@ function install() {
   // and catch up after sleep.
   const ps = `$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable; Set-ScheduledTask -TaskName '${TASK_NAME}' -Settings $s | Out-Null; 'battery runs allowed'`
   const b = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8', windowsHide: true })
-  console.log((b.stdout || b.stderr).trim())
+  const out = String(b.stdout || b.stderr || b.error?.message || '').trim()
+  if (b.status !== 0) console.warn(`warning: could not allow battery runs for the watchdog task: ${out}`)
+  else console.log(out)
 }
 
 function uninstall() {

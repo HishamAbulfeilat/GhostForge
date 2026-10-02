@@ -212,8 +212,10 @@ export function bossModelFor(kind, diffLines, boss = {}) {
 /** Next todo task for an agent: allowed owner, no area overlap with busy tasks, preferring its strengths. */
 export function pickTask(tasks, agentId, strengths = []) {
   const busy = tasks.filter(t => t.status === 'in-progress' || t.status === 'review')
+  const done = new Set(tasks.filter(t => t.status === 'done').map(t => t.id))
   const eligible = tasks.filter(t => t.status === 'todo'
     && (t.agent === 'any' || t.agent === agentId)
+    && (t.dependencies ?? []).every(id => done.has(id))
     && !busy.some(b => areasOverlap(b.area, t.area)))
   const pref = t => { const i = strengths.indexOf(t.kind); return i < 0 ? 99 : i }
   eligible.sort((x, y) => (x.phase - y.phase) || (pref(x) - pref(y)) || x.id.localeCompare(y.id))
@@ -249,14 +251,22 @@ function killTree(child) {
  * servers, watchers). Left alone they lock node_modules on Windows, which
  * breaks the next `npm ci` and every later task in that worktree.
  */
+/**
+ * The command-line substring that marks a process as running inside `worktree`.
+ * Ends with a path separator so `../gf-claude` never matches `../gf-claude-2`.
+ */
+export function strayNeedle(worktree) {
+  return path.resolve(worktree) + path.sep
+}
+
 function killStrays(worktree) {
-  const wt = path.resolve(worktree)
-  if (IS_WIN) {
-    const ps = `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne ${process.pid} -and $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf('${wt.replace(/'/g, "''")}', [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
-    spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { windowsHide: true, timeout: 30_000 })
-  } else {
-    spawnSync('pkill', ['-f', wt], { timeout: 30_000 })
-  }
+  const needle = strayNeedle(worktree)
+  const r = IS_WIN
+    ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne ${process.pid} -and $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf('${needle.replace(/'/g, "''")}', [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`],
+    { windowsHide: true, timeout: 30_000 })
+    : spawnSync('pkill', ['-f', needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')], { timeout: 30_000 })
+  if (r.error) console.error(`killStrays(${worktree}): ${r.error.message}`)
 }
 
 /** Read a file, or `fallback` when it doesn't exist — avoids existsSync-then-read races. */
@@ -606,7 +616,7 @@ export class Boss {
     const content = [
       'You are the lead reviewer ("boss") of an autonomous agent team on the GhostForge repo.',
       `Review ${agentId}'s change for task ${task.id}: **${task.title}** (area: ${task.area.join(', ') || 'whole repo'}).`,
-      'Approve unless it is wrong, incomplete, unsafe, breaks the rules in AGENTS.md, or edits files far outside its area.',
+      'Approve unless it is wrong, incomplete, unsafe, breaks the rules in AGENTS.md, or makes unrelated changes. Shared files the task genuinely needs (package.json/lockfiles, the page that mounts the feature, tests, notices, docs) are allowed.',
       'Do not nitpick style. Read surrounding code in this checkout if you need context. Do not modify anything.',
       '', '## Diff stat', '```', stat, '```', '', '## Diff', '```diff', diff.slice(0, 80_000), '```', '',
       'Reply with your reasoning, then a final line of JSON only: {"approve": true|false, "issues": ["…"]}',
@@ -616,6 +626,12 @@ export class Boss {
     const run = await this.readonlyRun(file, 'boss-review.log', 20 * 60_000, 'review', model)
     const verdict = lastJSON(run.output)
     if (!verdict || typeof verdict.approve !== 'boolean') {
+      // No reviewer verdict (both providers out or unparseable). Routine work can
+      // lean on the health check; security changes must never merge unreviewed.
+      if (task.kind === 'security') {
+        this.log(`review of ${task.id} unparseable — security task held for a real review`)
+        return { approve: false, issues: ['No reviewer verdict available for a security change; retry when a reviewer is available.'] }
+      }
       this.log(`review of ${task.id} unparseable — relying on health checks`)
       return { approve: true }
     }
@@ -809,6 +825,8 @@ export class Boss {
     const board = this.board()
     for (const t of board.tasks) if (t.status === 'in-progress' || t.status === 'review') Object.assign(t, { status: 'todo', owner: null })
     saveBoard(this.dir, board)
+    // Workers started by a previous boss may still be running in their worktrees.
+    for (const [, a] of this.agents) killStrays(path.resolve(ROOT, a.worktree))
     this.log(`boss started with template ${this.templateName} — agents: ${this.agents.map(([id, a]) => `${id}(${a.provider})`).join(', ')}; integration ${this.intBranch} @ ${this.intWt}`)
     this.say('all', `Boss online. Template: ${this.templateName}. Agents: ${this.agents.map(([id]) => id).join(', ')}. Phase ${board.phase}.`)
 
