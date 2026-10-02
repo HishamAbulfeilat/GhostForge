@@ -1,7 +1,7 @@
 # Third-party notices
 
 This file records third-party code and assets redistributed in this repository
-for the Agent Town world. Per-directory detail also lives in
+for the Agent Town and Agent Office worlds. Per-directory detail also lives in
 `web-ui/vendor/ai-town/NOTICE.md` and `web-ui/vendor/ai-town/THIRD_PARTY_NOTICES.md`.
 
 ## a16z-infra/ai-town (`web-ui/vendor/ai-town/`)
@@ -24,6 +24,28 @@ Other upstream artwork (animated effect sheets, UI art, music) is **not**
 bundled because the pinned repository provides no file-specific redistribution
 license for it.
 
+## harishkotra/agent-office (`web-ui/vendor/agent-office/`)
+
+- MIT License, copyright (c) 2026 Harish Kotra; full text in `web-ui/vendor/agent-office/LICENSE`.
+- Source: <https://github.com/harishkotra/agent-office/tree/58f11f9b31770c10bcf3d7a0618325d22bd0ee9e>
+  (pinned commit `58f11f9b31770c10bcf3d7a0618325d22bd0ee9e`).
+- The Phaser office scene (`packages/ui/src/game/Game.ts`) and event bus are vendored;
+  the Colyseus/Ollama server state is replaced by the GhostForge snapshot adapter in
+  `web-ui/vendor/agent-office/src/snapshot-room.ts` and `web-ui/app/agent-world/office/`.
+  Deviations are listed in `web-ui/vendor/agent-office/NOTICE.md`.
+- Also MIT: pablodelucca/pixel-agents, copyright (c) 2026 Pablo De Lucca
+  (`web-ui/vendor/agent-office/pixel-agents/LICENSE`), the source of the character sprites.
+
+### Assets bundled
+
+| File | License / credit |
+|------|------------------|
+| `web-ui/public/vendor/agent-office/characters/char_0.png`, `char_1.png` | Character sprites from pablodelucca/pixel-agents (MIT), which are based on the "MetroCity Free Top-Down Character Pack" by JIK-A-4, published under CC0 1.0 (<https://jik-a-4.itch.io/metrocity-free-topdown-character-pack>); credit is not required but given here. Byte-identical to the pinned agent-office copies. |
+
+The office floor, furniture and decorations are drawn in code by the scene (no image files).
+The other four upstream sprite sheets (`char_2`-`char_5`) and upstream's empty `agent.png`
+are not bundled because the scene does not load them.
+
 ## npm dependencies
 
 | Package | License |
@@ -31,6 +53,7 @@ license for it.
 | `pixi.js` ^7 | MIT |
 | `@pixi/react` ^7 | MIT |
 | `pixi-viewport` ^5 | MIT |
+| `phaser` ^3.90 | MIT |
 
 These match upstream's majors. `pixi-viewport` 5 declares a Pixi 6 peer range
 but is used with Pixi 7 exactly as upstream does, so `web-ui/.npmrc` sets

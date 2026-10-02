@@ -20,6 +20,11 @@ const TownWorld = dynamic(() => import('./town/TownWorld'), {
   loading: () => <p role="status" className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">Loading Agent Town…</p>,
 })
 
+const OfficeWorld = dynamic(() => import('./office/OfficeWorld'), {
+  ssr: false,
+  loading: () => <p role="status" className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">Loading Agent Office…</p>,
+})
+
 type PageState =
   | { status: 'loading' }
   | { status: 'loaded'; data: AgentWorldData; officeSessions: AgentWorldRecord[]; mode: string; refreshing?: boolean; refreshError?: string }
@@ -241,7 +246,10 @@ export default function AgentWorldPage() {
             )}
             {world === 'town' && <TownWorld data={state.data} boss={state.data.boss} />}
             {world === 'office' && (
-              <AgentOfficeMap sessions={state.officeSessions} emptyMessage="No sessions were reported by the available snapshots." />
+              <>
+                <OfficeWorld data={state.data} boss={state.data.boss} />
+                <AgentOfficeMap sessions={state.officeSessions} emptyMessage="No sessions were reported by the available snapshots." />
+              </>
             )}
             {world === 'maintainer' && (
               <>
