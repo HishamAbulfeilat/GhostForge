@@ -14,7 +14,7 @@ const page = read('app', 'jarvis', 'page.tsx')
 
 // Transpile the pure validator (and the risk table it imports) so it can be exercised directly.
 const out = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-markliv-tools-'))
-for (const file of ['lib/mark-liv-risk.ts', 'lib/mark-liv-tools-request.ts']) {
+for (const file of ['lib/mark-liv-risk.ts', 'lib/mark-liv-tools-request.ts', 'lib/mark-liv-tool-params.ts']) {
   const { outputText } = ts.transpileModule(read(file), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   })
@@ -23,6 +23,7 @@ for (const file of ['lib/mark-liv-risk.ts', 'lib/mark-liv-tools-request.ts']) {
   fs.writeFileSync(dest, outputText)
 }
 const { parseMarkLivToolsRequest: parse } = require(path.join(out, 'lib/mark-liv-tools-request.js'))
+const { coerceParam, paramWidget, normalizeParamType } = require(path.join(out, 'lib/mark-liv-tool-params.js'))
 test.after(() => fs.rmSync(out, { recursive: true, force: true }))
 
 test('weather, flight and reminder map to the fixed bridge endpoints with their permissions', () => {
@@ -75,6 +76,49 @@ test('tool runs need mac_control and risky tools need an explicit confirm', () =
   assert.equal(confirmed.request.confirmReason, undefined)
   // Only a literal true confirms.
   assert.ok(parse({ kind: 'run', name: 'send_message', parameters: {}, confirm: 'yes' }).request.confirmReason)
+})
+
+test('Gemini upper-case tool schemas pick typed widgets and send typed values', () => {
+  // Shape of a real Mark-LV declaration (vendor/mark-liv/actions/computer_control.py).
+  const props = {
+    action: { type: 'STRING', description: 'type | click | ...' },
+    clear_first: { type: 'BOOLEAN', description: 'Clear field before typing (default: true)' },
+    x: { type: 'INTEGER' },
+    scale: { type: 'NUMBER' },
+    items: { type: 'ARRAY', items: { type: 'STRING' } },
+    mode: { type: 'STRING', enum: ['fast', 'slow'] },
+  }
+  assert.equal(normalizeParamType('BOOLEAN'), 'boolean')
+  assert.equal(normalizeParamType(undefined), '')
+  assert.equal(paramWidget(props.action), 'text')
+  assert.equal(paramWidget(props.clear_first), 'boolean')
+  assert.equal(paramWidget(props.x), 'number')
+  assert.equal(paramWidget(props.scale), 'number')
+  assert.equal(paramWidget(props.mode), 'enum')
+
+  // 'false' must arrive as a real false, not a truthy string.
+  assert.equal(coerceParam('false', props.clear_first.type), false)
+  assert.equal(coerceParam('true', props.clear_first.type), true)
+  assert.equal(coerceParam('42', props.x.type), 42)
+  assert.equal(coerceParam('1.5', props.x.type), '1.5', 'a non-integer is not silently truncated')
+  assert.equal(coerceParam('1.5', props.scale.type), 1.5)
+  assert.deepEqual(coerceParam('a, b ,c', props.items.type), ['a', 'b', 'c'])
+  assert.deepEqual(coerceParam('["a","b"]', props.items.type), ['a', 'b'])
+  assert.deepEqual(coerceParam('{"k":1}', 'OBJECT'), { k: 1 })
+  assert.equal(coerceParam('hello', props.action.type), 'hello')
+
+  // Lower-case JSON Schema spellings behave the same.
+  assert.equal(paramWidget({ type: 'boolean' }), 'boolean')
+  assert.equal(coerceParam('false', 'boolean'), false)
+  assert.equal(coerceParam('7', 'integer'), 7)
+})
+
+test('panel routes parameter types through the case-normalising helpers', () => {
+  assert.match(panel, /from '@\/lib\/mark-liv-tool-params'/)
+  assert.match(panel, /coerceParam\(value\.trim\(\), props\[key\]\.type\)/)
+  assert.match(panel, /const widget = paramWidget\(param\)/)
+  // No raw case-sensitive comparisons against schema types remain in the panel.
+  assert.doesNotMatch(panel, /type === '(?:integer|number|boolean|INTEGER|NUMBER|BOOLEAN)'/)
 })
 
 test('route is authenticated, permission-gated and only talks to a validated bridge URL', () => {
