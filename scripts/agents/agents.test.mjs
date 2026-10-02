@@ -205,6 +205,27 @@ test('scoreOf weights checks and ignores skipped ones', () => {
   assert.equal(scoreOf([]), 0)
 })
 
+test('strayNeedle never lets one worktree match a sibling that shares its prefix', async () => {
+  const { strayNeedle } = await import('./boss.mjs')
+  const claude = strayNeedle(path.join(os.tmpdir(), 'gf-claude'))
+  const sibling = path.join(os.tmpdir(), 'gf-claude-2', 'web-ui', 'node_modules', 'next', 'dist', 'bin', 'next')
+  const own = path.join(os.tmpdir(), 'gf-claude', 'web-ui', 'node_modules', 'next', 'dist', 'bin', 'next')
+  assert.equal(`node ${sibling} dev`.includes(claude), false, 'sibling worktree must not match')
+  assert.equal(`node ${own} dev`.includes(claude), true, 'own worktree must match')
+})
+
+test('pickTask waits for a task’s dependencies to be done', () => {
+  const tasks = [
+    { id: 'T-1', status: 'todo', agent: 'any', area: ['a'], phase: 1, kind: 'feature' },
+    { id: 'T-2', status: 'todo', agent: 'any', area: ['b'], phase: 1, kind: 'feature', dependencies: ['T-1'] },
+  ]
+  assert.equal(pickTask(tasks, 'w', []).id, 'T-1')
+  tasks[0].status = 'in-progress'
+  assert.equal(pickTask(tasks, 'w', []), undefined, 'T-2 blocked until T-1 is done')
+  tasks[0].status = 'done'
+  assert.equal(pickTask(tasks, 'w', []).id, 'T-2')
+})
+
 test('bossModelFor uses the deep model for security and large diffs, the review model otherwise', async () => {
   const { bossModelFor } = await import('./boss.mjs')
   const boss = { model: 'opus', reviewModel: 'sonnet' }

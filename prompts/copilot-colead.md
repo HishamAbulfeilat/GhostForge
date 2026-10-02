@@ -39,6 +39,7 @@ it returns. Read `docs/SESSION-HANDOFF.md` (top half + LIVE STATUS) first, every
   `../gf-integration`, push, then `rm .agent-sync/state/STOP` and
   `node scripts/agents/watchdog.mjs`.
 - **Log every lead action** as a dated bullet in the History section of
-  `docs/SESSION-HANDOFF.md` (signed `— copilot`). That is how Claude catches up.
+  `docs/SESSION-HANDOFF.md` (signed `— copilot`) — the one file you may edit in the main
+  checkout while the boss runs (it only rewrites the LIVE-STATUS block). That is how Claude catches up.
 - **Claude back**: it reads History + boss.log, resumes as lead, and sends you
   instructions via `team.mjs say copilot-colead "…"` and this file.
