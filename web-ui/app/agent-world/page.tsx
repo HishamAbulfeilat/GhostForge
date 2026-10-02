@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import AgentOfficeMap from '../../components/agent-world/AgentOfficeMap'
 import WorkflowDependencyGraph from '../../components/agent-world/WorkflowDependencyGraph'
+import AiTownControls from './AiTownControls'
 import {
   collectAgentWorldData,
   loadAgentWorld,
@@ -244,7 +245,12 @@ export default function AgentWorldPage() {
                 <SourceList connectors={state.data.connectors} />
               </>
             )}
-            {world === 'town' && <TownWorld data={state.data} boss={state.data.boss} />}
+            {world === 'town' && (
+              <>
+                <AiTownControls />
+                <TownWorld data={state.data} boss={state.data.boss} />
+              </>
+            )}
             {world === 'office' && (
               <>
                 <OfficeWorld data={state.data} boss={state.data.boss} />
