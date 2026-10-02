@@ -198,6 +198,32 @@ export function releaseStuckTasks(tasks, state, now = Date.now()) {
   return released
 }
 
+/** Block todo tasks whose dependencies can no longer be satisfied. */
+export function blockTasksWithUnavailableDependencies(tasks, now = Date.now()) {
+  const byId = new Map(tasks.map(task => [task.id, task]))
+  let blocked = 0
+  for (const task of tasks) {
+    if (task.status !== 'todo' || !Array.isArray(task.dependencies) || !task.dependencies.length) continue
+    const unavailable = task.dependencies.flatMap(id => {
+      if (typeof id !== 'string' || !id.trim()) return [`${String(id)} is an invalid task ID`]
+      const dependency = byId.get(id)
+      if (!dependency) return [`${id} was not found on the task board`]
+      if (dependency.status === 'blocked') return [`${id} is blocked`]
+      if (!['todo', 'in-progress', 'review', 'done'].includes(dependency.status)) {
+        return [`${id} has unknown status "${String(dependency.status)}"`]
+      }
+      return []
+    })
+    if (!unavailable.length) continue
+    task.status = 'blocked'
+    task.owner = null
+    task.lastFailure = `Unavailable dependencies: ${unavailable.join('; ')}.`
+    task.updatedAt = new Date(now).toISOString()
+    blocked++
+  }
+  return blocked
+}
+
 /**
  * Model for a boss review: the deep model (`boss.model`) for security work and
  * large diffs, where review quality matters most; the cheaper `boss.reviewModel`
@@ -211,9 +237,11 @@ export function bossModelFor(kind, diffLines, boss = {}) {
 
 /** Next todo task for an agent: allowed owner, no area overlap with busy tasks, preferring its strengths. */
 export function pickTask(tasks, agentId, strengths = []) {
+  const byId = new Map(tasks.map(task => [task.id, task]))
   const busy = tasks.filter(t => t.status === 'in-progress' || t.status === 'review')
   const eligible = tasks.filter(t => t.status === 'todo'
     && (t.agent === 'any' || t.agent === agentId)
+    && (Array.isArray(t.dependencies) ? t.dependencies : []).every(id => byId.get(id)?.status === 'done')
     && !busy.some(b => areasOverlap(b.area, t.area)))
   const pref = t => { const i = strengths.indexOf(t.kind); return i < 0 ? 99 : i }
   eligible.sort((x, y) => (x.phase - y.phase) || (pref(x) - pref(y)) || x.id.localeCompare(y.id))
@@ -759,6 +787,8 @@ export class Boss {
     const board = this.board()
     this.ingestRequests(board)
     const now = Date.now()
+    const blocked = blockTasksWithUnavailableDependencies(board.tasks, now)
+    if (blocked) this.log(`blocked ${blocked} task(s) with unavailable dependencies`)
     const released = releaseStuckTasks(board.tasks, this.state, now)
     if (released) this.log(`released ${released} task(s) pinned to an unavailable agent`)
     saveBoard(this.dir, board)

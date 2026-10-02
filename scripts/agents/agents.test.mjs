@@ -228,3 +228,38 @@ test('releaseStuckTasks frees todo tasks pinned to a cooling-down or unknown age
   assert.equal(releaseStuckTasks(tasks, state, now), 2)
   assert.deepEqual(tasks.map(t => t.agent), ['any', 'copilot-web', 'any', 'claude', 'any'])
 })
+
+test('pickTask waits until every dependency is done', () => {
+  const tasks = [
+    { id: 'T-1', status: 'todo', agent: 'any' },
+    { id: 'T-2', status: 'todo', agent: 'any' },
+    { id: 'T-3', status: 'todo', agent: 'any', dependencies: ['T-1', 'T-2'] },
+  ]
+  assert.equal(pickTask(tasks, 'copilot')?.id, 'T-1')
+  tasks[0].status = 'done'
+  assert.equal(pickTask(tasks, 'copilot')?.id, 'T-2')
+  tasks[1].status = 'done'
+  assert.equal(pickTask(tasks, 'copilot')?.id, 'T-3')
+})
+
+test('todo tasks with blocked or unknown dependencies are blocked with a reason', async () => {
+  const { blockTasksWithUnavailableDependencies } = await import('./boss.mjs')
+  const tasks = [
+    { id: 'T-1', status: 'todo', dependencies: ['T-blocked', 'T-missing'] },
+    { id: 'T-blocked', status: 'blocked' },
+    { id: 'T-pending', status: 'todo' },
+    { id: 'T-2', status: 'todo', dependencies: ['T-pending'] },
+    { id: 'T-3', status: 'todo', dependencies: ['T-invalid-state'] },
+    { id: 'T-invalid-state', status: 'unknown' },
+    { id: 'T-4', status: 'done', dependencies: ['T-missing'] },
+  ]
+  assert.equal(blockTasksWithUnavailableDependencies(tasks), 2)
+  assert.equal(tasks[0].status, 'blocked')
+  assert.match(tasks[0].lastFailure, /T-blocked.*blocked/)
+  assert.match(tasks[0].lastFailure, /T-missing.*not found/)
+  assert.equal(tasks[2].status, 'todo')
+  assert.equal(tasks[3].status, 'todo', 'a dependency still in progress is not a failure')
+  assert.equal(tasks[4].status, 'blocked')
+  assert.match(tasks[4].lastFailure, /T-invalid-state.*unknown status/)
+  assert.equal(tasks[6].status, 'done', 'terminal tasks are not changed')
+})
