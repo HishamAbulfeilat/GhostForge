@@ -4,6 +4,7 @@ import net from 'node:net'
 import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import * as agentOffice from '../../apps/worlds/agent-office/configure.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 export const ROOT = path.resolve(HERE, '..', '..')
@@ -12,7 +13,7 @@ export const GUARD = path.join(HERE, 'loopback-guard.cjs')
 export const ACTIONS = ['start', 'stop', 'status', 'setup']
 // Env passed through to world processes. LLM access is local Ollama or the
 // GhostForge model gateway only; values come from the caller's environment.
-export const ENV_ALLOW = ['OLLAMA_HOST', 'OLLAMA_MODEL', 'OMNIROUTE_URL', 'OMNIROUTE_API_KEY']
+export const ENV_ALLOW = ['OLLAMA_HOST', 'OLLAMA_MODEL', 'OMNIROUTE_URL', 'OMNIROUTE_API_KEY', 'AGENT_OFFICE_MODEL_GATEWAY_API_KEY']
 
 export const WORLDS = {
   'ai-town': {
@@ -20,18 +21,25 @@ export const WORLDS = {
     commit: '8e05997f2409275669c8344b84a51692e83f3f33',
     install: ['npm', ['install']],
     services: [
-      { name: 'frontend', port: 5173, cmd: 'npm', args: ['run', 'dev:frontend', '--', '--host', LOOPBACK_HOST, '--port', '5173', '--strictPort'] },
+      { name: 'frontend', port: 5173, health: '/', open: true, cmd: 'npm', args: ['run', 'dev:frontend', '--', '--host', LOOPBACK_HOST, '--port', '5173', '--strictPort'] },
     ],
     notes: 'AI Town also needs its Convex backend (docker compose self-host); see the upstream README.',
   },
   'agent-office': {
     repo: 'https://github.com/harishkotra/agent-office.git',
     commit: '58f11f9b31770c10bcf3d7a0618325d22bd0ee9e',
+    // Patches the checkout for loopback binds, the UI on :5174 and an env-selected LLM.
+    configure: agentOffice.configureCheckout,
+    isConfigured: agentOffice.isConfigured,
     install: ['npm', ['install']],
-    prepare: ['npm', ['run', 'build']],
+    // Core first: the root workspace build otherwise compiles adapters before core.
+    prepare: [
+      ['npm', ['run', 'build', '--workspace=@agent-office/core']],
+      ['npm', ['run', 'build']],
+    ],
     services: [
-      { name: 'server', port: 3000, cmd: 'npm', args: ['run', 'start', '--workspace=@agent-office/server'], env: { PORT: '3000' } },
-      { name: 'ui', port: 5173, cmd: 'npm', args: ['run', 'dev', '--workspace=@agent-office/ui', '--', '--host', LOOPBACK_HOST, '--port', '5173', '--strictPort'] },
+      { name: 'server', port: agentOffice.SERVER_PORT, health: '/api/offices', cmd: 'npm', args: ['run', 'start', '--workspace=@agent-office/server'], env: { PORT: String(agentOffice.SERVER_PORT) } },
+      { name: 'ui', port: agentOffice.UI_PORT, health: '/', open: true, cmd: 'npm', args: ['run', 'dev', '--workspace=@agent-office/ui', '--', '--host', LOOPBACK_HOST, '--port', String(agentOffice.UI_PORT), '--strictPort'] },
     ],
   },
 }
@@ -113,6 +121,16 @@ export function probePort(port, { host = LOOPBACK_HOST, timeoutMs = 1000 } = {})
   })
 }
 
+// Smoke check: GET http://127.0.0.1:<port><path>; returns the HTTP status or null.
+export async function probeHttp(port, pathname = '/', { host = LOOPBACK_HOST, timeoutMs = 1000 } = {}) {
+  if (!isLoopbackHost(host)) return null
+  try {
+    const res = await fetch(`http://${host}:${port}${pathname}`, { signal: AbortSignal.timeout(timeoutMs), redirect: 'manual' })
+    await res.body?.cancel()
+    return res.status
+  } catch { return null }
+}
+
 export function worldDir(name, root = ROOT) {
   return path.join(root, 'apps', 'worlds', name, 'checkout')
 }
@@ -139,6 +157,9 @@ export function startWorld(name, { root = ROOT, log = console.log } = {}) {
   const dir = worldDir(name, root)
   if (!fs.existsSync(path.join(dir, 'package.json'))) {
     throw new Error(`${name} is not set up; run: ghostforge worlds setup ${name}`)
+  }
+  if (WORLDS[name].isConfigured && !WORLDS[name].isConfigured(dir)) {
+    throw new Error(`${name} checkout is not configured for GhostForge (loopback/LLM); run: ghostforge worlds setup ${name}`)
   }
   const state = stateRoot(root)
   const env = worldEnv()
@@ -182,13 +203,19 @@ export async function statusWorld(name, { root = ROOT, timeoutMs = 1000 } = {}) 
   for (const svc of WORLDS[name].services) {
     const pid = livePid(pidFile(state, name, svc.name))
     const listening = await probePort(svc.port, { timeoutMs })
+    const httpStatus = listening && svc.health ? await probeHttp(svc.port, svc.health, { timeoutMs }) : null
     const status = pid && listening ? 'running' : pid ? 'starting' : listening ? 'port-in-use' : 'stopped'
-    services.push({ service: svc.name, host: LOOPBACK_HOST, port: svc.port, pid, listening, state: status })
+    services.push({ service: svc.name, host: LOOPBACK_HOST, port: svc.port, pid, listening, httpStatus, state: status })
   }
+  // running = every service is ours, listening, and its smoke URL answers HTTP 200.
+  const answering = WORLDS[name].services.every((svc, i) => services[i].state === 'running' && (!svc.health || services[i].httpStatus === 200))
+  const open = WORLDS[name].services.find(svc => svc.open)
   return {
     world: name,
     installed: fs.existsSync(path.join(worldDir(name, root), 'package.json')),
     pinnedCommit: WORLDS[name].commit,
+    status: answering ? 'running' : services.some(s => s.pid) ? 'starting' : 'stopped',
+    url: open ? `http://${LOOPBACK_HOST}:${open.port}/` : null,
     services,
   }
 }
@@ -209,8 +236,12 @@ export function setupWorld(name, { root = ROOT, log = console.log } = {}) {
   }
   run('git', ['fetch', '--depth', '1', 'origin', world.commit], dir, log)
   run('git', ['checkout', '-q', '--detach', world.commit], dir, log)
+  if (world.configure) {
+    log(`configuring ${name} checkout (127.0.0.1 binds, LLM from env)`)
+    world.configure(dir)
+  }
   run(world.install[0], world.install[1], dir, log)
-  if (world.prepare) run(world.prepare[0], world.prepare[1], dir, log)
+  for (const [cmd, args] of world.prepare || []) run(cmd, args, dir, log)
   log(`${name} ready at ${path.relative(root, dir)} (commit ${world.commit.slice(0, 12)}). Start with: ghostforge worlds start ${name}`)
   if (world.notes) log(world.notes)
 }

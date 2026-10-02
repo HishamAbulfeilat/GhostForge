@@ -8,10 +8,10 @@ it per its README.
 | World | Upstream | Pinned commit | Ports (127.0.0.1) |
 |-------|----------|---------------|-------------------|
 | `ai-town` | a16z-infra/ai-town (MIT) | `8e05997f2409` | 5173 (frontend), 3210/3211 (Convex), 6791 (dashboard) |
-| `agent-office` | harishkotra/agent-office (MIT) | `58f11f9b3177` | 3000 (server), 5173 (ui) |
+| `agent-office` | harishkotra/agent-office (MIT) | `58f11f9b3177` | 3000 (server), 5174 (ui) |
 
-Both worlds use port 5173 for their UI, so run one at a time (`status` shows
-`port-in-use` if something else holds the port).
+The worlds use different ports, so both can run at once (`status` shows
+`port-in-use` if something else holds a port).
 
 ```bash
 ghostforge worlds setup ai-town        # or: node apps/worlds/ai-town/setup.mjs
@@ -32,5 +32,8 @@ ghostforge worlds stop ai-town
   the upstream Docker Compose stack (local Convex backend + frontend) with every
   port bound to 127.0.0.1. See [`docs/AI-TOWN.md`](../../docs/AI-TOWN.md) for
   prerequisites, LLM configuration and the smoke test. `agent-office` uses the
-  lightweight process manager in `scripts/worlds/`; `all` runs both.
-- Controls: TUI menu and Start/Stop/Open on `/agent-world` (Town view).
+  lightweight process manager in `scripts/worlds/` and is patched for loopback
+  and the LLM env at setup; see [`docs/AGENT-OFFICE.md`](../../docs/AGENT-OFFICE.md).
+  `all` runs both.
+- Controls: TUI menu and Start/Stop/Open on `/agent-world` (Town view for
+  AI Town, Office view for Agent Office).

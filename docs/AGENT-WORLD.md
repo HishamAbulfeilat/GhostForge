@@ -35,6 +35,10 @@ Its Start/Stop controls manage the local Convex and frontend runtime, and Open
 embeds the frontend in an iframe. This external world is independent of the
 agent/session snapshot. See [AI Town setup and smoke test](AI-TOWN.md).
 
+Likewise the Office view has Start/Stop/Open controls for the upstream
+harishkotra/agent-office app (Colyseus server + client on 127.0.0.1). See
+[Agent Office setup and smoke test](AGENT-OFFICE.md).
+
 ## Local-only default and connector configuration
 
 With `GF_AGENT_SESSION_CONNECTORS` unset or empty, the API makes no external

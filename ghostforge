@@ -38,7 +38,7 @@ Usage:
   ghostforge agent-team [args]          Manage the agent team boss and board
   ghostforge agents [args]             Alias for agent-team controls
   ghostforge workflows [args]          Workflow list/create/update/run commands
-  ghostforge worlds [args]             Start, stop, or check the AI Town world
+  ghostforge worlds [args]             Start, stop, or check AI Town / Agent Office
   ghostforge jobs [args]               Run Job Hunter commands
   ghostforge users [args]              List and update authenticated users and permissions
   ghostforge collab [args]             Create, view, and post to collaboration sessions

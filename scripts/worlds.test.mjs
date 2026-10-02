@@ -90,5 +90,5 @@ test('world command parsing accepts only supported world lifecycle commands', ()
 
 test('GhostForge CLI dispatches the worlds command to the managed runtime', () => {
   assert.equal(cli.resolveCommand('worlds').script, path.join(cli.ROOT, 'scripts', 'worlds.mjs'))
-  assert.match(cli.buildHelp(), /worlds\s+Start, stop, and check the local AI Town world/)
+  assert.match(cli.buildHelp(), /worlds\s+Set up, start, stop, and check AI Town \/ Agent Office/)
 })
