@@ -7,6 +7,7 @@ import test from 'node:test'
 import {
   HEADLESS_BRIDGE_LOG,
   HEADLESS_CLEAN_LOG,
+  HEADLESS_CLEANUP_FAILED_LOG,
   HEADLESS_SMOKE_ARG,
   HEADLESS_SMOKE_ENV,
   HEADLESS_STARTUP_LOG,
@@ -73,4 +74,5 @@ test('Electron app launches in headless CI mode and reaches the bridge', async (
 
   assert.match(output, /startup-ready|bridge-reachable/si)
   assert.ok(output.includes(HEADLESS_CLEAN_LOG), `Expected clean shutdown log. Output:\n${output}`)
+  assert.ok(!output.includes(HEADLESS_CLEANUP_FAILED_LOG), `Unexpected shutdown failure marker. Output:\n${output}`)
 })
