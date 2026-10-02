@@ -34,12 +34,11 @@ import {
 import {
   getHeadlessSwitches,
   HEADLESS_BRIDGE_LOG,
-  HEADLESS_CLEANUP_FAILED_LOG,
-  HEADLESS_CLEAN_LOG,
   HEADLESS_STARTUP_LOG,
   HEADLESS_WINDOW_LOG,
   isHeadlessSmokeMode,
   logHeadlessSmoke,
+  reportShutdownOutcome,
   runBoundedCleanup,
   shouldMinimizeWindowToTray,
 } from './headless-smoke';
@@ -115,14 +114,15 @@ app.on('before-quit', (event) => {
     { name: 'tray', run: () => trayManager?.destroy() },
   ], SHUTDOWN_TIMEOUT_MS);
 
-  cleanupPromise.then(() => {
-    cleanupComplete = true;
-    if (isHeadlessSmokeMode()) logHeadlessSmoke(HEADLESS_CLEAN_LOG);
-    app.quit();
-  }).catch((error: unknown) => {
-    console.error('[electron] shutdown cleanup failed:', error);
-    if (isHeadlessSmokeMode()) logHeadlessSmoke(HEADLESS_CLEANUP_FAILED_LOG);
-    app.exit(1);
+  void reportShutdownOutcome(cleanupPromise, {
+    smoke: isHeadlessSmokeMode(),
+    log: logHeadlessSmoke,
+    error: (message, error) => console.error(message, error),
+    quit: () => {
+      cleanupComplete = true;
+      app.quit();
+    },
+    exit: (code) => app.exit(code),
   });
 });
 
