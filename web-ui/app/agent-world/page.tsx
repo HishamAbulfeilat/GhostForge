@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import AgentOfficeMap from '../../components/agent-world/AgentOfficeMap'
 import WorkflowDependencyGraph from '../../components/agent-world/WorkflowDependencyGraph'
+import AiTownControls from './AiTownControls'
 import {
   collectAgentWorldData,
   loadAgentWorld,
@@ -202,10 +203,7 @@ export default function AgentWorldPage() {
               </>
             )}
             {world === 'town' && (
-              <section aria-labelledby="agent-town-heading" className="rounded-2xl border border-gf-line bg-gf-surface p-5">
-                <h2 id="agent-town-heading" className="font-display text-lg font-semibold">Agent Town</h2>
-                <p className="mt-2 text-sm text-gf-muted">Agent Town is a separate managed world. Its scene is not included in the current GhostForge snapshot.</p>
-              </section>
+              <AiTownControls />
             )}
             {world === 'office' && (
               <AgentOfficeMap sessions={state.officeSessions} emptyMessage="No sessions were reported by the available snapshots." />
