@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent Office</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&amp;family=IBM+Plex+Sans:wght@400;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; background: #E9E4DA; color: #1F2328; font-family: 'IBM Plex Sans', sans-serif">
+  <div style="position: absolute; left: 32px; top: 22px"><h1 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 28px">Agent Office</h1><span style="font-size: 13px; color: #4D545C">Desks, rooms and thought bubbles — modeled on harishkotra/agent-office, drawn procedurally</span></div>
+
+  <div style="position: absolute; left: 32px; top: 96px; width: 300px; height: 300px; border: 3px solid #2F3B46; border-radius: 6px; background: #D6E4EC">
+    <span style="position: absolute; left: 12px; top: 10px; font: 600 12px 'JetBrains Mono', monospace; color: #2F3B46">BOSS OFFICE</span>
+    <div style="position: absolute; left: 80px; top: 120px; width: 140px; height: 56px; border-radius: 6px; background: #8D6E52"></div>
+    <div style="position: absolute; left: 126px; top: 70px; display: flex; flex-direction: column; align-items: center; gap: 4px">
+      <span aria-hidden="true" style="width: 46px; height: 46px; border-radius: 50%; background: #C8661E; border: 4px solid #F2A65A"></span>
+      <span style="font: 600 12px 'JetBrains Mono', monospace; background: #1F2328; color: #FFFFFF; padding: 2px 6px; border-radius: 4px">boss</span>
+    </div>
+    <div style="position: absolute; left: 20px; top: 210px; width: 256px; padding: 8px 10px; box-sizing: border-box; border-radius: 10px; background: #FFFFFF; border: 1px solid #B8C2CA; font-size: 12px">Reviewing T-131 — docs match the snapshot?</div>
+  </div>
+
+  <div style="position: absolute; left: 360px; top: 96px; width: 760px; height: 520px; border: 3px solid #2F3B46; border-radius: 6px; background: #EFE9DE">
+    <span style="position: absolute; left: 12px; top: 10px; font: 600 12px 'JetBrains Mono', monospace; color: #2F3B46">OPEN PLAN · WORKERS</span>
+    <sc-for list="{{desks}}" as="d" hint-placeholder-count="4">
+      <button type="button" aria-label="{{d.aria}}" style="position: absolute; left: {{d.x}}; top: {{d.y}}; width: 220px; height: 200px; background: transparent; border: 0; padding: 0; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; color: #1F2328">
+        <span style="position: absolute; left: 0; top: 0; width: 220px; padding: 8px 10px; box-sizing: border-box; border-radius: 10px; background: #FFFFFF; border: 1px solid #B8C2CA; font-size: 12px; text-align: start">{{d.thought}}</span>
+        <span aria-hidden="true" style="position: absolute; left: 87px; top: 74px; width: 46px; height: 46px; border-radius: 50%; background: {{d.color}}; border: 4px solid {{d.ring}}"></span>
+        <span style="position: absolute; left: 30px; top: 132px; width: 160px; height: 40px; border-radius: 6px; background: #8D6E52"></span>
+        <span style="position: absolute; left: 30px; top: 178px; width: 160px; text-align: center; font: 600 12px 'JetBrains Mono', monospace; background: #1F2328; color: #FFFFFF; padding: 2px 4px; border-radius: 4px">{{d.name}}</span>
+      </button>
+    </sc-for>
+  </div>
+
+  <div style="position: absolute; left: 1148px; top: 96px; width: 260px; height: 250px; border: 3px solid #2F3B46; border-radius: 6px; background: #F3E3C9">
+    <span style="position: absolute; left: 12px; top: 10px; font: 600 12px 'JetBrains Mono', monospace; color: #2F3B46">REVIEW ROOM</span>
+    <div style="position: absolute; left: 40px; top: 80px; width: 180px; height: 90px; border-radius: 45px; background: #8D6E52"></div>
+    <span style="position: absolute; left: 30px; top: 196px; font-size: 12px">T-131 waiting · T-129 next</span>
+  </div>
+  <div style="position: absolute; left: 1148px; top: 366px; width: 260px; height: 250px; border: 3px solid #2F3B46; border-radius: 6px; background: #DDE8D5">
+    <span style="position: absolute; left: 12px; top: 10px; font: 600 12px 'JetBrains Mono', monospace; color: #2F3B46">LOUNGE · IDLE</span>
+    <span aria-hidden="true" style="position: absolute; left: 106px; top: 100px; width: 46px; height: 46px; border-radius: 50%; background: #7E8791; border: 4px solid #C7CDD3"></span>
+    <span style="position: absolute; left: 66px; top: 156px; font: 600 12px 'JetBrains Mono', monospace; background: #1F2328; color: #FFFFFF; padding: 2px 6px; border-radius: 4px">copilot-desktop</span>
+  </div>
+
+  <div style="position: absolute; left: 32px; right: 32px; bottom: 28px; height: 220px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px">
+    <div style="border-radius: 12px; background: #FFFFFF; border: 1px solid #C9CFD5; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+      <h2 style="margin: 0; font: 700 15px 'Space Grotesk', sans-serif">Selected · copilot-web</h2>
+      <span style="font-size: 13px">T-127 · Add and mount a snapshot-driven Agent Office map</span>
+      <span style="font: 12px 'JetBrains Mono', monospace; color: #4D545C">model auto · area web-ui/app/agent-world</span>
+    </div>
+    <div style="border-radius: 12px; background: #FFFFFF; border: 1px solid #C9CFD5; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+      <h2 style="margin: 0; font: 700 15px 'Space Grotesk', sans-serif">Keyboard</h2>
+      <span style="font-size: 13px">Tab moves between desks · Enter opens the agent · arrows pan · +/− zoom</span>
+    </div>
+    <div style="border-radius: 12px; background: #FFFFFF; border: 1px solid #C9CFD5; padding: 14px; display: flex; flex-direction: column; gap: 6px">
+      <h2 style="margin: 0; font: 700 15px 'Space Grotesk', sans-serif">Credits</h2>
+      <span style="font-size: 13px">Layout patterns: harishkotra/agent-office (MIT). Figures and furniture are original, drawn in code.</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const C = { working: ['#2D6C8F', '#7CC4EA'], review: ['#9B6A12', '#F2C46B'] };
+    const desk = (name, state, thought, x, y) => ({ name, thought, x, y, color: C[state][0], ring: C[state][1], aria: name + ': ' + thought });
+    const desks = [
+      desk('copilot-tui', 'working', 'T-129: keeping leader + deps through the API', '40px', '50px'),
+      desk('copilot-web', 'working', 'T-127: mounting the office map', '280px', '50px'),
+      desk('copilot-integration', 'working', 'T-128: graph edges from task deps', '520px', '50px'),
+      desk('copilot-quality', 'review', 'T-131 done — waiting on the boss', '160px', '290px'),
+    ];
+    return { desks };
+  }
+}
+</script>
+</body>
+</html>

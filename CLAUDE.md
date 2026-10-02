@@ -16,6 +16,17 @@ surfaces share one repo:
 - `marketplace/` — catalog + registry for installable agents/skills/tools.
 - `agents/`, `commands/`, `.claude/skills/`, `instructions/`, `knowledge/`, `prompts/` — content.
 
+## Agent team
+
+`scripts/agents/boss.mjs` assigns tasks, reviews worker commits, and merges
+approved work into `agent/integration`; workers do not claim or merge tasks.
+The boss uses Claude Opus for planning, security, and high-risk reviews, Sonnet
+for routine reviews, and Copilot as fallback. Copilot workers use model `auto`.
+The watchdog keeps the boss running (Windows checks every five minutes).
+Interactive Copilot is co-lead; follow `prompts/copilot-colead.md`.
+**`docs/SESSION-HANDOFF.md` is the single handoff** for current state and
+continuation.
+
 ## Marketplace (read before touching it)
 
 Two files, **`marketplace/registry.json` is the single source of truth for install state**:

@@ -1,0 +1,33 @@
+{
+  "type": "workflow",
+  "version": 1,
+  "id": "review",
+  "name": "Implementation and review",
+  "description": "Implement a change, verify it, then review the integrated result.",
+  "leader": "boss",
+  "workers": [
+    { "id": "copilot-desktop", "provider": "copilot", "model": "auto" },
+    { "id": "copilot-quality", "provider": "copilot", "model": "auto" }
+  ],
+  "mode": "dependent",
+  "tasks": [
+    {
+      "id": "implement",
+      "title": "Implement the requested change",
+      "kind": "feature",
+      "assignee": "copilot-desktop",
+      "area": [],
+      "dependsOn": [],
+      "acceptanceCriteria": ["Implementation matches the request", "Relevant tests pass"]
+    },
+    {
+      "id": "verify",
+      "title": "Verify the implementation",
+      "kind": "test",
+      "assignee": "copilot-quality",
+      "area": [],
+      "dependsOn": ["implement"],
+      "acceptanceCriteria": ["Regression coverage exercises the changed behavior"]
+    }
+  ]
+}

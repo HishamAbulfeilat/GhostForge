@@ -6,6 +6,8 @@ import test from 'node:test'
 
 import {
   HEADLESS_BRIDGE_LOG,
+  HEADLESS_CLEAN_LOG,
+  HEADLESS_CLEANUP_FAILED_LOG,
   HEADLESS_SMOKE_ARG,
   HEADLESS_SMOKE_ENV,
   HEADLESS_STARTUP_LOG,
@@ -13,13 +15,11 @@ import {
 
 const electronAppDir = fileURLToPath(new URL('..', import.meta.url))
 const electronBin = process.platform === 'win32'
-  ? join(electronAppDir, 'node_modules', '.bin', 'electron.cmd')
+  ? join(electronAppDir, 'node_modules', 'electron', 'dist', 'electron.exe')
   : join(electronAppDir, 'node_modules', '.bin', 'electron')
 
 test('Electron app launches in headless CI mode and reaches the bridge', async () => {
-  const child = spawn(process.platform === 'win32' ? 'cmd' : electronBin, process.platform === 'win32'
-    ? ['/d', '/s', '/c', electronBin, '.', HEADLESS_SMOKE_ARG]
-    : ['.', HEADLESS_SMOKE_ARG], {
+  const child = spawn(electronBin, ['.', HEADLESS_SMOKE_ARG], {
     cwd: electronAppDir,
     env: {
       ...process.env,
@@ -60,7 +60,7 @@ test('Electron app launches in headless CI mode and reaches the bridge', async (
 
     child.on('exit', (code, signal) => {
       if (settled) return
-      if (code === 0 && output.includes(HEADLESS_STARTUP_LOG)) {
+      if (code === 0 && output.includes(HEADLESS_STARTUP_LOG) && output.includes(HEADLESS_CLEAN_LOG)) {
         settled = true
         clearTimeout(timeout)
         resolve()
@@ -68,9 +68,11 @@ test('Electron app launches in headless CI mode and reaches the bridge', async (
       }
       settled = true
       clearTimeout(timeout)
-      reject(new Error(`Electron headless launch failed with code=${code} signal=${signal}. Output:\n${output}`))
+      reject(new Error(`Electron headless launch or cleanup failed with code=${code} signal=${signal}. Output:\n${output}`))
     })
   })
 
   assert.match(output, /startup-ready|bridge-reachable/si)
+  assert.ok(output.includes(HEADLESS_CLEAN_LOG), `Expected clean shutdown log. Output:\n${output}`)
+  assert.ok(!output.includes(HEADLESS_CLEANUP_FAILED_LOG), `Unexpected shutdown failure marker. Output:\n${output}`)
 })

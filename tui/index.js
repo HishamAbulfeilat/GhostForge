@@ -743,6 +743,45 @@ function safeUsersText(value) {
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
 }
 
+async function screenWorlds() {
+  while (true) {
+    sectionHeader('🌍  Agent Worlds', 'Manage the local AI Town and Agent Office world apps');
+    const world = await select({
+      message: T.white('World:'),
+      choices: [
+        { name: T.white('AI Town      (a16z-infra/ai-town)'), value: 'ai-town' },
+        { name: T.white('Agent Office (harishkotra/agent-office)'), value: 'agent-office' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (world === 'back') return;
+    const label = world === 'ai-town' ? 'AI Town' : 'Agent Office';
+    const action = await select({
+      message: T.white(`${label} action:`),
+      choices: [
+        { name: T.success(`▶  Start ${label}`), value: 'start' },
+        { name: T.warning(`■  Stop ${label}`), value: 'stop' },
+        { name: T.accent(`●  Check ${label} status`), value: 'status' },
+        { name: T.muted(`⚙  Set up ${label} (clone pinned commit + install)`), value: 'setup' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') continue;
+
+    const result = spawnSync(process.execPath, [resolve(ROOT, 'scripts/worlds.mjs'), action, world], {
+      cwd: ROOT,
+      stdio: 'inherit',
+      windowsHide: true,
+    });
+    if (result.error) {
+      console.log(T.danger(`\n  ✖  Could not run ${label} ${action}: ${result.error.message}`));
+    } else if (result.status !== 0) {
+      console.log(T.warning(`\n  ⚠  ${label} command did not complete successfully.`));
+    }
+    await pressEnter();
+  }
+}
+
 async function screenUsers() {
   while (true) {
     sectionHeader('👥  User Administration', 'List users and manage role, active status, and permissions');
@@ -1379,6 +1418,7 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '🤝  Collaboration & Sharing',   'create or join sessions · send messages · copy share links', 'collaboration'),
       menuChoice(T.accent.bold,  '👥  User Administration',       'list users · owner-only role, status, and permission controls', 'users'),
       menuChoice(T.accent.bold,  '🔁  Workflows',                  'review saved workflows · run bounded, allowlisted steps', 'workflows'),
+      menuChoice(T.cyan.bold,    '🌍  Agent Worlds',               'start, stop, and check AI Town and Agent Office', 'worlds'),
       menuChoice(T.accent.bold,  '⚡  n8n Automation',             'list and safely trigger active workflow webhooks', 'n8n'),
       menuChoice(T.accent.bold,  '🪝  Webhooks',                   'inspect triggers · replace config · review logs', 'webhooks'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
@@ -7557,6 +7597,7 @@ async function main() {
         case 'collaboration': await screenCollaboration(); break;
         case 'users':         await screenUsers(); break;
         case 'workflows':     await screenWorkflows(); break;
+        case 'worlds':        await screenWorlds(); break;
         case 'n8n':            await screenN8n(); break;
         case 'webhooks':      await screenWebhooks(); break;
         case 'freeapis':     await screenFreeAPIs(); break;

@@ -38,6 +38,9 @@ import {
   HEADLESS_WINDOW_LOG,
   isHeadlessSmokeMode,
   logHeadlessSmoke,
+  reportShutdownOutcome,
+  runBoundedCleanup,
+  shouldMinimizeWindowToTray,
 } from './headless-smoke';
 import {
   setApiKey as setAIStudioKey, getApiKeyStatus as getAIStudioKeyStatus,
@@ -75,6 +78,53 @@ let jarvisDaemon: JarvisDaemon;
 let selfUpdater: SelfUpdater;
 let codeModifier: CodeModifier;
 let voiceboxIntegration: VoiceboxIntegration;
+let isQuitting = false;
+let isExplicitWindowClose = false;
+let cleanupComplete = false;
+let cleanupPromise: Promise<void> | null = null;
+
+const SHUTDOWN_TIMEOUT_MS = 10_000;
+
+app.on('before-quit', (event) => {
+  isQuitting = true;
+  if (cleanupComplete) return;
+
+  event.preventDefault();
+  if (cleanupPromise) return;
+
+  cleanupPromise = runBoundedCleanup([
+    { name: 'daemon', run: () => jarvisDaemon?.destroy() },
+    { name: 'updater', run: () => selfUpdater?.destroy() },
+    { name: 'code modifier', run: () => codeModifier?.destroy() },
+    { name: 'voicebox', run: () => voiceboxIntegration?.destroy() },
+    { name: 'bridge', run: () => bridgeManager.stopBridge() },
+    { name: 'Gemini voice', run: async () => { await geminiLiveVoice?.disconnect(); } },
+    { name: 'global shortcuts', run: () => globalShortcut.unregisterAll() },
+    { name: 'cursor overlays', run: () => cursorOverlay?.destroyAll() },
+    {
+      name: 'voice system',
+      run: () => {
+        voiceSystem?.stopListening();
+        voiceSystem?.unregisterAll();
+      },
+    },
+    { name: 'clipboard watcher', run: () => stopClipboardWatcher() },
+    { name: 'JARVIS connection', run: () => jarvisConnection?.destroy() },
+    { name: 'connection toggle', run: () => connectionToggle?.destroy() },
+    { name: 'tray', run: () => trayManager?.destroy() },
+  ], SHUTDOWN_TIMEOUT_MS);
+
+  void reportShutdownOutcome(cleanupPromise, {
+    smoke: isHeadlessSmokeMode(),
+    log: logHeadlessSmoke,
+    error: (message, error) => console.error(message, error),
+    quit: () => {
+      cleanupComplete = true;
+      app.quit();
+    },
+    exit: (code) => app.exit(code),
+  });
+});
 
 const GOT_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 
@@ -248,7 +298,9 @@ function createMainWindow(): void {
   });
 
   mainWindow.on('close', (event) => {
-    if (config.minimizeToTray) {
+    const skipTrayInterception = isQuitting || isExplicitWindowClose;
+    isExplicitWindowClose = false;
+    if (shouldMinimizeWindowToTray(skipTrayInterception, config.minimizeToTray)) {
       event.preventDefault();
       mainWindow?.hide();
     }
@@ -428,7 +480,11 @@ function registerIPC(): void {
     if (mainWindow?.isMaximized()) mainWindow.unmaximize();
     else mainWindow?.maximize();
   });
-  ipcMain.handle('window:close', () => mainWindow?.close());
+  ipcMain.handle('window:close', () => {
+    if (!mainWindow) return;
+    isExplicitWindowClose = true;
+    mainWindow?.close();
+  });
   ipcMain.handle('window:hide', () => mainWindow?.hide());
   ipcMain.handle('window:show', () => mainWindow?.show());
 
@@ -1135,10 +1191,17 @@ process.on('uncaughtException', (err) => {
 });
 
 app.whenReady().then(async () => {
+  let startupFailed = false;
   try {
     createMainWindow();
   } catch (e) {
+    startupFailed = true;
     console.error('[electron] createMainWindow failed:', (e as Error).message);
+  }
+
+  if (startupFailed) {
+    app.quit();
+    return;
   }
 
   if (isHeadlessSmokeMode()) {
@@ -1147,7 +1210,7 @@ app.whenReady().then(async () => {
     const scheduleSmokeExit = () => {
       if (exitScheduled) return;
       exitScheduled = true;
-      setTimeout(() => app.exit(0), 250);
+      setTimeout(() => app.quit(), 250);
     };
     bridgeManager.on('status', (status) => {
       if (status === 'running') {
@@ -1193,20 +1256,4 @@ app.on('activate', () => {
   } else {
     mainWindow?.show();
   }
-});
-
-app.on('will-quit', () => {
-  jarvisDaemon?.destroy();
-  selfUpdater?.destroy();
-  codeModifier?.destroy();
-  voiceboxIntegration?.destroy();
-  bridgeManager.stopBridge().catch(() => {});
-  geminiLiveVoice?.destroy();
-  n8nIntegration = undefined as any;
-  globalShortcut.unregisterAll();
-  cursorOverlay.destroyAll();
-  voiceSystem.unregisterAll();
-  jarvisConnection?.destroy();
-  connectionToggle?.destroy();
-  trayManager?.destroy();
 });

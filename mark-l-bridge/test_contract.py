@@ -55,6 +55,7 @@ class BridgeContractTests(unittest.TestCase):
             "/api/devices/status",
             "/api/remote/setup",
             "/api/release",
+            "/api/marketplace",
             "/api/n8n/workflows",
         )
         for path in paths:
@@ -68,6 +69,77 @@ class BridgeContractTests(unittest.TestCase):
             with self.subTest(path=path, method="POST"):
                 response = self.client.post(path, json=payload)
                 self.assertEqual(response.status_code, 401)
+
+    def _write_marketplace(self, catalog=None, registry=None):
+        mdir = Path(self.tmp.name) / "marketplace"
+        mdir.mkdir(exist_ok=True)
+        if catalog is not None:
+            (mdir / "catalog.json").write_text(
+                catalog if isinstance(catalog, str) else json.dumps(catalog), encoding="utf-8"
+            )
+        if registry is not None:
+            (mdir / "registry.json").write_text(
+                registry if isinstance(registry, str) else json.dumps(registry), encoding="utf-8"
+            )
+        return mdir
+
+    def _marketplace_get(self, mdir, **params):
+        with patch.object(server, "_MARKETPLACE_DIR", mdir):
+            return self.client.get("/api/marketplace", params=params, headers=self.headers)
+
+    def test_marketplace_installed_union_and_removal_rule(self):
+        catalog = {"items": [
+            {"id": "seeded", "type": "tool", "category": "Quality", "installed": True},
+            {"id": "user-installed", "type": "agent", "category": "Quality"},
+            {"id": "seeded-removed", "type": "tool", "category": "Security", "installed": True},
+            {"id": "installed-and-removed", "type": "skill", "category": "Security"},
+            {"id": "plain", "type": "skill", "category": "Quality"},
+        ]}
+        registry = {"installed": ["user-installed", "installed-and-removed"],
+                    "removed": ["seeded-removed", "installed-and-removed"]}
+        mdir = self._write_marketplace(catalog, registry)
+        before = {p.name: p.read_bytes() for p in mdir.iterdir()}
+        response = self._marketplace_get(mdir)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        state = {i["id"]: i["installed"] for i in body["items"]}
+        self.assertEqual(state, {
+            "seeded": True, "user-installed": True, "seeded-removed": False,
+            "installed-and-removed": False, "plain": False,
+        })
+        self.assertEqual(body["count"], 5)
+        self.assertEqual(before, {p.name: p.read_bytes() for p in mdir.iterdir()})
+
+    def test_marketplace_filters(self):
+        catalog = {"items": [
+            {"id": "a", "type": "tool", "category": "Quality", "installed": True},
+            {"id": "b", "type": "tool", "category": "Security"},
+            {"id": "c", "type": "agent", "category": "Quality"},
+        ]}
+        mdir = self._write_marketplace(catalog, {"installed": ["c"], "removed": []})
+        ids = lambda r: sorted(i["id"] for i in r.json()["items"])  # noqa: E731
+        self.assertEqual(ids(self._marketplace_get(mdir, type="tool")), ["a", "b"])
+        self.assertEqual(ids(self._marketplace_get(mdir, category="Quality")), ["a", "c"])
+        self.assertEqual(ids(self._marketplace_get(mdir, installed="true")), ["a", "c"])
+        self.assertEqual(ids(self._marketplace_get(mdir, installed="false")), ["b"])
+        self.assertEqual(ids(self._marketplace_get(mdir, type="tool", installed="true")), ["a"])
+
+    def test_marketplace_missing_registry_is_empty_and_bad_json_is_clear(self):
+        mdir = self._write_marketplace({"items": [{"id": "a", "installed": True}, {"id": "b"}]})
+        response = self._marketplace_get(mdir)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual({i["id"]: i["installed"] for i in response.json()["items"]},
+                         {"a": True, "b": False})
+        self._write_marketplace(registry="{not json")
+        response = self._marketplace_get(mdir)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("registry.json", response.json()["detail"])
+        (mdir / "catalog.json").unlink()
+        response = self._marketplace_get(mdir)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("catalog.json not found", response.json()["detail"])
+        self._write_marketplace(catalog={"items": "nope"}, registry={})
+        self.assertEqual(self._marketplace_get(mdir).status_code, 503)
 
     def test_jarvis_users_and_access_profiles_are_read_only_and_safe(self):
         server._GHOSTFORGE_USERS_FILE.parent.mkdir(parents=True, exist_ok=True)

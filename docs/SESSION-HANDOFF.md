@@ -5,6 +5,62 @@ what is going on.** The top half is written by humans/lead agents; the
 `LIVE STATUS` block at the bottom is rewritten automatically by the boss every
 couple of minutes while the agent team runs.
 
+## ▶ START HERE — state at 2026-10-02 12:00 (Asia/Amman)
+
+**Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
+(main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
+Copilot worktree under `GhostForge\copilot-worktrees\`). If the main repo is
+still at `Desktop\GhostForge-public`, run
+`powershell -ExecutionPolicy Bypass -File C:\Users\User\Desktop\GhostForge\finish-move.ps1`
+from a terminal that is NOT inside the repo (Claude Code and the Copilot app
+closed) — it moves the repo, repairs git worktrees, reinstalls the watchdog
+(allowed on battery) and restarts the boss.
+
+**Team now:** boss = Claude (Opus plans/security/large diffs, Sonnet routine
+reviews) with Copilot fallback; workers = 5 Copilot CLI agents (model `auto`).
+Claude workers are disabled to save Claude tokens. Interactive Copilot is
+co-lead (`prompts/copilot-colead.md`).
+
+**Done (merged / on main):** PR #11 merged to `main` (ccc4c29, all 14 checks
+green). Since then on `agent/integration` (PR to main opens every 5 merges):
+`/agents` command center + kanban + workflow graph + team/workflow builder
+(T-135), Agent World switcher + Forge World (T-133), standalone Dev Monitor
+(T-136 → `npm run monitor`, http://127.0.0.1:4177), OpenRouter/OmniRoute model
+gateways in GhostForge routing (T-137), marketplace entries for gstack, ruflo,
+ponytail, agentic-os, hermes-workspace (T-138, catalog only), docs aligned to
+the boss model (T-139), BA analysis `docs/PRODUCT-ANALYSIS.md` (T-140), Claude
+Design reference for all screens in `docs/design/agent-worlds/`
+(canvas https://claude.ai/artifact/6bSqAGRGFDSHJemEVfdbeC).
+
+**In flight:** T-143 AI Town run as its README (finished in `c18ef40`, pinned as
+`wip/T-143-done` — merge it, don't redo); T-141 AI Town front-end with our
+agents, T-142 Agent Office front-end (redo), T-144 Agent Office run as its README
+(`wip/T-144-agent-office-runtime`); T-132 Agent World branch integration is
+blocked — redo from `wip/T-132-agent-world` WITHOUT the stray gitlink
+`apps/worlds/agent-office/checkout` (checkouts must stay gitignored).
+
+**Open items for the human:**
+1. OmniRoute for Claude Code: installed + `scripts/claude-free.ps1` ready, but
+   it needs an OpenRouter key and an OmniRoute API key (dashboard at
+   http://127.0.0.1:20128). Its old DB `~/.omniroute/storage.sqlite` can't be
+   decrypted (missing STORAGE_ENCRYPTION_KEY) — restore the key or move the DB.
+2. `/doctor` findings awaiting a yes/no: disable 10 unused plugins (frontend-
+   design, skill-creator, code-simplifier, claude-md-management,
+   claude-code-setup, figma, huggingface-skills, feature-dev, commit-commands,
+   firecrawl); set auto mode as default; quiet ECC GateGuard's routine fact
+   prompts (env `GATEGUARD_BASH_ROUTINE_DISABLED=1`,
+   `ECC_DISABLED_HOOKS=pre:edit-write:gateguard-fact-force`).
+3. Install gstack/ruflo/ponytail into Claude Code itself? (currently catalog only)
+4. Restart Claude Code to load the downloaded update (2.1.287).
+5. Run `/claude-security` last, after the above.
+6. A Copilot prototype of the agents kanban/page is preserved in `git stash`
+   ("copilot prototype: agents kanban/page") — apply or drop.
+
+**Lessons (don't repeat):** narrow task areas made workers block — workers may
+now edit shared files (package.json, mounting page, tests, notices); orphaned
+`next dev` previews lock node_modules — the boss now kills strays; the
+watchdog task must be allowed to run on battery.
+
 ## Mission
 
 Make GhostForge production-perfect: every feature works end to end and is
@@ -38,6 +94,10 @@ progress. Keep going until every check is green, then keep improving.
 - **Watchdog** — `scripts/agents/watchdog.mjs`, run every 5 min by the Windows
   scheduled task **"GhostForge Boss Watchdog"**; restarts the boss if it died.
   An explicit `team.mjs stop` (STOP file) is respected.
+
+## Claude ⇄ Copilot leadership
+
+Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). When Claude is rate-limited the boss falls back to Copilot automatically and the **interactive Copilot CLI session is acting lead** — its rules and handover steps are in **`prompts/copilot-colead.md`** (paste it into Copilot). Copilot steers via `team.mjs add/say`, never edits this checkout while the boss runs, and logs what it did in History (signed — copilot). When Claude's quota resets, Claude reads History + boss.log and resumes command.
 
 ## Operate it
 
@@ -96,71 +156,71 @@ progress. Keep going until every check is green, then keep improving.
   web-ui tests 177/177 ✓. Bug fixed: a task pinned to rate-limited `claude`
   kept the board "active" ~4h (03:47–08:04 UTC) so planning stopped and all
   Copilot workers idled — pinned tasks now fall back to `any`.
+- **2026-10-01 11:15–16:20** — User asked for a Claude-only team. Claude fixed
+  the Linux Electron sandbox CI and 4 high CodeQL alerts, then hit its session
+  limit (reset 16:00); Copilot took over meanwhile (T-094/096/097/098: token-
+  bearing outbound URL validation, desktop smoke exits, React Doctor) and
+  stopped the boss. **All 14 PR #11 checks green → PR #11 merged to `main`
+  (`ccc4c29`).** Team restarted Claude-only (boss opus + claude, claude-2,
+  claude-3) on top of the new `main`.
 
 ## Environment gotchas
 
 - Windows host, no tmux; Git Bash + PowerShell. Node v23 (odd release — some
   native modules have no prebuilds, e.g. the `omc` CLI's better-sqlite3).
-- `gh` must be logged in as **HishamAbulfeilat** (a second account,
-  `habulfeilat_ejadasa`, caused 403 push failures before 2026-10-01).
+- `gh` must be logged in as **HishamAbulfeilat** (a second, old work account
+  caused 403 push failures before 2026-10-01).
 - Worker worktrees live next to the repo: `C:\Users\User\Desktop\gf-*`.
 
 ## LIVE STATUS
 
 <!-- LIVE-STATUS:START -->
-_Auto-updated by the boss (pid 28660) at 2026-10-01T08:16:35.024Z._
+_Auto-updated by the boss (pid 3912) at 2026-10-02T15:39:17.089Z._
 
 **Phase 4:** Production-perfect on every surface: every GhostForge feature works end to end and is reachable from the web UI, the TUI, the terminal CLI and JARVIS (feature parity — record gaps in docs/FEATURE-MATRIX.md and close them); the Electron desktop app builds and runs on Windows, macOS and Linux and the Android (Capacitor) app builds, with CI proving it; security hardened (fix every real finding from CodeQL, npm audit, secret/dependency scanners and security reviews); the Agentic OS dashboard (/agents) shows each agent's progress, the todo/in-progress/review/done/blocked board, messages, health and history; accessible, RTL-safe, polished UI. Keep going until every check is green, then keep improving.
 
-**Health:** 100/100 · **merges this run:** 2 · **PR:** none yet · **boss:** claude (fallback copilot)
+**Health:** 100/100 · **merges this run:** 7 · **PR:** https://github.com/HishamAbulfeilat/GhostForge/pull/12 · **boss:** claude
 
-**Board:** todo 0 · in-progress 3 · review 2 · done 78 · blocked 5
+**Board:** todo 6 · in-progress 0 · review 0 · done 154 · blocked 0
 
 **Agents**
-- **claude** (claude): working on T-094
-- **copilot-tui** (copilot): waiting-merge on T-089
-- **copilot-desktop** (copilot): working on T-095
-- **copilot-web** (copilot): working on T-093
-- **copilot-integration** (copilot): idle
-- **copilot-quality** (copilot): waiting-merge on T-092
+- **claude** (claude): idle — cooling down until 2026-10-02T15:39:29.935Z
+- **claude-2** (claude): idle — cooling down until 2026-10-02T15:40:50.659Z
+- **claude-3** (claude): idle — cooling down until 2026-10-02T15:40:30.667Z
 
 **In progress / review**
-- T-093 [feature] Add an authenticated web page for snippets, changelog and README — copilot-web
-- T-094 [feature] Add a read-only JARVIS bridge contract for listing users and access profiles — claude
-- T-095 [test] Fix Desktop (linux) CI: Electron headless smoke aborts with 'SUID sandbox helper binary ... not configured correctly' (Ubuntu 24.04 restricts unprivileged user namespaces). In the Linux job add a step before the smoke test: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 (keeps Chromium sandbox ON — do NOT add --no-sandbox to the app). Verify on PR #11 that Desktop (linux) passes — copilot-desktop
-- T-089 [feature] Wire existing users, collab, device-status and awesome-llm-apps scripts into the ghostforge CLI dispatcher — copilot-tui
-- T-092 [docs] Refresh FEATURE-MATRIX n8n, collaboration, users and device rows from current code — copilot-quality
 
 **Next up (todo)**
+- T-142 [test] Agent Office = the real harishkotra/agent-office front-end running inside GhostForge: vendor its client scene code VERBATIM at a pinned commit (office scene, agent sprites/containers, name tags, thought bubbles, emotes, focus ring, camera follow; plus the vendored pixel-agents renderer if used) into web-ui/vendor/agent-office/ with BOTH MIT licenses (Harish Kotra; Pablo De Lucca for pixel-agents) and a NOTICE (commit sha). Keep upstream visuals and interaction. Replace only the Colyseus/Ollama/server state with an adapter from the GhostForge agent snapshot (agents -> office agents at desks, current task -> thought bubble, boss -> boss office). Upstream assets only where their license permits redistribution (document in THIRD_PARTY_NOTICES.md), else CC0 substitutes. Client-only dynamic import on /agent-world?world=office. Tests + tsc + build.
+- T-143 [test] Run a16z-infra/ai-town exactly as its README sets it up, as a managed GhostForge world app: clone at a pinned commit into apps/worlds/ai-town (gitignored checkout + a setup script, not vendored into git), install deps, run its local Convex backend + frontend per README with LLM via local Ollama or GhostForge's model gateway env (no keys committed), bound to 127.0.0.1. Add 'ghostforge worlds start|stop|status ai-town' (CLI + TUI menu) and Start/Stop/Open controls on /agent-world that embed the running app in an iframe. Document prerequisites and a smoke test that the app answers on its port.
+- T-144 [test] Run harishkotra/agent-office exactly as its README sets it up, as a managed GhostForge world app: clone at a pinned commit into apps/worlds/agent-office (gitignored checkout + a setup script), install deps, run its Colyseus server + client per README with LLM via local Ollama or GhostForge's model gateway env (no keys committed), bound to 127.0.0.1. Reuse 'ghostforge worlds start|stop|status agent-office' (CLI + TUI) and the /agent-world Start/Stop/Open iframe controls. Document prerequisites and a smoke test that the app answers on its port.
+- T-157 [test] Add root-smoke coverage for feature-matrix evidence
+- T-166 [feature] Add 'ghostforge worlds start|stop|status' for ai-town and agent-office
+- T-167 [bugfix] Make Electron headless smoke fail when shutdown cleanup fails or times out
 
 **Blocked (needs a human or a fresh approach)**
-- T-041 [feature] Agentic OS dashboard: add a kanban board (todo/in-progress/review/done/blocked) with per-agent progress, current task, model/provider, elapsed time and recent history to /agents, backed by the existing /api/agents snapshot: …e, hiding the snapshot's explicit current task. - Elapsed time is only measured since the dashboard first observed a task; it resets on page load and does not represent time already spent on the task.
-- T-043 [bugfix] Android: make the Capacitor Android app build in CI (debug APK artifact) and document how to run it: …desktop job that is no longer there after b5d12c7 on agent/integration) and will conflict; rebase and keep one Android workflow (rename/replace electron-android-validation.yml instead of keeping both)
-- T-055 [feature] Add TUI and CLI surfaces for workflow runs, n8n, and webhook triggers: …n in the review are absent from the current checkout: the n8n scripts/tests do not exist, scripts/test.js does not run the new regression tests, and tui/index.js has no n8n menu or screen integration.
-- T-081 [feature] Test task: …pts as the file area; it contains no requested behavior, acceptance criteria, or test target to implement. Please reassign T-081 with a concrete objective. Current agent status reports health 100/100.
-- T-086 [feature] Expose packaged app builds in the terminal CLI: …oss review rejected the change: - Electron macOS and Windows builds invoke nonexistent npm scripts: the CLI uses build:macos/build:windows, while electron-app/package.json defines build:mac/build:win.
 
 **Recently done**
-- T-077 [docs] Refresh feature parity matrix after completed workflow surfaces — copilot-quality
-- T-078 [feature] Add TUI webhook management controls — copilot-tui
-- T-079 [feature] Replace bridge job search and autopilot stubs — copilot-integration
-- T-080 [test] Add Electron headless launch smoke validation — copilot-desktop
-- T-082 [feature] Complete Agentic OS kanban dashboard — copilot-web
-- T-083 [feature] Expose live device status and remote setup through JARVIS — copilot-integration
-- T-084 [feature] Add terminal n8n automation controls — copilot-integration
-- T-085 [feature] Add TUI n8n automation screen — copilot-tui
-- T-087 [feature] Add JARVIS n8n bridge contract — claude
-- T-088 [docs] Refresh phase-four feature matrix after surface work — copilot-quality
-- T-090 [bugfix] Redo T-086: add a bounded packaged-app build script using the real electron-app npm script names — claude
-- T-091 [chore] Consolidate Android CI into a single workflow (resolve T-043) — copilot-desktop
+- T-153 [bugfix] Keep the last Agent World snapshot visible on refresh errors
+- T-154 [test] Validate feature-matrix evidence in the root smoke suite
+- T-155 [security] Close the AppleScript shell-execution bypass
+- T-156 [bugfix] Refresh Agent World without losing the last snapshot
+- T-158 [test] Boss: a todo task whose dependency is blocked or unknown waits forever and keeps the board 'active', which stops planning (same stall releaseStuckTasks prevents). Block such tasks (or exclude them from the tick 'active' check) with a clear lastFailure, and test it
+- T-159 [security] Boss: when a security task gets no reviewer verdict, park it as todo with a cooldown (keep the worker's commits for re-review) instead of bounce(), so reviewer outages don't burn attempts or redo work; test it
+- T-160 [chore] Ignore world-app checkouts and fail root tests on stray gitlinks — claude-3
+- T-161 [bugfix] Boss: block tasks with unavailable dependencies and hold security tasks with no reviewer verdict — claude-2
+- T-162 [security] Close the AppleScript shell-execution bypass with an allowlist — claude
+- T-163 [bugfix] Poll Agent World live and keep the last snapshot visible on refresh errors — claude
+- T-164 [feature] Make the snippets page discoverable from the navbar and command palette — claude-2
+- T-165 [feature] Show model and bridge readiness in setup — claude-3
 
 **Latest messages**
-- 2026-10-01T03:46 boss → all: …and wired ghostforge/cli dispatch and help. Focused tests 6/6, npm test, health 100/100, syntax and diff checks pass. Commit 531b600. Files: cli/index.js, ghostforge, scripts/n8n.mjs, scripts/n8n.sh, scripts/n8n.test.mjs
-- 2026-10-01T03:46 boss → all: PR to main updated with 75 task(s): https://github.com/HishamAbulfeilat/GhostForge/pull/11
-- 2026-10-01T08:04 boss → all: …no API key sent; 502 on n8n failure. 5 new contract tests; bridge suite 22/22, health 100/100. Files: mark-l-bridge/server.py, mark-l-bridge/test_contract.py Files: mark-l-bridge/server.py, mark-l-bridge/test_contract.py
-- 2026-10-01T08:08 boss → all: Health 100/100. Planned 6 new task(s) for phase 4.
-- 2026-10-01T08:09 boss → all: Boss online. Template: null. Agents: claude, copilot-tui, copilot-desktop, copilot-web, copilot-integration, copilot-quality. Phase 4.
-- 2026-10-01T08:11 boss → human: …ob add a step before the smoke test: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 (keeps Chromium sandbox ON — do NOT add --no-sandbox to the app). Verify on PR #11 that Desktop (linux) passes" as T-095.
-- 2026-10-01T08:14 boss → all: …t that exists in electron-app/package.json, plus arg validation and dry-run/no-spawn. Root npm test and health pass. CLI dispatcher wiring left as follow-up. Files: scripts/package-apps.mjs, scripts/package-apps.test.mjs
-- 2026-10-01T08:15 boss → all: …ease-triggered runs. Added a short install note to the PR validation workflow header so the artifact is easy to find and install. Files: .github/workflows/build-apps.yml, .github/workflows/electron-android-validation.yml
+- 2026-10-02T14:25 boss → all: …es and added dependency-free gitlink detection to scripts/test.js that fails with clear remediation message (git rm --cached). All 8 smoke tests pass including new stray-gitlinks check. Files: .gitignore, scripts/test.js
+- 2026-10-02T14:27 boss → all: …hout a new agent run. Tests added in agents.test.mjs (35/35 pass), npm test passes, health ok. Files: scripts/agents/boss.mjs, scripts/agents/agents.test.mjs Files: scripts/agents/agents.test.mjs, scripts/agents/boss.mjs
+- 2026-10-02T14:31 boss → all: …) remain rejected by the pre-existing allowlist; widening needs new reviewed templates. Files: SECURITY-REVIEW.md, web-ui/app/api/mac-control/route.ts, web-ui/lib/apple-automation.js, web-ui/test/apple-automation.test.js
+- 2026-10-02T14:52 boss → all: Health 100/100. Planned 6 new task(s) for phase 4.
+- 2026-10-02T14:57 boss → all: …nents/Navbar.tsx, web-ui/components/CommandPalette.tsx, web-ui/test/snippets-discoverability.test.js Files: web-ui/components/CommandPalette.tsx, web-ui/components/Navbar.tsx, web-ui/test/snippets-discoverability.test.js
+- 2026-10-02T14:57 boss → all: PR to main updated with 134 task(s): https://github.com/HishamAbulfeilat/GhostForge/pull/12
+- 2026-10-02T14:58 boss → all: …s. tsc clean, web-ui npm test + root npm test + health pass. Files: web-ui/app/agent-world/page.tsx, web-ui/test/agent-world-refresh.test.js Files: web-ui/app/agent-world/page.tsx, web-ui/test/agent-world-refresh.test.js
+- 2026-10-02T14:59 boss → all: ….js, web-ui/test/setup-readiness.test.js. web-ui tsc clean, web-ui npm test 270/270, root npm test passed, no gitlinks. Files: web-ui/app/setup/page.tsx, web-ui/app/setup/readiness.js, web-ui/test/setup-readiness.test.js
 <!-- LIVE-STATUS:END -->

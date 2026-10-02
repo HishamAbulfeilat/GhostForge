@@ -885,6 +885,86 @@
         "multi-agent",
         "workflow"
       ]
+    },
+    {
+      "id": "garrytan-gstack",
+      "name": "gstack",
+      "type": "skill",
+      "category": "Quality",
+      "description": "MIT-licensed Claude Code skills for product planning, implementation, and review. Review-first upstream pointer; inspect the repository and choose whether to install manually. GhostForge does not install it automatically.",
+      "source": "garrytan/gstack",
+      "url": "https://github.com/garrytan/gstack",
+      "tags": [
+        "claude-code",
+        "skills",
+        "workflow",
+        "review-first",
+        "mit"
+      ]
+    },
+    {
+      "id": "ruvnet-ruflo",
+      "name": "Ruflo",
+      "type": "agent",
+      "category": "Architecture",
+      "description": "MIT-licensed multi-agent harness from ruvnet. Review-first upstream pointer; inspect the repository and choose whether to install manually. GhostForge does not install it automatically.",
+      "source": "ruvnet/ruflo",
+      "url": "https://github.com/ruvnet/ruflo",
+      "tags": [
+        "agent-harness",
+        "multi-agent",
+        "orchestration",
+        "review-first",
+        "mit"
+      ]
+    },
+    {
+      "id": "dietrichgebert-ponytail",
+      "name": "Ponytail",
+      "type": "tool",
+      "category": "Quality",
+      "description": "MIT-licensed minimal-code discipline for coding agents from DietrichGebert. Review-first upstream pointer; inspect the repository and choose whether to adopt it manually. GhostForge does not install it automatically.",
+      "source": "DietrichGebert/ponytail",
+      "url": "https://github.com/DietrichGebert/ponytail",
+      "tags": [
+        "coding-agents",
+        "minimal-code",
+        "engineering-discipline",
+        "review-first",
+        "mit"
+      ]
+    },
+    {
+      "id": "modimihir07-agentic-os",
+      "name": "Agentic OS",
+      "type": "agent",
+      "category": "Architecture",
+      "description": "MIT-licensed agentic operating system project by modimihir07. Review-first upstream pointer; inspect the repository and choose whether to install manually. GhostForge does not install it automatically.",
+      "source": "modimihir07/agentic-os",
+      "url": "https://github.com/modimihir07/agentic-os",
+      "tags": [
+        "agentic-os",
+        "agents",
+        "orchestration",
+        "review-first",
+        "mit"
+      ]
+    },
+    {
+      "id": "outsourc-e-hermes-workspace",
+      "name": "Hermes Workspace",
+      "type": "agent",
+      "category": "Architecture",
+      "description": "MIT-licensed agent workspace project by outsourc-e. Review-first upstream pointer; inspect the repository and choose whether to install manually. GhostForge does not install it automatically.",
+      "source": "outsourc-e/hermes-workspace",
+      "url": "https://github.com/outsourc-e/hermes-workspace",
+      "tags": [
+        "agent-workspace",
+        "agents",
+        "orchestration",
+        "review-first",
+        "mit"
+      ]
     }
   ]
 }

@@ -198,10 +198,49 @@ export function releaseStuckTasks(tasks, state, now = Date.now()) {
   return released
 }
 
+/**
+ * Move todo tasks whose dependency is blocked or unknown to blocked (cascading),
+ * with a clear lastFailure. Otherwise they stay todo forever, keep the board
+ * "active", and stall planning. Returns how many were blocked.
+ */
+export function blockTasksWithUnavailableDependencies(tasks) {
+  let blocked = 0
+  for (let changed = true; changed;) {
+    changed = false
+    for (const t of tasks) {
+      if (t.status !== 'todo') continue
+      const bad = (t.dependencies ?? []).map(id => ({ id, dep: tasks.find(x => x.id === id) }))
+        .filter(({ dep }) => !dep || dep.status === 'blocked')
+      if (!bad.length) continue
+      t.status = 'blocked'
+      t.owner = null
+      t.lastFailure = `Unavailable dependenc${bad.length > 1 ? 'ies' : 'y'}: ` +
+        bad.map(({ id, dep }) => `${id} (${dep ? 'blocked' : 'unknown'})`).join(', ')
+      t.updatedAt = new Date().toISOString()
+      blocked++
+      changed = true
+    }
+  }
+  return blocked
+}
+
+/**
+ * Model for a boss review: the deep model (`boss.model`) for security work and
+ * large diffs, where review quality matters most; the cheaper `boss.reviewModel`
+ * for routine changes. Saves boss tokens without thinning high-risk reviews.
+ */
+export function bossModelFor(kind, diffLines, boss = {}) {
+  if (!boss.reviewModel) return boss.model
+  if (kind === 'security' || diffLines > (boss.deepReviewOverLines ?? 600)) return boss.model
+  return boss.reviewModel
+}
+
 /** Next todo task for an agent: allowed owner, no area overlap with busy tasks, preferring its strengths. */
-export function pickTask(tasks, agentId, strengths = []) {
+export function pickTask(tasks, agentId, strengths = [], now = Date.now()) {
   const busy = tasks.filter(t => t.status === 'in-progress' || t.status === 'review')
   const eligible = tasks.filter(t => t.status === 'todo'
+    && (!t.holdUntil || Date.parse(t.holdUntil) <= now)
+    && (t.dependencies ?? []).every(d => tasks.find(x => x.id === d)?.status === 'done')
     && (t.agent === 'any' || t.agent === agentId)
     && !busy.some(b => areasOverlap(b.area, t.area)))
   const pref = t => { const i = strengths.indexOf(t.kind); return i < 0 ? 99 : i }
@@ -233,6 +272,29 @@ function killTree(child) {
   else child.kill('SIGTERM')
 }
 
+/**
+ * Kill processes a finished worker left running inside its worktree (dev
+ * servers, watchers). Left alone they lock node_modules on Windows, which
+ * breaks the next `npm ci` and every later task in that worktree.
+ */
+/**
+ * The command-line substring that marks a process as running inside `worktree`.
+ * Ends with a path separator so `../gf-claude` never matches `../gf-claude-2`.
+ */
+export function strayNeedle(worktree) {
+  return path.resolve(worktree) + path.sep
+}
+
+function killStrays(worktree) {
+  const needle = strayNeedle(worktree)
+  const r = IS_WIN
+    ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne ${process.pid} -and $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf('${needle.replace(/'/g, "''")}', [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`],
+    { windowsHide: true, timeout: 30_000 })
+    : spawnSync('pkill', ['-f', needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')], { timeout: 30_000 })
+  if (r.error) console.error(`killStrays(${worktree}): ${r.error.message}`)
+}
+
 /** Read a file, or `fallback` when it doesn't exist — avoids existsSync-then-read races. */
 function readOr(file, fallback = null, encoding = 'utf8') {
   try { return fs.readFileSync(file, encoding) } catch (e) { if (e.code === 'ENOENT') return fallback; throw e }
@@ -250,7 +312,7 @@ export function stagePrompt(worktree, category, name, content) {
   return file
 }
 
-class Boss {
+export class Boss {
   constructor(templateName = null) {
     const baseCfg = readJSON(path.join(ROOT, '.agent-sync', 'team.json'), null)
     if (!baseCfg) throw new Error('Missing .agent-sync/team.json')
@@ -394,7 +456,17 @@ class Boss {
     for (const line of fs.readFileSync(taken, 'utf8').split('\n').filter(Boolean)) {
       try {
         const r = JSON.parse(line)
-        const t = addTask(board, { title: r.title, kind: r.kind || classifyTask(r.title), area: r.area, agent: r.agent })
+        const t = addTask(board, {
+          title: r.title,
+          kind: r.kind || classifyTask(r.title),
+          area: r.area,
+          agent: r.agent,
+          assignee: r.assignee ?? r.agent,
+          leader: r.leader,
+          workflow: r.workflow,
+          dependencies: r.dependencies,
+          acceptanceCriteria: r.acceptanceCriteria,
+        })
         this.say(r.from || 'all', `Queued "${r.title}" as ${t.id}.`)
       } catch { /* ignore a bad line */ }
     }
@@ -448,6 +520,19 @@ class Boss {
     this.log(`${task.id} ${blocked ? 'blocked' : 'bounced'} (${agentId}): ${tail(reason, 300)}`)
   }
 
+  /**
+   * No reviewer verdict on a security task: park it as todo with a cooldown and
+   * keep the worker's commits (pinned by a ref) for re-review. Unlike bounce(),
+   * this does not burn an attempt.
+   */
+  holdForReview(task, agentId, base, head) {
+    const holdUntil = new Date(Date.now() + this.cfg.cooldownMinutes * 60_000).toISOString()
+    gitTry(this.intWt, 'update-ref', `refs/agent-hold/${task.id}`, head)
+    this.updateTask(task.id, { status: 'todo', owner: null, holdUntil, held: { agent: agentId, base, head } })
+    this.say(agentId, `${task.id} held for re-review until ${holdUntil}: reviewer gave no verdict on this security change.`)
+    this.log(`${task.id} held (${agentId}) until ${holdUntil}; commits kept at refs/agent-hold/${task.id}`)
+  }
+
   // ── Task lifecycle ──
 
   async work(agentId, task) {
@@ -459,8 +544,27 @@ class Boss {
       if (git(wt, 'status', '--porcelain')) git(wt, 'stash', 'push', '-u', '-m', `boss: leftovers before ${task.id}`)
       git(wt, 'checkout', '-B', a.branch, this.intBranch)
       this.syncDeps(wt)
+      if (task.held && gitTry(wt, 'cat-file', '-e', `${task.held.head}^{commit}`).ok) {
+        // Re-review of commits kept by holdForReview — no new agent run.
+        const { base: heldBase, head: heldHead } = task.held
+        git(wt, 'checkout', '-B', a.branch, heldHead)
+        Object.assign(st, { state: 'waiting-merge', task: task.id, since: new Date().toISOString() })
+        this.updateTask(task.id, { status: 'review', holdUntil: null, held: null })
+        this.log(`${agentId} ← ${task.id} re-review of held commits`)
+        this.integration = this.integration
+          .then(() => this.integrate(agentId, task, heldBase, heldHead, null))
+          .catch(e => {
+            this.log(`integrate error: ${e.stack}`)
+            gitTry(this.intWt, 'merge', '--abort')
+            this.bounce(task, agentId, `Boss integration error: ${e.message}`)
+          })
+        await this.integration
+        return
+      }
       const base = git(wt, 'rev-parse', 'HEAD')
-      const route = routeModel(a.provider, task, this.cfg.models)
+      // An agent may pin its own tier table (team.json agents.<id>.models) over the team-wide one.
+      const models = a.models ? { ...this.cfg.models, [a.provider]: { ...this.cfg.models?.[a.provider], ...a.models } } : this.cfg.models
+      const route = routeModel(a.provider, task, models)
       Object.assign(st, { state: 'working', task: task.id, model: route.model, since: new Date().toISOString() })
 
       const taskContent = fill(this.template, {
@@ -489,6 +593,7 @@ class Boss {
         })
       } finally {
         clearECCContext(eccFile)
+        killStrays(wt)
       }
 
       // Keep work the agent forgot to commit.
@@ -535,7 +640,7 @@ class Boss {
     }
   }
 
-  async readonlyRun(file, logName, timeoutMs, mode = 'review') {
+  async readonlyRun(file, logName, timeoutMs, mode = 'review', model = this.cfg.boss.model) {
     const rel = path.relative(path.join(this.intWt, '.agent-sync', 'state'), file).replace(/\\/g, '/')
     const eccFile = stageECCContext(this.intWt, buildECCContext(this.ecc, this.eccCache, { mode }))
     const boss = this.cfg.boss
@@ -549,7 +654,7 @@ class Boss {
       // it for cooldownMinutes and let the fallback (e.g. Copilot) boss instead.
       const primaryCooling = this.bossCooldownUntil && Date.parse(this.bossCooldownUntil) > Date.now()
       if (!primaryCooling || !boss.fallback) {
-        const run = await this.runAgent({ ...opts, provider: boss.provider, model: boss.model, config: boss.config ?? boss.providerConfig ?? {} })
+        const run = await this.runAgent({ ...opts, provider: boss.provider, model, config: boss.config ?? boss.providerConfig ?? {} })
         if (!boss.fallback || (run.code === 0 && lastJSON(run.output))) return run
         if (run.code !== 0 || RATE_LIMIT_RE.test(run.output)) {
           this.bossCooldownUntil = new Date(Date.now() + this.cfg.cooldownMinutes * 60_000).toISOString()
@@ -569,15 +674,20 @@ class Boss {
     const content = [
       'You are the lead reviewer ("boss") of an autonomous agent team on the GhostForge repo.',
       `Review ${agentId}'s change for task ${task.id}: **${task.title}** (area: ${task.area.join(', ') || 'whole repo'}).`,
-      'Approve unless it is wrong, incomplete, unsafe, breaks the rules in AGENTS.md, or edits files far outside its area.',
+      'Approve unless it is wrong, incomplete, unsafe, breaks the rules in AGENTS.md, or makes unrelated changes. Shared files the task genuinely needs (package.json/lockfiles, the page that mounts the feature, tests, notices, docs) are allowed.',
       'Do not nitpick style. Read surrounding code in this checkout if you need context. Do not modify anything.',
       '', '## Diff stat', '```', stat, '```', '', '## Diff', '```diff', diff.slice(0, 80_000), '```', '',
       'Reply with your reasoning, then a final line of JSON only: {"approve": true|false, "issues": ["…"]}',
     ].join('\n')
     const file = stagePrompt(this.intWt, 'reviews', `${task.id}.md`, content)
-    const run = await this.readonlyRun(file, 'boss-review.log', 20 * 60_000)
+    const model = bossModelFor(task.kind, diff.split('\n').length, this.cfg.boss)
+    const run = await this.readonlyRun(file, 'boss-review.log', 20 * 60_000, 'review', model)
     const verdict = lastJSON(run.output)
     if (!verdict || typeof verdict.approve !== 'boolean') {
+      if (task.kind === 'security') {
+        this.log(`review of ${task.id} (security) got no verdict — holding for re-review`)
+        return { approve: false, hold: true }
+      }
       this.log(`review of ${task.id} unparseable — relying on health checks`)
       return { approve: true }
     }
@@ -587,6 +697,10 @@ class Boss {
   async integrate(agentId, task, base, head, result) {
     const a = this.cfg.agents[agentId]
     const verdict = await this.review(task, agentId, base, head)
+    if (verdict.hold) {
+      this.holdForReview(task, agentId, base, head)
+      return
+    }
     if (!verdict.approve) {
       this.bounce(task, agentId, `Boss review rejected the change:\n- ${(verdict.issues ?? []).join('\n- ')}`)
       return
@@ -636,7 +750,7 @@ class Boss {
       'End with one line of JSON only: {"phaseComplete": false, "tasks": [{"title": "…", "kind": "feature|bugfix|test|refactor|docs|security|chore", "area": ["path/"], "agent": "any|<enabled-worker-id>", "notes": "…"}]}',
     ].join('\n')
     const file = stagePrompt(this.intWt, 'reviews', `plan-phase${board.phase}.md`, content)
-    const run = await this.readonlyRun(file, 'boss-plan.log', 30 * 60_000, 'planning')
+    const run = await this.readonlyRun(file, 'boss-plan.log', 30 * 60_000, 'planning', this.cfg.boss.planModel ?? this.cfg.boss.model)
     return lastJSON(run.output)
   }
 
@@ -721,6 +835,8 @@ class Boss {
     const board = this.board()
     this.ingestRequests(board)
     const now = Date.now()
+    const depBlocked = blockTasksWithUnavailableDependencies(board.tasks)
+    if (depBlocked) this.log(`blocked ${depBlocked} task(s) with unavailable dependencies`)
     const released = releaseStuckTasks(board.tasks, this.state, now)
     if (released) this.log(`released ${released} task(s) pinned to an unavailable agent`)
     saveBoard(this.dir, board)
@@ -730,7 +846,7 @@ class Boss {
       if (st.cooldownUntil && Date.parse(st.cooldownUntil) > now) continue
       st.cooldownUntil = null
       const b = this.board()
-      const task = pickTask(b.tasks, id, a.strengths)
+      const task = pickTask(b.tasks, id, a.strengths, now)
       if (!task) continue
       Object.assign(task, { status: 'in-progress', owner: id, updatedAt: new Date().toISOString() })
       saveBoard(this.dir, b)
@@ -771,6 +887,8 @@ class Boss {
     const board = this.board()
     for (const t of board.tasks) if (t.status === 'in-progress' || t.status === 'review') Object.assign(t, { status: 'todo', owner: null })
     saveBoard(this.dir, board)
+    // Workers started by a previous boss may still be running in their worktrees.
+    for (const [, a] of this.agents) killStrays(path.resolve(ROOT, a.worktree))
     this.log(`boss started with template ${this.templateName} — agents: ${this.agents.map(([id, a]) => `${id}(${a.provider})`).join(', ')}; integration ${this.intBranch} @ ${this.intWt}`)
     this.say('all', `Boss online. Template: ${this.templateName}. Agents: ${this.agents.map(([id]) => id).join(', ')}. Phase ${board.phase}.`)
 

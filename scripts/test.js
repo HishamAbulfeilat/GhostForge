@@ -6,7 +6,7 @@
  *   1. tui/index.js parses (syntax check)
  *   2. marketplace catalog + registry are valid JSON with unique item ids
  *   3. every catalog item has the required fields
- *   4. node:test unit tests under tests/*.test.js pass
+ *   4. focused runtime tests and node:test unit tests pass
  *
  * The web-ui unit tests run in their own CI step (they need node_modules).
  * Exits non-zero on the first failure so it works in CI.
@@ -26,11 +26,33 @@ function check(label, fn) {
     console.log(`  ✓ ${label}`);
   } catch (err) {
     failures++;
-    console.error(`  ✗ ${label}\n      ${err.message}`);
+    const childOutput = ['stdout', 'stderr']
+      .map(stream => {
+        const value = err && err[stream];
+        if (!value || !value.length) return '';
+        const text = Buffer.isBuffer(value) ? value.toString('utf8') : String(value);
+        return text.trim()
+          ? `\n      child ${stream}:\n${text.trim().split(/\r?\n/).map(line => `        ${line}`).join('\n')}`
+          : '';
+      })
+      .join('');
+    console.error(`  ✗ ${label}\n      ${err.message}${childOutput}`);
   }
 }
 
 console.log('GhostForge smoke test\n');
+
+check('no stray gitlinks (mode-160000) tracked in git', () => {
+  const output = execFileSync('git', ['ls-files', '-s'], { cwd: ROOT, stdio: 'pipe', encoding: 'utf8' });
+  const strayGitlinks = output.split('\n').filter(line => line.match(/^160000/));
+  if (strayGitlinks.length) {
+    const paths = strayGitlinks.map(line => line.split('\t')[1]).join(', ');
+    throw new Error(
+      `found stray gitlinks (submodule pointers): ${paths}\n` +
+      `Remove them with: git rm --cached ${strayGitlinks.map(line => line.split('\t')[1]).join(' ')}`
+    );
+  }
+});
 
 check('tui/index.js parses', () => {
   // execFileSync (no shell) avoids any command-string construction.
@@ -63,6 +85,14 @@ check('Awesome LLM Apps CLI smoke tests pass', () => {
   execFileSync(
     process.execPath,
     ['--test', 'scripts/awesome-llm-apps.test.mjs'],
+    { cwd: ROOT, stdio: 'pipe' }
+  );
+});
+
+check('managed worlds runtime tests pass', () => {
+  execFileSync(
+    process.execPath,
+    ['--test', 'scripts/worlds.test.mjs'],
     { cwd: ROOT, stdio: 'pipe' }
   );
 });
