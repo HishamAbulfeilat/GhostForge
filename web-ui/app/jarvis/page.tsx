@@ -10,6 +10,7 @@ import { usePlatform, detectLanguage, getSpeechLang, platformLabel } from '@/lib
 
 const MarkLPanel = dynamic(() => import('@/components/MarkLPanel'), { ssr: false })
 const OpenJarvisPanel = dynamic(() => import('@/components/OpenJarvisPanel'), { ssr: false })
+const MarkLivToolsPanel = dynamic(() => import('@/components/MarkLivToolsPanel'), { ssr: false })
 const AgentDashboard = dynamic(() => import('@/components/AgentDashboard'), { ssr: false })
 import { collectRecognitionTranscript, findWakePhrase } from '@/lib/voice-runtime'
 import { JARVIS_QUICK_ACTIONS } from '@/lib/quick-actions'
@@ -3200,6 +3201,11 @@ export default function JarvisPage() {
               {/* OpenJarvis — local-first agent framework (opt-in, Apache-2.0) */}
               <div className="mt-4 border-t pt-3" style={{ borderColor: `${mc.ring}22` }}>
                 <OpenJarvisPanel ringColor={mc.ring} />
+              </div>
+
+              {/* Weather, flights, reminders and the Mark-LV tool runner (via /api/mark-liv-tools) */}
+              <div className="mt-4 border-t pt-3" style={{ borderColor: `${mc.ring}22` }}>
+                <MarkLivToolsPanel ringColor={mc.ring} />
               </div>
             </div>
           )}
