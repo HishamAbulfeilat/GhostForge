@@ -2593,6 +2593,69 @@ def release_get():
     return _release_status()
 
 
+_MARKETPLACE_DIR = Path(__file__).resolve().parent.parent / "marketplace"
+
+
+def _read_marketplace_json(name: str, required: bool) -> dict[str, Any]:
+    path = _MARKETPLACE_DIR / name
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        if required:
+            raise HTTPException(status_code=503, detail=f"marketplace/{name} not found") from None
+        return {}
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"marketplace/{name} unreadable: {exc}") from exc
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=f"marketplace/{name} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=503, detail=f"marketplace/{name} must be a JSON object")
+    return data
+
+
+def _marketplace_items() -> list[dict[str, Any]]:
+    """Catalog items with `installed` = (registry.installed ∪ catalog installed:true) − registry.removed."""
+    catalog = _read_marketplace_json("catalog.json", required=True)
+    registry = _read_marketplace_json("registry.json", required=False)
+    items = catalog.get("items")
+    if not isinstance(items, list):
+        raise HTTPException(status_code=503, detail="marketplace/catalog.json has no items array")
+    installed_ids = registry.get("installed") or []
+    removed_ids = registry.get("removed") or []
+    if not isinstance(installed_ids, list) or not isinstance(removed_ids, list):
+        raise HTTPException(
+            status_code=503, detail="marketplace/registry.json installed/removed must be arrays"
+        )
+    installed = {i for i in installed_ids if isinstance(i, str)}
+    removed = {i for i in removed_ids if isinstance(i, str)}
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            continue
+        effective = (item["id"] in installed or item.get("installed") is True) and item["id"] not in removed
+        out.append({**item, "installed": effective})
+    return out
+
+
+@app.get("/api/marketplace", dependencies=[Depends(require_token)])
+def marketplace_get(
+    type: Optional[str] = None,
+    category: Optional[str] = None,
+    installed: Optional[bool] = None,
+):
+    """Read-only catalog + effective install state; never writes or installs."""
+    items = _marketplace_items()
+    if type is not None:
+        items = [i for i in items if i.get("type") == type]
+    if category is not None:
+        items = [i for i in items if i.get("category") == category]
+    if installed is not None:
+        items = [i for i in items if i["installed"] is installed]
+    return {"items": items, "count": len(items)}
+
+
 @app.post("/api/release", dependencies=[Depends(require_token)])
 def release_post(req: ReleaseRequest):
     if req.action not in ("status", "prepare", "notes", "deploy"):

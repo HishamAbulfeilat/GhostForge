@@ -54,7 +54,7 @@ surface. The evidence column names the implementation that was checked.
 | LLMFit model matching and auto-switch | ✅ | ✅ | ✅ | ❌ | `app/models`, `LLMfitAutoSwitch`, `screenLLMFit`, `scripts/free-models.sh` |
 | Hugging Face model search | ✅ | ✅ | ⚠️ | ✅ | `app/marketplace`, `/api/huggingface`, `screenMarketplace`, bridge model search |
 | Awesome LLM apps catalog | ✅ | ✅ | ✅ | ❌ | `app/marketplace`, `screenMarketplace`, `/api/awesome-llm-apps`, `scripts/awesome-llm-apps.mjs` |
-| Marketplace catalog and install state | ✅ | ✅ | ✅ | ❌ | `app/marketplace`, `screenMarketplace`, `scripts/marketplace.sh` |
+| Marketplace catalog and install state | ✅ | ✅ | ✅ | ⚠️ | `app/marketplace`, `screenMarketplace`, `scripts/marketplace.sh` |
 | Custom model/API keys | ✅ | ⚠️ | ✅ | ⚠️ | `app/models`, `/api/models/custom`, `/api/models/keys`, bridge model install |
 | OpenJarvis health, doctor and ask | ✅ | ⚠️ | ✅ | ✅ | `OpenJarvisPanel`, `app/api/openjarvis`, `scripts/mark-liv.sh`, `/api/openjarvis/*` |
 | Mark-LV tools and tool runner | ⚠️ | ✅ | ✅ | ✅ | `MarkLPanel`, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-liv/tools` and `/run` |
