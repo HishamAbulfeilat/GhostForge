@@ -817,6 +817,99 @@ async function screenMemory() {
   }
 }
 
+const BRIEFING_PROACTIVE_SILENCE_MS = 30 * 60 * 1000;
+
+function briefingWebOrigin() {
+  const base = process.env.GF_WEB_UI_URL?.trim() || 'http://127.0.0.1:3000';
+  let webUrl;
+  try {
+    webUrl = new URL(base);
+  } catch {
+    throw new Error('GF_WEB_UI_URL must be an absolute http(s) URL.');
+  }
+  if (!['http:', 'https:'].includes(webUrl.protocol) || webUrl.username || webUrl.password ||
+      !['', '/'].includes(webUrl.pathname) || webUrl.search || webUrl.hash) {
+    throw new Error('GF_WEB_UI_URL must contain only an http(s) scheme, host, and optional port.');
+  }
+  return webUrl.origin;
+}
+
+// Fetches a /api/jarvis/* route from the web UI (the same routes the web
+// briefing uses). The routes are cookie-authed; GF_WEB_UI_TOKEN is the gf_token
+// session value. It is sent only as a header and never printed.
+async function briefingWebRequest(pathname) {
+  const origin = briefingWebOrigin();
+  const token = process.env.GF_WEB_UI_TOKEN?.trim();
+  if (token && /[\r\n;]/.test(token)) throw new Error('GF_WEB_UI_TOKEN contains invalid characters.');
+  let response;
+  try {
+    response = await fetch(`${origin}${pathname}`, {
+      headers: token ? { Cookie: `gf_token=${token}` } : {},
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (error) {
+    const offline = new Error(error.name === 'TimeoutError'
+      ? 'The web UI request timed out.'
+      : `Web UI offline: cannot reach ${origin}. Start it with "cd web-ui && npm run dev" (or set GF_WEB_UI_URL).`);
+    offline.offline = true;
+    throw offline;
+  }
+  if (response.status === 401) {
+    throw new Error('Web UI rejected the request (401). Set GF_WEB_UI_TOKEN to your gf_token session cookie value and retry.');
+  }
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    body = {};
+  }
+  if (!response.ok) throw new Error(safeCollabText(body?.error || `Web UI request failed (${response.status}).`));
+  return body && typeof body === 'object' ? body : {};
+}
+
+async function screenBriefing() {
+  while (true) {
+    sectionHeader('☀️  Morning Briefing & Inbox', 'Greeting, weather, news and proactive check-in from JARVIS');
+    const action = await select({
+      message: T.white('Briefing action:'),
+      choices: [
+        { name: T.success('☀️   Show morning briefing'), value: 'morning' },
+        { name: T.accent('📥  Proactive inbox (check-in suggestion)'), value: 'proactive' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+
+    try {
+      if (action === 'morning') {
+        const data = await briefingWebRequest('/api/jarvis/morning');
+        console.log('');
+        console.log(`  ${T.brand(safeCollabText(data.greeting || 'Hello.'))}${data.time ? T.muted(`  (${safeCollabText(data.time)})`) : ''}`);
+        if (data.weather) console.log(`\n  ${T.accent('Weather')}  ${safeCollabText(data.weather)}`);
+        const news = Array.isArray(data.news) ? data.news : [];
+        if (news.length) {
+          console.log(`\n  ${T.accent('News')}`);
+          for (const item of news.slice(0, 5)) console.log(`    • ${safeCollabText(item).slice(0, 200)}`);
+        }
+        if (data.advice) console.log(`\n  ${T.accent('Advice')}  ${safeCollabText(data.advice)}`);
+      } else {
+        const lastTopic = (await input({ message: 'Last topic (optional):' })).trim().slice(0, 200);
+        const qs = new URLSearchParams({ silenceMs: String(BRIEFING_PROACTIVE_SILENCE_MS) });
+        if (lastTopic) qs.set('lastTopic', lastTopic);
+        const data = await briefingWebRequest(`/api/jarvis/proactive?${qs}`);
+        if (data.shouldPrompt && data.suggestion) {
+          console.log(`\n  ${T.accent('Inbox')}  ${safeCollabText(data.suggestion)}`);
+        } else {
+          console.log(T.muted('\n  Inbox empty: nothing to suggest right now.'));
+        }
+      }
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeCollabText(error?.message || 'Briefing request failed.')}`));
+    }
+    await pressEnter();
+  }
+}
+
 function safeUsersText(value) {
   return String(value ?? '')
     .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
@@ -1499,7 +1592,8 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '👥  User Administration',       'list users · owner-only role, status, and permission controls', 'users'),
       menuChoice(T.accent.bold,  '🔁  Workflows',                  'review saved workflows · run bounded, allowlisted steps', 'workflows'),
       menuChoice(T.accent.bold,  '🧠  Memory',                    'list · search · add · delete JARVIS memories via the bridge', 'memory'),
-      menuChoice(T.cyan.bold,    '🌍  Agent Worlds',              'start, stop, and check AI Town and Agent Office', 'worlds'),
+      menuChoice(T.accent.bold,  '☀️  Morning Briefing & Inbox',  'daily briefing · weather · news · proactive check-in', 'briefing'),
+      menuChoice(T.cyan.bold,    '🌍  Agent Worlds',             'start, stop, and check AI Town and Agent Office', 'worlds'),
       menuChoice(T.accent.bold,  '⚡  n8n Automation',             'list and safely trigger active workflow webhooks', 'n8n'),
       menuChoice(T.accent.bold,  '🪝  Webhooks',                   'inspect triggers · replace config · review logs', 'webhooks'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
@@ -7680,6 +7774,7 @@ async function main() {
         case 'workflows':     await screenWorkflows(); break;
         case 'worlds':        await screenWorlds(); break;
         case 'memory':        await screenMemory(); break;
+        case 'briefing':      await screenBriefing(); break;
         case 'n8n':            await screenN8n(); break;
         case 'webhooks':      await screenWebhooks(); break;
         case 'freeapis':     await screenFreeAPIs(); break;
