@@ -36,25 +36,27 @@ node "$env:USERPROFILE\.claude-switch\claude-mode.mjs" key nvidia     <your-nvid
 node "$env:USERPROFILE\.claude-switch\claude-mode.mjs" key mistral    <your-mistral-key>
 ```
 
-Point Claude Code at the proxy. Per session:
+`claude-mode <mode>` points Claude Code at the right place by setting
+`env.ANTHROPIC_BASE_URL` in `~/.claude/settings.json` (other settings are
+left alone):
 
-```powershell
-$env:ANTHROPIC_BASE_URL = "http://127.0.0.1:3457"
-claude
-```
+- `pro` → `https://api.anthropic.com` (direct, the proxy isn't involved)
+- `auto`, `free`, `openrouter`, `omniroute` → `http://127.0.0.1:3457`
+  (the proxy is started first if it isn't running)
 
-Or for every session, add `"ANTHROPIC_BASE_URL": "http://127.0.0.1:3457"` to
-`env` in `~/.claude/settings.json` and start the proxy at logon (a hidden
-`.vbs` in the Startup folder running `node ~/.claude-switch/proxy.mjs`).
-If the proxy is down, Claude Code can't reach Anthropic until
-`claude-mode start`.
+This applies to Claude Code sessions started afterwards; restart running ones
+to switch. `claude-mode` with no argument shows the mode, the current
+`ANTHROPIC_BASE_URL`, and warns if they don't match.
+
+To start the proxy at logon, add a hidden `.vbs` in the Startup folder that
+runs `node ~/.claude-switch/proxy.mjs`.
 
 ## Modes
 
 | Command                      | Behavior                                               |
 |-------------------------------|---------------------------------------------------------|
 | `claude-mode auto` (default)   | Pro first; on a 429 switch to the free chain until Anthropic's own reset time, then back to Pro automatically. A 5xx/529 or Anthropic being unreachable falls back for that one request only |
-| `claude-mode pro`              | Pro only, never falls back                             |
+| `claude-mode pro`              | Anthropic directly (bypasses the proxy), never falls back |
 | `claude-mode free`             | Skip Pro, use the free provider chain                   |
 | `claude-mode openrouter`       | Force OpenRouter's free (`:free`) models only            |
 | `claude-mode omniroute`        | Force the local OmniRoute gateway only                  |
