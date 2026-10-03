@@ -16,6 +16,15 @@ export type Task = {
   owner: string | null
   dependencies?: string[]
   acceptanceCriteria?: string[]
+  lastFailure?: string | null
+  attempts?: number | null
+  updatedAt?: string | null
+}
+
+export type TaskCardDetails = {
+  failure: string | null
+  attempts: number | null
+  updatedAt: string | null
 }
 
 export type DependencyGraphNode = {
@@ -30,6 +39,9 @@ export type DependencyGraphNode = {
 
 export const BOARD_COLUMNS = ['todo', 'in-progress', 'review', 'done', 'blocked'] as const
 export type BoardStatus = (typeof BOARD_COLUMNS)[number]
+
+export const FAILURE_SUMMARY_MAX_LENGTH = 200
+export const DETAIL_STATUSES: ReadonlySet<BoardStatus> = new Set<BoardStatus>(['blocked', 'review'])
 
 const activeStatuses = new Set<BoardStatus>(['in-progress', 'review'])
 
@@ -182,4 +194,28 @@ export function formatElapsed(since: string | null, now: number): string {
   if (days) return `${days}d ${hours}h`
   if (hours) return `${hours}h ${minutes}m`
   return `${minutes}m`
+}
+
+export function summarizeFailure(reason: unknown, maxLength = FAILURE_SUMMARY_MAX_LENGTH): string | null {
+  if (typeof reason !== 'string') return null
+  // One line: collapse newlines, tabs and other control characters into single spaces.
+  const line = reason.replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim()
+  if (!line) return null
+  if (line.length <= maxLength) return line
+  return `${line.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
+}
+
+export function getTaskCardDetails(task: Task): TaskCardDetails {
+  const attempts = typeof task.attempts === 'number' && Number.isInteger(task.attempts) && task.attempts >= 0
+    ? task.attempts
+    : null
+  const updatedAt = typeof task.updatedAt === 'string' && Number.isFinite(Date.parse(task.updatedAt))
+    ? task.updatedAt
+    : null
+  return { failure: summarizeFailure(task.lastFailure), attempts, updatedAt }
+}
+
+export function formatUpdatedAgo(updatedAt: string | null, now: number): string {
+  const elapsed = formatElapsed(updatedAt, now)
+  return elapsed === '—' ? '—' : `${elapsed} ago`
 }

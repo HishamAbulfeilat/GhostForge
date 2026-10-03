@@ -24,8 +24,13 @@ const {
   countOpenTasks,
   buildDependencyGraph,
   findAgentTask,
+  DETAIL_STATUSES,
+  FAILURE_SUMMARY_MAX_LENGTH,
   formatElapsed,
+  formatUpdatedAgo,
   getEnabledAgentIds,
+  getTaskCardDetails,
+  summarizeFailure,
   getAgentProgress,
   groupTasksByStatus,
   normalizeTaskStatus,
@@ -218,4 +223,54 @@ test('history is bounded, hydration-safe, and page has no duplicate worker or ta
   assert.doesNotMatch(page, /function normalizeMessages[\s\S]{0,500}toLocaleString\(/)
   assert.doesNotMatch(page, /Math\.random|Date\.now\s*\(/)
   assert.doesNotMatch(`${page}\n${board}`, /\b(?:ml|mr|pl|pr)-\d|\btext-(?:left|right)\b/)
+})
+
+test('blocked and review cards carry failure reason, attempts and last update with safe fallbacks', () => {
+  assert.deepEqual([...DETAIL_STATUSES].sort(), ['blocked', 'review'])
+  assert.deepEqual(getTaskCardDetails({
+    ...tasks[4],
+    lastFailure: 'Reviewer rejected:\n  tests fail\r\n\tsee log',
+    attempts: 3,
+    updatedAt: '2026-10-01T02:15:00.000Z',
+  }), {
+    failure: 'Reviewer rejected: tests fail see log',
+    attempts: 3,
+    updatedAt: '2026-10-01T02:15:00.000Z',
+  })
+  // Missing or malformed fields degrade to null instead of throwing or rendering junk.
+  assert.deepEqual(getTaskCardDetails(tasks[4]), { failure: null, attempts: null, updatedAt: null })
+  assert.deepEqual(getTaskCardDetails({
+    ...tasks[4], lastFailure: '  \n\t ', attempts: -1, updatedAt: 'not-a-date',
+  }), { failure: null, attempts: null, updatedAt: null })
+  assert.deepEqual(getTaskCardDetails({
+    ...tasks[4], lastFailure: { html: '<b>x</b>' }, attempts: 1.5, updatedAt: 42,
+  }), { failure: null, attempts: null, updatedAt: null })
+  assert.equal(getTaskCardDetails({ ...tasks[4], attempts: 0 }).attempts, 0)
+
+  const now = Date.parse('2026-10-01T03:00:00.000Z')
+  assert.equal(formatUpdatedAgo('2026-10-01T02:15:00.000Z', now), '45m ago')
+  assert.equal(formatUpdatedAgo(null, now), '—')
+  assert.equal(formatUpdatedAgo('2026-10-02T00:00:00.000Z', now), '—')
+})
+
+test('failure summary is one line, capped at about 200 characters, and kept as plain text', () => {
+  assert.equal(FAILURE_SUMMARY_MAX_LENGTH, 200)
+  const long = `${'word '.repeat(100)}\nsecond line`
+  const summary = summarizeFailure(long)
+  assert.equal(summary.length, FAILURE_SUMMARY_MAX_LENGTH)
+  assert.ok(summary.endsWith('…'))
+  assert.doesNotMatch(summary, /[\n\r\t]/)
+  assert.equal(summarizeFailure('x'.repeat(200)), 'x'.repeat(200))
+  assert.equal(summarizeFailure('x'.repeat(201)).length, 200)
+  assert.equal(summarizeFailure('abcdef', 4), 'abc…')
+  assert.equal(summarizeFailure('a\u0000b\u001bc'), 'a b c')
+  assert.equal(summarizeFailure('<img src=x onerror=alert(1)>'), '<img src=x onerror=alert(1)>')
+  assert.equal(summarizeFailure(undefined), null)
+
+  // Rendered as a React text child on blocked/review cards only — never as HTML.
+  assert.doesNotMatch(board, /dangerouslySetInnerHTML/)
+  assert.match(board, /DETAIL_STATUSES\.has\(status\) \? getTaskCardDetails\(task\) : null/)
+  assert.match(board, /\{details\.failure \?\? 'No reason recorded'\}/)
+  assert.match(board, /\{details\.attempts \?\? '—'\}/)
+  assert.match(board, /<time dateTime=\{details\.updatedAt\}>\{now === null \? '—' : formatUpdatedAgo\(details\.updatedAt, now\)\}<\/time>/)
 })
