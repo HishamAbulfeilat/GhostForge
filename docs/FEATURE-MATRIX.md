@@ -29,7 +29,7 @@ surface. The evidence column names the implementation that was checked.
 | AI agents dashboard and dispatch | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgents`, `cli/index.js` → `scripts/agents/team.mjs`, `/api/mark-l/agents/*` |
 | Agent World (federated agent and connector operations) | ✅ | ⚠️ | ⚠️ | ⚠️ | `app/agent-world` (worlds: forge/town/office/team); `screenWorlds` and `screenAgentTeam`; `cli/index.js` → `scripts/worlds.mjs` and `scripts/agents/team.mjs`; bridge `/api/mark-l/agents/*` provides lower-level operations |
 | Agent teams, crews, tasks, messages | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgentTeam`, `cli/index.js` → `scripts/agents/team.mjs` (teams only; crews via bridge), `/api/mark-l/agents/crew/*` |
-| JARVIS assistant | ✅ | ✅ | ⚠️ | ✅ | `app/jarvis`, `screenJarvis`, `app/api/jarvis/route.ts`, bridge health/chat |
+| JARVIS assistant | ✅ | ✅ | ✅ | ✅ | `app/jarvis`, `screenJarvis`, `app/api/jarvis/route.ts`, bridge health/chat, `scripts/jarvis.mjs` (`ghostforge jarvis health / ask`) |
 | Voice input (STT) | ✅ | ✅ | ✅ | ❌ | `app/jarvis`, `screenVoice`, `scripts/voice.sh`, `app/api/jarvis/stt` |
 | Voice output (TTS) | ✅ | ✅ | ✅ | ❌ | `app/jarvis`, `screenVoice`, `scripts/voice.sh`, `app/api/jarvis/tts` |
 | Voice clone / voicebox | ✅ | ⚠️ | ✅ | ❌ | `app/jarvis`, `VoiceboxPanel`, `scripts/voice.sh` |
