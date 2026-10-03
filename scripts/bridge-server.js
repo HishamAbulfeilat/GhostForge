@@ -98,6 +98,15 @@ function readJsonBody(req, res, onBody) {
       respond(res, 400, { error: 'Invalid JSON' })
       return
     }
+    // `null`, an array or a bare scalar all parse fine but are not the object
+    // the handlers below read properties off. Reading `payload.prompt` on a
+    // null body throws a TypeError inside this 'end' handler, which is
+    // uncaught: it takes the whole bridge process down and every later
+    // request gets connection-refused until the launcher restarts it.
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+      respond(res, 400, { error: 'JSON body must be an object' })
+      return
+    }
     onBody(payload)
   })
 }
