@@ -19,7 +19,7 @@ surface. The evidence column names the implementation that was checked.
 |---|:---:|:---:|:---:|:---:|---|
 | Dashboard, GitHub issues/PRs/actions | ✅ | ✅ | ✅ | ✅ | `app/dashboard`, `screenDashboard`, `scripts/dashboard.sh`, bridge `GET /api/github/dashboard` (`mark-l-bridge/github_dashboard.py`, read-only via gh or `GITHUB_TOKEN`, structured unavailable response) |
 | Chat / unified model chat | ✅ | ✅ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/gemini.sh`, `/api/mark-l/chat/unified` |
-| Chat chains / multi-model routing | ✅ | ⚠️ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/ai-review.sh`, `/api/mark-l/chat/chain` |
+| Chat chains / multi-model routing | ✅ | ✅ | ✅ | ✅ | `app/chat`, `screenChatChain`, `screenGFAIChat`, `scripts/ai-review.sh`, `/api/mark-l/chat/chain` |
 | Web terminal / PTY | ✅ | ❌ | ✅ | ❌ | `app/terminal`, `scripts/pty-server.js` |
 | Files browser and Monaco editor | ✅ | ⚠️ | ⚠️ | ✅ | `app/files`, `screenOpenProject`, `ghostforge files list\|read` (`scripts/files.mjs`, read-only, no editor), `/api/mark-l/file-control` |
 | History and audit log | ✅ | ✅ | ✅ | ✅ | `app/history`, `screenAuditLog`, `scripts/daily-digest.sh`, bridge memory/history handlers |

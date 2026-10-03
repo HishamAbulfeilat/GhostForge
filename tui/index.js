@@ -893,6 +893,71 @@ async function screenOpenJarvis() {
   }
 }
 
+const CHAIN_ACTIONS = ['code', 'research', 'browse', 'model', 'memory', 'general'];
+const CHAIN_MAX_STEPS = 5;
+const CHAIN_MESSAGE_LIMIT = 2000;
+
+function chainErrorMessage(error) {
+  const message = safeCollabText(error?.message || 'Chat chain request failed.');
+  if (/^Could not reach the collaboration bridge|timed out/.test(message)) {
+    return 'Bridge offline: cannot reach the GhostForge bridge on :8765. Start it with mark-l-bridge/start.sh and retry.';
+  }
+  if (/\b401\b|unauthori[sz]ed|invalid token|not authenticated/i.test(message)) {
+    return 'Bridge rejected the token (401). Check MARKL_BRIDGE_TOKEN or ~/.ghostforge/bridge/token.';
+  }
+  return message;
+}
+
+function chainStepText(result) {
+  const out = result?.response ?? result?.results ?? result;
+  return openJarvisText(typeof out === 'string' ? out : JSON.stringify(out ?? '(empty)', null, 2));
+}
+
+async function screenChatChain() {
+  while (true) {
+    sectionHeader('⛓️  Chat Chain', 'Run a multi-step, multi-model chain through the bridge; each step feeds the next');
+    const steps = [];
+    while (steps.length < CHAIN_MAX_STEPS) {
+      const action = await select({
+        message: T.white(`Step ${steps.length + 1} action:`),
+        choices: [
+          ...CHAIN_ACTIONS.map(value => ({ name: T.accent(value), value })),
+          ...(steps.length ? [{ name: T.success('▶  Run chain'), value: '__run__' }] : []),
+          { name: T.muted(steps.length ? '✖  Cancel chain' : '← Back'), value: '__back__' },
+        ],
+      });
+      if (action === '__back__') { steps.length = 0; break; }
+      if (action === '__run__') break;
+      const message = (await input({ message: `Step ${steps.length + 1} message:` })).trim();
+      if (!message) continue;
+      if (message.length > CHAIN_MESSAGE_LIMIT) {
+        console.log(T.warning(`\n  ⚠ Message is too long (max ${CHAIN_MESSAGE_LIMIT} characters).`));
+        continue;
+      }
+      steps.push({ action, message });
+    }
+    if (!steps.length) return;
+
+    try {
+      console.log(T.muted(`\n  Running ${steps.length}-step chain…`));
+      const result = await collabBridgeRequest('/api/mark-l/chat/chain', {
+        method: 'POST',
+        body: JSON.stringify({ steps }),
+        timeoutMs: 120000,
+      });
+      const results = Array.isArray(result?.results) ? result.results : [];
+      if (!results.length) console.log(T.muted('\n  (no results)'));
+      for (const item of results) {
+        console.log(`\n  ${T.accent(`Step ${Number(item?.step) + 1}`)} ${T.muted(`[${safeCollabText(item?.action)}]`)}`);
+        console.log(chainStepText(item?.result));
+      }
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${chainErrorMessage(error)}`));
+    }
+    await pressEnter();
+  }
+}
+
 const BRIEFING_PROACTIVE_SILENCE_MS =30 * 60 * 1000;
 
 function briefingWebOrigin() {
@@ -1669,6 +1734,7 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '🔁  Workflows',                  'review saved workflows · run bounded, allowlisted steps', 'workflows'),
       menuChoice(T.accent.bold,  '🧠  Memory',                    'list · search · add · delete JARVIS memories via the bridge', 'memory'),
       menuChoice(T.accent.bold,  '🤖  OpenJarvis',                'health · doctor · ask the local OpenJarvis agent via the bridge', 'openjarvis'),
+      menuChoice(T.accent.bold,  '⛓️  Chat Chain',                'multi-step, multi-model routing: chain code · research · model steps via the bridge', 'chatchain'),
       menuChoice(T.accent.bold,  '☀️  Morning Briefing & Inbox', 'daily briefing · weather · news · proactive check-in', 'briefing'),
       menuChoice(T.cyan.bold,    '🌍  Agent Worlds',             'start, stop, and check AI Town and Agent Office', 'worlds'),
       menuChoice(T.accent.bold,  '⚡  n8n Automation',             'list and safely trigger active workflow webhooks', 'n8n'),
@@ -7852,6 +7918,7 @@ async function main() {
         case 'worlds':        await screenWorlds(); break;
         case 'memory':        await screenMemory(); break;
         case 'openjarvis':    await screenOpenJarvis(); break;
+        case 'chatchain':     await screenChatChain(); break;
         case 'briefing':      await screenBriefing(); break;
         case 'n8n':            await screenN8n(); break;
         case 'webhooks':      await screenWebhooks(); break;
