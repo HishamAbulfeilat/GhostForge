@@ -23,6 +23,7 @@ import { applyEffectiveMarketplaceState } from './lib/marketplace-state.js';
 import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP } from './lib/platform-utils.js';
 import { askGFAI } from './lib/gfai-client.js';
 import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
+import { escapeAppleScriptString } from './lib/applescript.js';
 import { runTeamCommand, startAgentTeam } from './lib/agent-team.js';
 import { parseArgs as parseUsersArgs, request as requestUsersApi } from '../scripts/users.mjs';
 
@@ -2859,7 +2860,7 @@ async function screenJarvis() {
   if (action === 'imessage') {
     const contact = await input({ message: 'Contact name:' });
     const msg     = await input({ message: 'Message:' });
-    const script = `tell application "Messages"\n  try\n    set s to 1st service whose service type = iMessage\n    send "${msg.replace(/"/g,'\\"')}" to buddy "${contact.replace(/"/g,'\\"')}" of s\n    return "sent"\n  on error e\n    return e\n  end try\nend tell`;
+    const script = `tell application "Messages"\n  try\n    set s to 1st service whose service type = iMessage\n    send "${escapeAppleScriptString(msg)}" to buddy "${escapeAppleScriptString(contact)}" of s\n    return "sent"\n  on error e\n    return e\n  end try\nend tell`;
     await runAppleScript(script); return;
   }
 }
@@ -3263,7 +3264,7 @@ async function screenMacControl() {
   if (action === 'notify') {
     const title = await input({ message: 'Notification title:', default: 'GhostForge' });
     const msg   = await input({ message: 'Message:' });
-    await runAppleScript(`display notification "${msg.replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}"`);
+    await runAppleScript(`display notification "${escapeAppleScriptString(msg)}" with title "${escapeAppleScriptString(title)}"`);
     return;
   }
 
@@ -3273,9 +3274,9 @@ async function screenMacControl() {
     const script = `tell application "Messages"
   try
     set targetService to 1st service whose service type = iMessage
-    set targetBuddy to buddy "${contact.replace(/"/g, '\\"')}" of targetService
-    send "${msg.replace(/"/g, '\\"')}" to targetBuddy
-    display notification "Message sent to ${contact.replace(/"/g, '\\"')}" with title "GhostForge"
+    set targetBuddy to buddy "${escapeAppleScriptString(contact)}" of targetService
+    send "${escapeAppleScriptString(msg)}" to targetBuddy
+    display notification "Message sent to ${escapeAppleScriptString(contact)}" with title "GhostForge"
   on error errMsg
     display notification errMsg with title "GhostForge — iMessage Error"
   end try
@@ -3294,14 +3295,14 @@ tell application "System Events"
     try
       keystroke "k" using command down
       delay 0.8
-      keystroke "${contact.replace(/"/g, '\\"')}"
+      keystroke "${escapeAppleScriptString(contact)}"
       delay 1.5
       key code 36
       delay 0.8
-      keystroke "${msg.replace(/"/g, '\\"')}"
+      keystroke "${escapeAppleScriptString(msg)}"
       delay 0.3
       key code 36
-      display notification "Message sent to ${contact.replace(/"/g, '\\"')}" with title "GhostForge"
+      display notification "Message sent to ${escapeAppleScriptString(contact)}" with title "GhostForge"
     on error errMsg
       display notification errMsg with title "GhostForge — Teams Error"
     end try
@@ -3313,6 +3314,7 @@ end tell`;
 }
 
 async function runAppleScript(script) {
+  const { execFileSync } = await import('child_process');
   const { writeFileSync, unlinkSync } = await import('fs');
   const { tmpdir } = await import('os');
   const { join } = await import('path');
@@ -3320,7 +3322,9 @@ async function runAppleScript(script) {
   try {
     writeFileSync(tmpPath, script, 'utf8');
     console.log(T.muted('\n  Running AppleScript...\n'));
-    const result = execSync(`osascript "${tmpPath}" 2>&1`, { encoding: 'utf8', timeout: 20000 }).trim();
+    // execFileSync with an argv array: the path never reaches a shell parser,
+    // so a cwd or tmpdir containing shell metacharacters cannot be executed.
+    const result = execFileSync('osascript', [tmpPath], { encoding: 'utf8', timeout: 20000 }).trim();
     if (result) console.log(T.success(`  Result: ${result}\n`));
     else console.log(T.success('  ✓ Script ran successfully\n'));
   } catch (e) {
@@ -7576,9 +7580,14 @@ async function screenDesignResources() {
     if (site.trim()) {
       const spinner = ora(`Fetching ${site} DESIGN.md...`).start();
       try {
-        const { execSync } = require('child_process');
-        execSync(`curl -fsSL "https://raw.githubusercontent.com/VoltAgent/awesome-design-md/main/design-md/${site.trim().toLowerCase()}/DESIGN.md" -o "${process.cwd()}/DESIGN.md"`, { stdio: 'pipe' });
-        spinner.succeed(`DESIGN.md for ${site} saved to ${process.cwd()}/DESIGN.md`);
+        const { execFileSync } = await import('child_process');
+        // argv array, no shell: the site slug and the destination path are
+        // passed as separate arguments, so neither can inject a command.
+        const slug = site.trim().toLowerCase();
+        const dest = resolve(process.cwd(), 'DESIGN.md');
+        const url = `https://raw.githubusercontent.com/VoltAgent/awesome-design-md/main/design-md/${encodeURIComponent(slug)}/DESIGN.md`;
+        execFileSync('curl', ['-fsSL', url, '-o', dest], { stdio: 'pipe' });
+        spinner.succeed(`DESIGN.md for ${site} saved to ${dest}`);
         console.log(chalk.green('\n✓ AI agents in this project will now use this design system!'));
       } catch {
         spinner.fail(`Could not fetch DESIGN.md for "${site}". Check spelling.`);
@@ -7658,7 +7667,8 @@ async function screenVigolium() {
   // Check if installed
   let installed = false;
   try {
-    require('child_process').execSync('vigolium --version 2>/dev/null', { stdio: 'pipe' });
+    const { execFileSync } = await import('child_process');
+    execFileSync('vigolium', ['--version'], { stdio: 'pipe' });
     installed = true;
   } catch { /* not installed */ }
 
@@ -7699,7 +7709,8 @@ async function screenVigolium() {
   if (action === 'install') {
     const spinner = ora('Installing @vigolium/vigolium via npm...').start();
     try {
-      require('child_process').execSync('npm install -g @vigolium/vigolium', { stdio: 'pipe', timeout: 120000 });
+      const { execFileSync } = await import('child_process');
+      execFileSync('npm', ['install', '-g', '@vigolium/vigolium'], { stdio: 'pipe', timeout: 120000 });
       spinner.succeed('Vigolium installed! Run: vigolium --help');
     } catch (e) {
       spinner.fail('npm install failed');
@@ -7739,8 +7750,9 @@ async function screenVigolium() {
       console.log(chalk.yellow('⚠ Vigolium not installed. Install first, then run:\n'));
       console.log(chalk.cyan(`  vigolium scan -t "${target}" --strategy ${strategy}`));
     } else {
-      const { exec } = require('child_process');
-      const child = exec(`vigolium scan -t "${target}" --strategy ${strategy}`, { timeout: 600000 });
+      const { spawn } = await import('child_process');
+      // argv array, no shell: `target` cannot break out of the command.
+      const child = spawn('vigolium', ['scan', '-t', target, '--strategy', strategy], { stdio: ['inherit', 'pipe', 'pipe'], timeout: 600000 });
       child.stdout.on('data', d => process.stdout.write(d));
       child.stderr.on('data', d => process.stderr.write(d));
       await new Promise(res => child.on('exit', res));
