@@ -2593,6 +2593,14 @@ def release_get():
     return _release_status()
 
 
+@app.get("/api/github/dashboard", dependencies=[Depends(require_token)])
+def github_dashboard_get():
+    """Read-only open issues, open PRs and recent workflow runs."""
+    import github_dashboard
+
+    return github_dashboard.dashboard()
+
+
 _MARKETPLACE_DIR = Path(__file__).resolve().parent.parent / "marketplace"
 
 

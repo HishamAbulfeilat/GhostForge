@@ -48,6 +48,15 @@ creates a session and returns `{ id, shareUrl }`; workflow updates preserve
 the existing status when `status` is omitted. Jobs, workflows, webhooks, and
 devices are persisted under `~/.ghostforge/bridge/`.
 
+### GitHub dashboard
+
+`GET /api/github/dashboard` (bridge token required, read-only) returns open
+issues, open PRs and recent workflow runs (20 each) for `GHOSTFORGE_GITHUB_REPO`
+(`owner/name`, else `GITHUB_REPOSITORY`, else the `origin` remote). It uses the
+`gh` CLI, falling back to `GITHUB_TOKEN`/`GH_TOKEN` over the REST API; the token
+is never logged or returned. If neither is available, or the call fails, it
+returns `{ ok: false, available: false, reason, ... }` with empty lists.
+
 ## Licensing
 
 Mark-LV is **CC BY-NC 4.0 (non-commercial)**. Its source is vendored under
