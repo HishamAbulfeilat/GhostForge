@@ -4,7 +4,31 @@
 |---|---|---|
 | **PR Quality Check** (`pr-check.yml`) | pull requests | ESLint (web-ui), tests, env-check, unused code, RTL classes, React Doctor, npm audit — posts one summary comment |
 | **Security** (`security.yml`) | PRs, pushes to `main`, weekly | CodeQL → code scanning (SARIF), dependency review, npm audit gate (high/critical), gitleaks secret scan, security regression tests, CycloneDX SBOMs |
+| **CodeQL** (`codeql.yml`) | PRs and pushes to `main` / `agent/integration`, weekly | CodeQL `security-extended` code scanning for JavaScript/TypeScript and Python → Security → Code scanning ([details](#codeql-code-scanning)) |
 | **Build Apps** (`build-apps.yml`) | pushes to `main`, `v*` tags | Windows, Linux, macOS, Android, iOS builds; tags publish a Release (signing: [SIGNING.md](SIGNING.md)) |
+
+## CodeQL code scanning
+
+`codeql.yml` runs one matrix job per language (`javascript-typescript`,
+`python`) with `build-mode: none` and the `security-extended` query suite, on
+pushes and pull requests to `main` and `agent/integration`, every Tuesday at
+04:41 UTC, and on manual dispatch. The workflow defaults to
+`contents: read`; only the analyze job gets `security-events: write` so it can
+upload SARIF. Results appear under **Security → Code scanning**, one category
+per language (`/language:javascript-typescript`, `/language:python`).
+
+Third-party and generated code is excluded with `paths-ignore`:
+`**/node_modules/**` (including the still-tracked `tui/node_modules`),
+`vendor/**` (Mark-LV), `web-ui/vendor/**`, the gitignored world-app checkouts
+under `apps/worlds/*/`, the bundled `extension/dist/**`, and the Capacitor
+`electron-app/android|ios` projects. Fix findings in first-party code; if a path
+is genuinely third-party, add it to `paths-ignore` rather than dismissing
+alerts one by one. Dismiss false positives in the Code scanning UI with a reason.
+
+`security.yml` also has an older JavaScript-only CodeQL job. Both upload
+separately and GitHub merges identical alerts, so nothing is lost while they
+coexist. `codeql.yml` is the canonical one because it also covers Python and
+`agent/integration`.
 
 ## Troubleshooting
 
