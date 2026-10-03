@@ -21,6 +21,9 @@ modelModule.filename = modelPath
 modelModule.paths = Module._nodeModulePaths(path.dirname(modelPath))
 modelModule._compile(compiledModel, modelPath)
 const {
+  buildAgentHistory,
+  buildHealthTrend,
+  describeHealthTrend,
   countOpenTasks,
   buildDependencyGraph,
   findAgentTask,
@@ -273,4 +276,58 @@ test('failure summary is one line, capped at about 200 characters, and kept as p
   assert.match(board, /\{details\.failure \?\? 'No reason recorded'\}/)
   assert.match(board, /\{details\.attempts \?\? '—'\}/)
   assert.match(board, /<time dateTime=\{details\.updatedAt\}>\{now === null \? '—' : formatUpdatedAgo\(details\.updatedAt, now\)\}<\/time>/)
+})
+
+test('agent history and health trend are parsed from boss messages, newest first and bounded', () => {
+  const messages = [
+    { ts: '2026-10-03T10:00:00Z', from: 'boss', to: 'all', text: '✅ T-1 merged from claude-2 (health 90/100): a. Files: x' },
+    { ts: '2026-10-03T11:00:00Z', from: 'boss', to: 'claude-2', text: 'T-2 bounced: Health regressed 90 → 80' },
+    { ts: '2026-10-03T12:00:00Z', from: 'boss', to: 'claude-2', text: 'T-2 BLOCKED after 3 attempts: nope' },
+    { ts: '2026-10-03T13:00:00Z', from: 'claude', to: 'all', text: 'T-3 blocked: needs credentials' },
+    { ts: '2026-10-03T14:00:00Z', from: 'boss', to: 'all', text: '✅ T-4 merged from claude (health 100/100): b.' },
+    { ts: '2026-10-03T15:00:00Z', from: 'boss', to: 'all', text: 'Health 100/100. Planned 0 new task(s) for phase 4.' },
+    { ts: '2026-10-03T16:00:00Z', from: 'boss', to: 'all', text: 'T-9 bounced: not addressed to an agent' },
+  ]
+  const history = buildAgentHistory(messages)
+  assert.deepEqual(history['claude-2'].map(e => [e.taskId, e.outcome]), [['T-2', 'blocked'], ['T-2', 'bounced'], ['T-1', 'merged']])
+  assert.deepEqual(history.claude.map(e => [e.taskId, e.outcome]), [['T-4', 'merged'], ['T-3', 'blocked']])
+  assert.equal(history['claude-2'][2].datetime, '2026-10-03T10:00:00.000Z')
+  assert.equal(Object.keys(history).length, 2)
+  assert.equal(buildAgentHistory(messages, 1)['claude-2'].length, 1)
+
+  const trend = buildHealthTrend(messages)
+  assert.deepEqual(trend.map(p => [p.taskId, p.agent, p.score]), [['T-1', 'claude-2', 90], ['T-4', 'claude', 100]])
+  assert.equal(buildHealthTrend(messages, 1).length, 1)
+  assert.match(describeHealthTrend(trend), /rising: from 90 to 100 out of 100, lowest 90, highest 100/)
+  assert.match(describeHealthTrend(trend.slice(0, 1)), /after the only recorded merge/)
+  assert.match(describeHealthTrend([]), /No merges recorded/)
+})
+
+test('agent history tolerates empty and malformed state', () => {
+  for (const bad of [undefined, null, 'x', 42, {}, []]) {
+    assert.deepEqual(buildAgentHistory(bad), {})
+    assert.deepEqual(buildHealthTrend(bad), [])
+  }
+  const malformed = [
+    null, 7, 'str', [], {}, { text: 5, from: 'boss' }, { text: 'T-1 bounced: x', from: 'boss' },
+    { text: '✅ T-1 merged from a (health NaN/100)', from: 'boss', to: 'all' },
+    { text: 'T-1 bounced: x', from: 'boss', to: 'all' },
+    { ts: 'not a date', from: 'boss', to: 'a', text: 'T-5 bounced: y' },
+    { ts: { x: 1 }, from: 'boss', to: 'a', text: '✅ T-6 merged from a (health 95.5/100): z' },
+    { ts: '2026-10-03T10:00:00Z', from: 'someone', to: 'all', text: '✅ T-7 merged from a (health 1/100)' },
+  ]
+  const history = buildAgentHistory(malformed)
+  assert.deepEqual(Object.keys(history), ['a'])
+  assert.deepEqual(history.a.map(e => [e.taskId, e.outcome, e.datetime]), [['T-6', 'merged', null], ['T-5', 'bounced', null]])
+  assert.deepEqual(buildHealthTrend(malformed).map(p => p.score), [95.5])
+  assert.deepEqual(buildAgentHistory(malformed, 0), {})
+  assert.deepEqual(buildHealthTrend(malformed, Number.NaN), [])
+})
+
+test('board renders task history as tables and the trend with a text alternative', () => {
+  assert.match(board, /<caption/)
+  assert.match(board, /<th scope="col"/)
+  assert.match(board, /<svg role="img" aria-label=\{description\}/)
+  assert.doesNotMatch(board, /dangerouslySetInnerHTML/)
+  assert.doesNotMatch(board, /(?:ml|mr|pl|pr|text-left|text-right)-/)
 })
