@@ -39,7 +39,7 @@ surface. The evidence column names the implementation that was checked.
 | Browser automation and web search | ⚠️ | ✅ | ✅ | ✅ | `app/jarvis`/`app/remote`, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-l/browser/*` |
 | Clipboard, desktop and app launching | ⚠️ | ✅ | ⚠️ | ✅ | `app/mac-control`, `screenMacControl`, `/api/mark-l/clipboard`, `/desktop`, `/open-app` |
 | Memory (CRUD, semantic search, import/export) | ✅ | ⚠️ | ✅ | ✅ | `app/jarvis`, `scripts/setup-memory.sh`, `/api/mark-l/memory/*` |
-| Proactive assistant, morning briefing and inbox | ✅ | ⚠️ | ✅ | ❌ | `app/api/jarvis/proactive`, `app/api/jarvis/morning`, `scripts/daily-digest.sh` |
+| Proactive assistant, morning briefing and inbox | ✅ | ✅ | ✅ | ❌ | `app/api/jarvis/proactive`, `app/api/jarvis/morning`, `scripts/daily-digest.sh`, TUI `screenBriefing` in `tui/index.js` (menu "Morning Briefing & Inbox"; calls both routes on `GF_WEB_UI_URL`, needs `GF_WEB_UI_TOKEN` session cookie; offline/401 messages) |
 | Jarvis collaboration and sharing | ✅ | ✅ | ✅ | ✅ | `app/api/jarvis/collab`, `CollabShare`, `screenCollaboration`, `cli/index.js` + `scripts/collab.mjs`, bridge `/api/jarvis/collab` |
 | Job Hunter (search, profile, CV, GitHub) | ✅ | ⚠️ | ✅ | ✅ | `app/jobs`, `JobHunterWidget`, `scripts/job-hunter.mjs`/`scripts/jobs.sh`, bridge `/api/jobs` backed by the real user-scoped profile and review-only autopilot flow |
 | Workflow engine and workflow runs | ⚠️ | ✅ | ✅ | ✅ | `app/workflows`/`/api/workflows`, `screenWorkflows`, `scripts/workflows.mjs`, bridge `/api/workflows?action=run` executes only allowlisted command steps and enforces `--max-steps 1-100` |
