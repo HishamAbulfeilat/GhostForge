@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { AgentWorldData, AgentWorldRecord } from '../agent-world-model'
 import { adaptAgentTownSnapshot } from './agent-town-model.js'
+import { useWalkers } from './walkers'
 
 const Game = dynamic(() => import('../../../vendor/ai-town/src/components/Game'), {
   ssr: false,
@@ -24,6 +25,7 @@ export default function TownWorld({ data, boss }: TownWorldProps) {
     () => adaptAgentTownSnapshot({ agents: data.agents, tasks: data.tasks, boss }),
     [data.agents, data.tasks, boss],
   )
+  const walking = useWalkers(players)
   const [selectedId, setSelectedId] = useState<string>()
   const selected = players.find((player) => player.id === selectedId)
 
@@ -37,7 +39,7 @@ export default function TownWorld({ data, boss }: TownWorldProps) {
         <div>
           <h2 id="agent-town-heading" className="font-display text-lg font-semibold">Agent Town</h2>
           <p className="mt-1 text-xs text-gf-muted">
-            Snapshot-only characters. Positions are fixed display slots; no agent movement is simulated.
+            Positions are reported slots, not simulated work: working agents walk around their slot, everyone else stands still.
           </p>
         </div>
         <span className="rounded-full border border-gf-line2 px-2 py-1 text-xs text-gf-muted">
@@ -46,7 +48,7 @@ export default function TownWorld({ data, boss }: TownWorldProps) {
       </div>
 
       <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
-        <Game players={players} selectedId={selectedId} onSelect={selectPlayer} />
+        <Game players={walking} selectedId={selectedId} onSelect={selectPlayer} />
         <aside aria-label="Town agents" className="min-w-0 rounded-xl border border-gf-line p-3">
           <h3 className="font-semibold">Characters</h3>
           {players.length ? (
