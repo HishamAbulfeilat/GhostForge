@@ -27,33 +27,43 @@ test('typeText does not interpolate text into AppleScript source', () => {
   )
 })
 
-test('user text reaches osascript as a script argument, not as source', () => {
+test('user text never reaches osascript in the script source or in argv', () => {
   const src = source()
   const start = src.indexOf('function appleScriptWithText')
   assert.notEqual(start, -1, 'expected appleScriptWithText to exist')
   // Bound the slice to this one function so later interpolations are not swept in.
   const helper = src.slice(start, src.indexOf('function nativeStatus'))
-  // The template is fixed; only the trailing argv entry varies.
-  assert.match(helper, /on run argv/)
-  assert.match(helper, /set theText to item 1 of argv/)
-  assert.match(helper, /execFileAsync\('osascript', \['-e', script, String\(text\)\]/)
+
+  // The text must not be interpolated into the AppleScript source.
   assert.equal(
     /\$\{[^}]*\btext\b[^}]*\}/.test(helper),
     false,
     'text must not be interpolated into the AppleScript template'
   )
+  // Nor passed as a process argument: a trailing osascript argument starting
+  // with "-" can be parsed as another option on macOS < 12.3 (CVE-2022-24793),
+  // where "-e" would inject a whole extra statement.
+  assert.equal(
+    /\['-e', script,\s*String\(text\)\]/.test(helper),
+    false,
+    'text must not be passed as an osascript argument (CVE-2022-24793)'
+  )
+  assert.match(helper, /execFileAsync\('osascript', \['-e', script\]/)
+
+  // It travels in the child environment instead and is read back verbatim.
+  assert.match(helper, /system attribute "GF_APPLESCRIPT_TEXT"/)
+  assert.match(helper, /env: \{ \.\.\.process\.env, GF_APPLESCRIPT_TEXT: String\(text\) \}/)
 })
 
-test('the generated AppleScript binds the argument before using it', () => {
+test('the generated AppleScript binds theText before the statement uses it', () => {
   // Reproduce the template appleScriptWithText builds, and check that the
   // statement referencing the value cannot run before it is bound.
-  const quoteInScript = 'tell application "System Events" to keystroke theText'
-  const script = `on run argv
-  set theText to item 1 of argv
-  ${quoteInScript}
+  const statement = 'tell application "System Events" to keystroke theText'
+  const script = `on run
+  set theText to system attribute "GF_APPLESCRIPT_TEXT"
+  ${statement}
 end run`
 
-  assert.match(script, /^on run argv/)
   assert.ok(
     script.indexOf('set theText') < script.indexOf('keystroke theText'),
     'theText must be bound before the keystroke references it'
@@ -67,24 +77,19 @@ test('osascript is spawned with an argv array, never through a shell', () => {
   assert.equal(/shell:\s*true/.test(src), false, 'no shell:true anywhere in nutjs.js')
 })
 
-test('keystroke payloads reach argv[1] unparsed', () => {
-  // Why the argument approach matters: with the old quotes-only escaping,
-  // 'a\"' became 'a\\"' — a literal backslash followed by an *unescaped* quote
-  // that closes the AppleScript string early. Handing the value to osascript as
-  // argv[1] means it is never parsed as AppleScript source at all.
-  //
-  // This mirrors how nut.js would call execFileSync('osascript', ['-e', script, text]).
+test('hostile keystroke payloads survive the environment hand-off unchanged', () => {
+  // Why the hand-off matters: with the old quotes-only escaping, 'a\"' became
+  // 'a\\"' — a literal backslash followed by an *unescaped* quote that closes
+  // the AppleScript string early. The value now reaches the script as an
+  // environment variable read via `system attribute`, never parsed as source.
   const execFile = require('node:child_process').execFileSync
   const payloads = ['a\\"', 'pwn" & (do shell script "touch /tmp/pwned") & "', 'line1\nline2', 'back\\\\slash']
   for (const p of payloads) {
-    // Each payload must survive a round trip through argv unchanged.
-    const script = `on run argv
-  set theText to item 1 of argv
-  return theText
-end run`
-    // Emulate argv passing with a child that echoes argv[1] back.
-    const out = execFile(process.execPath, ['-e', 'process.stdout.write(process.argv[1] ?? "")', p], { encoding: 'utf8' })
-    assert.equal(out, p, `payload must survive argv: ${JSON.stringify(p)}`)
-    assert.match(script, /set theText to item 1 of argv/)
+    const out = execFile(
+      process.execPath,
+      ['-e', 'process.stdout.write(process.env.GF_APPLESCRIPT_TEXT ?? "")'],
+      { encoding: 'utf8', env: { ...process.env, GF_APPLESCRIPT_TEXT: p } }
+    )
+    assert.equal(out, p, `payload must survive the hand-off: ${JSON.stringify(p)}`)
   }
 })
