@@ -3,7 +3,7 @@
 | Workflow | Runs on | What it checks |
 |---|---|---|
 | **PR Quality Check** (`pr-check.yml`) | pull requests | ESLint (web-ui), tests, env-check, unused code, RTL classes, React Doctor, npm audit — posts one summary comment |
-| **Security** (`security.yml`) | PRs, pushes to `main`, weekly | CodeQL → code scanning (SARIF), dependency review, npm audit gate (high/critical), gitleaks secret scan, security regression tests, CycloneDX SBOMs |
+| **Security** (`security.yml`) | PRs, pushes to `main`, weekly | Dependency review, npm audit gate (high/critical), gitleaks secret scan, security regression tests, CycloneDX SBOMs |
 | **CodeQL** (`codeql.yml`) | PRs and pushes to `main` / `agent/integration`, weekly | CodeQL `security-extended` code scanning for JavaScript/TypeScript and Python → Security → Code scanning ([details](#codeql-code-scanning)) |
 | **Build Apps** (`build-apps.yml`) | pushes to `main`, `v*` tags | Windows, Linux, macOS, Android, iOS builds; tags publish a Release (signing: [SIGNING.md](SIGNING.md)) |
 
@@ -25,10 +25,12 @@ under `apps/worlds/*/`, the bundled `extension/dist/**`, and the Capacitor
 is genuinely third-party, add it to `paths-ignore` rather than dismissing
 alerts one by one. Dismiss false positives in the Code scanning UI with a reason.
 
-`security.yml` also has an older JavaScript-only CodeQL job. Both upload
-separately and GitHub merges identical alerts, so nothing is lost while they
-coexist. `codeql.yml` is the canonical one because it also covers Python and
-`agent/integration`.
+`codeql.yml` is the only CodeQL workflow. `security.yml` used to carry a
+JavaScript-only CodeQL job; it was removed because `codeql.yml` covers the same
+`/language:javascript-typescript` category plus Python and `agent/integration`.
+If Code scanning still lists the old `security.yml` analysis as a stale
+configuration, delete that configuration from the alert view; `codeql.yml`
+reports the same findings under its own configuration.
 
 ## Troubleshooting
 
