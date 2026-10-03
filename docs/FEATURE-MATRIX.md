@@ -25,7 +25,7 @@ surface. The evidence column names the implementation that was checked.
 | History and audit log | ✅ | ✅ | ✅ | ✅ | `app/history`, `screenAuditLog`, `scripts/daily-digest.sh`, bridge memory/history handlers |
 | Command catalog / feature launcher | ✅ | ✅ | ✅ | ✅ | `app/features`, `screenCommands`/`screenCommandCenter`, `scripts/*`, bridge `GET /api/commands` (`mark-l-bridge/commands_catalog.py`, read-only) |
 | Project open, project list, scaffolding | ⚠️ | ✅ | ✅ | ❌ | `app/setup`, `screenProjects`/`screenOpenProject`, `scripts/create-project.sh` |
-| Setup and environment configuration | ✅ | ✅ | ✅ | ❌ | `app/setup`, `screenSetup`, `scripts/setup-env.sh`/`scripts/env-manager.sh` |
+| Setup and environment configuration | ✅ | ✅ | ✅ | ✅ | `app/setup`, `screenSetup`, `scripts/setup-env.sh`/`scripts/env-manager.sh`, bridge `GET /api/setup/status` (`mark-l-bridge/setup_status.py`, read-only presence/version status) |
 | AI agents dashboard and dispatch | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgents`, `cli/index.js` → `scripts/agents/team.mjs`, `/api/mark-l/agents/*` |
 | Agent World (federated agent and connector operations) | ✅ | ⚠️ | ⚠️ | ⚠️ | `app/agent-world` (worlds: forge/town/office/team); `screenWorlds` and `screenAgentTeam`; `cli/index.js` → `scripts/worlds.mjs` and `scripts/agents/team.mjs`; bridge `/api/mark-l/agents/*` provides lower-level operations |
 | Agent teams, crews, tasks, messages | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgentTeam`, `cli/index.js` → `scripts/agents/team.mjs` (teams only; crews via bridge), `/api/mark-l/agents/crew/*` |

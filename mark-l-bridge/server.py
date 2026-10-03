@@ -2639,6 +2639,18 @@ def commands_catalog():
     return {"ok": True, "count": len(items), "commands": items}
 
 
+@app.get("/api/setup/status", dependencies=[Depends(require_token)])
+def setup_status_endpoint():
+    """Read-only setup/environment status: presence flags and versions, never values."""
+    import setup_status as ss
+
+    return ss.build_status(
+        version=app.version,
+        openjarvis_enabled=_HAS_OPENJARVIS,
+        token_configured=bool(_read_bridge_token()),
+    )
+
+
 @app.get("/api/snippets", dependencies=[Depends(require_token)])
 def snippets_list():
     """Read-only list of snippets/ files plus the readable root documents."""
