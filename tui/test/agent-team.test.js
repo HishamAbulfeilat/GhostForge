@@ -221,7 +221,7 @@ test('agent-team start launches and detaches the boss process', () => {
 });
 
 test('real TUI Agent Team submenu displays the live effective team status', async (t) => {
-  if (!nodePty) t.skip('node-pty is not installed in this checkout');
+  if (!nodePty) return t.skip('node-pty is not installed in this checkout');
 
   let stdout = '';
   let stderr = '';
