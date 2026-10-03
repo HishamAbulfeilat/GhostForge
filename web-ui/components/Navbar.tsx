@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { href: '/workflows',   icon: '🗺️', label: 'Flows' },
   { href: '/snippets',    icon: '📋', label: 'Snippets' },
   { href: '/users',      icon: '👥', label: 'Users' },
+  { href: '/security',    icon: '🛡️', label: 'Security' },
   { href: '/marketplace', icon: '🏪', label: 'Market' },
   { href: '/settings',    icon: '⚙️', label: 'Settings' },
 ]
