@@ -1,16 +1,24 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
+
+const { MAX_BUFFER, explainEnobufs } = createRequire(import.meta.url)('../../spawn-limits.cjs')
 
 export const ECC_DEFAULT_REF = 'v2.2.2'
 export const ECC_OFFICIAL_REPOSITORY = 'https://github.com/affaan-m/ECC.git'
 
 function git(cwd, ...args) {
-  return execFileSync('git', args, {
-    cwd,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim()
+  try {
+    return execFileSync('git', args, {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      maxBuffer: MAX_BUFFER,
+    }).trim()
+  } catch (err) {
+    throw explainEnobufs(err, `git ${args.join(' ')}`)
+  }
 }
 
 export function loadECCConfig(root) {

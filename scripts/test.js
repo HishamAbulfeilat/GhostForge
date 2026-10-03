@@ -13,12 +13,22 @@
  */
 'use strict';
 
-const { execFileSync } = require('child_process');
+const childProcess = require('child_process');
+const { MAX_BUFFER, explainEnobufs } = require('./spawn-limits.cjs');
 const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 let failures = 0;
+
+/** execFileSync with an explicit maxBuffer and a clear ENOBUFS message. */
+function execFileSync(file, args, options = {}) {
+  try {
+    return childProcess.execFileSync(file, args, { maxBuffer: MAX_BUFFER, ...options });
+  } catch (err) {
+    throw explainEnobufs(err, `${file} ${args.join(' ')}`);
+  }
+}
 
 function check(label, fn) {
   try {
