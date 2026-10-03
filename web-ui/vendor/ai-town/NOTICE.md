@@ -10,4 +10,7 @@ See `THIRD_PARTY_NOTICES.md` for the separately credited game art.
 
 Local deviations from upstream: a type-only cast in `src/components/PixiViewport.tsx`
 (pixi-viewport 5.1 typings lag its runtime), and `src/types.ts` / `src/components/Game.tsx`
-replace the Convex/Clerk data layer with the GhostForge snapshot adapter.
+replace the Convex/Clerk data layer with the GhostForge snapshot adapter. `src/types.ts`
+adds optional `orientation` / `isMoving` fields and `src/components/Player.tsx` passes
+them to the unchanged upstream `Character`, so characters walk as upstream does; the
+movement is driven by `app/agent-world/town/walkers.ts`.

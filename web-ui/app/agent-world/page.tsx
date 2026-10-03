@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import AgentOfficeMap from '../../components/agent-world/AgentOfficeMap'
@@ -16,6 +16,11 @@ import {
 } from './agent-world-model'
 import AgentWorldSwitcher, { type AgentWorldView } from './AgentWorldSwitcher'
 import ForgeWorldScene from './ForgeWorldScene'
+import CliDashboard from './cli/CliDashboard'
+import CliLanes from './cli/CliLanes'
+import SessionDrawer from './cli/SessionDrawer'
+import { useCliWorld, useNow } from './cli/api'
+import { worldAgents, type WorldScope } from './cli/world-model'
 
 const TownWorld = dynamic(() => import('./town/TownWorld'), {
   ssr: false,
@@ -158,6 +163,22 @@ export default function AgentWorldPage() {
   const [world, setWorld] = useState<AgentWorldView>('forge')
 
   const changeWorld = useCallback((view: AgentWorldView) => setWorld(view), [])
+  // CLI sessions: a second, read-only picture of this machine's Claude Code and
+  // Copilot sessions. They join every world as extra characters, marked `cli`.
+  const cli = useCliWorld()
+  const now = useNow()
+  const [cliScope, setCliScope] = useState<WorldScope>('live')
+  const [cliSelected, setCliSelected] = useState<string>()
+  const cliCharacters = useMemo<AgentWorldRecord[]>(
+    () => (cli.status === 'loaded' ? worldAgents(cli.world, cliScope) : []),
+    [cli, cliScope],
+  )
+  // Worlds render this: the runtime view plus the CLI characters.
+  // Worlds render this instead of state.data: the runtime view plus the CLI
+  // characters. Built from state.data so it stays narrowed where it is rendered.
+  const mergedData = state.status === 'loaded'
+    ? { ...state.data, agents: [...state.data.agents, ...cliCharacters] }
+    : { agents: [], tasks: [], connectors: [], sessions: [], events: [] }
   const controllerRef = useRef<AbortController | null>(null)
   const load = useCallback(async () => {
     controllerRef.current?.abort()
@@ -220,7 +241,20 @@ export default function AgentWorldPage() {
             Refresh
           </button>
         </header>
-        <AgentWorldSwitcher onChange={changeWorld} />
+        <div className="flex flex-wrap items-center gap-3">
+          <AgentWorldSwitcher onChange={changeWorld} />
+          {cli.status === 'loaded' && world !== 'cli' && (
+            <span className="flex items-center gap-1 text-xs text-gf-muted">
+              CLI characters
+              {(['live', 'today'] as const).map(scope => (
+                <button key={scope} type="button" onClick={() => setCliScope(scope)} aria-pressed={cliScope === scope}
+                  className="min-h-9 rounded-lg border border-gf-line2 px-2.5 text-xs font-semibold hover:border-gf-accent aria-pressed:border-gf-accent aria-pressed:bg-gf-accent-soft aria-pressed:text-gf-accent-ink">
+                  {scope === 'live' ? 'Live' : 'Today'}
+                </button>
+              ))}
+            </span>
+          )}
+        </div>
 
         {state.status === 'loading' && <p role="status" className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">Loading Agent World snapshot…</p>}
         {state.status === 'redirecting' && <p role="status" className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">Redirecting to sign in…</p>}
@@ -230,6 +264,11 @@ export default function AgentWorldPage() {
             <p>{state.message}</p>
             <button type="button" onClick={() => void load()} className="min-h-9 rounded-lg border border-red-700 px-3 font-semibold hover:bg-red-900/50">Retry</button>
           </div>
+        )}
+        {cli.status === 'error' && (
+          <p role="alert" className="rounded-xl border border-red-900 bg-red-950/60 p-4 text-sm text-red-100">
+            CLI sessions unavailable — {cli.message}
+          </p>
         )}
         {state.status === 'loaded' && (
           <>
@@ -242,22 +281,36 @@ export default function AgentWorldPage() {
             )}
             {world === 'forge' && (
               <>
-                <ForgeWorldScene agents={state.data.agents} tasks={state.data.tasks} boss={state.data.boss} />
+                <ForgeWorldScene agents={mergedData.agents} tasks={state.data.tasks} boss={state.data.boss} />
+                <CliLanes world={cli.status === 'loaded' ? cli.world : undefined} now={now} onOpen={setCliSelected} />
                 <SourceList connectors={state.data.connectors} />
               </>
             )}
             {world === 'town' && (
               <>
                 <AiTownControls />
-                <TownWorld data={state.data} boss={state.data.boss} />
+                <TownWorld data={mergedData} boss={state.data.boss} />
               </>
             )}
             {world === 'office' && (
               <>
                 <AgentOfficeControls />
-                <OfficeWorld data={state.data} boss={state.data.boss} />
+                <OfficeWorld data={mergedData} boss={state.data.boss} />
                 <AgentOfficeMap sessions={state.officeSessions} emptyMessage="No sessions were reported by the available snapshots." />
               </>
+            )}
+            {world === 'cli' && cli.status === 'loaded' && (
+              <CliDashboard world={cli.world} now={now} onOpen={setCliSelected} />
+            )}
+            {world === 'cli' && cli.status === 'loading' && (
+              <p role="status" className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">
+                Reading CLI sessions (the first load parses this week&apos;s transcripts)…
+              </p>
+            )}
+            {world === 'cli' && cli.status === 'disabled' && (
+              <p role="status" className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">
+                CLI sessions are turned off for this server (GF_CLI_SESSIONS=0).
+              </p>
             )}
             {world === 'maintainer' && (
               <>
@@ -279,6 +332,11 @@ export default function AgentWorldPage() {
           </>
         )}
       </div>
+      <SessionDrawer
+        id={cliSelected}
+        heartbeat={cli.status === 'loaded' ? cli.world.heartbeat : undefined}
+        onClose={() => setCliSelected(undefined)}
+      />
     </main>
   )
 }
