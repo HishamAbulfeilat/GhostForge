@@ -14,12 +14,14 @@
 
 import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
+const { MAX_BUFFER } = createRequire(import.meta.url)('../spawn-limits.cjs')
 import { stateDir, loadBoard, readMessages, say, writeResult, readJSON } from './lib/bus.mjs'
 
 /** The main worktree root — shared by every agent worktree. */
 export function mainRoot(cwd = process.cwd()) {
-  const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' }).trim()
+  const common = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8', maxBuffer: MAX_BUFFER }).trim()
   return path.dirname(common)
 }
 
