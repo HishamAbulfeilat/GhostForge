@@ -39,6 +39,30 @@ Likewise the Office view has Start/Stop/Open controls for the upstream
 harishkotra/agent-office app (Colyseus server + client on 127.0.0.1). See
 [Agent Office setup and smoke test](AGENT-OFFICE.md).
 
+## CLI sessions (Claude Code and Copilot)
+
+Agent World also shows this machine's **Claude Code** and **GitHub Copilot CLI**
+sessions. They come from `GET /api/agents/cli-sessions`, which requires
+`admin_tools` like `/api/agents` and can be switched off with
+`GF_CLI_SESSIONS=0`.
+
+- The **CLI Sessions** tab lists them with usage, cost, tool counts, subagents,
+  errors and health; selecting one opens its detail.
+- CLI sessions also appear as **characters** in Forge World, Agent Town and
+  Agent Office next to the runtime agents, each tagged with its source. Use the
+  Live / Today toggle next to the world switcher to include sessions that
+  finished recently.
+- The collector (`web-ui/lib/cli-sessions.mjs`) reads `~/.claude/projects`
+  transcripts and `~/.copilot/session-store.db` (read-only) on the server's
+  machine. Transcripts are parsed incrementally from their last byte offset.
+
+Privacy: metadata only. Cost and token totals come from Claude Code's own
+`cost-state` records and Copilot's aggregate columns; prompts, messages, tool
+arguments, tool output, checkpoint notes and Copilot's prompt-text `summary`
+column are never returned. Subagents are reported by type only. A standalone
+copy of this collector runs outside the repo as the external Agent World app —
+keep the two in step when changing what is read.
+
 ## Local-only default and connector configuration
 
 With `GF_AGENT_SESSION_CONNECTORS` unset or empty, the API makes no external
