@@ -89,9 +89,9 @@ export default function MarketplacePage() {
       {/* ── Header ── */}
       <header className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#030712]/90 backdrop-blur">
         <div className="flex items-center gap-2 px-4 py-2.5">
-          <Link href="/dashboard" className="text-gray-500 hover:text-white transition text-lg leading-none">‹</Link>
+          <Link href="/dashboard" aria-label="Back to dashboard" className="text-gray-500 hover:text-white transition text-lg leading-none">‹</Link>
           <span className="text-sm font-bold text-white">👻 GhostForge</span>
-          <span className="text-[10px] font-mono text-gray-600 hidden sm:block">MARKETPLACE</span>
+          <h1 className="sr-only text-[10px] font-mono font-normal text-gray-600 sm:not-sr-only">MARKETPLACE</h1>
           <div className="ms-auto flex items-center gap-2">
             <Link href="/settings" className="rounded border border-amber-800/50 bg-amber-950/30 px-2 py-1 text-xs text-amber-300 hover:bg-amber-900/40 transition">
               ⚙️ Models
@@ -113,6 +113,7 @@ export default function MarketplacePage() {
             <button
               key={tab.key}
               type="button"
+              aria-pressed={activeTab === tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={`rounded-t px-3 py-1.5 text-xs font-medium transition border border-b-0 ${
                 activeTab === tab.key
@@ -197,7 +198,7 @@ function ClaudeTab() {
   })
 
   return (
-    <>
+    <main>
       <div className="space-y-2 px-4 py-3">
         <input
           type="search"
@@ -218,9 +219,10 @@ function ClaudeTab() {
         <span className="text-[10px] text-gray-600">{filtered.length} of {sources.length} entries</span>
       </div>
 
-      <main className="px-4 pb-8 max-w-6xl mx-auto">
+      <div className="px-4 pb-8 max-w-6xl mx-auto">
         {loading ? (
-          <div className="flex h-40 items-center justify-center">
+          <div role="status" className="flex h-40 items-center justify-center">
+            <span className="sr-only">Loading…</span>
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-transparent border-t-fuchsia-400" />
           </div>
         ) : filtered.length === 0 ? (
@@ -274,8 +276,8 @@ function ClaudeTab() {
             })}
           </div>
         )}
-      </main>
-    </>
+      </div>
+    </main>
   )
 }
 
@@ -333,7 +335,7 @@ function CommandsTab() {
   })
 
   return (
-    <>
+    <main>
       {/* Search + filters */}
       <div className="space-y-2 px-4 py-3">
         <input
@@ -370,9 +372,10 @@ function CommandsTab() {
         <span className="text-[10px] text-gray-600">{filtered.length} items</span>
       </div>
 
-      <main className="px-4 pb-8 max-w-6xl mx-auto">
+      <div className="px-4 pb-8 max-w-6xl mx-auto">
         {loading ? (
-          <div className="flex h-40 items-center justify-center">
+          <div role="status" className="flex h-40 items-center justify-center">
+            <span className="sr-only">Loading…</span>
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-transparent border-t-sky-400" />
           </div>
         ) : filtered.length === 0 ? (
@@ -418,8 +421,8 @@ function CommandsTab() {
             })}
           </div>
         )}
-      </main>
-    </>
+      </div>
+    </main>
   )
 }
 
@@ -466,7 +469,7 @@ function HuggingFaceTab() {
   }, [models, typeFilter])
 
   return (
-    <>
+    <main>
       {/* Search + controls */}
       <div className="space-y-2 px-4 py-3">
         <div className="flex gap-2">
@@ -508,9 +511,10 @@ function HuggingFaceTab() {
         <span className="text-[10px] text-gray-600">{displayModels.length} models</span>
       </div>
 
-      <main className="px-4 pb-8 max-w-6xl mx-auto">
+      <div className="px-4 pb-8 max-w-6xl mx-auto">
         {loading ? (
-          <div className="flex h-40 items-center justify-center">
+          <div role="status" className="flex h-40 items-center justify-center">
+            <span className="sr-only">Loading…</span>
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-transparent border-t-violet-400" />
           </div>
         ) : displayModels.length === 0 ? (
@@ -527,8 +531,8 @@ function HuggingFaceTab() {
             ))}
           </div>
         )}
-      </main>
-    </>
+      </div>
+    </main>
   )
 }
 
@@ -562,7 +566,7 @@ function AwesomeLLMTab() {
   useEffect(() => { void loadApps() }, [loadApps])
 
   return (
-    <>
+    <main>
       {/* Search + categories */}
       <div className="space-y-2 px-4 py-3">
         <input
@@ -599,9 +603,10 @@ function AwesomeLLMTab() {
         <span className="text-[10px] text-gray-600">{apps.length} apps</span>
       </div>
 
-      <main className="px-4 pb-8 max-w-6xl mx-auto">
+      <div className="px-4 pb-8 max-w-6xl mx-auto">
         {loading ? (
-          <div className="flex h-40 items-center justify-center">
+          <div role="status" className="flex h-40 items-center justify-center">
+            <span className="sr-only">Loading…</span>
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-transparent border-t-amber-400" />
           </div>
         ) : apps.length === 0 ? (
@@ -645,7 +650,7 @@ function AwesomeLLMTab() {
             ))}
           </div>
         )}
-      </main>
-    </>
+      </div>
+    </main>
   )
 }
