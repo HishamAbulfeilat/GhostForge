@@ -77,6 +77,65 @@ test('osascript is spawned with an argv array, never through a shell', () => {
   assert.equal(/shell:\s*true/.test(src), false, 'no shell:true anywhere in nutjs.js')
 })
 
+/**
+ * Load a fresh nutjs.js as if on macOS without nut.js, with execFile stubbed
+ * so every osascript invocation is captured instead of run. This exercises the
+ * real darwin code path on any OS.
+ */
+function loadDarwinNutjs() {
+  const childProcess = require('node:child_process')
+  const realExecFile = childProcess.execFile
+  const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
+  const calls = []
+  childProcess.execFile = (file, args, opts, cb) => {
+    calls.push({ file, args })
+    ;(typeof opts === 'function' ? opts : cb)(null, '', '')
+  }
+  Object.defineProperty(process, 'platform', { value: 'darwin' })
+  delete require.cache[require.resolve(NUTJS)]
+  try {
+    const mod = require(NUTJS)
+    assert.equal(mod.nutJsAvailable, false, 'test assumes @nut-tree/nut-js is not installed')
+    return { mod, calls }
+  } finally {
+    // nutjs.js captured both at load time; restore for the rest of the run.
+    childProcess.execFile = realExecFile
+    Object.defineProperty(process, 'platform', realPlatform)
+    delete require.cache[require.resolve(NUTJS)]
+  }
+}
+
+test('pressKey rejects unknown keys instead of interpolating them into AppleScript', async () => {
+  const { mod, calls } = loadDarwinNutjs()
+  const attacks = [
+    '0\ndo shell script "id > /tmp/pwned"\nkey code 36',
+    '36 & (do shell script "id")',
+    'constructor',
+    '__proto__',
+  ]
+  for (const key of attacks) {
+    const out = await mod.pressKey(key)
+    assert.match(out, /^Unsupported key/, `expected rejection for ${JSON.stringify(key)}`)
+  }
+  assert.deepEqual(calls, [], 'a rejected key must never reach osascript')
+})
+
+test('pressKey and scroll only ever emit an integer key code', async () => {
+  const { mod, calls } = loadDarwinNutjs()
+  await mod.pressKey('enter')
+  await mod.pressKey('ESCAPE')
+  await mod.pressKey('page-down')
+  await mod.scroll('up')
+  await mod.scroll('down')
+
+  const scripts = calls.map(c => {
+    assert.equal(c.file, 'osascript')
+    assert.equal(c.args[0], '-e')
+    return c.args[1]
+  })
+  assert.deepEqual(scripts, [36, 53, 121, 116, 121].map(n => `tell application "System Events" to key code ${n}`))
+})
+
 test('hostile keystroke payloads survive the environment hand-off unchanged', () => {
   // Why the hand-off matters: with the old quotes-only escaping, 'a\"' became
   // 'a\\"' — a literal backslash followed by an *unescaped* quote that closes
