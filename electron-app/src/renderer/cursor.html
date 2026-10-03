@@ -245,14 +245,39 @@
       });
     }
 
-    // Also support direct postMessage for testing
+    // Also support direct postMessage for testing.
+    // The overlay is loaded from disk with loadFile(), so its origin is opaque
+    // and serializes to 'null'. An origin check alone would therefore accept a
+    // message from any other file:// document, so the source must be this very
+    // window as well; anything else is ignored.
+    const SELF_ORIGIN = window.location.origin;
+
+    function isFromSelf(event) {
+      return event.source === window && event.origin === SELF_ORIGIN;
+    }
+
+    // A label is free text, so it is only ever assigned as textContent, and the
+    // coordinates must be finite numbers before they reach the overlay styles.
+    function readTarget(data) {
+      if (!data || typeof data.target !== 'object' || data.target === null) return null;
+      const { x, y, label } = data.target;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+      return { x, y, label: typeof label === 'string' ? label : undefined };
+    }
+
     window.addEventListener('message', (event) => {
-      if (event.data.type === 'cursor:point') {
-        const target = event.data.target;
+      if (!isFromSelf(event)) return;
+
+      const data = event.data;
+      if (!data || typeof data.type !== 'string') return;
+
+      if (data.type === 'cursor:point') {
+        const target = readTarget(data);
+        if (!target) return;
         const fromX = currentX || target.x - 100;
         const fromY = currentY || target.y - 100;
         animate(fromX, fromY, target.x, target.y, target.label);
-      } else if (event.data.type === 'cursor:hide') {
+      } else if (data.type === 'cursor:hide') {
         hideCursor();
       }
     });
