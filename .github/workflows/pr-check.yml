@@ -64,6 +64,62 @@ jobs:
         working-directory: tui
         run: npm test
 
+  # T-223: every other job here is ubuntu-only, so the cmd.exe half of
+  # test/bridge-launcher.test.js never ran in CI. That case is the only thing
+  # proving a repo root containing & ^ ( ) cannot split the command line into
+  # extra commands, so it needs a Windows runner.
+  bridge-launcher-windows:
+    name: bridge launcher (windows / cmd.exe)
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web-ui/package-lock.json
+
+      # The test transpiles lib/bridge-launcher.ts and the bridge-start route
+      # in-process, so it needs the web-ui devDependencies (typescript).
+      - name: Install dependencies
+        working-directory: web-ui
+        run: npm ci
+
+      # On Windows the execution case must actually EXECUTE. A skip or a todo —
+      # a wrong platform guard, say — would make this job pass without ever
+      # touching cmd.exe, so the TAP result line is asserted explicitly.
+      - name: Bridge launcher execution test (cmd.exe)
+        shell: bash
+        working-directory: web-ui
+        run: |
+          # The test's exit status is captured explicitly rather than trusted to
+          # pipefail: the guard below runs more commands after the pipeline, and
+          # a trailing successful command would become the step's exit status,
+          # turning a genuinely failing test green.
+          node --test --test-reporter=tap test/bridge-launcher.test.js 2>&1 | tee "$RUNNER_TEMP/bridge-launcher.tap"
+          TEST_STATUS=${PIPESTATUS[0]}
+          CASE='the resolved launcher runs the real script from a root containing spaces and metacharacters'
+          # Anchored to the whole `ok N - <name>` result line. A case that was
+          # skipped or marked todo ends in a TAP directive (`# SKIP`, `# TODO`)
+          # and so fails this match; anchoring also stops a renamed test that
+          # merely contains the old name from satisfying it. Both are ways the
+          # job could go green without cmd.exe ever running.
+          LINE=$(grep -E "^ok [0-9]+ - ${CASE}\$" "$RUNNER_TEMP/bridge-launcher.tap" || true)
+          if [ -z "$LINE" ]; then
+            echo "::error::cmd.exe execution case did not report ok — missing, renamed, skipped, todo, or failed"
+            exit 1
+          fi
+          echo "Executed, not skipped: $LINE"
+          if [ "$TEST_STATUS" -ne 0 ]; then
+            echo "::error::bridge launcher tests failed (exit $TEST_STATUS)"
+            exit "$TEST_STATUS"
+          fi
+
   pr-check:
     name: GhostForge PR Quality Checks
     runs-on: ubuntu-latest
