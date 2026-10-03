@@ -30,7 +30,7 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # Mark-LIV (vendored JARVIS engine) provides the `actions`, `core` and `memory`
 # packages imported below. MARK_LIV_DIR overrides the vendored copy.
@@ -2599,6 +2599,35 @@ def github_dashboard_get():
     import github_dashboard
 
     return github_dashboard.dashboard()
+
+
+class SecurityScanRequest(BaseModel):
+    """Optional allowlisted scanner id; paths, args and env are never accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+    scanner: Optional[str] = None
+
+
+@app.get("/api/security-scan", dependencies=[Depends(require_token)])
+def security_scan_status():
+    """Which defensive scanners (gitleaks, osv-scanner, semgrep) are installed."""
+    import security_scan
+
+    return security_scan.status()
+
+
+@app.post("/api/security-scan", dependencies=[Depends(require_token)])
+def security_scan_run(req: Optional[SecurityScanRequest] = None):
+    """Run one allowlisted scanner (or all) against the repo root with a fixed argv."""
+    import security_scan
+
+    scanner = req.scanner if req else None
+    if scanner is not None and scanner not in security_scan.SCANNERS:
+        raise HTTPException(status_code=400, detail="Unknown scanner")
+    try:
+        return security_scan.run(scanner)
+    except security_scan.Busy:
+        raise HTTPException(status_code=409, detail="A security scan is already running") from None
 
 
 _MARKETPLACE_DIR = Path(__file__).resolve().parent.parent / "marketplace"
