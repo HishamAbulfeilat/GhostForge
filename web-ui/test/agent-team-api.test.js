@@ -147,7 +147,10 @@ test('snapshot includes workflow leadership and task metadata', () => {
   fs.writeFileSync(path.join(stateDir, 'board.json'), JSON.stringify({
     phase: 4,
     workflow: { mode: 'ordered' },
-    tasks: [{ id: 'T-042', title: 'Ship orchestrator', kind: 'feature', status: 'in-progress', owner: 'copilot', assignee: 'copilot', leader: 'copilot', dependencies: ['T-041'], acceptanceCriteria: ['Ship', 'Verify'] }],
+    tasks: [
+      { id: 'T-042', title: 'Ship orchestrator', kind: 'feature', status: 'in-progress', owner: 'copilot', assignee: 'copilot', leader: 'copilot', dependencies: ['T-041'], acceptanceCriteria: ['Ship', 'Verify'] },
+      { id: 'T-043', title: 'Blocked work', kind: 'bugfix', status: 'blocked', owner: null, attempts: 3, updatedAt: '2026-10-01T02:15:00.000Z', lastFailure: `${'x'.repeat(5000)}END` },
+    ],
   }))
 
   const snapshot = readAgentTeamSnapshot(root)
@@ -159,6 +162,15 @@ test('snapshot includes workflow leadership and task metadata', () => {
   assert.equal(snapshot.snapshot.tasks[0].assignee, 'copilot')
   assert.deepEqual(snapshot.snapshot.tasks[0].dependencies, ['T-041'])
   assert.deepEqual(snapshot.snapshot.tasks[0].acceptanceCriteria, ['Ship', 'Verify'])
+  assert.deepEqual(
+    [snapshot.snapshot.tasks[0].lastFailure, snapshot.snapshot.tasks[0].attempts, snapshot.snapshot.tasks[0].updatedAt],
+    [null, null, null],
+  )
+  const blocked = snapshot.snapshot.tasks[1]
+  assert.equal(blocked.attempts, 3)
+  assert.equal(blocked.updatedAt, '2026-10-01T02:15:00.000Z')
+  assert.equal(blocked.lastFailure.length, 4000)
+  assert.ok(blocked.lastFailure.endsWith('END'))
 })
 
 test('TypeScript snapshot exposes the boss and marks disabled workers unavailable', () => {

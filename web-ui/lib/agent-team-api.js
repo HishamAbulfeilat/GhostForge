@@ -281,6 +281,10 @@ function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverri
       leader: typeof info.leader === 'string' && info.leader.trim() ? info.leader.trim() : workflowLeader,
       dependencies,
       acceptanceCriteria,
+      // The boss keeps the tail of each rejection (up to 4000 chars); never forward more than that.
+      lastFailure: typeof info.lastFailure === 'string' ? info.lastFailure.slice(-4000) : null,
+      attempts: typeof info.attempts === 'number' && Number.isInteger(info.attempts) && info.attempts >= 0 ? info.attempts : null,
+      updatedAt: typeof info.updatedAt === 'string' && info.updatedAt.trim() ? info.updatedAt.trim() : null,
     }
   }) : []
 
