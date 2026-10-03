@@ -57,6 +57,15 @@ issues, open PRs and recent workflow runs (20 each) for `GHOSTFORGE_GITHUB_REPO`
 is never logged or returned. If neither is available, or the call fails, it
 returns `{ ok: false, available: false, reason, ... }` with empty lists.
 
+### Command catalog
+
+`GET /api/commands` (bridge token required, read-only) returns
+`{ ok, count, commands: [{ name, description, kind, path }] }` for the repo's
+`commands/*.md` (`kind: "command"`) and top-level `scripts/*` (`kind: "script"`).
+`commands_catalog.py` only lists names and reads a one-line description from the
+first 2 KB of each file; it never executes or serves file contents, and entries
+or directories that resolve outside `commands/` / `scripts/` are skipped.
+
 ### Security scan
 
 Defensive scanners only (`security_scan.py`), bridge token required:
