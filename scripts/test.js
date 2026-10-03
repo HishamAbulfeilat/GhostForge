@@ -97,6 +97,14 @@ check('read-only files CLI tests pass', () => {
   );
 });
 
+check('Hugging Face models search tests pass', () => {
+  execFileSync(
+    process.execPath,
+    ['--test', 'scripts/test/hf-search.test.mjs'],
+    { cwd: ROOT, stdio: 'pipe' }
+  );
+});
+
 check('managed worlds runtime tests pass', () => {
   execFileSync(
     process.execPath,
