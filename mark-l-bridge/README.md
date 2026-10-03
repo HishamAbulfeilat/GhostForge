@@ -88,6 +88,20 @@ ollama_reachable, openjarvis_enabled, mark_lv_vendor_present }`. Environment
 variables are reported by name as `true`/`false` (set or not); values are never
 returned. Ollama is probed with a 1 s request to `localhost:11434`.
 
+### Free APIs/models and design resources
+
+Read-only, bridge token required (`resource_catalogs.py`); both reuse existing
+sources rather than duplicating data:
+
+| Endpoint | Returns | Source |
+|----------|---------|--------|
+| `GET /api/free-apis` | `{ ok, count, providers: [{ id, name, paid, key_env, key_set, key_url, default_model }], free_api_resources }` | `web-ui/lib/providers.ts`, `marketplace/catalog.json` |
+| `GET /api/design-resources` | `{ ok, design_resources, design_marketplace, vigolium, open_source_tools }` | `web-ui/app/design-resources`, `web-ui/app/open-source-tools`, `marketplace/catalog.json` |
+
+`key_set` is `true`/`false` for whether the provider's key environment variable
+is set (`null` when no key is needed); key values are never returned. Only
+`http(s)` URLs are emitted.
+
 ### Security scan
 
 Defensive scanners only (`security_scan.py`), bridge token required:

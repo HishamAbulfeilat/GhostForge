@@ -2679,6 +2679,22 @@ def setup_status_endpoint():
     )
 
 
+@app.get("/api/free-apis", dependencies=[Depends(require_token)])
+def free_apis_catalog():
+    """Read-only free APIs/models catalog; reports only whether each key is set."""
+    import resource_catalogs as rc
+
+    return rc.build_free_catalog()
+
+
+@app.get("/api/design-resources", dependencies=[Depends(require_token)])
+def design_resources_catalog():
+    """Read-only design resources, Vigolium and open-source tools catalog."""
+    import resource_catalogs as rc
+
+    return rc.build_design_catalog()
+
+
 @app.get("/api/snippets", dependencies=[Depends(require_token)])
 def snippets_list():
     """Read-only list of snippets/ files plus the readable root documents."""
