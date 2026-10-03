@@ -139,11 +139,11 @@ export default function SetupPage() {
   }
 
   if (!state) {
-    return <div className="grid min-h-[calc(100dvh-64px)] place-items-center bg-gf-bg font-plex text-gf-muted">{error || 'Loading…'}</div>
+    return <main className="grid min-h-[calc(100dvh-64px)] place-items-center bg-gf-bg font-plex text-gf-muted"><p role={error ? 'alert' : 'status'}>{error || 'Loading…'}</p></main>
   }
 
   return (
-    <div className="min-h-[calc(100dvh-64px)] bg-gf-bg font-plex text-gf-ink">
+    <main className="min-h-[calc(100dvh-64px)] bg-gf-bg font-plex text-gf-ink">
       <div className="mx-auto grid max-w-6xl lg:grid-cols-2">
         <section className="flex flex-col gap-8 border-gf-line px-6 py-10 sm:px-12 lg:border-e lg:py-16">
           <ol className="flex items-center gap-2 text-sm text-gf-muted" aria-label="Setup steps">
@@ -258,6 +258,6 @@ export default function SetupPage() {
           )}
         </section>
       </div>
-    </div>
+    </main>
   )
 }
