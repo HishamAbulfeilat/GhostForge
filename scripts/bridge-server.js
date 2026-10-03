@@ -77,20 +77,41 @@ function tokenize(command) {
   return args
 }
 
+/**
+ * Buffer the request body, then hand the parsed object to `onBody`.
+ *
+ * The cap is on BYTES. `body.length` counts UTF-16 code units, not bytes, so a
+ * character cap lets a body carry up to 3x MAX_BODY_BYTES of real bytes past
+ * the limit: any BMP character from U+0800 up — Arabic, Devanagari, CJK — is
+ * 3 bytes but one unit. (Astral characters are surrogate pairs, so an emoji is
+ * 4 bytes per 2 units.) `+=` grew that string before checking it, so the
+ * overshoot was retained too, and per-chunk decoding turned a character
+ * straddling a chunk boundary into U+FFFD on both sides. Chunks are kept as
+ * buffers instead, sized on `buf.length` before any of them is retained, and
+ * decoded once at the end.
+ */
 function readJsonBody(req, res, onBody) {
-  let body = ''
+  const chunks = []
+  let bytes = 0
   let tooLarge = false
   req.on('data', chunk => {
     if (tooLarge) return
-    body += chunk
-    if (body.length > MAX_BODY_BYTES) {
+    // Chunks are buffers unless an encoding was set on the stream, in which
+    // case `chunk.length` would count characters again and reopen the hole.
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    bytes += buf.length
+    if (bytes > MAX_BODY_BYTES) {
       tooLarge = true
+      chunks.length = 0 // release what we already held, we are refusing it
       respond(res, 413, { error: 'Request body too large' })
       req.destroy()
+      return
     }
+    chunks.push(buf)
   })
   req.on('end', () => {
     if (tooLarge) return
+    const body = Buffer.concat(chunks).toString('utf8')
     let payload
     try {
       payload = JSON.parse(body || '{}')
