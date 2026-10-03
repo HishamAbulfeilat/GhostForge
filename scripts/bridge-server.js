@@ -23,13 +23,36 @@ const { execFileSync } = require('child_process')
 const fs = require('fs')
 const os = require('os')
 
-const token = fs.readFileSync(process.env.BRIDGE_TOKEN_FILE, 'utf8').trim()
+/**
+ * Read BRIDGE_TOKEN_FILE without leaking the stack trace of a missing or
+ * unreadable file: `readFileSync` would otherwise throw at module load and
+ * dump a stack (including the token path) into the bridge log on every start.
+ */
+function readTokenFile(file) {
+  if (!file) {
+    console.error('[bridge] BRIDGE_TOKEN_FILE is not set — start the bridge with scripts/bridge.sh or bridge.cmd')
+    process.exit(1)
+  }
+  try {
+    return fs.readFileSync(file, 'utf8').trim()
+  } catch (error) {
+    console.error(`[bridge] cannot read the token file (${error.code || 'unknown error'})`)
+    process.exit(1)
+  }
+}
+
+const token = readTokenFile(process.env.BRIDGE_TOKEN_FILE)
 const ROOT = process.env.BRIDGE_ROOT
+if (!ROOT) {
+  console.error('[bridge] BRIDGE_ROOT is not set — start the bridge with scripts/bridge.sh or bridge.cmd')
+  process.exit(1)
+}
 const READY_FILE = process.env.BRIDGE_READY_FILE
 const PORT = Number(process.env.BRIDGE_PORT || 4747)
 const HOST = process.env.BRIDGE_HOST || '127.0.0.1'
 const MAX_BODY_BYTES = 1024 * 1024
 const MAX_PROMPT_CHARS = 8000
+const MAX_OUTPUT_CHARS = 20000
 
 const EXTRA_PATHS = process.platform === 'win32' ? [] : ['/usr/local/bin', '/opt/homebrew/bin']
 const CHILD_PATH = [process.env.PATH || '', ...EXTRA_PATHS].filter(Boolean).join(path.delimiter)
@@ -101,9 +124,27 @@ function runGhostforge(args) {
   }).toString().trim()
 }
 
-function errorOutput(error) {
-  if (error && error.stdout && error.stdout.length) return error.stdout.toString().trim()
-  return error instanceof Error ? error.message : String(error)
+/**
+ * Describe a failed child process for the server log only.
+ *
+ * execFileSync errors carry the full command line, the cwd, the PATH and a
+ * stack trace — useful here, but never sent to a caller. Callers get
+ * `clientErrorOutput()` instead: the child's own stdout/stderr (which the
+ * script itself chose to print) and, failing that, a generic message.
+ */
+function logError(context, error) {
+  if (!error) return
+  const detail = error.stack || error.message || String(error)
+  console.error(`[bridge] ${context}: ${detail}`)
+}
+
+/** Client-safe output for a failed command: child output, or a generic line. */
+function clientErrorOutput(error) {
+  const out = error && error.stdout && error.stdout.length ? error.stdout.toString().trim() : ''
+  const err = error && error.stderr && error.stderr.length ? error.stderr.toString().trim() : ''
+  const text = out || err
+  if (!text) return 'Command failed. Check the bridge log on the host machine.'
+  return text.length > MAX_OUTPUT_CHARS ? `${text.slice(0, MAX_OUTPUT_CHARS)}\n… output truncated` : text
 }
 
 const server = http.createServer((req, res) => {
@@ -131,7 +172,8 @@ const server = http.createServer((req, res) => {
       try {
         respond(res, 200, { output: runCopilot(prompt), mode, prompt })
       } catch (error) {
-        respond(res, 200, { output: errorOutput(error), error: true })
+        logError('copilot failed', error)
+        respond(res, 200, { output: clientErrorOutput(error), error: true })
       }
     })
     return
@@ -154,7 +196,8 @@ const server = http.createServer((req, res) => {
           respond(res, 403, { error: 'Only ghostforge commands are allowed' })
         }
       } catch (error) {
-        respond(res, 200, { output: errorOutput(error), error: true })
+        logError('execute failed', error)
+        respond(res, 200, { output: clientErrorOutput(error), error: true })
       }
     })
     return
