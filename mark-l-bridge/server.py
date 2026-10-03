@@ -2630,6 +2630,34 @@ def security_scan_run(req: Optional[SecurityScanRequest] = None):
         raise HTTPException(status_code=409, detail="A security scan is already running") from None
 
 
+class CodeHealthRequest(BaseModel):
+    """Allowlisted script id only; paths, args and env are never accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+    script: str
+
+
+@app.get("/api/code-health", dependencies=[Depends(require_token)])
+def code_health_status():
+    """Which allowlisted code-health/coverage scripts can run."""
+    import code_health
+
+    return code_health.status()
+
+
+@app.post("/api/code-health", dependencies=[Depends(require_token)])
+def code_health_run(req: CodeHealthRequest):
+    """Run one allowlisted script (perf, bundle, unused, dep-health, coverage) with a fixed argv."""
+    import code_health
+
+    if req.script not in code_health.SCRIPTS:
+        raise HTTPException(status_code=400, detail="Unknown script")
+    try:
+        return code_health.run(req.script)
+    except code_health.Busy:
+        raise HTTPException(status_code=409, detail="A code-health run is already in progress") from None
+
+
 @app.get("/api/commands", dependencies=[Depends(require_token)])
 def commands_catalog():
     """Read-only catalog of commands/ and scripts/ entries (name/description/kind)."""
@@ -2637,6 +2665,34 @@ def commands_catalog():
 
     items = cc.list_commands()
     return {"ok": True, "count": len(items), "commands": items}
+
+
+@app.get("/api/setup/status", dependencies=[Depends(require_token)])
+def setup_status_endpoint():
+    """Read-only setup/environment status: presence flags and versions, never values."""
+    import setup_status as ss
+
+    return ss.build_status(
+        version=app.version,
+        openjarvis_enabled=_HAS_OPENJARVIS,
+        token_configured=bool(_read_bridge_token()),
+    )
+
+
+@app.get("/api/free-apis", dependencies=[Depends(require_token)])
+def free_apis_catalog():
+    """Read-only free APIs/models catalog; reports only whether each key is set."""
+    import resource_catalogs as rc
+
+    return rc.build_free_catalog()
+
+
+@app.get("/api/design-resources", dependencies=[Depends(require_token)])
+def design_resources_catalog():
+    """Read-only design resources, Vigolium and open-source tools catalog."""
+    import resource_catalogs as rc
+
+    return rc.build_design_catalog()
 
 
 @app.get("/api/snippets", dependencies=[Depends(require_token)])

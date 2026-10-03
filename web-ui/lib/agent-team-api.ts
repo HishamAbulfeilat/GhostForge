@@ -161,6 +161,9 @@ function readJsonFile<T>(filePath: string, fallback: T): T {
   }
 }
 
+// The boss keeps the tail of each rejection (up to 4000 chars); never forward more than that.
+const MAX_TASK_FAILURE_LENGTH = 4000
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -316,7 +319,7 @@ export function getStateDirectory(workspaceRoot = repoRootFromLib(), stateDirOve
   }
 }
 
-export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): { snapshot: { health: number | null; running: boolean; agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; since: string | null; cooldownUntil: string | null; leader: boolean; assignee: string | null; role: string | null; strengths: string[]; enabled: boolean }>; boss?: { provider: string | null; state: string; task: string | null; model: string | null; since: string | null; cooldownUntil: string | null; leader: boolean; assignee: string | null; role: string; strengths: string[]; enabled: boolean }; tasks: Array<{ id: string | null; title: string; kind: string; status: string; owner: string | null; assignee: string | null; leader: string | null; dependencies: string[]; acceptanceCriteria: string[] }>; messages: Array<Record<string, unknown>>; phase: number; workflow: { leader: string | null; mode: string; specialists: string[] } } } {
+export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDirOverride = process.env.GF_AGENT_STATE): { snapshot: { health: number | null; running: boolean; agents: Record<string, { provider: string | null; state: string; task: string | null; model: string | null; since: string | null; cooldownUntil: string | null; leader: boolean; assignee: string | null; role: string | null; strengths: string[]; enabled: boolean }>; boss?: { provider: string | null; state: string; task: string | null; model: string | null; since: string | null; cooldownUntil: string | null; leader: boolean; assignee: string | null; role: string; strengths: string[]; enabled: boolean }; tasks: Array<{ id: string | null; title: string; kind: string; status: string; owner: string | null; assignee: string | null; leader: string | null; dependencies: string[]; acceptanceCriteria: string[]; lastFailure: string | null; attempts: number | null; updatedAt: string | null }>; messages: Array<Record<string, unknown>>; phase: number; workflow: { leader: string | null; mode: string; specialists: string[] } } } {
   const root = resolveWorkspaceRoot(workspaceRoot)
   const stateDir = getStateDirectory(root, stateDirOverride)
   const status = asRecord(readJsonFile<unknown>(path.join(stateDir, 'status.json'), null))
@@ -389,6 +392,9 @@ export function readAgentTeamSnapshot(workspaceRoot = repoRootFromLib(), stateDi
       leader: normalizedString(info.leader) ?? workflowLeader,
       dependencies,
       acceptanceCriteria,
+      lastFailure: typeof info.lastFailure === 'string' ? info.lastFailure.slice(-MAX_TASK_FAILURE_LENGTH) : null,
+      attempts: typeof info.attempts === 'number' && Number.isInteger(info.attempts) && info.attempts >= 0 ? info.attempts : null,
+      updatedAt: normalizedString(info.updatedAt),
     }
   }) : []
 

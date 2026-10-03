@@ -16,7 +16,7 @@ test('Navbar links to /snippets', () => {
 
 test('CommandPalette has a keyboard-navigable Snippets command for /snippets', () => {
   const palette = read('components/CommandPalette.tsx')
-  assert.match(palette, /id:\s*'snippets'[^\n]*navigate\('\/snippets'\)/)
+  assert.match(palette, /id:\s*'snippets'[^\n]*go\('\/snippets'\)/)
   assert.match(palette, /ArrowDown/)
   assert.match(palette, /Enter/)
 })

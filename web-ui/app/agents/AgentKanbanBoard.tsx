@@ -3,14 +3,22 @@
 import { useEffect, useState } from 'react'
 import {
   BOARD_COLUMNS,
+  buildAgentHistory,
   buildDependencyGraph,
+  buildHealthTrend,
   countOpenTasks,
+  describeHealthTrend,
+  DETAIL_STATUSES,
   findAgentTask,
   formatElapsed,
+  formatUpdatedAgo,
   getAgentProgress,
+  getTaskCardDetails,
   groupTasksByStatus,
   type Agent,
   type BoardStatus,
+  type HealthPoint,
+  type HistoryOutcome,
   type Task,
 } from './dashboard-model'
 
@@ -46,6 +54,32 @@ const agentStateStyles: Record<string, string> = {
   error: 'bg-red-950 text-red-200',
 }
 
+const outcomeStyles: Record<HistoryOutcome, string> = {
+  merged: 'bg-emerald-950 text-emerald-200',
+  bounced: 'bg-violet-950 text-violet-200',
+  blocked: 'bg-amber-950 text-amber-200',
+}
+
+function HealthTrendChart({ points }: { points: HealthPoint[] }) {
+  const description = describeHealthTrend(points)
+  if (!points.length) return <p className="text-sm text-gf-muted">{description}</p>
+  const width = 240
+  const height = 48
+  const coords = points.map((point, index) => {
+    const x = points.length > 1 ? (index * width) / (points.length - 1) : width / 2
+    const y = height - (Math.min(100, Math.max(0, point.score)) / 100) * height
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  })
+  return (
+    <div className="flex flex-col gap-2">
+      <svg role="img" aria-label={description} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="h-12 w-full max-w-xs text-gf-accent">
+        <polyline points={coords.join(' ')} fill="none" stroke="currentColor" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <p className="text-xs text-gf-muted">{description}</p>
+    </div>
+  )
+}
+
 function formatStatus(status: BoardStatus): string {
   return status === 'in-progress' ? 'In progress' : status[0].toUpperCase() + status.slice(1)
 }
@@ -70,6 +104,9 @@ export default function AgentKanbanBoard({
   const groupedTasks = groupTasksByStatus(tasks)
   const dependencyGraph = buildDependencyGraph(tasks)
   const recentMessages = messages.slice(-6).reverse()
+  const agentHistory = buildAgentHistory(messages)
+  const healthTrend = buildHealthTrend(messages)
+  const historyAgentIds = [...new Set([...Object.keys(agents), ...Object.keys(agentHistory)])]
 
   return (
     <div className="flex flex-col gap-6">
@@ -86,13 +123,34 @@ export default function AgentKanbanBoard({
                 <span className={`rounded-full px-2 py-1 text-xs ${badgeStyles[status]}`}>{groupedTasks[status].length}</span>
               </div>
               <div className="flex flex-col gap-2">
-                {groupedTasks[status].length ? groupedTasks[status].map((task, index) => (
-                  <article key={task.id || `${task.title}-${index}`} className="rounded-xl border border-gf-line bg-gf-surface p-3">
-                    <h4 className="break-words text-sm font-semibold">{task.title || 'Untitled task'}</h4>
-                    <p className="mt-2 text-xs text-gf-muted">{task.id || 'No task ID'} · {task.kind}</p>
-                    <p className="mt-1 truncate text-xs text-gf-muted">{task.owner || 'Unassigned'}</p>
-                  </article>
-                )) : <p className="rounded-xl border border-gf-line/70 bg-gf-surface/50 p-3 text-xs text-gf-muted">No tasks</p>}
+                {groupedTasks[status].length ? groupedTasks[status].map((task, index) => {
+                  const details = DETAIL_STATUSES.has(status) ? getTaskCardDetails(task) : null
+                  return (
+                    <article key={task.id || `${task.title}-${index}`} className="rounded-xl border border-gf-line bg-gf-surface p-3">
+                      <h4 className="break-words text-sm font-semibold">{task.title || 'Untitled task'}</h4>
+                      <p className="mt-2 text-xs text-gf-muted">{task.id || 'No task ID'} · {task.kind}</p>
+                      <p className="mt-1 truncate text-xs text-gf-muted">{task.owner || 'Unassigned'}</p>
+                      {details && (
+                        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 border-t border-gf-line pt-2 text-xs text-gf-muted">
+                          {(details.failure || status === 'blocked') && (
+                            <>
+                              <dt>{status === 'blocked' ? 'Reason' : 'Last failure'}</dt>
+                              <dd className={`min-w-0 break-words ${details.failure ? 'text-amber-200' : ''}`}>{details.failure ?? 'No reason recorded'}</dd>
+                            </>
+                          )}
+                          <dt>Attempts</dt>
+                          <dd className="text-gf-ink">{details.attempts ?? '—'}</dd>
+                          <dt>Updated</dt>
+                          <dd className="text-gf-ink">
+                            {details.updatedAt
+                              ? <time dateTime={details.updatedAt}>{now === null ? '—' : formatUpdatedAgo(details.updatedAt, now)}</time>
+                              : '—'}
+                          </dd>
+                        </dl>
+                      )}
+                    </article>
+                  )
+                }) :<p className="rounded-xl border border-gf-line/70 bg-gf-surface/50 p-3 text-xs text-gf-muted">No tasks</p>}
               </div>
             </section>
           ))}
@@ -203,6 +261,51 @@ export default function AgentKanbanBoard({
             })}
           </div>
         ) : <p className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">No workers have been reported.</p>}
+      </section>
+
+      <section aria-labelledby="agent-task-history-heading">
+        <h2 id="agent-task-history-heading" className="mb-3 font-display text-lg font-semibold">Task history</h2>
+        <div className="mb-3 rounded-2xl border border-gf-line bg-gf-surface p-4">
+          <h3 className="mb-2 text-sm font-semibold">Boss health trend</h3>
+          <HealthTrendChart points={healthTrend} />
+        </div>
+        {historyAgentIds.length ? (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {historyAgentIds.map(id => {
+              const entries = agentHistory[id] ?? []
+              return (
+                <div key={id} className="min-w-0 rounded-2xl border border-gf-line bg-gf-surface p-4">
+                  {entries.length ? (
+                    <table className="w-full text-start text-xs">
+                      <caption className="mb-2 text-start text-sm font-semibold">{id}: last {entries.length} {entries.length === 1 ? 'task' : 'tasks'}</caption>
+                      <thead className="text-gf-muted">
+                        <tr>
+                          <th scope="col" className="pe-2 text-start font-medium">Task</th>
+                          <th scope="col" className="pe-2 text-start font-medium">Outcome</th>
+                          <th scope="col" className="text-start font-medium">When</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {entries.map((entry, index) => (
+                          <tr key={`${entry.taskId}-${entry.outcome}-${index}`} className="border-t border-gf-line">
+                            <th scope="row" className="py-1 pe-2 text-start font-medium text-gf-ink">{entry.taskId}</th>
+                            <td className="py-1 pe-2"><span className={`rounded-full px-2 py-0.5 ${outcomeStyles[entry.outcome]}`}>{entry.outcome}</span></td>
+                            <td className="py-1 text-gf-muted">{entry.datetime ? <time dateTime={entry.datetime}>{entry.timestamp ?? entry.datetime}</time> : 'Unknown time'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <>
+                      <h3 className="mb-1 text-sm font-semibold">{id}</h3>
+                      <p className="text-xs text-gf-muted">No task outcomes recorded yet.</p>
+                    </>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ) : <p className="rounded-xl border border-gf-line bg-gf-surface p-4 text-sm text-gf-muted">No task history recorded.</p>}
       </section>
 
       <section aria-labelledby="agent-history-heading">

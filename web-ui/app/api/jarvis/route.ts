@@ -10,9 +10,9 @@ import { permissionForTool } from '@/lib/tool-permissions'
 import { AGENT_TEAM_ACTIONS, validateAgentTeamAction, runAgentTeamCommand } from '@/lib/agent-team'
 import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
-import { writeFile, unlink, readdir, stat, rm, appendFile } from 'fs/promises'
+import { readFile, readdir, rm, appendFile } from 'fs/promises'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs'
-import { tmpdir, homedir } from 'os'
+import { homedir } from 'os'
 import { join, resolve } from 'path'
 import { chooseBestInstalledModel } from '@/lib/local-runtime'
 import { getJarvisQuickAction } from '@/lib/quick-actions'
@@ -20,6 +20,7 @@ import { getMarkLivAction, resolveMarkLivTool, markLivActionHint } from '@/lib/m
 import { macToolToMarkLiv, parseMarkLivCall } from '@/lib/mark-liv-risk'
 import { validateAppleScript } from '@/lib/apple-automation'
 import { getLiveBridgeToken } from '@/lib/bridge-token'
+import { makePrivateTempDir, privateTempPath, sweepPrivateTemp, withPrivateTempDir, writePrivateFile } from '@/lib/private-temp'
 
 // Collaborative sessions store
 const collabSessions = new Map<string, Array<{role: string, content: string, ts: number}>>()
@@ -508,19 +509,26 @@ function buildMemorySlice(memory: Record<string, unknown>, userName: string, lan
 async function runScript(script: string): Promise<string> {
   const validation = validateAppleScript(script)
   if (!validation.ok) return `Error: ${validation.reason}`
-  const tmpPath = join(tmpdir(), `gfai-${Date.now()}.scpt`)
-  const compiledPath = `${tmpPath}.compiled`
   try {
-    await writeFile(tmpPath, script, 'utf8')
-    await runSpawn('osacompile', ['-o', compiledPath, tmpPath], { timeout: 8000 })
-    const { stdout } = await runSpawn('osascript', [tmpPath], { timeout: 15000 })
-    return stdout.trim() || 'Done'
+    return await withPrivateTempDir(async dir => {
+      const tmpPath = await writePrivateFile(dir, 'script.scpt', script)
+      const compiledPath = privateTempPath(dir, 'script.compiled.scpt')
+      await runSpawn('osacompile', ['-o', compiledPath, tmpPath], { timeout: 8000 })
+      const { stdout } = await runSpawn('osascript', [tmpPath], { timeout: 15000 })
+      return stdout.trim() || 'Done'
+    })
   } catch (e: unknown) {
     return `Error: ${(e as { stderr?: string; message?: string }).stderr || (e as Error).message || 'Unknown error'}`
-  } finally {
-    await unlink(tmpPath).catch(() => {})
-    await unlink(compiledPath).catch(() => {})
   }
+}
+
+/** Capture the screen into memory via a private temp dir that is always removed. */
+async function captureScreenPng(): Promise<Buffer> {
+  return withPrivateTempDir(async dir => {
+    const screenshotPath = privateTempPath(dir, 'screen.png')
+    await runSpawn('screencapture', ['-x', screenshotPath], { timeout: 5000 })
+    return readFile(screenshotPath)
+  })
 }
 
 // ── Web search (Google CSE → DuckDuckGo fallback) ────────────────────────────
@@ -1415,29 +1423,23 @@ end tell`
       if (dangerous.some(p => p.test(code))) return 'Code blocked: dangerous operation detected'
 
       // Write to temp file to avoid shell injection (never pass code inline to shell)
-      const tmpFile = join(tmpdir(), `gfai-code-${Date.now()}`)
       try {
-        if (lang === 'python' || lang === 'python3') {
-          const pyFile = `${tmpFile}.py`
-          await writeFile(pyFile, code, 'utf8')
-          const { stdout, stderr } = await runSpawn('python3', [pyFile], { timeout: 10000 })
-          await unlink(pyFile).catch(() => {})
-          return (stdout + stderr).trim().slice(0, 1500) || 'No output'
-        } else if (lang === 'javascript' || lang === 'node') {
-          const jsFile = `${tmpFile}.js`
-          await writeFile(jsFile, code, 'utf8')
-          const { stdout, stderr } = await runSpawn('node', [jsFile], { timeout: 10000 })
-          await unlink(jsFile).catch(() => {})
-          return (stdout + stderr).trim().slice(0, 1500) || 'No output'
-        } else {
-          // Shell — write to .sh file, no inline interpolation
-          const shFile = `${tmpFile}.sh`
-          await writeFile(shFile, `#!/bin/bash\nset -euo pipefail\n${code}`, 'utf8')
-          await runSpawn('chmod', ['+x', shFile], { timeout: 5000 })
-          const { stdout, stderr } = await runSpawn('/bin/bash', [shFile], { timeout: 15000 })
-          await unlink(shFile).catch(() => {})
-          return (stdout + stderr).trim().slice(0, 1500) || 'Done (no output)'
-        }
+        return await withPrivateTempDir(async dir => {
+          if (lang === 'python' || lang === 'python3') {
+            const pyFile = await writePrivateFile(dir, 'code.py', code)
+            const { stdout, stderr } = await runSpawn('python3', [pyFile], { timeout: 10000 })
+            return (stdout + stderr).trim().slice(0, 1500) || 'No output'
+          } else if (lang === 'javascript' || lang === 'node') {
+            const jsFile = await writePrivateFile(dir, 'code.js', code)
+            const { stdout, stderr } = await runSpawn('node', [jsFile], { timeout: 10000 })
+            return (stdout + stderr).trim().slice(0, 1500) || 'No output'
+          } else {
+            // Shell — write to .sh file, no inline interpolation; run via bash so no chmod +x is needed
+            const shFile = await writePrivateFile(dir, 'code.sh', `#!/bin/bash\nset -euo pipefail\n${code}`)
+            const { stdout, stderr } = await runSpawn('/bin/bash', [shFile], { timeout: 15000 })
+            return (stdout + stderr).trim().slice(0, 1500) || 'Done (no output)'
+          }
+        })
       } catch (e: unknown) {
         const err = e as { stdout?: string; stderr?: string; message?: string }
         return `Error: ${(err.stderr || err.message || 'Unknown error').slice(0, 500)}`
@@ -1445,10 +1447,12 @@ end tell`
     }
 
     case 'describe_screen': {
-      // Take a screenshot and return its path
-      const ts = Date.now()
-      const screenshotPath = `/tmp/gfai-screen-${ts}.png`
+      // Take a screenshot and return its path. The private dir is kept so the
+      // path stays valid; mac_cleanup's sweep removes it after an hour.
+      let shotDir: string | undefined
       try {
+        shotDir = await makePrivateTempDir()
+        const screenshotPath = privateTempPath(shotDir, `screen-${Date.now()}.png`)
         await runSpawn('screencapture', ['-x', screenshotPath], { timeout: 5000 })
         const appInfo = await execAsync(
           `osascript -e 'tell application "System Events" to get name of first process whose frontmost is true'`,
@@ -1456,6 +1460,7 @@ end tell`
         ).then(r => r.stdout.trim()).catch(() => 'unknown')
         return `Screenshot saved to ${screenshotPath}. Active app: ${appInfo}. Use this context to answer user questions about the screen.`
       } catch {
+        if (shotDir) await rm(shotDir, { recursive: true, force: true }).catch(() => {})
         return 'Screen capture not available (grant Screen Recording permission in System Settings → Privacy)'
       }
     }
@@ -1524,20 +1529,9 @@ end tell`
       let freedMB = 0
 
       try {
-        // 1. Clear /tmp/ files older than 1 day (gfai screenshots etc)
-        const tmpFiles = await readdir(tmpdir()).catch(() => [] as string[])
-        let tmpCleared = 0
-        for (const f of tmpFiles.filter(f => f.startsWith('gfai-'))) {
-          const p = join(tmpdir(), f)
-          try {
-            const s = await stat(p)
-            if (Date.now() - s.mtimeMs > 3600_000) {
-              await rm(p, { force: true })
-              freedMB += Math.round(s.size / 1024 / 1024)
-              tmpCleared++
-            }
-          } catch { /* skip locked files */ }
-        }
+        // 1. Clear gfai-* temp dirs/files older than 1 hour (kept screenshots etc)
+        const { cleared: tmpCleared, freedBytes } = await sweepPrivateTemp(3600_000)
+        freedMB += Math.round(freedBytes / 1024 / 1024)
         if (tmpCleared > 0) results.push(`✓ Cleared ${tmpCleared} GFAI temp files from /tmp/`)
 
         // 2. Purge DNS cache (helps with slow lookups)
@@ -2342,15 +2336,13 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       try {
         const model = params.model || 'ollama/qwen2.5-coder:7b'
         if (!/^[\w./:-]+$/.test(model)) return 'Invalid model name'
-        // Use --safe mode and --quiet for non-interactive execution
-        const tmpPromptFile = join(tmpdir(), `gfai-oi-${Date.now()}.txt`)
-        await writeFile(tmpPromptFile, prompt, 'utf8')
+        // Use --safe mode and --quiet for non-interactive execution. The prompt
+        // is a single argv entry (no shell), so no temp file is needed.
         const { stdout, stderr } = await runSpawn(
           'python3',
-          ['-m', 'interpreter', '--model', model, '--safe', '--quiet', '--single_message', readFileSync(tmpPromptFile, 'utf8')],
+          ['-m', 'interpreter', '--model', model, '--safe', '--quiet', '--single_message', prompt],
           { timeout: 60000 }
         )
-        await unlink(tmpPromptFile).catch(() => {})
         return (stdout + stderr).trim().slice(0, 2000) || 'open-interpreter completed (no output)'
       } catch (e: unknown) {
         const err = e as { stdout?: string; stderr?: string; message?: string }
@@ -2372,10 +2364,8 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       // For JS/Python, run locally first (faster, no network)
       if (lang === 'javascript' || lang === 'js') {
         try {
-          const jsFile = join(tmpdir(), `gfai-jsrepl-${Date.now()}.js`)
-          await writeFile(jsFile, code, 'utf8')
-          const { stdout, stderr } = await runSpawn('node', [jsFile], { timeout: 10000 })
-          await unlink(jsFile).catch(() => {})
+          const { stdout, stderr } = await withPrivateTempDir(async dir =>
+            runSpawn('node', [await writePrivateFile(dir, 'repl.js', code)], { timeout: 10000 }))
           const output = (stdout + stderr).trim().slice(0, 1500) || 'No output'
           return `✓ JavaScript (local Node.js):\n${output}\n\n💡 Also try online: https://jsrepl.io`
         } catch (e: unknown) {
@@ -2386,10 +2376,8 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
 
       if (lang === 'python' || lang === 'py') {
         try {
-          const pyFile = join(tmpdir(), `gfai-jsrepl-${Date.now()}.py`)
-          await writeFile(pyFile, code, 'utf8')
-          const { stdout, stderr } = await runSpawn('python3', [pyFile], { timeout: 10000 })
-          await unlink(pyFile).catch(() => {})
+          const { stdout, stderr } = await withPrivateTempDir(async dir =>
+            runSpawn('python3', [await writePrivateFile(dir, 'repl.py', code)], { timeout: 10000 }))
           const output = (stdout + stderr).trim().slice(0, 1500) || 'No output'
           return `✓ Python (local):\n${output}\n\n💡 Also try online: https://jsrepl.io`
         } catch (e: unknown) {
@@ -2562,13 +2550,8 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
     // ── Clicky: Screen understanding via vision model ───────────────────────────
     case 'understand_screen': {
       try {
-        const screenshotPath = `/tmp/gfai-clicky-${Date.now()}.png`
-        await runSpawn('screencapture', ['-x', screenshotPath], { timeout: 5000 })
-
-        const { readFileSync: rf } = await import('fs')
-        const imgBuffer = rf(screenshotPath)
+        const imgBuffer = await captureScreenPng()
         const imageBase64 = imgBuffer.toString('base64')
-        await import('fs').then(fs => fs.unlinkSync(screenshotPath)).catch(() => {})
 
         const { generateVision } = await import('@/lib/ai')
         const question = params.question || 'Describe what you see on this screen in detail. Identify UI elements, text, buttons, menus, and their positions.'
@@ -2586,13 +2569,8 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
 
     case 'find_element': {
       try {
-        const screenshotPath = `/tmp/gfai-find-${Date.now()}.png`
-        await runSpawn('screencapture', ['-x', screenshotPath], { timeout: 5000 })
-
-        const { readFileSync: rf } = await import('fs')
-        const imgBuffer = rf(screenshotPath)
+        const imgBuffer = await captureScreenPng()
         const imageBase64 = imgBuffer.toString('base64')
-        await import('fs').then(fs => fs.unlinkSync(screenshotPath)).catch(() => {})
 
         const { generateVision } = await import('@/lib/ai')
         const description = params.description || 'button'
@@ -2610,12 +2588,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
 
     case 'read_text_on_screen': {
       try {
-        const screenshotPath = `/tmp/gfai-ocr-${Date.now()}.png`
-        await runSpawn('screencapture', ['-x', screenshotPath], { timeout: 5000 })
-
-        const { readFileSync: rf } = await import('fs')
-        const imgBuffer = rf(screenshotPath)
-        await import('fs').then(fs => fs.unlinkSync(screenshotPath)).catch(() => {})
+        const imgBuffer = await captureScreenPng()
 
         // Prefer local PaddleOCR (fast, offline) before falling back to a vision model
         const ocrText = await ocrImageBuffer(imgBuffer)
@@ -2847,9 +2820,16 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       }
 
       if (action === 'screenshot') {
-        const outPath = `/tmp/browser-screenshot-${Date.now()}.png`
         if (process.platform === 'darwin') {
-          await runSpawn('screencapture', ['-x', outPath], { timeout: 8000 })
+          // Kept for the user (path is returned); mac_cleanup sweeps it after an hour.
+          const shotDir = await makePrivateTempDir()
+          const outPath = privateTempPath(shotDir, `browser-screenshot-${Date.now()}.png`)
+          try {
+            await runSpawn('screencapture', ['-x', outPath], { timeout: 8000 })
+          } catch (e) {
+            await rm(shotDir, { recursive: true, force: true }).catch(() => {})
+            throw e
+          }
           return `Screenshot saved to ${outPath}`
         }
         return 'Browser screenshot not available on this platform'
@@ -3206,11 +3186,11 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       if (!text) return 'No text to speak.'
       const result = await localTts(text, { voice: params.voice || undefined, engine: params.engine || undefined })
       if (result.error || !result.audio) return `Local TTS unavailable: ${result.error || 'no audio'}`
-      const wavPath = join(tmpdir(), `gfai-local-tts-${Date.now()}.wav`)
-      const { writeFile: wf } = await import('fs/promises')
-      await wf(wavPath, result.audio)
-      await runSpawn('afplay', [wavPath], { timeout: 30000 }).catch(() => {})
-      await rm(wavPath).catch(() => {})
+      const audio = result.audio
+      await withPrivateTempDir(async dir => {
+        const wavPath = await writePrivateFile(dir, 'tts.wav', audio)
+        await runSpawn('afplay', [wavPath], { timeout: 30000 }).catch(() => {})
+      }).catch(() => {})
       return `Spoke "${text.slice(0, 60)}" through the local voice pipeline (${result.engine}).`
     }
 

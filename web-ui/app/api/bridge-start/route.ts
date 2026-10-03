@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'child_process'
 import { NextRequest, NextResponse } from 'next/server'
-import path from 'path'
+import { bridgeArgv, resolveBridgeLauncher } from '@/lib/bridge-launcher'
 import { isAuthorizedRequest } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
@@ -11,10 +11,16 @@ export const maxDuration = 60
  *
  * Starts or stops the GhostForge bridge (port 4747) on the machine running
  * the web-ui server. Cross-platform:
- *  - Windows: runs scripts\\bridge.cmd (cmd wrapper so bash isn't required)
+ *  - Windows: runs scripts\bridge.cmd
  *  - macOS/Linux: runs scripts/bridge.sh via bash
  *
  * Body: { action: 'start' | 'stop' } (defaults to start)
+ *
+ * The launcher is a constant path inside the validated repository root
+ * (lib/bridge-launcher): the root is resolved server-side and only accepted
+ * when it really is a GhostForge checkout, and it travels as the child's
+ * working directory rather than as command-line text, so nothing a caller can
+ * influence reaches the shell's parser.
  *
  * Returns immediately after the command is kicked off; the dashboard polls
  * /api/bridge-status to confirm the bridge state changed.
@@ -27,20 +33,24 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as { action?: string }
   const action = body.action === 'stop' ? 'stop' : 'start'
 
-  // Resolve the GhostForge repo root: env override, or walk up from the
-  // web-ui server directory (works no matter where the repo is cloned).
-  const repoRoot = process.env.GHOSTFORGE_ROOT ?? path.resolve(process.cwd(), '..')
-  const isWindows = process.platform === 'win32'
-  const scriptPath = path.join(repoRoot, 'scripts', isWindows ? 'bridge.cmd' : 'bridge.sh')
+  const launcher = resolveBridgeLauncher()
+  if (!launcher) {
+    // Never echo the configured root back: it can be attacker-supplied via env.
+    console.error('[bridge-start] no GhostForge checkout with a bridge launcher was found')
+    return NextResponse.json(
+      { error: 'Bridge launcher not found', ok: false, online: false, action },
+      { status: 500 }
+    )
+  }
+
+  const { file, args } = bridgeArgv(launcher, action)
+  const cwd = launcher.repoRoot
+  const env = { ...process.env, GF_NON_INTERACTIVE: '1' }
 
   // Stopping is fast and synchronous enough to verify right away.
   if (action === 'stop') {
     try {
-      spawnSync(isWindows ? 'cmd.exe' : 'bash', isWindows ? ['/c', scriptPath, 'stop'] : [scriptPath, 'stop'], {
-        cwd: repoRoot,
-        stdio: 'ignore',
-        env: { ...process.env, GF_NON_INTERACTIVE: '1' },
-      })
+      spawnSync(file, args, { cwd, stdio: 'ignore', env })
     } catch { /* report unreachable below */ }
     let online = false
     try {
@@ -57,13 +67,9 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const started = spawn(isWindows ? 'cmd.exe' : 'bash', isWindows ? ['/c', scriptPath, 'start'] : [scriptPath, 'start'], {
-    cwd: repoRoot,
-    detached: true,
-    stdio: 'ignore',
-    env: { ...process.env, GF_NON_INTERACTIVE: '1' },
-  })
+  const started = spawn(file, args, { cwd, detached: true, stdio: 'ignore', env })
   // Let the bridge outlive the request; unref so the server can close the response.
+  started.on('error', error => console.error('[bridge-start] spawn failed:', error.message))
   started.unref()
 
   // Give it a moment to bind, then report status so the client gets a useful

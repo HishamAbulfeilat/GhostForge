@@ -25,7 +25,7 @@ surface. The evidence column names the implementation that was checked.
 | History and audit log | ✅ | ✅ | ✅ | ✅ | `app/history`, `screenAuditLog`, `scripts/daily-digest.sh`, bridge memory/history handlers |
 | Command catalog / feature launcher | ✅ | ✅ | ✅ | ✅ | `app/features`, `screenCommands`/`screenCommandCenter`, `scripts/*`, bridge `GET /api/commands` (`mark-l-bridge/commands_catalog.py`, read-only) |
 | Project open, project list, scaffolding | ⚠️ | ✅ | ✅ | ❌ | `app/setup`, `screenProjects`/`screenOpenProject`, `scripts/create-project.sh` |
-| Setup and environment configuration | ✅ | ✅ | ✅ | ❌ | `app/setup`, `screenSetup`, `scripts/setup-env.sh`/`scripts/env-manager.sh` |
+| Setup and environment configuration | ✅ | ✅ | ✅ | ✅ | `app/setup`, `screenSetup`, `scripts/setup-env.sh`/`scripts/env-manager.sh`, bridge `GET /api/setup/status` (`mark-l-bridge/setup_status.py`, read-only presence/version status) |
 | AI agents dashboard and dispatch | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgents`, `cli/index.js` → `scripts/agents/team.mjs`, `/api/mark-l/agents/*` |
 | Agent World (federated agent and connector operations) | ✅ | ⚠️ | ⚠️ | ⚠️ | `app/agent-world` (worlds: forge/town/office/team); `screenWorlds` and `screenAgentTeam`; `cli/index.js` → `scripts/worlds.mjs` and `scripts/agents/team.mjs`; bridge `/api/mark-l/agents/*` provides lower-level operations |
 | Agent teams, crews, tasks, messages | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgentTeam`, `cli/index.js` → `scripts/agents/team.mjs` (teams only; crews via bridge), `/api/mark-l/agents/crew/*` |
@@ -63,20 +63,20 @@ surface. The evidence column names the implementation that was checked.
 | Code helper and developer agent | ⚠️ | ✅ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/explain.sh`, `/api/mark-l/code-helper`, `/dev-agent` |
 | Security scan and pentest helpers | ✅ | ✅ | ✅ | ✅ | `app/security` + `app/api/security-scan` (admin-only, defensive scanners), `app/features`, `screenSecurity`, `scripts/security-check.sh`/`scripts/pentest.sh`, bridge `GET/POST /api/security-scan` (token-auth, mark-l-bridge/security_scan.py) |
 | Doctor, health and diagnostics | ✅ | ✅ | ✅ | ✅ | `app/dashboard` + `app/api/doctor`, `screenDoctor`/`screenHealth`, `scripts/doctor.sh`/`health-check.sh`, bridge `/health` |
-| Testing and coverage | ✅ | ✅ | ✅ | ❌ | `app/testing/page.tsx` + `app/api/test-run/route.ts` (admin-only test-run/coverage panel), `app/features`, `screenTest`, `scripts/test-all-features.sh`/`coverage.sh` |
+| Testing and coverage | ✅ | ✅ | ✅ | ✅ | `app/testing/page.tsx` + `app/api/test-run/route.ts` (admin-only test-run/coverage panel), `app/features`, `screenTest`, `scripts/test-all-features.sh`/`coverage.sh`, bridge `GET`/`POST /api/code-health` (`coverage` id, token auth) |
 | Deploy and Azure tooling | ⚠️ | ✅ | ✅ | ✅ | `app/features`, `screenDeploy`, `scripts/deploy-azure.sh`, bridge `/api/release` deploy action |
 | Git hooks, upgrades and release tooling | ✅ | ✅ | ✅ | ✅ | `app/maintenance`, `screenGitHooks`/`screenUpgrade`, `scripts/git-hooks.sh`/`upgrade.sh`/`release.sh`, bridge `/api/release` (status/prepare/notes/deploy) |
 | API docs/types/mock generation | ✅ | ✅ | ✅ | ❌ | `app/api-docs`, `app/api-types`, `app/mock-api`, `app/api/execute`, `screenAPITypes`/`screenMockApi`, `scripts/api-docs.sh`/`api-types.sh`/`api-mock.sh` |
 | i18n and RTL tooling | ⚠️ | ✅ | ✅ | ❌ | `app/layout.tsx`, `screenRTL`, `scripts/i18n.sh`/`rtl.sh` |
 | Snippets, changelog, README and onboarding | ✅ | ✅ | ✅ | ✅ | `/snippets` (authenticated route, linked from `Navbar` and the command palette) and `/api/snippets` for snippets, `CHANGELOG.md`, and `README.md`; `screenSnippets`/`screenChangelogViewer`/`screenReadme`/`screenOnboardDev`, `scripts/snippet-manager.sh`/`changelog.sh`/`onboard-dev.sh`, bridge `GET /api/snippets`, `/api/snippets/{name}`, `/api/docs/{name}` (`mark-l-bridge/snippets_docs.py`, read-only) |
-| Tickets, Azure DevOps and estimates | ⚠️ | ✅ | ✅ | ❌ | `screenTickets`/`screenAdo`/`screenEstimate`, `scripts/ticket.sh`/`ado.sh`/`estimate.sh` |
-| Performance, bundle, unused-code and dependency health | ⚠️ | ✅ | ✅ | ❌ | `screenPerf`/`screenBundle`/`screenUnused`, `scripts/perf.sh`/`bundle.sh`/`unused.sh`/`dep-health.sh` |
-| Free APIs/models and provider setup | ✅ | ✅ | ✅ | ❌ | `app/models`, `screenFreeAPIs`/`screenFreeModels`, `scripts/free-models.sh`/`free-models.sh` |
+| Tickets, Azure DevOps and estimates | ✅ | ✅ | ✅ | ❌ | `app/tickets/page.tsx` + `app/api/tickets/route.ts` (admin-only panel), `screenTickets`/`screenAdo`/`screenEstimate`, `scripts/ticket.sh`/`ado.sh`/`estimate.sh` |
+| Performance, bundle, unused-code and dependency health | ✅ | ✅ | ✅ | ✅ | `app/code-health/page.tsx` + `app/api/code-health/route.ts`, `screenPerf`/`screenBundle`/`screenUnused`, `scripts/perf.sh`/`bundle.sh`/`unused.sh`/`dep-health.sh`, bridge `GET`/`POST /api/code-health` (token auth) |
+| Free APIs/models and provider setup | ✅ | ✅ | ✅ | ✅ | `app/models`, `screenFreeAPIs`/`screenFreeModels`, `scripts/free-models.sh`/`free-models.sh`, bridge `GET /api/free-apis` (token auth, key presence flags only, mark-l-bridge/resource_catalogs.py) |
 | Users, login and access profiles | ✅ | ✅ | ✅ | ❌ | `app/login`, `app/users`, `app/api/auth`, `app/api/users`, `cli/index.js` + `scripts/users.mjs`, `screenUsers` |
 | Bridge start/status and connection controls | ✅ | ✅ | ✅ | ✅ | `BridgeControl`, `screenHealth`, `scripts/bridge-server.js`, bridge `/api/mark-l/health` |
 | Electron desktop integrations | ❌ | ❌ | ❌ | ⚠️ | Runtime integrations are in `electron-app/src/main/*` and accessible in the Electron app; `scripts/build-electron.sh` is packaging only; bridge overlap is partial |
 | Android/iOS packaged app | ❌ | ❌ | ✅ | ❌ | `electron-app/android`, `electron-app/ios`, `scripts/build-android.sh`/`build-ios.sh` |
-| Design resources, Vigolium and open-source tools | ✅ | ✅ | ✅ | ❌ | `app/design-resources`, `app/vigolium`, `app/open-source-tools`, `screenDesignResources`/`screenVigolium`/`screenOpenSourceTools`, `scripts/figma-tokens.sh` |
+| Design resources, Vigolium and open-source tools | ✅ | ✅ | ✅ | ✅ | `app/design-resources`, `app/vigolium`, `app/open-source-tools`, `screenDesignResources`/`screenVigolium`/`screenOpenSourceTools`, `scripts/figma-tokens.sh`, bridge `GET /api/design-resources` (token auth, read-only, mark-l-bridge/resource_catalogs.py) |
 
 ## Concrete gaps
 

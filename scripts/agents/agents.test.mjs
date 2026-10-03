@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { routeModel, classifyTask, KIND_TIER } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
-import { Boss, lastJSON, pickTask, reviewDiff, stagePrompt } from './boss.mjs'
+import { Boss, describeGitError, lastJSON, pickTask, reviewDiff, shouldRestartBoss, stagePrompt } from './boss.mjs'
 import { scoreOf } from './health.mjs'
 
 test('classifyTask maps free text to task kinds', () => {
@@ -371,4 +371,21 @@ test('spawn limits: >1 MiB child output succeeds and ENOBUFS is explained', asyn
   // Non-ENOBUFS errors pass through untouched.
   const other = new Error('boom')
   assert.equal(explainEnobufs(other, 'x'), other)
+})
+
+test('shouldRestartBoss restarts only when the scripts/agents revision changed', () => {
+  assert.equal(shouldRestartBoss('abc', 'abc'), false, 'unchanged')
+  assert.equal(shouldRestartBoss('abc', 'def'), true, 'changed')
+  assert.equal(shouldRestartBoss(null, 'def'), false, 'no startup revision recorded')
+  assert.equal(shouldRestartBoss('abc', null), false, 'git lookup failed')
+  assert.equal(shouldRestartBoss('', ''), false)
+})
+
+test('describeGitError names the failing command and is idempotent', () => {
+  const e = Object.assign(new Error('spawnSync git ENOBUFS'), { code: 'ENOBUFS' })
+  const msg = describeGitError(e, ['diff', '--stat', 'a..b'], '/repo')
+  assert.match(msg, /\[git diff --stat a\.\.b\] in \/repo/)
+  assert.match(msg, /ENOBUFS/)
+  assert.match(msg, /maxBuffer/)
+  assert.equal(describeGitError({ message: msg }, ['diff', '--stat', 'a..b'], '/repo'), msg)
 })
