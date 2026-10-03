@@ -31,6 +31,36 @@ function appleScript(script) {
   return execFileAsync('osascript', ['-e', script], { timeout: 8000 })
 }
 
+/**
+ * Send `text` to AppleScript without ever putting it in the script source *or*
+ * in the process argument list.
+ *
+ * Why not argv: passing the value after `-e` looks safe because osascript
+ * stops looking for a program file once `-e` is given, but on macOS before
+ * 12.3 a trailing argument beginning with `-` could still be parsed as another
+ * option — `-e` in particular, which injects a whole extra AppleScript
+ * statement (CVE-2022-24793). An end-of-options separator is the documented
+ * mitigation but its handling is not in the man page, so the value is kept
+ * out of argv entirely.
+ *
+ * Instead the text rides in the child environment and the script reads it back
+ * with `system attribute`, which returns the value verbatim. Nothing to
+ * escape, nothing to parse, and it is less visible than argv (macOS `ps`
+ * exposes other processes' arguments to the same user).
+ *
+ * `statement` must reference `theText`; it runs inside a bare `run` handler.
+ */
+function appleScriptWithText(text, statement) {
+  const script = `on run
+  set theText to system attribute "GF_APPLESCRIPT_TEXT"
+  ${statement}
+end run`
+  return execFileAsync('osascript', ['-e', script], {
+    timeout: 8000,
+    env: { ...process.env, GF_APPLESCRIPT_TEXT: String(text) },
+  })
+}
+
 /** Human-readable status: whether nut.js is active and why not. */
 function nativeStatus() {
   return {
@@ -83,8 +113,7 @@ async function typeText(text) {
     return `Typed "${text.slice(0, 40)}" via nut.js`
   }
   if (darwin) {
-    const safe = text.replace(/"/g, '\\"')
-    await appleScript(`tell application "System Events" to keystroke "${safe}"`)
+    await appleScriptWithText(text, 'tell application "System Events" to keystroke theText')
     return `Typed "${text.slice(0, 40)}"`
   }
   return 'Typing not supported on this platform without nut.js'
