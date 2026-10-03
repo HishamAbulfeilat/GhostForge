@@ -116,6 +116,27 @@ check('tests/*.test.js unit tests pass (node:test)', () => {
   );
 });
 
+check('FEATURE-MATRIX.md has no duplicate feature rows', () => {
+  const matrixContent = fs.readFileSync(path.join(ROOT, 'docs/FEATURE-MATRIX.md'), 'utf8');
+  const lines = matrixContent.split('\n');
+  const features = [];
+  for (const line of lines) {
+    // Skip header rows (start with | and contain dashes, or are the column headers)
+    if (!line.startsWith('|') || line.includes('---')) continue;
+    // Extract feature name from first column (between first and second |)
+    const parts = line.split('|');
+    if (parts.length < 3) continue;
+    const featureName = parts[1].trim();
+    if (featureName && featureName !== 'Feature') {
+      features.push(featureName);
+    }
+  }
+  const dupes = features.filter((f, i) => features.indexOf(f) !== i);
+  if (dupes.length) {
+    throw new Error(`duplicate feature row(s): ${[...new Set(dupes)].join(', ')}`);
+  }
+});
+
 console.log();
 if (failures) {
   console.error(`${failures} check(s) failed`);
