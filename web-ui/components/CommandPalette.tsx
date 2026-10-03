@@ -2,12 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useAccess } from '@/components/AccessGuard'
+import { canAccessPage } from '@/lib/title-profiles'
 
 interface Command {
   id: string
   label: string
   description?: string
   icon?: string
+  /** Page the command opens; gated by the same rule as the navbar */
+  path?: string
   action: () => void
   keywords?: string[]
 }
@@ -17,6 +21,7 @@ function CommandPalette() {
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const router = useRouter()
+  const { user } = useAccess()
   const inputRef = useRef<HTMLInputElement>(null)
 
   const navigate = (path: string) => {
@@ -25,26 +30,36 @@ function CommandPalette() {
     setQuery('')
   }
 
+  const go = (path: string) => ({ path, action: () => navigate(path) })
+
   const commands: Command[] = [
-    { id: 'jarvis', label: 'Open JARVIS', icon: '🤖', description: 'AI Assistant', action: () => navigate('/jarvis'), keywords: ['ai', 'chat', 'voice'] },
-    { id: 'dashboard', label: 'Dashboard', icon: '📊', description: 'Project overview', action: () => navigate('/dashboard'), keywords: ['home', 'overview'] },
-    { id: 'models', label: 'Model Manager', icon: '🧠', description: 'Manage AI models & LLMfit', action: () => navigate('/models'), keywords: ['llm', 'ollama', 'llmfit'] },
-    { id: 'terminal', label: 'Web Terminal', icon: '💻', description: 'Browser terminal', action: () => navigate('/terminal'), keywords: ['shell', 'bash', 'cli'] },
-    { id: 'files', label: 'File Explorer', icon: '📁', description: 'Browse project files', action: () => navigate('/files'), keywords: ['explorer', 'browse'] },
-    { id: 'features', label: 'Features', icon: '⚡', description: 'All GhostForge features', action: () => navigate('/features'), keywords: ['commands', 'tools'] },
-    { id: 'marketplace', label: 'Marketplace', icon: '🛒', description: 'Extensions & plugins', action: () => navigate('/marketplace'), keywords: ['plugins', 'extensions'] },
-    { id: 'snippets', label: 'Snippets', icon: '📋', description: 'Saved code snippets', action: () => navigate('/snippets'), keywords: ['code', 'clipboard', 'templates'] },
-    { id: 'settings',label: 'Settings', icon: '⚙️', description: 'Configure GhostForge', action: () => navigate('/settings'), keywords: ['config', 'preferences'] },
-    { id: 'history', label: 'JARVIS History', icon: '📜', description: 'Past conversations', action: () => navigate('/history'), keywords: ['memory', 'sessions', 'timeline'] },
-    { id: 'mac-control', label: 'Mac Control', icon: '🖥️', description: 'System automation', action: () => navigate('/mac-control'), keywords: ['automation', 'system'] },
-    { id: 'health', label: 'Health Check', icon: '🏥', description: 'Project health status', action: () => navigate('/dashboard'), keywords: ['check', 'status'] },
+    { id: 'jarvis', label: 'Open JARVIS', icon: '🤖', description: 'AI Assistant', ...go('/jarvis'), keywords: ['ai', 'chat', 'voice'] },
+    { id: 'dashboard', label: 'Dashboard', icon: '📊', description: 'Project overview', ...go('/dashboard'), keywords: ['home', 'overview'] },
+    { id: 'models', label: 'Model Manager', icon: '🧠', description: 'Manage AI models & LLMfit', ...go('/models'), keywords: ['llm', 'ollama', 'llmfit'] },
+    { id: 'terminal', label: 'Web Terminal', icon: '💻', description: 'Browser terminal', ...go('/terminal'), keywords: ['shell', 'bash', 'cli'] },
+    { id: 'files', label: 'File Explorer', icon: '📁', description: 'Browse project files', ...go('/files'), keywords: ['explorer', 'browse'] },
+    { id: 'features', label: 'Features', icon: '⚡', description: 'All GhostForge features', ...go('/features'), keywords: ['commands', 'tools'] },
+    { id: 'marketplace', label: 'Marketplace', icon: '🛒', description: 'Extensions & plugins', ...go('/marketplace'), keywords: ['plugins', 'extensions'] },
+    { id: 'snippets', label: 'Snippets', icon: '📋', description: 'Saved code snippets', ...go('/snippets'), keywords: ['code', 'clipboard', 'templates'] },
+    { id: 'settings',label: 'Settings', icon: '⚙️', description: 'Configure GhostForge', ...go('/settings'), keywords: ['config', 'preferences'] },
+    { id: 'history', label: 'JARVIS History', icon: '📜', description: 'Past conversations', ...go('/history'), keywords: ['memory', 'sessions', 'timeline'] },
+    { id: 'mac-control', label: 'Mac Control', icon: '🖥️', description: 'System automation', ...go('/mac-control'), keywords: ['automation', 'system'] },
+    { id: 'health', label: 'Health Check', icon: '🏥', description: 'Project health status', ...go('/dashboard'), keywords: ['check', 'status'] },
+    { id: 'users', label: 'Users', icon: '👥', description: 'Manage accounts and access', ...go('/users'), keywords: ['admin', 'accounts', 'permissions'] },
+    { id: 'security', label: 'Security Scan', icon: '🛡️', description: 'Run defensive security scans', ...go('/security'), keywords: ['admin', 'audit', 'secrets', 'cve'] },
+    { id: 'testing', label: 'Test Runner', icon: '🧪', description: 'Run the project test suites', ...go('/testing'), keywords: ['admin', 'tests', 'qa'] },
+    { id: 'code-health', label: 'Code Health', icon: '🩺', description: 'Perf, bundle, unused code and dependencies', ...go('/code-health'), keywords: ['admin', 'bundle', 'deps', 'perf'] },
     { id: 'reload', label: 'Reload Page', icon: '🔄', description: 'Hard reload current page', action: () => { setOpen(false); window.location.reload() }, keywords: ['refresh'] },
     { id: 'theme-toggle', label: 'Toggle Theme', icon: '🎨', description: 'Switch light/dark mode', action: () => { document.documentElement.classList.toggle('light'); setOpen(false) }, keywords: ['dark', 'light', 'mode'] },
   ]
 
+  // Same rule as the navbar and page guard: only pages this user may open.
+  // Until the session loads (user is null) only ungated pages are listed.
+  const allowed = commands.filter(command => !command.path || canAccessPage(user, command.path))
+
   const filtered = query.trim() === ''
-    ? commands
-    : commands.filter(command => {
+    ? allowed
+    : allowed.filter(command => {
         const loweredQuery = query.toLowerCase()
         return command.label.toLowerCase().includes(loweredQuery)
           || command.description?.toLowerCase().includes(loweredQuery)
