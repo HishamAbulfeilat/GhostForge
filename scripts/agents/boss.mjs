@@ -277,6 +277,32 @@ export function gitTry(cwd, ...args) {
   return { ok: !r.error && r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}${err}`.trim() }
 }
 
+// Text sent to the reviewer is capped; the stat is always kept in full.
+export const REVIEW_DIFF_LIMIT = 80_000
+
+/**
+ * Review diff for base..head that stays small for deletion-heavy changes:
+ * `--irreversible-delete` omits the preimage of deleted files (untracking
+ * thousands of node_modules files used to blow past maxBuffer → ENOBUFS),
+ * and the patch text is truncated with a clear marker at `limit` chars.
+ */
+export function reviewDiff(cwd, base, head, limit = REVIEW_DIFF_LIMIT) {
+  const range = `${base}..${head}`
+  const stat = git(cwd, 'diff', '--stat', range)
+  const r = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--irreversible-delete', range],
+    { cwd, encoding: 'utf8', windowsHide: true, maxBuffer: MAX_BUFFER })
+  // On ENOBUFS spawnSync still returns the output read so far — review that.
+  if (r.error && r.error.code !== 'ENOBUFS') throw r.error
+  if (!r.error && r.status !== 0) throw new Error(`git diff ${range} failed: ${(r.stderr ?? '').trim()}`)
+  const full = (r.stdout ?? '').trimEnd()
+  const lines = full ? full.split('\n').length : 0
+  const overflow = Boolean(r.error)
+  if (!overflow && full.length <= limit) return { stat, diff: full, lines, truncated: false }
+  const omitted = overflow ? `over ${MAX_BUFFER / 1024 / 1024} MiB` : `${full.length - limit} chars`
+  const marker = `\n… [diff truncated for review: ${omitted} omitted — see the full diff stat above; read files in this checkout for detail]`
+  return { stat, diff: full.slice(0, limit) + marker, lines, truncated: true }
+}
+
 export function sh(cmd, args, cwd, timeout = 15 * 60_000) {
   const r = spawnSync(cmd, IS_WIN ? args.map(winQuote) : args, { cwd, encoding: 'utf8', shell: IS_WIN, timeout, windowsHide: true, maxBuffer: MAX_BUFFER })
   const err = spawnFailure(r, cmd)
@@ -685,18 +711,17 @@ export class Boss {
 
   async review(task, agentId, base, head) {
     if (!this.cfg.boss.review) return { approve: true }
-    const stat = git(ROOT, 'diff', '--stat', `${base}..${head}`)
-    const diff = git(ROOT, 'diff', `${base}..${head}`)
+    const { stat, diff, lines } = reviewDiff(ROOT, base, head)
     const content = [
       'You are the lead reviewer ("boss") of an autonomous agent team on the GhostForge repo.',
       `Review ${agentId}'s change for task ${task.id}: **${task.title}** (area: ${task.area.join(', ') || 'whole repo'}).`,
       'Approve unless it is wrong, incomplete, unsafe, breaks the rules in AGENTS.md, or makes unrelated changes. Shared files the task genuinely needs (package.json/lockfiles, the page that mounts the feature, tests, notices, docs) are allowed.',
       'Do not nitpick style. Read surrounding code in this checkout if you need context. Do not modify anything.',
-      '', '## Diff stat', '```', stat, '```', '', '## Diff', '```diff', diff.slice(0, 80_000), '```', '',
+      '', '## Diff stat', '```', stat, '```', '', '## Diff', '```diff', diff, '```', '',
       'Reply with your reasoning, then a final line of JSON only: {"approve": true|false, "issues": ["…"]}',
     ].join('\n')
     const file = stagePrompt(this.intWt, 'reviews', `${task.id}.md`, content)
-    const model = bossModelFor(task.kind, diff.split('\n').length, this.cfg.boss)
+    const model = bossModelFor(task.kind, lines, this.cfg.boss)
     const run = await this.readonlyRun(file, 'boss-review.log', 20 * 60_000, 'review', model)
     const verdict = lastJSON(run.output)
     if (!verdict || typeof verdict.approve !== 'boolean') {
