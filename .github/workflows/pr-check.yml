@@ -10,6 +10,60 @@ permissions:
   pull-requests: write
 
 jobs:
+  web-ui-build:
+    name: web-ui production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web-ui/package-lock.json
+      - name: Install dependencies
+        working-directory: web-ui
+        run: npm ci
+      - name: Build
+        working-directory: web-ui
+        run: npm run build
+
+  mcp-tests:
+    name: mcp tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: mcp/package-lock.json
+      - name: Install dependencies
+        working-directory: mcp
+        run: npm ci
+      - name: Test
+        working-directory: mcp
+        run: npm test
+
+  tui-tests:
+    name: tui tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: tui/package-lock.json
+      - name: Install dependencies
+        working-directory: tui
+        run: npm ci
+      - name: Test
+        working-directory: tui
+        run: npm test
+
   pr-check:
     name: GhostForge PR Quality Checks
     runs-on: ubuntu-latest
