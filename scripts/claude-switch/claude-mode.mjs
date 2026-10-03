@@ -26,6 +26,30 @@ const saveState = patch => fs.writeFileSync(STATE, JSON.stringify({ ...state(), 
 const MODES = ['auto', 'pro', 'free', 'openrouter', 'omniroute']
 const [cmd, a, b] = process.argv.slice(2)
 const port = () => process.env.CLAUDE_SWITCH_PORT || cfg().port || 3457
+const ANTHROPIC_URL = 'https://api.anthropic.com'
+const SETTINGS = path.join(process.env.USERPROFILE || process.env.HOME, '.claude', 'settings.json')
+
+// pro talks to Anthropic directly; every other mode goes through the proxy.
+const baseURLFor = mode => mode === 'pro' ? ANTHROPIC_URL : `http://127.0.0.1:${port()}`
+
+/** Set env.ANTHROPIC_BASE_URL in ~/.claude/settings.json (other keys untouched).
+ *  Applies to Claude Code sessions started afterwards. */
+function setBaseURL(url) {
+  let s = {}
+  try { s = JSON.parse(fs.readFileSync(SETTINGS, 'utf8')) } catch (e) {
+    if (fs.existsSync(SETTINGS)) { console.error(`cannot parse ${SETTINGS}: ${e.message} (left unchanged)`); return false }
+  }
+  if (s.env?.ANTHROPIC_BASE_URL === url) return true
+  s.env = { ...s.env, ANTHROPIC_BASE_URL: url }
+  const tmp = SETTINGS + '.tmp'
+  fs.writeFileSync(tmp, JSON.stringify(s, null, 2) + '\n')
+  fs.renameSync(tmp, SETTINGS)
+  return true
+}
+
+function currentBaseURL() {
+  try { return JSON.parse(fs.readFileSync(SETTINGS, 'utf8')).env?.ANTHROPIC_BASE_URL ?? '(unset)' } catch { return '(unreadable)' }
+}
 
 function printStatus() {
   const s = state()
@@ -40,7 +64,9 @@ function printStatus() {
     const models = (p.models ?? [p.model]).join(', ')
     console.log(`  - ${name}: ${hasKey ? (p.needsKey ? 'ready' : 'ready (no key needed)') : 'NO KEY (set with: claude-mode key ' + name + ' <apiKey>)'}  [${models}]`)
   }
-  console.log(`\nPoint Claude Code here: ANTHROPIC_BASE_URL=http://127.0.0.1:${port()}`)
+  const current = currentBaseURL(), want = baseURLFor(s.mode)
+  console.log(`\nANTHROPIC_BASE_URL: ${current}${current === want ? '' : `  (expected ${want} — run: claude-mode ${s.mode})`}`)
+  console.log(`proxy: ${isRunning() ? 'running' : 'stopped'}`)
 }
 
 function isRunning() {
@@ -69,7 +95,10 @@ if (!cmd || cmd === 'status') {
   printStatus()
 } else if (MODES.includes(cmd)) {
   saveState({ mode: cmd, ...(cmd !== 'auto' && { proCooldownUntil: 0 }) })
-  console.log(`mode set to ${cmd}`)
+  if (cmd !== 'pro' && !isRunning()) start()
+  const url = baseURLFor(cmd)
+  if (setBaseURL(url)) console.log(`mode set to ${cmd} — ANTHROPIC_BASE_URL=${url}`)
+  console.log('applies to new Claude Code sessions; restart running ones to switch')
 } else if (cmd === 'key') {
   if (!a || !b) { console.error('usage: claude-mode key <provider> <apiKey>'); process.exit(1) }
   const c = cfg()
