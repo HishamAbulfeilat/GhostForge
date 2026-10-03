@@ -21,7 +21,7 @@ surface. The evidence column names the implementation that was checked.
 | Chat / unified model chat | ✅ | ✅ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/gemini.sh`, `/api/mark-l/chat/unified` |
 | Chat chains / multi-model routing | ✅ | ⚠️ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/ai-review.sh`, `/api/mark-l/chat/chain` |
 | Web terminal / PTY | ✅ | ❌ | ✅ | ❌ | `app/terminal`, `scripts/pty-server.js` |
-| Files browser and Monaco editor | ✅ | ⚠️ | ❌ | ✅ | `app/files`, `screenOpenProject`, `/api/mark-l/file-control` |
+| Files browser and Monaco editor | ✅ | ⚠️ | ⚠️ | ✅ | `app/files`, `screenOpenProject`, `ghostforge files list\|read` (`scripts/files.mjs`, read-only, no editor), `/api/mark-l/file-control` |
 | History and audit log | ✅ | ✅ | ✅ | ✅ | `app/history`, `screenAuditLog`, `scripts/daily-digest.sh`, bridge memory/history handlers |
 | Command catalog / feature launcher | ✅ | ✅ | ✅ | ❌ | `app/features`, `screenCommands`/`screenCommandCenter`, `scripts/*` |
 | Project open, project list, scaffolding | ⚠️ | ✅ | ✅ | ❌ | `app/setup`, `screenProjects`/`screenOpenProject`, `scripts/create-project.sh` |

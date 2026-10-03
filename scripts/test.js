@@ -89,6 +89,14 @@ check('Awesome LLM Apps CLI smoke tests pass', () => {
   );
 });
 
+check('read-only files CLI tests pass', () => {
+  execFileSync(
+    process.execPath,
+    ['--test', 'scripts/test/files.test.mjs'],
+    { cwd: ROOT, stdio: 'pipe' }
+  );
+});
+
 check('managed worlds runtime tests pass', () => {
   execFileSync(
     process.execPath,
