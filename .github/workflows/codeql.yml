@@ -1,0 +1,56 @@
+name: CodeQL
+
+# CodeQL code scanning for the JavaScript/TypeScript surfaces (web-ui,
+# electron-app, tui, mcp, extension, cli) and the Python bridge/voice pipeline.
+# Results upload as SARIF to the repository's Security → Code scanning tab.
+on:
+  push:
+    branches: [main, agent/integration]
+  pull_request:
+    branches: [main, agent/integration]
+  schedule:
+    - cron: '41 4 * * 2'   # weekly, picks up new CodeQL queries
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # Interpreted languages: no build, CodeQL extracts the sources directly.
+          build-mode: none
+          queries: security-extended
+          # Third-party and generated code is not ours to fix; keep it out of
+          # the findings so Phase 4 triage covers first-party code only.
+          config: |
+            paths-ignore:
+              - '**/node_modules/**'
+              - vendor/**
+              - web-ui/vendor/**
+              - apps/worlds/*/upstream/**
+              - apps/worlds/*/checkout/**
+              - extension/dist/**
+              - electron-app/android/**
+              - electron-app/ios/**
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
