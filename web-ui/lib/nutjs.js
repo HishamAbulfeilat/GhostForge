@@ -31,6 +31,24 @@ function appleScript(script) {
   return execFileAsync('osascript', ['-e', script], { timeout: 8000 })
 }
 
+/**
+ * Send `text` to AppleScript as a *script argument* instead of interpolating
+ * it into the source. osascript forwards trailing argv to the script's
+ * `on run argv` handler as an already-decoded string, so quotes, backslashes
+ * and newlines in `text` are never parsed as AppleScript source — no escaping
+ * is needed, and none can be done wrong.
+ *
+ * `quoteInScript` places the value into the statement; it must reference
+ * `theText`, which is bound to argv item 1.
+ */
+function appleScriptWithText(text, quoteInScript) {
+  const script = `on run argv
+  set theText to item 1 of argv
+  ${quoteInScript}
+end run`
+  return execFileAsync('osascript', ['-e', script, String(text)], { timeout: 8000 })
+}
+
 /** Human-readable status: whether nut.js is active and why not. */
 function nativeStatus() {
   return {
@@ -83,8 +101,7 @@ async function typeText(text) {
     return `Typed "${text.slice(0, 40)}" via nut.js`
   }
   if (darwin) {
-    const safe = text.replace(/"/g, '\\"')
-    await appleScript(`tell application "System Events" to keystroke "${safe}"`)
+    await appleScriptWithText(text, 'tell application "System Events" to keystroke theText')
     return `Typed "${text.slice(0, 40)}"`
   }
   return 'Typing not supported on this platform without nut.js'
