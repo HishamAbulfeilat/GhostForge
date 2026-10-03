@@ -166,7 +166,7 @@ jobs:
               '',
               '</details>',
               '',
-              'Security scanning (CodeQL, dependency review, secret scan, SBOM) runs in the **Security** workflow.',
+              'Code scanning runs in the **CodeQL** workflow; dependency review, secret scan and SBOM run in the **Security** workflow.',
               '',
               `*Powered by [GhostForge](https://github.com/ghostforge-copilot-business/GhostForge)*`,
             ].join('\n');
