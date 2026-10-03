@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { routeModel, classifyTask, KIND_TIER } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
-import { Boss, lastJSON, pickTask, stagePrompt } from './boss.mjs'
+import { Boss, lastJSON, pickTask, reviewDiff, stagePrompt } from './boss.mjs'
 import { scoreOf } from './health.mjs'
 
 test('classifyTask maps free text to task kinds', () => {
@@ -309,5 +309,47 @@ test('a security review with no verdict is held (no attempt burned); other kinds
     assert.equal(execFileSync('git', ['rev-parse', holdRef], { cwd: root, encoding: 'utf8' }).trim(), head, 'commits pinned by ref')
   } finally {
     spawnSync('git', ['update-ref', '-d', holdRef], { cwd: root })
+  }
+})
+
+test('reviewDiff stays bounded for a commit deleting many large files', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-review-diff-'))
+  const run = (...args) => {
+    const r = spawnSync('git', args, { cwd: repo, encoding: 'utf8', windowsHide: true })
+    assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`)
+    return r.stdout.trim()
+  }
+  try {
+    run('init', '-q')
+    run('config', 'user.email', 'test@example.com')
+    run('config', 'user.name', 'test')
+    run('config', 'core.autocrlf', 'false')
+    fs.mkdirSync(path.join(repo, 'node_modules'))
+    const big = 'x'.repeat(100) + '\n'
+    for (let i = 0; i < 60; i++) fs.writeFileSync(path.join(repo, 'node_modules', `f${i}.js`), big.repeat(1000)) // ~100 KB each
+    fs.writeFileSync(path.join(repo, 'keep.txt'), 'keep\n')
+    run('add', '-A'); run('commit', '-qm', 'base')
+    const base = run('rev-parse', 'HEAD')
+    run('rm', '-rq', '--cached', 'node_modules')
+    fs.writeFileSync(path.join(repo, '.gitignore'), 'node_modules/\n')
+    run('add', '.gitignore'); run('commit', '-qm', 'untrack node_modules')
+    const head = run('rev-parse', 'HEAD')
+
+    const full = reviewDiff(repo, base, head)
+    assert.equal(full.truncated, false, 'deleted preimages are omitted, so ~6 MB of deletions stays tiny')
+    assert.ok(full.diff.length < 20_000, `diff is ${full.diff.length} chars`)
+    assert.ok(!full.diff.includes('xxxxxxxxxx'), 'no deleted file content in the review diff')
+    assert.match(full.diff, /deleted file mode/)
+    assert.match(full.diff, /\+node_modules\//, 'real additions are still shown')
+    assert.match(full.stat, /60 files changed|61 files changed/)
+    assert.match(full.stat, /f59\.js/, 'stat lists every deleted file')
+
+    const capped = reviewDiff(repo, base, head, 500)
+    assert.equal(capped.truncated, true)
+    assert.ok(capped.diff.length < 500 + 300, 'capped diff is bounded by the limit plus the marker')
+    assert.match(capped.diff, /diff truncated for review/)
+    assert.equal(capped.stat, full.stat, 'stat is never truncated')
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
   }
 })
