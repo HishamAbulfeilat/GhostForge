@@ -89,7 +89,8 @@ class SecurityScanTests(unittest.TestCase):
         })
         for _, kwargs in self.calls:
             self.assertFalse(kwargs["shell"])
-            self.assertEqual(kwargs["cwd"], ROOT)
+            # Never run inside the repo: stray relative writes must not land there.
+            self.assertFalse(Path(kwargs["cwd"]).resolve().is_relative_to(ss.REPO_ROOT))
             self.assertEqual(kwargs["timeout"], ss.TIMEOUT_S)
 
     def test_rejects_user_supplied_args_paths_and_unknown_scanners(self):
@@ -144,6 +145,18 @@ class SecurityScanTests(unittest.TestCase):
         self.assertNotIn("GITHUB_TOKEN", env)
         self.assertNotIn("MARKL_BRIDGE_TOKEN", env)
         self.assertEqual(env["SEMGREP_SEND_METRICS"], "off")
+
+    def test_scanner_env_keeps_windows_system_locations(self):
+        # Dropping these made Windows write "%SystemDrive%/ProgramData/..." caches
+        # relative to the working directory.
+        system = {"SystemDrive": "C:", "SystemRoot": r"C:\Windows", "ProgramData": r"C:\ProgramData",
+                  "WINDIR": r"C:\Windows", "ALLUSERSPROFILE": r"C:\ProgramData"}
+        with patch.dict(ss.os.environ, system):
+            env = ss.scan_env()
+        upper = {k.upper(): v for k, v in env.items()}
+        self.assertEqual(len(upper), len(env), "case-variant duplicates")
+        for key, value in system.items():
+            self.assertEqual(upper.get(key.upper()), value, key)
 
     def test_concurrent_scan_is_rejected(self):
         self.assertTrue(ss._scan_lock.acquire(blocking=False))
