@@ -105,6 +105,23 @@ of captured output, which is ANSI-stripped and secret-redacted. A scanner that i
 `{ status: "unavailable", reason, install_hint }`. Other statuses: `ok`,
 `findings` (exit 1), `error`, `timeout`. One scan at a time; a second POST gets 409.
 
+### Code health and coverage
+
+Allowlisted scripts only (`code_health.py`), bridge token required:
+
+| Endpoint | Method | Notes |
+|----------|--------|-------|
+| `/api/code-health` | GET | `{ running, timeout_s, scripts: [{ id, available, description }] }` |
+| `/api/code-health` | POST | `{ script: "perf" \| "bundle" \| "unused" \| "dep-health" \| "coverage" }` → `{ result }` |
+
+Each id runs `bash scripts/<name>.sh` with a fixed argv (`perf.sh` against
+`http://localhost:3000`, `bundle.sh track web-ui`, `unused.sh` report only,
+`dep-health.sh full`, `coverage.sh history`): no shell, no caller-supplied
+paths, arguments or environment (extra body keys are rejected, unknown ids
+get 400), a minimal environment, a 180 s timeout and 20 KB of captured output,
+ANSI-stripped and secret-redacted. Statuses: `ok`, `error` (non-zero exit),
+`timeout`, `unavailable`. One run at a time; a second POST gets 409.
+
 ## Licensing
 
 Mark-LV is **CC BY-NC 4.0 (non-commercial)**. Its source is vendored under
