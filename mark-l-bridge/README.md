@@ -80,6 +80,28 @@ Names must match `[A-Za-z0-9][A-Za-z0-9._-]*` and be listed; anything else is
 404. Symlinks are never followed, files over 256 KB are refused, and nothing is
 written or executed.
 
+### Setup status
+
+`GET /api/setup/status` (bridge token required, read-only, `setup_status.py`)
+returns `{ ok, bridge_version, required_env, required_env_ok, optional_env,
+ollama_reachable, openjarvis_enabled, mark_lv_vendor_present }`. Environment
+variables are reported by name as `true`/`false` (set or not); values are never
+returned. Ollama is probed with a 1 s request to `localhost:11434`.
+
+### Free APIs/models and design resources
+
+Read-only, bridge token required (`resource_catalogs.py`); both reuse existing
+sources rather than duplicating data:
+
+| Endpoint | Returns | Source |
+|----------|---------|--------|
+| `GET /api/free-apis` | `{ ok, count, providers: [{ id, name, paid, key_env, key_set, key_url, default_model }], free_api_resources }` | `web-ui/lib/providers.ts`, `marketplace/catalog.json` |
+| `GET /api/design-resources` | `{ ok, design_resources, design_marketplace, vigolium, open_source_tools }` | `web-ui/app/design-resources`, `web-ui/app/open-source-tools`, `marketplace/catalog.json` |
+
+`key_set` is `true`/`false` for whether the provider's key environment variable
+is set (`null` when no key is needed); key values are never returned. Only
+`http(s)` URLs are emitted.
+
 ### Security scan
 
 Defensive scanners only (`security_scan.py`), bridge token required:
@@ -96,6 +118,23 @@ directory (so stray writes never land in the repo), a 120 s timeout and 20 KB
 of captured output, which is ANSI-stripped and secret-redacted. A scanner that is not on PATH returns
 `{ status: "unavailable", reason, install_hint }`. Other statuses: `ok`,
 `findings` (exit 1), `error`, `timeout`. One scan at a time; a second POST gets 409.
+
+### Code health and coverage
+
+Allowlisted scripts only (`code_health.py`), bridge token required:
+
+| Endpoint | Method | Notes |
+|----------|--------|-------|
+| `/api/code-health` | GET | `{ running, timeout_s, scripts: [{ id, available, description }] }` |
+| `/api/code-health` | POST | `{ script: "perf" \| "bundle" \| "unused" \| "dep-health" \| "coverage" }` → `{ result }` |
+
+Each id runs `bash scripts/<name>.sh` with a fixed argv (`perf.sh` against
+`http://localhost:3000`, `bundle.sh track web-ui`, `unused.sh` report only,
+`dep-health.sh full`, `coverage.sh history`): no shell, no caller-supplied
+paths, arguments or environment (extra body keys are rejected, unknown ids
+get 400), a minimal environment, a 180 s timeout and 20 KB of captured output,
+ANSI-stripped and secret-redacted. Statuses: `ok`, `error` (non-zero exit),
+`timeout`, `unavailable`. One run at a time; a second POST gets 409.
 
 ## Licensing
 
