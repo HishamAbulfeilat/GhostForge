@@ -253,18 +253,34 @@ export function pickTask(tasks, agentId, strengths = [], now = Date.now()) {
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const tail = (s = '', n = 3000) => (s.length > n ? '…' + s.slice(-n) : s)
 
+// Large diffs/logs exceed Node's 1 MiB default and fail with ENOBUFS.
+export const MAX_BUFFER = 256 * 1024 * 1024
+
+function spawnFailure(r, label) {
+  if (!r.error) return ''
+  const hint = r.error.code === 'ENOBUFS' ? ` (output exceeded ${MAX_BUFFER / 1024 / 1024} MiB maxBuffer)` : ''
+  return `${label} failed to run: ${r.error.code ?? ''} ${r.error.message}${hint}`.trim()
+}
+
 function git(cwd, ...args) {
-  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).trim()
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, maxBuffer: MAX_BUFFER }).trim()
+  } catch (e) {
+    if (e.code === 'ENOBUFS') e.message = `git ${args[0] ?? ''} output exceeded ${MAX_BUFFER / 1024 / 1024} MiB maxBuffer (ENOBUFS)`
+    throw e
+  }
 }
 
-function gitTry(cwd, ...args) {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true })
-  return { ok: r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim() }
+export function gitTry(cwd, ...args) {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true, maxBuffer: MAX_BUFFER })
+  const err = spawnFailure(r, `git ${args[0] ?? ''}`)
+  return { ok: !r.error && r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}${err}`.trim() }
 }
 
-function sh(cmd, args, cwd, timeout = 15 * 60_000) {
-  const r = spawnSync(cmd, IS_WIN ? args.map(winQuote) : args, { cwd, encoding: 'utf8', shell: IS_WIN, timeout, windowsHide: true })
-  return { ok: r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim() }
+export function sh(cmd, args, cwd, timeout = 15 * 60_000) {
+  const r = spawnSync(cmd, IS_WIN ? args.map(winQuote) : args, { cwd, encoding: 'utf8', shell: IS_WIN, timeout, windowsHide: true, maxBuffer: MAX_BUFFER })
+  const err = spawnFailure(r, cmd)
+  return { ok: !r.error && r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}${err}`.trim() }
 }
 
 function killTree(child) {
