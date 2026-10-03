@@ -83,7 +83,7 @@ function safeCollabText(value) {
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
 }
 
-async function collabBridgeRequest(pathname, init = {}) {
+async function collabBridgeRequest(pathname, { timeoutMs = 8000, ...init } = {}) {
   const { baseUrl, token } = collabBridgeConfig();
   let response;
   try {
@@ -94,7 +94,7 @@ async function collabBridgeRequest(pathname, init = {}) {
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...init.headers,
       },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     if (error.name === 'TimeoutError') throw new Error('The collaboration bridge request timed out.');
@@ -110,7 +110,8 @@ async function collabBridgeRequest(pathname, init = {}) {
   }
   const body = parsedBody && typeof parsedBody === 'object' ? parsedBody : {};
   if (!response.ok) {
-    throw new Error(safeCollabText(body.detail || body.error || `Bridge request failed (${response.status}).`));
+    const detail = body.detail && typeof body.detail === 'object' ? body.detail.error : body.detail;
+    throw new Error(safeCollabText(detail || body.error || `Bridge request failed (${response.status}).`));
   }
   return body.data ?? body;
 }
@@ -817,7 +818,82 @@ async function screenMemory() {
   }
 }
 
-const BRIEFING_PROACTIVE_SILENCE_MS = 30 * 60 * 1000;
+const OPENJARVIS_OUTPUT_LIMIT = 4000;
+
+function openJarvisErrorMessage(error) {
+  const message = safeCollabText(error?.message || 'OpenJarvis request failed.');
+  if (/^Could not reach the collaboration bridge|timed out/.test(message) && !/openjarvis/i.test(message)) {
+    return 'Bridge offline: cannot reach the GhostForge bridge on :8765. Start it with mark-l-bridge/start.sh and retry.';
+  }
+  if (/not installed or available/i.test(message)) {
+    return 'OpenJarvis is not installed: the `jarvis` CLI is not on the bridge PATH. Install it from the Marketplace (openjarvis) and restart the bridge.';
+  }
+  return message;
+}
+
+// Multi-line output keeps newlines/tabs; every other control or ANSI sequence is stripped.
+function openJarvisText(value) {
+  return String(value ?? '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, ' ')
+    .slice(0, OPENJARVIS_OUTPUT_LIMIT)
+    .split('\n')
+    .map(line => `  ${line}`)
+    .join('\n');
+}
+
+async function screenOpenJarvis() {
+  while (true) {
+    sectionHeader('🤖  OpenJarvis', 'Health, doctor and ask for the local OpenJarvis agent via the bridge');
+    const action = await select({
+      message: T.white('OpenJarvis action:'),
+      choices: [
+        { name: T.success('💚  Health'), value: 'health' },
+        { name: T.cyan('🩺  Doctor'), value: 'doctor' },
+        { name: T.accent('💬  Ask'), value: 'ask' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+
+    try {
+      if (action === 'health') {
+        const result = await collabBridgeRequest('/api/openjarvis/health');
+        if (result?.installed) {
+          console.log(T.success('\n  ✔ OpenJarvis is installed.'));
+          if (result.binary) console.log(T.muted(`  Binary: ${safeCollabText(result.binary)}`));
+        } else {
+          console.log(T.warning('\n  ⚠ OpenJarvis is not installed (the `jarvis` CLI is not on the bridge PATH).'));
+          console.log(T.muted('  Install it from the Marketplace (openjarvis) and restart the bridge.'));
+        }
+      } else if (action === 'doctor') {
+        console.log(T.muted('\n  Running jarvis doctor…'));
+        const result = await collabBridgeRequest('/api/openjarvis/doctor', { timeoutMs: 40000 });
+        console.log(`\n${openJarvisText(typeof result === 'string' ? result : JSON.stringify(result, null, 2))}`);
+      } else if (action === 'ask') {
+        const prompt = (await input({ message: 'Ask OpenJarvis:' })).trim();
+        if (!prompt) continue;
+        if (prompt.length > 4000) {
+          console.log(T.warning('\n  ⚠ Prompt is too long (max 4000 characters).'));
+        } else {
+          console.log(T.muted('\n  Thinking…'));
+          const result = await collabBridgeRequest('/api/openjarvis/ask', {
+            method: 'POST',
+            body: JSON.stringify({ prompt, timeout_s: 60 }),
+            timeoutMs: 70000,
+          });
+          console.log(`\n${openJarvisText(result?.response ?? '(empty response)')}`);
+        }
+      }
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${openJarvisErrorMessage(error)}`));
+    }
+    await pressEnter();
+  }
+}
+
+const BRIEFING_PROACTIVE_SILENCE_MS =30 * 60 * 1000;
 
 function briefingWebOrigin() {
   const base = process.env.GF_WEB_UI_URL?.trim() || 'http://127.0.0.1:3000';
@@ -1592,7 +1668,8 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '👥  User Administration',       'list users · owner-only role, status, and permission controls', 'users'),
       menuChoice(T.accent.bold,  '🔁  Workflows',                  'review saved workflows · run bounded, allowlisted steps', 'workflows'),
       menuChoice(T.accent.bold,  '🧠  Memory',                    'list · search · add · delete JARVIS memories via the bridge', 'memory'),
-      menuChoice(T.accent.bold,  '☀️  Morning Briefing & Inbox',  'daily briefing · weather · news · proactive check-in', 'briefing'),
+      menuChoice(T.accent.bold,  '🤖  OpenJarvis',                'health · doctor · ask the local OpenJarvis agent via the bridge', 'openjarvis'),
+      menuChoice(T.accent.bold,  '☀️  Morning Briefing & Inbox', 'daily briefing · weather · news · proactive check-in', 'briefing'),
       menuChoice(T.cyan.bold,    '🌍  Agent Worlds',             'start, stop, and check AI Town and Agent Office', 'worlds'),
       menuChoice(T.accent.bold,  '⚡  n8n Automation',             'list and safely trigger active workflow webhooks', 'n8n'),
       menuChoice(T.accent.bold,  '🪝  Webhooks',                   'inspect triggers · replace config · review logs', 'webhooks'),
@@ -7774,6 +7851,7 @@ async function main() {
         case 'workflows':     await screenWorkflows(); break;
         case 'worlds':        await screenWorlds(); break;
         case 'memory':        await screenMemory(); break;
+        case 'openjarvis':    await screenOpenJarvis(); break;
         case 'briefing':      await screenBriefing(); break;
         case 'n8n':            await screenN8n(); break;
         case 'webhooks':      await screenWebhooks(); break;
