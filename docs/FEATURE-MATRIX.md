@@ -69,14 +69,14 @@ surface. The evidence column names the implementation that was checked.
 | API docs/types/mock generation | ✅ | ✅ | ✅ | ❌ | `app/api-docs`, `app/api-types`, `app/mock-api`, `app/api/execute`, `screenAPITypes`/`screenMockApi`, `scripts/api-docs.sh`/`api-types.sh`/`api-mock.sh` |
 | i18n and RTL tooling | ⚠️ | ✅ | ✅ | ❌ | `app/layout.tsx`, `screenRTL`, `scripts/i18n.sh`/`rtl.sh` |
 | Snippets, changelog, README and onboarding | ✅ | ✅ | ✅ | ✅ | `/snippets` (authenticated route, linked from `Navbar` and the command palette) and `/api/snippets` for snippets, `CHANGELOG.md`, and `README.md`; `screenSnippets`/`screenChangelogViewer`/`screenReadme`/`screenOnboardDev`, `scripts/snippet-manager.sh`/`changelog.sh`/`onboard-dev.sh`, bridge `GET /api/snippets`, `/api/snippets/{name}`, `/api/docs/{name}` (`mark-l-bridge/snippets_docs.py`, read-only) |
-| Tickets, Azure DevOps and estimates | ⚠️ | ✅ | ✅ | ❌ | `screenTickets`/`screenAdo`/`screenEstimate`, `scripts/ticket.sh`/`ado.sh`/`estimate.sh` |
+| Tickets, Azure DevOps and estimates | ✅ | ✅ | ✅ | ❌ | `app/tickets/page.tsx` + `app/api/tickets/route.ts` (admin-only panel), `screenTickets`/`screenAdo`/`screenEstimate`, `scripts/ticket.sh`/`ado.sh`/`estimate.sh` |
 | Performance, bundle, unused-code and dependency health | ✅ | ✅ | ✅ | ✅ | `app/code-health/page.tsx` + `app/api/code-health/route.ts`, `screenPerf`/`screenBundle`/`screenUnused`, `scripts/perf.sh`/`bundle.sh`/`unused.sh`/`dep-health.sh`, bridge `GET`/`POST /api/code-health` (token auth) |
-| Free APIs/models and provider setup | ✅ | ✅ | ✅ | ❌ | `app/models`, `screenFreeAPIs`/`screenFreeModels`, `scripts/free-models.sh`/`free-models.sh` |
+| Free APIs/models and provider setup | ✅ | ✅ | ✅ | ✅ | `app/models`, `screenFreeAPIs`/`screenFreeModels`, `scripts/free-models.sh`/`free-models.sh`, bridge `GET /api/free-apis` (token auth, key presence flags only, mark-l-bridge/resource_catalogs.py) |
 | Users, login and access profiles | ✅ | ✅ | ✅ | ❌ | `app/login`, `app/users`, `app/api/auth`, `app/api/users`, `cli/index.js` + `scripts/users.mjs`, `screenUsers` |
 | Bridge start/status and connection controls | ✅ | ✅ | ✅ | ✅ | `BridgeControl`, `screenHealth`, `scripts/bridge-server.js`, bridge `/api/mark-l/health` |
 | Electron desktop integrations | ❌ | ❌ | ❌ | ⚠️ | Runtime integrations are in `electron-app/src/main/*` and accessible in the Electron app; `scripts/build-electron.sh` is packaging only; bridge overlap is partial |
 | Android/iOS packaged app | ❌ | ❌ | ✅ | ❌ | `electron-app/android`, `electron-app/ios`, `scripts/build-android.sh`/`build-ios.sh` |
-| Design resources, Vigolium and open-source tools | ✅ | ✅ | ✅ | ❌ | `app/design-resources`, `app/vigolium`, `app/open-source-tools`, `screenDesignResources`/`screenVigolium`/`screenOpenSourceTools`, `scripts/figma-tokens.sh` |
+| Design resources, Vigolium and open-source tools | ✅ | ✅ | ✅ | ✅ | `app/design-resources`, `app/vigolium`, `app/open-source-tools`, `screenDesignResources`/`screenVigolium`/`screenOpenSourceTools`, `scripts/figma-tokens.sh`, bridge `GET /api/design-resources` (token auth, read-only, mark-l-bridge/resource_catalogs.py) |
 
 ## Concrete gaps
 
