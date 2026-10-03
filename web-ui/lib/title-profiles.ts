@@ -167,7 +167,8 @@ export const PAGE_ACCESS: PageAccess[] = [
   { path: '/history',     label: 'History',     icon: '🕘', permission: 'conversation_history' },
   { path: '/users',       label: 'Users',       icon: '👥', permission: 'admin', nav: true },
   { path: '/security',    label: 'Security',    icon: '🛡️', permission: 'admin', nav: true },
-  { path: '/marketplace', label: 'Market',      icon: '🏪', permission: 'ai_models', nav: true },
+  { path: '/testing',     label: 'Testing',     icon: '🧪', permission: 'admin' },
+  { path: '/marketplace', label: 'Market',     icon: '🏪', permission: 'ai_models', nav: true },
   { path: '/settings',    label: 'Settings',    icon: '⚙️', permission: null, nav: true },
   { path: '/setup',       label: 'Setup',       icon: '🧭', permission: null },
 ]
