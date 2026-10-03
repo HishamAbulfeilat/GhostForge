@@ -43,7 +43,11 @@ SCANNERS: dict[str, tuple[str, Callable[[str], list[str]], str]] = {
     ),
 }
 
+# Windows system locations stay set: without them, OS components expand e.g.
+# %SystemDrive% literally and write cache folders relative to the working dir.
 _ENV_KEEP = ("PATH", "Path", "PATHEXT", "HOME", "USERPROFILE", "SYSTEMROOT", "SystemRoot",
+             "SystemDrive", "SYSTEMDRIVE", "WINDIR", "windir", "ProgramData", "PROGRAMDATA",
+             "ALLUSERSPROFILE", "ProgramFiles", "ProgramFiles(x86)", "CommonProgramFiles",
              "TEMP", "TMP", "TMPDIR", "LANG", "APPDATA", "LOCALAPPDATA")
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)")
 _SECRET_PATTERNS = [
@@ -84,7 +88,11 @@ def find_binary(binary: str) -> Optional[str]:
 
 def scan_env() -> dict[str, str]:
     """Minimal environment: no API keys or bridge secrets reach scanners."""
-    env = {k: os.environ[k] for k in _ENV_KEEP if os.environ.get(k)}
+    env: dict[str, str] = {}
+    for key in _ENV_KEEP:
+        # Windows env names are case-insensitive; keep one spelling per variable.
+        if os.environ.get(key) and key.upper() not in {k.upper() for k in env}:
+            env[key] = os.environ[key]
     env.update(NO_COLOR="1", SEMGREP_SEND_METRICS="off")
     return env
 
@@ -119,10 +127,12 @@ def _run_one(scanner_id: str) -> dict[str, Any]:
                 "reason": f"{binary} is not installed or not on PATH", "install_hint": hint}
     started = time.monotonic()
     # Capture to a temp file so a noisy scanner cannot grow bridge memory unbounded.
-    with tempfile.TemporaryFile() as out:
+    # The repo root is passed in argv; the scanner runs from a throwaway working
+    # directory so stray relative writes (caches, reports) never land in the repo.
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryDirectory(prefix="gf-scan-") as workdir:
         try:
             proc = subprocess.run(
-                build_argv(scanner_id, binary_path), cwd=str(REPO_ROOT), env=scan_env(),
+                build_argv(scanner_id, binary_path), cwd=workdir, env=scan_env(),
                 stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                 timeout=TIMEOUT_S, check=False, shell=False,
             )

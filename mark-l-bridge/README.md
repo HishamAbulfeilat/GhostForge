@@ -68,8 +68,9 @@ Defensive scanners only (`security_scan.py`), bridge token required:
 
 Each scanner runs against the repository root with a fixed argv (no shell, no
 caller-supplied paths, arguments or environment; extra body keys are rejected),
-a minimal environment, a 120 s timeout and 20 KB of captured output, which is
-ANSI-stripped and secret-redacted. A scanner that is not on PATH returns
+a minimal environment (Windows system locations kept), a throwaway working
+directory (so stray writes never land in the repo), a 120 s timeout and 20 KB
+of captured output, which is ANSI-stripped and secret-redacted. A scanner that is not on PATH returns
 `{ status: "unavailable", reason, install_hint }`. Other statuses: `ok`,
 `findings` (exit 1), `error`, `timeout`. One scan at a time; a second POST gets 409.
 
