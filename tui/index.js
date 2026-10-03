@@ -7710,7 +7710,10 @@ async function screenVigolium() {
     const spinner = ora('Installing @vigolium/vigolium via npm...').start();
     try {
       const { execFileSync } = await import('child_process');
-      execFileSync('npm', ['install', '-g', '@vigolium/vigolium'], { stdio: 'pipe', timeout: 120000 });
+      // npm is a .cmd shim on Windows: execFileSync('npm') is ENOENT and
+      // execFileSync('npm.cmd') is EINVAL (CVE-2024-27980 guard) without a
+      // shell. Every argument is a static literal, so a shell there is safe.
+      execFileSync('npm', ['install', '-g', '@vigolium/vigolium'], { stdio: 'pipe', timeout: 120000, shell: process.platform === 'win32' });
       spinner.succeed('Vigolium installed! Run: vigolium --help');
     } catch (e) {
       spinner.fail('npm install failed');
