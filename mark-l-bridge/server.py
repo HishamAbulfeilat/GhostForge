@@ -2639,6 +2639,37 @@ def commands_catalog():
     return {"ok": True, "count": len(items), "commands": items}
 
 
+@app.get("/api/snippets", dependencies=[Depends(require_token)])
+def snippets_list():
+    """Read-only list of snippets/ files plus the readable root documents."""
+    import snippets_docs as sd
+
+    snippets = sd.list_snippets()
+    return {"ok": True, "count": len(snippets), "snippets": snippets, "docs": list(sd.DOCS)}
+
+
+@app.get("/api/snippets/{name}", dependencies=[Depends(require_token)])
+def snippet_read(name: str):
+    """Read one snippet file by name (strictly validated, no path traversal)."""
+    import snippets_docs as sd
+
+    content = sd.read_snippet(name)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Unknown snippet")
+    return {"ok": True, "name": name, "content": content}
+
+
+@app.get("/api/docs/{name}", dependencies=[Depends(require_token)])
+def doc_read(name: str):
+    """Read CHANGELOG.md or README.md from the repo root (fixed allowlist)."""
+    import snippets_docs as sd
+
+    content = sd.read_doc(name)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Unknown document")
+    return {"ok": True, "name": name, "content": content}
+
+
 _MARKETPLACE_DIR = Path(__file__).resolve().parent.parent / "marketplace"
 
 

@@ -66,6 +66,20 @@ returns `{ ok: false, available: false, reason, ... }` with empty lists.
 first 2 KB of each file; it never executes or serves file contents, and entries
 or directories that resolve outside `commands/` / `scripts/` are skipped.
 
+### Snippets, changelog and README
+
+Read-only, bridge token required (`snippets_docs.py`):
+
+| Endpoint | Returns |
+|----------|---------|
+| `GET /api/snippets` | `{ ok, count, snippets: [name], docs: ["CHANGELOG.md", "README.md"] }` |
+| `GET /api/snippets/{name}` | `{ ok, name, content }` for a regular file directly in `snippets/` |
+| `GET /api/docs/{name}` | `{ ok, name, content }` for `CHANGELOG.md` or `README.md` only |
+
+Names must match `[A-Za-z0-9][A-Za-z0-9._-]*` and be listed; anything else is
+404. Symlinks are never followed, files over 256 KB are refused, and nothing is
+written or executed.
+
 ### Security scan
 
 Defensive scanners only (`security_scan.py`), bridge token required:
