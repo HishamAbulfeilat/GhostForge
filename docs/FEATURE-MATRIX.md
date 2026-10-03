@@ -23,7 +23,7 @@ surface. The evidence column names the implementation that was checked.
 | Web terminal / PTY | ✅ | ❌ | ✅ | ❌ | `app/terminal`, `scripts/pty-server.js` |
 | Files browser and Monaco editor | ✅ | ⚠️ | ⚠️ | ✅ | `app/files`, `screenOpenProject`, `ghostforge files list\|read` (`scripts/files.mjs`, read-only, no editor), `/api/mark-l/file-control` |
 | History and audit log | ✅ | ✅ | ✅ | ✅ | `app/history`, `screenAuditLog`, `scripts/daily-digest.sh`, bridge memory/history handlers |
-| Command catalog / feature launcher | ✅ | ✅ | ✅ | ❌ | `app/features`, `screenCommands`/`screenCommandCenter`, `scripts/*` |
+| Command catalog / feature launcher | ✅ | ✅ | ✅ | ✅ | `app/features`, `screenCommands`/`screenCommandCenter`, `scripts/*`, bridge `GET /api/commands` (`mark-l-bridge/commands_catalog.py`, read-only) |
 | Project open, project list, scaffolding | ⚠️ | ✅ | ✅ | ❌ | `app/setup`, `screenProjects`/`screenOpenProject`, `scripts/create-project.sh` |
 | Setup and environment configuration | ✅ | ✅ | ✅ | ❌ | `app/setup`, `screenSetup`, `scripts/setup-env.sh`/`scripts/env-manager.sh` |
 | AI agents dashboard and dispatch | ✅ | ✅ | ⚠️ | ✅ | `app/agents`, `screenAgents`, `cli/index.js` → `scripts/agents/team.mjs`, `/api/mark-l/agents/*` |

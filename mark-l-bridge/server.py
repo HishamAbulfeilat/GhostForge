@@ -2630,6 +2630,15 @@ def security_scan_run(req: Optional[SecurityScanRequest] = None):
         raise HTTPException(status_code=409, detail="A security scan is already running") from None
 
 
+@app.get("/api/commands", dependencies=[Depends(require_token)])
+def commands_catalog():
+    """Read-only catalog of commands/ and scripts/ entries (name/description/kind)."""
+    import commands_catalog as cc
+
+    items = cc.list_commands()
+    return {"ok": True, "count": len(items), "commands": items}
+
+
 _MARKETPLACE_DIR = Path(__file__).resolve().parent.parent / "marketplace"
 
 
