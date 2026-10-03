@@ -160,3 +160,77 @@ test('the bridge still rejects an unparseable body with 400', async t => {
   assert.equal(res.body.error, 'Invalid JSON');
   assert.equal(bridge.exited(), null);
 });
+
+/**
+ * T-225: the body cap was compared against `body.length`, which counts UTF-16
+ * code units rather than bytes. A BMP character from U+0800 up (Arabic,
+ * Devanagari, CJK) is 3 bytes but 1 unit, so a body of them passed the check at
+ * 3x the intended byte size — while `body += chunk` had already grown the
+ * string past the cap before the comparison ran.
+ */
+const MAX_BODY_BYTES = 1024 * 1024;
+
+/** A valid JSON object padded to `byteTarget` bytes with 3-byte characters. */
+function multibyteBody(byteTarget, char) {
+  const head = '{"prompt":"';
+  const tail = '"}';
+  const room = byteTarget - Buffer.byteLength(head + tail, 'utf8');
+  const perChar = Buffer.byteLength(char, 'utf8');
+  const count = Math.floor(room / perChar);
+  return head + char.repeat(count) + tail;
+}
+
+test('a multi-byte body over the cap is refused with 413, not accepted', async t => {
+  const bridge = await startBridge();
+  t.after(() => bridge.stop());
+
+  // Just under 2 MiB of real bytes but only ~700k UTF-16 units: the old
+  // character check let this through, the byte check refuses it.
+  const body = multibyteBody(MAX_BODY_BYTES * 2, 'ࠀ');
+  assert.ok(
+    Buffer.byteLength(body, 'utf8') > MAX_BODY_BYTES,
+    'body must exceed the byte cap for this test to mean anything'
+  );
+  assert.ok(
+    body.length < MAX_BODY_BYTES,
+    'body must stay under the cap in characters — that is the whole bug'
+  );
+
+  const res = await bridge.post('/execute', body);
+  assert.ok(res, 'connection died — a large body should not kill the bridge');
+  assert.equal(res.status, 413, `expected 413 for ${Buffer.byteLength(body)} bytes`);
+  assert.match(res.body.error, /too large/i);
+
+  assert.equal(bridge.exited(), null, 'bridge exited after an oversized body');
+  const health = await bridge.get('/health');
+  assert.equal(health?.status, 200, 'bridge stopped serving after a 413');
+});
+
+test('a multi-byte body under the cap is still parsed, not rejected', async t => {
+  const bridge = await startBridge();
+  t.after(() => bridge.stop());
+
+  // A genuine request in Arabic — near the cap in bytes, well under it in
+  // characters. This must reach the handler: the allowlist 403 is proof the
+  // body was decoded correctly, since a mangled multi-byte chunk would have
+  // failed JSON.parse with 400 instead.
+  const body = multibyteBody(MAX_BODY_BYTES - 4096, 'م');
+  assert.ok(Buffer.byteLength(body, 'utf8') < MAX_BODY_BYTES);
+
+  const res = await bridge.post('/execute', body);
+  assert.equal(res.status, 403, 'a valid large multi-byte body must reach the handler');
+
+  // A multi-byte prompt is parsed byte-correctly, including across the chunk
+  // boundaries of a body this large. An over-long prompt hits the handler's own
+  // deterministic limit rather than spawning `gh`, so the error message proves
+  // which branch ran: 'Invalid prompt' means the prompt decoded to a non-empty
+  // string, while 'Invalid JSON' would mean a chunk-boundary split corrupted it.
+  const longPrompt = 'منا المرحبا '.repeat(1000);
+  const copilot = await bridge.post('/copilot', JSON.stringify({ prompt: longPrompt }));
+  assert.equal(copilot.status, 400);
+  assert.equal(
+    copilot.body.error,
+    'Invalid prompt',
+    'expected the handler\'s prompt-length branch, not a JSON decode failure'
+  );
+});
