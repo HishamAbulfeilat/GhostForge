@@ -31,6 +31,11 @@ const COMMAND_SPECS = {
     script: path.join(ROOT, 'scripts', 'files.mjs'),
     summary: 'List and read project files (read-only, scoped to a root)',
   },
+  models: {
+    kind: 'node',
+    script: path.join(ROOT, 'scripts', 'hf-search.mjs'),
+    summary: 'Search Hugging Face models (read-only)',
+  },
   jobs: {
     kind: 'bash',
     script: path.join(ROOT, 'scripts', 'jobs.sh'),
@@ -82,6 +87,7 @@ function buildHelp() {
     '  workflows         Workflow list, create, update, run, and step controls',
     '  worlds            Set up, start, stop, and check AI Town / Agent Office',
     '  files              Read-only list/read of files under a project root (default: cwd)',
+    '  models             Search Hugging Face models: models search <query> [--limit N] [--json]',
     '  jobs               Job Hunter: CV, search, prepare, and approval flows',
     '  users              List and update authenticated users and permissions',
     '  collab             Create, view, and post to collaboration sessions',
@@ -104,6 +110,7 @@ function buildHelp() {
     '  ghostforge worlds start agent-office',
     '  ghostforge files list src',
     '  ghostforge files read README.md --max-bytes 4096',
+    '  ghostforge models search llama --limit 5 --json',
     '  ghostforge jobs search',
     '  ghostforge users list',
     '  ghostforge collab create',

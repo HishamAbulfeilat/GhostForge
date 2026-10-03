@@ -40,6 +40,7 @@ Usage:
   ghostforge workflows [args]          Workflow list/create/update/run commands
   ghostforge worlds [args]             Start, stop, or check AI Town / Agent Office
   ghostforge files list|read [args]    Read-only project file browser
+  ghostforge models search <query>     Search Hugging Face models (read-only)
   ghostforge jobs [args]               Run Job Hunter commands
   ghostforge users [args]              List and update authenticated users and permissions
   ghostforge collab [args]             Create, view, and post to collaboration sessions
@@ -60,7 +61,7 @@ EOF
 if [[ $# -gt 0 && "${1#-}" == "$1" ]]; then
   subcommand="$1"
   case "$subcommand" in
-    marketplace|agent-team|agents|team|workflows|workflow|worlds|files|jobs|users|collab|device-status|awesome-llm-apps|n8n|help)
+    marketplace|agent-team|agents|team|workflows|workflow|worlds|files|models|jobs|users|collab|device-status|awesome-llm-apps|n8n|help)
       exec node "$SCRIPT_DIR/cli/index.js" "$@"
       ;;
   esac
