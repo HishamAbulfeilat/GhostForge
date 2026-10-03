@@ -186,7 +186,7 @@ export default function WorkflowsPage() {
   }
 
   return (
-    <div className="min-h-[calc(100dvh-64px)] bg-gf-bg font-plex text-gf-ink">
+    <main className="min-h-[calc(100dvh-64px)] bg-gf-bg font-plex text-gf-ink">
       <div className="flex flex-col gap-1 px-4 pt-5 lg:px-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -311,7 +311,7 @@ export default function WorkflowsPage() {
           )}
         </section>
       </div>
-    </div>
+    </main>
   )
 }
 
