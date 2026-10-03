@@ -51,19 +51,19 @@ surface. The evidence column names the implementation that was checked.
 | Device status and registry | ✅ | ✅ | ✅ | ✅ | `DeviceStatus`, `app/api/devices`, `screenDeviceStatus`, `scripts/device-status.mjs status`, bridge `/api/devices` + `/api/devices/status` |
 | Models catalog, install and recommendations | ✅ | ✅ | ✅ | ✅ | `app/models`, `screenModelSelect`, `scripts/free-models.sh`, `/api/mark-l/models/*` |
 | LLMFit model matching and auto-switch | ✅ | ✅ | ✅ | ❌ | `app/models`, `LLMfitAutoSwitch`, `screenLLMFit`, `scripts/free-models.sh` |
-| Hugging Face model search | ✅ | ✅ | ⚠️ | ✅ | `app/marketplace`, `/api/huggingface`, `screenMarketplace`, bridge model search |
+| Hugging Face model search | ✅ | ✅ | ✅ | ✅ | `app/marketplace`, `/api/huggingface`, `screenMarketplace`, `ghostforge models search <query>` (cli/index.js), bridge model search |
 | Awesome LLM apps catalog | ✅ | ✅ | ✅ | ❌ | `app/marketplace`, `screenMarketplace`, `/api/awesome-llm-apps`, `scripts/awesome-llm-apps.mjs` |
 | Marketplace catalog and install state | ✅ | ✅ | ✅ | ✅ | `app/marketplace`, `screenMarketplace`, `scripts/marketplace.sh`, bridge `GET /api/marketplace` (mark-l-bridge/server.py line 2650, _read_marketplace_json) |
 | Custom model/API keys | ✅ | ⚠️ | ✅ | ⚠️ | `app/models`, `/api/models/custom`, `/api/models/keys`, bridge model install |
-| OpenJarvis health, doctor and ask | ✅ | ⚠️ | ✅ | ✅ | `OpenJarvisPanel`, `app/api/openjarvis`, `scripts/mark-liv.sh`, `/api/openjarvis/*` |
+| OpenJarvis health, doctor and ask | ✅ | ✅ | ✅ | ✅ | `OpenJarvisPanel`, `app/api/openjarvis`, `screenOpenJarvis` (tui/index.js), `scripts/mark-liv.sh`, `/api/openjarvis/*` |
 | Mark-LV tools and tool runner | ✅ | ✅ | ✅ | ✅ | `MarkLPanel`, `MarkLivToolsPanel` on `app/jarvis` via `app/api/mark-liv-tools`, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-liv/tools` and `/run` |
 | Weather, flights and reminders | ✅ | ✅ | ✅ | ✅ | `MarkLivToolsPanel` on `app/jarvis` via `app/api/mark-liv-tools`, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-l/weather`, `/flight-finder`, `/reminder` |
 | YouTube and game updater | ✅ | ✅ | ✅ | ✅ | `DeviceControlsPanel`, dashboard, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-l/youtube`, `/game-updater` |
 | Files/process control | ✅ | ✅ | ✅ | ✅ | `app/files`, `screenOpenProject`, `scripts/open-project.sh`, `/api/mark-l/file-process` |
 | Code helper and developer agent | ⚠️ | ✅ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/explain.sh`, `/api/mark-l/code-helper`, `/dev-agent` |
-| Security scan and pentest helpers | ✅ | ✅ | ✅ | ❌ | `app/security` + `app/api/security-scan` (admin-only, defensive scanners), `app/features`, `screenSecurity`, `scripts/security-check.sh`/`scripts/pentest.sh` |
+| Security scan and pentest helpers | ✅ | ✅ | ✅ | ✅ | `app/security` + `app/api/security-scan` (admin-only, defensive scanners), `app/features`, `screenSecurity`, `scripts/security-check.sh`/`scripts/pentest.sh`, bridge `GET/POST /api/security-scan` (token-auth, mark-l-bridge/security_scan.py) |
 | Doctor, health and diagnostics | ✅ | ✅ | ✅ | ✅ | `app/dashboard` + `app/api/doctor`, `screenDoctor`/`screenHealth`, `scripts/doctor.sh`/`health-check.sh`, bridge `/health` |
-| Testing and coverage | ⚠️ | ✅ | ✅ | ❌ | `app/features`, `screenTest`, `scripts/test-all-features.sh`/`coverage.sh` |
+| Testing and coverage | ✅ | ✅ | ✅ | ❌ | `app/testing/page.tsx` + `app/api/test-run/route.ts` (admin-only test-run/coverage panel), `app/features`, `screenTest`, `scripts/test-all-features.sh`/`coverage.sh` |
 | Deploy and Azure tooling | ⚠️ | ✅ | ✅ | ✅ | `app/features`, `screenDeploy`, `scripts/deploy-azure.sh`, bridge `/api/release` deploy action |
 | Git hooks, upgrades and release tooling | ✅ | ✅ | ✅ | ✅ | `app/maintenance`, `screenGitHooks`/`screenUpgrade`, `scripts/git-hooks.sh`/`upgrade.sh`/`release.sh`, bridge `/api/release` (status/prepare/notes/deploy) |
 | API docs/types/mock generation | ✅ | ✅ | ✅ | ❌ | `app/api-docs`, `app/api-types`, `app/mock-api`, `app/api/execute`, `screenAPITypes`/`screenMockApi`, `scripts/api-docs.sh`/`api-types.sh`/`api-mock.sh` |
@@ -98,7 +98,7 @@ or blocked-work claims:
 
 ## Validation
 
-Snapshot checked 2026-10-02 (re-audited AI agents, Agent World, teams/crews, and project rows):
+Snapshot checked 2026-10-03 (refreshed stale rows for T-184 security-scan bridge endpoint, T-185 OpenJarvis TUI screen, T-186 testing/coverage web panel, T-187 Hugging Face CLI search):
 
 - `node --check tui/index.js` — PASS (TUI syntax).
 - `npm test` — PASS (root smoke suite).
