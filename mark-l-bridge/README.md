@@ -57,6 +57,23 @@ issues, open PRs and recent workflow runs (20 each) for `GHOSTFORGE_GITHUB_REPO`
 is never logged or returned. If neither is available, or the call fails, it
 returns `{ ok: false, available: false, reason, ... }` with empty lists.
 
+### Security scan
+
+Defensive scanners only (`security_scan.py`), bridge token required:
+
+| Endpoint | Method | Notes |
+|----------|--------|-------|
+| `/api/security-scan` | GET | `{ running, timeout_s, scanners: [{ id, available, install_hint }] }` |
+| `/api/security-scan` | POST | Optional `{ scanner: "gitleaks" \| "osv-scanner" \| "semgrep" }` (default: all) → `{ results: [...] }` |
+
+Each scanner runs against the repository root with a fixed argv (no shell, no
+caller-supplied paths, arguments or environment; extra body keys are rejected),
+a minimal environment (Windows system locations kept), a throwaway working
+directory (so stray writes never land in the repo), a 120 s timeout and 20 KB
+of captured output, which is ANSI-stripped and secret-redacted. A scanner that is not on PATH returns
+`{ status: "unavailable", reason, install_hint }`. Other statuses: `ok`,
+`findings` (exit 1), `error`, `timeout`. One scan at a time; a second POST gets 409.
+
 ## Licensing
 
 Mark-LV is **CC BY-NC 4.0 (non-commercial)**. Its source is vendored under
