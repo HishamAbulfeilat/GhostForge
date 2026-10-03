@@ -16,6 +16,7 @@ const PROTECTED_PREFIXES = [
   '/jarvis',
   '/users',
   '/workflows',
+  '/security',
 ]
 
 export async function middleware(req: NextRequest) {
@@ -51,6 +52,7 @@ export const config = {
     '/jarvis/:path*',
     '/users/:path*',
     '/workflows/:path*',
+    '/security/:path*',
   ],
 }
 

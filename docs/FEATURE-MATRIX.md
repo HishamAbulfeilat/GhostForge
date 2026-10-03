@@ -61,7 +61,7 @@ surface. The evidence column names the implementation that was checked.
 | YouTube and game updater | ✅ | ✅ | ✅ | ✅ | `DeviceControlsPanel`, dashboard, `screenIntegrationsHub`, `scripts/mark-liv.sh`, `/api/mark-l/youtube`, `/game-updater` |
 | Files/process control | ✅ | ✅ | ✅ | ✅ | `app/files`, `screenOpenProject`, `scripts/open-project.sh`, `/api/mark-l/file-process` |
 | Code helper and developer agent | ⚠️ | ✅ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/explain.sh`, `/api/mark-l/code-helper`, `/dev-agent` |
-| Security scan and pentest helpers | ⚠️ | ✅ | ✅ | ❌ | `app/features`, `screenSecurity`, `scripts/security-check.sh`/`scripts/pentest.sh` |
+| Security scan and pentest helpers | ✅ | ✅ | ✅ | ❌ | `app/security` + `app/api/security-scan` (admin-only, defensive scanners), `app/features`, `screenSecurity`, `scripts/security-check.sh`/`scripts/pentest.sh` |
 | Doctor, health and diagnostics | ✅ | ✅ | ✅ | ✅ | `app/dashboard` + `app/api/doctor`, `screenDoctor`/`screenHealth`, `scripts/doctor.sh`/`health-check.sh`, bridge `/health` |
 | Testing and coverage | ⚠️ | ✅ | ✅ | ❌ | `app/features`, `screenTest`, `scripts/test-all-features.sh`/`coverage.sh` |
 | Deploy and Azure tooling | ⚠️ | ✅ | ✅ | ✅ | `app/features`, `screenDeploy`, `scripts/deploy-azure.sh`, bridge `/api/release` deploy action |
