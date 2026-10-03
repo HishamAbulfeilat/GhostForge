@@ -262,13 +262,37 @@ function spawnFailure(r, label) {
   return `${label} failed to run: ${r.error.code ?? ''} ${r.error.message}${hint}`.trim()
 }
 
+/**
+ * Error text for a failed git spawn that always names the command and cwd —
+ * a bare "spawnSync git ENOBUFS" (a boss started before the maxBuffer fix) was
+ * undiagnosable from the bounce message alone. Idempotent.
+ */
+export function describeGitError(e, args = [], cwd = '') {
+  const cmd = `git ${args.join(' ')}`.trim()
+  const raw = String(e?.message ?? e)
+  if (raw.includes(`[${cmd}]`)) return raw
+  const hint = e?.code === 'ENOBUFS' ? ` (output exceeded ${MAX_BUFFER / 1024 / 1024} MiB maxBuffer)` : ''
+  const stderr = e?.stderr ? `
+${String(e.stderr).trim().slice(-500)}` : ''
+  return `[${cmd}]${cwd ? ` in ${cwd}` : ''} failed${e?.code ? ` (${e.code})` : ''}${hint}: ${raw}${stderr}`
+}
+
 function git(cwd, ...args) {
   try {
     return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, maxBuffer: MAX_BUFFER }).trim()
   } catch (e) {
-    if (e.code === 'ENOBUFS') e.message = `git ${args[0] ?? ''} output exceeded ${MAX_BUFFER / 1024 / 1024} MiB maxBuffer (ENOBUFS)`
+    e.message = describeGitError(e, args, cwd)
     throw e
   }
+}
+
+/**
+ * Restart decision: true when the boss's own code (the tree hash of
+ * scripts/agents) changed on the integration branch since startup. Unknown
+ * revisions never trigger a restart.
+ */
+export function shouldRestartBoss(startRev, currentRev) {
+  return Boolean(startRev) && Boolean(currentRev) && startRev !== currentRev
 }
 
 export function gitTry(cwd, ...args) {
@@ -292,7 +316,7 @@ export function reviewDiff(cwd, base, head, limit = REVIEW_DIFF_LIMIT) {
   const r = spawnSync('git', ['diff', '--no-color', '--no-ext-diff', '--irreversible-delete', range],
     { cwd, encoding: 'utf8', windowsHide: true, maxBuffer: MAX_BUFFER })
   // On ENOBUFS spawnSync still returns the output read so far — review that.
-  if (r.error && r.error.code !== 'ENOBUFS') throw r.error
+  if (r.error && r.error.code !== 'ENOBUFS') { r.error.message = describeGitError(r.error, ['diff', '--no-color', '--no-ext-diff', '--irreversible-delete', range], cwd); throw r.error }
   if (!r.error && r.status !== 0) throw new Error(`git diff ${range} failed: ${(r.stderr ?? '').trim()}`)
   const full = (r.stdout ?? '').trimEnd()
   const lines = full ? full.split('\n').length : 0
@@ -377,6 +401,8 @@ export class Boss {
     this.prUrl = null
     this.integration = Promise.resolve() // serializes merge + health
     this.running = new Set()
+    this.codeRev = null // tree hash of scripts/agents when this boss started
+    this.restartRequested = false
   }
 
   log(msg) {
@@ -400,7 +426,7 @@ export class Boss {
   writeStatus() {
     writeJSON(path.join(this.dir, 'status.json'), {
       ts: new Date().toISOString(), pid: process.pid, phase: this.board().phase,
-      health: this.lastHealth?.score ?? null, merges: this.merges, pr: this.prUrl, agents: this.state,
+      health: this.lastHealth?.score ?? null, codeRev: this.codeRev, restarting: this.restartRequested, merges: this.merges, pr: this.prUrl, agents: this.state,
       boss: { provider: this.cfg.boss.provider, fallback: this.cfg.boss.fallback ?? null, cooldownUntil: this.bossCooldownUntil ?? null },
     })
     if (Date.now() - (this.handoffAt ?? 0) > 2 * 60_000) {
@@ -770,6 +796,22 @@ export class Boss {
     this.say('all', `✅ ${task.id} merged from ${agentId} (health ${health.score}/100): ${task.title}. ${result?.summary ?? ''} Files: ${files}`)
     this.log(`${task.id} merged from ${agentId}; health ${health.score}`)
     if (this.merges % this.cfg.pr.everyMerges === 0) this.publish()
+    this.checkCodeRev()
+  }
+
+  /** Revision (tree hash) of the boss's own code on the integration branch. */
+  currentCodeRev() {
+    const r = gitTry(this.intWt, 'rev-parse', 'HEAD:scripts/agents')
+    return r.ok ? r.out : null
+  }
+
+  /** After a merge: if scripts/agents changed, finish in-flight work and exit so the watchdog restarts the boss. */
+  checkCodeRev() {
+    const now = this.currentCodeRev()
+    if (this.restartRequested || !shouldRestartBoss(this.codeRev, now)) return
+    this.restartRequested = true
+    this.log(`scripts/agents changed on ${this.intBranch} (${this.codeRev} → ${now}) — finishing the current cycle, then exiting so the watchdog restarts the boss on the new code`)
+    this.say('all', `Boss will restart after in-flight tasks: scripts/agents changed (${String(this.codeRev).slice(0, 8)} → ${String(now).slice(0, 8)}).`)
   }
 
   // ── Planning & PR ──
@@ -930,6 +972,8 @@ export class Boss {
     saveBoard(this.dir, board)
     // Workers started by a previous boss may still be running in their worktrees.
     for (const [, a] of this.agents) killStrays(path.resolve(ROOT, a.worktree))
+    this.codeRev = this.currentCodeRev()
+    this.log(`boss code revision: scripts/agents @ ${this.codeRev ?? 'unknown'}`)
     this.log(`boss started with template ${this.templateName} — agents: ${this.agents.map(([id, a]) => `${id}(${a.provider})`).join(', ')}; integration ${this.intBranch} @ ${this.intWt}`)
     this.say('all', `Boss online. Template: ${this.templateName}. Agents: ${this.agents.map(([id]) => id).join(', ')}. Phase ${board.phase}.`)
 
@@ -939,13 +983,13 @@ export class Boss {
       this.log('stopping after in-flight tasks… (Ctrl-C again to force)')
       process.once('SIGINT', () => process.exit(130))
     })
-    while (!fs.existsSync(stopFile)) {
+    while (!fs.existsSync(stopFile) && !this.restartRequested) {
       try { await this.tick() } catch (e) { this.log(`tick error: ${e.stack}`) }
       await sleep(this.cfg.tickSeconds * 1000)
     }
     await Promise.all(this.running)
     if (this.merges) this.publish()
-    this.log('boss stopped')
+    this.log(this.restartRequested ? 'boss exiting for restart on new scripts/agents code' : 'boss stopped')
   }
 }
 
