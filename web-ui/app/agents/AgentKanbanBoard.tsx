@@ -5,9 +5,12 @@ import {
   BOARD_COLUMNS,
   buildDependencyGraph,
   countOpenTasks,
+  DETAIL_STATUSES,
   findAgentTask,
   formatElapsed,
+  formatUpdatedAgo,
   getAgentProgress,
+  getTaskCardDetails,
   groupTasksByStatus,
   type Agent,
   type BoardStatus,
@@ -86,13 +89,34 @@ export default function AgentKanbanBoard({
                 <span className={`rounded-full px-2 py-1 text-xs ${badgeStyles[status]}`}>{groupedTasks[status].length}</span>
               </div>
               <div className="flex flex-col gap-2">
-                {groupedTasks[status].length ? groupedTasks[status].map((task, index) => (
-                  <article key={task.id || `${task.title}-${index}`} className="rounded-xl border border-gf-line bg-gf-surface p-3">
-                    <h4 className="break-words text-sm font-semibold">{task.title || 'Untitled task'}</h4>
-                    <p className="mt-2 text-xs text-gf-muted">{task.id || 'No task ID'} · {task.kind}</p>
-                    <p className="mt-1 truncate text-xs text-gf-muted">{task.owner || 'Unassigned'}</p>
-                  </article>
-                )) : <p className="rounded-xl border border-gf-line/70 bg-gf-surface/50 p-3 text-xs text-gf-muted">No tasks</p>}
+                {groupedTasks[status].length ? groupedTasks[status].map((task, index) => {
+                  const details = DETAIL_STATUSES.has(status) ? getTaskCardDetails(task) : null
+                  return (
+                    <article key={task.id || `${task.title}-${index}`} className="rounded-xl border border-gf-line bg-gf-surface p-3">
+                      <h4 className="break-words text-sm font-semibold">{task.title || 'Untitled task'}</h4>
+                      <p className="mt-2 text-xs text-gf-muted">{task.id || 'No task ID'} · {task.kind}</p>
+                      <p className="mt-1 truncate text-xs text-gf-muted">{task.owner || 'Unassigned'}</p>
+                      {details && (
+                        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 border-t border-gf-line pt-2 text-xs text-gf-muted">
+                          {(details.failure || status === 'blocked') && (
+                            <>
+                              <dt>{status === 'blocked' ? 'Reason' : 'Last failure'}</dt>
+                              <dd className={`min-w-0 break-words ${details.failure ? 'text-amber-200' : ''}`}>{details.failure ?? 'No reason recorded'}</dd>
+                            </>
+                          )}
+                          <dt>Attempts</dt>
+                          <dd className="text-gf-ink">{details.attempts ?? '—'}</dd>
+                          <dt>Updated</dt>
+                          <dd className="text-gf-ink">
+                            {details.updatedAt
+                              ? <time dateTime={details.updatedAt}>{now === null ? '—' : formatUpdatedAgo(details.updatedAt, now)}</time>
+                              : '—'}
+                          </dd>
+                        </dl>
+                      )}
+                    </article>
+                  )
+                }) :<p className="rounded-xl border border-gf-line/70 bg-gf-surface/50 p-3 text-xs text-gf-muted">No tasks</p>}
               </div>
             </section>
           ))}
