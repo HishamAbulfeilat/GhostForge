@@ -80,6 +80,14 @@ Names must match `[A-Za-z0-9][A-Za-z0-9._-]*` and be listed; anything else is
 404. Symlinks are never followed, files over 256 KB are refused, and nothing is
 written or executed.
 
+### Setup status
+
+`GET /api/setup/status` (bridge token required, read-only, `setup_status.py`)
+returns `{ ok, bridge_version, required_env, required_env_ok, optional_env,
+ollama_reachable, openjarvis_enabled, mark_lv_vendor_present }`. Environment
+variables are reported by name as `true`/`false` (set or not); values are never
+returned. Ollama is probed with a 1 s request to `localhost:11434`.
+
 ### Security scan
 
 Defensive scanners only (`security_scan.py`), bridge token required:
