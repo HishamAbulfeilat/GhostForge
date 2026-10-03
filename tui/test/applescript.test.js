@@ -114,6 +114,16 @@ test('tui/index.js has no require() calls — it is an ES module', () => {
   assert.deepEqual(offenders, [], `require() is not defined in this ESM file:\n${offenders.map(([n, l]) => `${n}: ${l.trim()}`).join('\n')}`);
 });
 
+test('vigolium npm install runs on Windows, where npm is a .cmd shim', () => {
+  // execFileSync('npm') is ENOENT on Windows and 'npm.cmd' is EINVAL without a
+  // shell, so the shell is enabled there only; the args must stay literals.
+  const src = readFileSync(TUI, 'utf8');
+  assert.match(
+    src,
+    /execFileSync\('npm', \['install', '-g', '@vigolium\/vigolium'\], \{[^}]*shell: process\.platform === 'win32'[^}]*\}\)/
+  );
+});
+
 test('vigolium scan passes the target as an argv entry, not a shell string', () => {
   const src = readFileSync(TUI, 'utf8');
   assert.match(src, /spawn\('vigolium', \['scan', '-t', target, '--strategy', strategy\]/);

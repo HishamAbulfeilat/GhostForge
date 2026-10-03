@@ -119,24 +119,34 @@ async function typeText(text) {
   return 'Typing not supported on this platform without nut.js'
 }
 
+// AppleScript key codes. This table is the whole allow-list: a key that is not
+// in it is rejected, never interpolated into the script source. The key name
+// arrives unvalidated from /api/jarvis, and a newline in it would otherwise
+// start a second AppleScript statement (`tell … to` governs only the first).
+const KEY_CODES = {
+  enter: 36, return: 36, tab: 48, escape: 53, space: 49,
+  up: 126, down: 125, left: 123, right: 124, pageup: 116, pagedown: 121,
+}
+
+/** The integer key code for a key name, or null when it is not allow-listed. */
+function keyCodeFor(key) {
+  const name = String(key ?? '').toLowerCase().replace(/[\s_-]/g, '')
+  return Object.prototype.hasOwnProperty.call(KEY_CODES, name) ? KEY_CODES[name] : null
+}
+
 async function pressKey(key) {
-  const keys = { enter: 'Return', tab: 'Tab', escape: 'Escape', space: 'Space', up: 'Up', down: 'Down', left: 'Left', right: 'Right' }
   if (nut) {
     await nut.keyboard.pressKey(nut.Key[key.toUpperCase()] || nut.Key.Space)
     await nut.keyboard.releaseKey(nut.Key[key.toUpperCase()] || nut.Key.Space)
     return `Pressed ${key} via nut.js`
   }
   if (darwin) {
-    const k = keys[key.toLowerCase()] || key
-    await appleScript(`tell application "System Events" to key code ${keyCodeFor(k)}`)
-    return `Pressed ${k}`
+    const code = keyCodeFor(key)
+    if (code === null) return `Unsupported key. Use one of: ${Object.keys(KEY_CODES).join(', ')}`
+    await appleScript(`tell application "System Events" to key code ${code}`)
+    return `Pressed ${String(key).toLowerCase()}`
   }
   return 'Key press not supported on this platform without nut.js'
-}
-
-function keyCodeFor(key) {
-  const map = { Return: 36, Tab: 48, Escape: 53, Space: 49, Up: 126, Down: 125, Left: 123, Right: 124 }
-  return map[key] ?? key
 }
 
 async function scroll(direction, amount = 3) {
@@ -146,8 +156,9 @@ async function scroll(direction, amount = 3) {
     return `Scrolled ${direction} ${amount} via nut.js`
   }
   if (darwin) {
-    const key = direction === 'up' ? 'Page Up' : 'Page Down'
-    await appleScript(`tell application "System Events" to key code ${keyCodeFor(key)}`)
+    // 'Page Up' was never in the old table, so this used to emit the invalid
+    // `key code Page Up`; both names are allow-listed now.
+    await appleScript(`tell application "System Events" to key code ${keyCodeFor(direction === 'up' ? 'pageup' : 'pagedown')}`)
     return `Scrolled ${direction}`
   }
   return 'Scroll not supported on this platform without nut.js'
