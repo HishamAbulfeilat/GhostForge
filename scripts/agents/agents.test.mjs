@@ -353,3 +353,22 @@ test('reviewDiff stays bounded for a commit deleting many large files', () => {
     fs.rmSync(repo, { recursive: true, force: true })
   }
 })
+
+test('spawn limits: >1 MiB child output succeeds and ENOBUFS is explained', async () => {
+  const { createRequire } = await import('node:module')
+  const { execFileSync } = await import('node:child_process')
+  const { MAX_BUFFER, explainEnobufs } = createRequire(import.meta.url)('../spawn-limits.cjs')
+  const emit = ['-e', "process.stdout.write('x'.repeat(3 * 1024 * 1024))"]
+  // Default 1 MiB limit fails with ENOBUFS...
+  let raw
+  try { execFileSync(process.execPath, emit, { encoding: 'utf8', stdio: 'pipe' }) } catch (e) { raw = e }
+  assert.ok(raw, 'default maxBuffer must overflow on 3 MiB')
+  const msg = explainEnobufs(raw, 'node emit').message
+  assert.match(msg, /node emit produced more than 256 MiB.*ENOBUFS/)
+  // ...the shared limit does not.
+  const out = execFileSync(process.execPath, emit, { encoding: 'utf8', stdio: 'pipe', maxBuffer: MAX_BUFFER })
+  assert.equal(out.length, 3 * 1024 * 1024)
+  // Non-ENOBUFS errors pass through untouched.
+  const other = new Error('boom')
+  assert.equal(explainEnobufs(other, 'x'), other)
+})
