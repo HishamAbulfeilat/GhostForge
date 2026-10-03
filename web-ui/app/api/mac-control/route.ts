@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { writeFile, unlink } from 'fs/promises'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { randomBytes } from 'crypto'
+import { writeFile, rm } from 'fs/promises'
 import { generateWithFallback } from '@/lib/ai'
 import { requirePermission } from '@/lib/access'
 import { SHELL_SCRIPT_TEMPLATES, knownAppleScript, validateAppleScript } from '@/lib/apple-automation'
+import { makePrivateTempDir, privateTempPath } from '@/lib/private-temp'
 
-const execAsync = promisify(exec)
+const execFileAsync = promisify(execFile)
 export const dynamic = 'force-dynamic'
 
 const SYSTEM_PROMPT = `You are a macOS AppleScript expert. Convert natural language commands to AppleScript code.
@@ -148,19 +146,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: validation.reason, script }, { status: 400 })
   }
 
-  // Write to temp file (more reliable than -e for multiline)
-  const tmpPath = join(tmpdir(), `gf-mac-${randomBytes(4).toString('hex')}.scpt`)
-  const compiledPath = join(tmpdir(), `gf-mac-${randomBytes(4).toString('hex')}.compiled.scpt`)
+  // Write to a file in a private mkdtemp dir (more reliable than -e for multiline)
+  let tmpDir: string | null = null
   let output = ''
   let runError: string | null = null
 
   try {
-    await writeFile(tmpPath, script, 'utf8')
-    await execAsync(`osacompile -o "${compiledPath}" "${tmpPath}"`, { timeout: 10000 })
+    tmpDir = await makePrivateTempDir()
+    const tmpPath = privateTempPath(tmpDir, 'script.scpt')
+    const compiledPath = privateTempPath(tmpDir, 'script.compiled.scpt')
+    await writeFile(tmpPath, script, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+    await execFileAsync('osacompile', ['-o', compiledPath, tmpPath], { timeout: 10000 })
     if (body.dryRun) {
       return NextResponse.json({ script, output: 'AppleScript syntax verified', error: null, dryRun: true })
     }
-    const { stdout, stderr } = await execAsync(`osascript "${tmpPath}"`, { timeout: 20000 })
+    const { stdout, stderr } = await execFileAsync('osascript', [tmpPath], { timeout: 20000 })
     output = stdout.trim()
     if (stderr.trim()) runError = stderr.trim()
   } catch (e: unknown) {
@@ -168,8 +168,7 @@ export async function POST(req: NextRequest) {
     output = err.stdout?.trim() ?? ''
     runError = err.stderr?.trim() || err.message || 'Script execution failed'
   } finally {
-    await unlink(tmpPath).catch(() => {})
-    await unlink(compiledPath).catch(() => {})
+    if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
   }
 
   return NextResponse.json({ script, output, error: runError })
