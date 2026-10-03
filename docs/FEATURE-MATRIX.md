@@ -17,7 +17,7 @@ surface. The evidence column names the implementation that was checked.
 
 | Feature | Web UI | TUI | Terminal CLI | JARVIS / bridge | Evidence |
 |---|:---:|:---:|:---:|:---:|---|
-| Dashboard, GitHub issues/PRs/actions | ✅ | ✅ | ✅ | ❌ | `app/dashboard`, `screenDashboard`, `scripts/dashboard.sh` |
+| Dashboard, GitHub issues/PRs/actions | ✅ | ✅ | ✅ | ✅ | `app/dashboard`, `screenDashboard`, `scripts/dashboard.sh`, bridge `GET /api/github/dashboard` (`mark-l-bridge/github_dashboard.py`, read-only via gh or `GITHUB_TOKEN`, structured unavailable response) |
 | Chat / unified model chat | ✅ | ✅ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/gemini.sh`, `/api/mark-l/chat/unified` |
 | Chat chains / multi-model routing | ✅ | ⚠️ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/ai-review.sh`, `/api/mark-l/chat/chain` |
 | Web terminal / PTY | ✅ | ❌ | ✅ | ❌ | `app/terminal`, `scripts/pty-server.js` |
