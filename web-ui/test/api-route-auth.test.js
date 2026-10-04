@@ -41,6 +41,20 @@ const PUBLIC_HANDLERS = {
 // Top-level app/ page sections that are intentionally reachable signed-out.
 const PUBLIC_PAGE_SECTIONS = new Set(['api', 'login'])
 
+// App Router segment names that are not page sections and so can never appear in
+// middleware config.matcher. `_`/`(` are route groups, `[`/`@` are dynamic
+// segments/interception — all already excluded for Next.js routing reasons.
+// `.`-prefixed names are Next.js-private/ignored AND commonly gitignored tool
+// state (`.omc/`, `.next/`, `.turbo/`, `.cache/`) that lands next to the app on
+// a developer machine. Excluding them is not a weakening: the App Router never
+// routes a dot-directory, so no such section can ever be reached by URL, and a
+// genuinely removed PROTECTED_PREFIX (a real `_`-free segment) still fails.
+const UNROUTABLE_SECTION = /^[_.(\[@]/
+
+function isPageSection(name) {
+  return !UNROUTABLE_SECTION.test(name) && !PUBLIC_PAGE_SECTIONS.has(name)
+}
+
 function listRoutes(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
     const full = path.join(dir, entry.name)
@@ -192,10 +206,42 @@ test('every app page section is covered by middleware PROTECTED_PREFIXES and mat
   assert.deepEqual(matcher, prefixes.map(p => `${p}/:path*`), 'config.matcher must mirror PROTECTED_PREFIXES')
 
   const sections = fs.readdirSync(path.join(webRoot, 'app'), { withFileTypes: true })
-    .filter(e => e.isDirectory() && !/^[_(\[@]/.test(e.name) && !PUBLIC_PAGE_SECTIONS.has(e.name))
+    .filter(e => e.isDirectory() && isPageSection(e.name))
     .map(e => `/${e.name}`)
   const missing = sections.filter(s => !prefixes.includes(s))
   assert.deepEqual(missing, [], `app sections missing from middleware PROTECTED_PREFIXES: ${missing.join(', ')}`)
+})
+
+test('the page-section scan skips dot-directories but still demands real ones', () => {
+  // Dot-directories are gitignored tool state (`.omc/`, `.next/`) or
+  // Next.js-private, and the App Router never routes them, so they must not be
+  // reported as unprotected sections. This is the regression that made
+  // health.mjs read `/.omc` as a missing PROTECTED_PREFIX on any machine that
+  // happened to have local OMC state under web-ui/app.
+  for (const ignored of ['.omc', '.next', '.turbo', '.cache', '_private', '(group)', '[slug]', '@modal']) {
+    assert.equal(isPageSection(ignored), false, `${ignored} must not be scanned as a page section`)
+  }
+
+  // The exclusion is a whitelist-free filter on unroutable names only: a real
+  // page section (and the intentionally public ones) is still scanned, so a
+  // genuinely removed PROTECTED_PREFIX cannot slip through this exemption.
+  for (const scanned of ['dashboard', 'settings', 'agents', 'tickets']) {
+    assert.equal(isPageSection(scanned), true, `${scanned} must still be scanned as a page section`)
+  }
+  assert.equal(isPageSection('api'), false, 'api is intentionally not scanned (public section)')
+  assert.equal(isPageSection('login'), false, 'login is intentionally not scanned (public section)')
+
+  // End-to-end: a dot-directory created next to the app must not fail the scan.
+  const probe = path.join(webRoot, 'app', '.omc')
+  fs.mkdirSync(probe, { recursive: true })
+  try {
+    const sections = fs.readdirSync(path.join(webRoot, 'app'), { withFileTypes: true })
+      .filter(e => e.isDirectory() && isPageSection(e.name))
+      .map(e => `/${e.name}`)
+    assert.ok(!sections.includes('/.omc'), 'a dot-directory must not appear as a required page section')
+  } finally {
+    fs.rmSync(probe, { recursive: true, force: true })
+  }
 })
 
 test('webhook POST rejects unsigned, unauthenticated non-GitHub deliveries', async () => {
