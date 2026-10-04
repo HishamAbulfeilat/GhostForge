@@ -44,6 +44,7 @@ const PROTECTED_PREFIXES = [
   '/setup',
   '/snippets',
   '/vigolium',
+  '/projects',
 ]
 
 export async function middleware(req: NextRequest) {
@@ -105,6 +106,7 @@ export const config = {
     '/setup/:path*',
     '/snippets/:path*',
     '/vigolium/:path*',
+    '/projects/:path*',
   ],
 }
 

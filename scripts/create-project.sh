@@ -38,13 +38,19 @@ divider() { echo -e "${BLUE}  ────────────────�
 prompt_choice() {
   local question="$1"; shift
   local options=("$@")
-  ask "$question"
+  # The question and the option list go to stderr, the selection to stdout: callers
+  # capture this with $(prompt_choice ...), so anything printed to stdout would end
+  # up inside the captured value and make the caller's own grep tests match the menu
+  # text instead of the answer. A closed stdin (non-interactive/automated run) aborts
+  # instead of re-prompting forever on empty input.
+  ask "$question" >&2
   for i in "${!options[@]}"; do
-    echo -e "  ${BOLD}[$((i+1))]${NC} ${options[$i]}"
+    echo -e "  ${BOLD}[$((i+1))]${NC} ${options[$i]}" >&2
   done
   local choice
   while true; do
-    read -rp "  → Choose [1-${#options[@]}]: " choice
+    read -rp "  → Choose [1-${#options[@]}]: " choice \
+      || error "No input available (stdin is closed)."
     if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#options[@]} )); then
       echo "${options[$((choice-1))]}"
       return
@@ -57,7 +63,8 @@ prompt_yn() {
   local question="$1"
   local default="${2:-n}"
   ask "$question [y/N]: "
-  read -rp "  → " answer
+  read -rp "  → " answer \
+    || error "No input available (stdin is closed)."
   answer="${answer:-$default}"
   [[ "${answer,,}" == "y" ]]
 }
@@ -229,6 +236,12 @@ if [[ "$MODE_CHOICE" == "2" ]]; then
       "🟢 NestJS — TypeScript, enterprise-grade (Recommended)" \
       "🟩 Express.js — Lightweight, flexible" \
       "⚡ Fastify — High performance")
+
+    case "$BACKEND_FRAMEWORK" in
+      *"NestJS"*)    PLATFORM="backend"; FRAMEWORK="nestjs" ;;
+      *"Express"*)   PLATFORM="backend"; FRAMEWORK="express" ;;
+      *"Fastify"*)   PLATFORM="backend"; FRAMEWORK="fastify" ;;
+    esac
   fi
 
   # Step 4: Language
