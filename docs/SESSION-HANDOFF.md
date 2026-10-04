@@ -175,39 +175,52 @@ Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). 
 ## LIVE STATUS
 
 <!-- LIVE-STATUS:START -->
-_Auto-updated by the boss (pid 17308) at 2026-10-04T00:48:27.235Z._
+_Auto-updated by the boss (pid 26576) at 2026-10-04T13:03:03.063Z._
 
 **Phase 1:** Make GhostForge fully working and polished: every feature in web-ui, TUI, Electron, the Python bridge, MCP server, marketplace and Job Hunter works end to end; every JARVIS tool works and is covered by tests; fix bugs, add missing tests, remove dead code, improve UX and accessibility.
 
-**Health:** ?/100 · **merges this run:** 0 · **PR:** none yet · **boss:** claude
+**Health:** 100/100 · **merges this run:** 12 · **PR:** https://github.com/HishamAbulfeilat/GhostForge/pull/12 · **boss:** claude
 
-**Board:** todo 5 · in-progress 3 · review 0 · done 0 · blocked 0
+**Board:** todo 1 · in-progress 1 · review 2 · done 12 · blocked 2
 
 **Agents**
-- **claude** (claude): working on T-002
-- **claude-2** (claude): working on T-001
-- **claude-3** (claude): working on T-007
+- **claude** (claude): waiting-merge on T-012
+- **claude-2** (claude): working on T-017
+- **claude-3** (claude): waiting-merge on T-013
 
 **In progress / review**
-- T-001 [feature] Deeper OpenJarvis bridge: expose /api/openjarvis/* endpoints in mark-l-bridge/server.py with a graceful stub when the package is not installed — claude-2
-- T-002 [bugfix] Marketplace: verify every catalog install_command works cross-platform (Windows/macOS/Linux); fix macOS-only ones — claude
-- T-007 [docs] Docs: refresh README.md feature list and bridge section to match the current code — claude-3
+- T-017 [test] Tests: add a pytest suite for voice-pipeline (server contract, wake phrases, missing-engine degradation) — claude-2
+- T-012 [bugfix] Push notifications: store subscriptions and actually send via web-push (honest 'not configured' without VAPID keys) — claude
+- T-013 [test] Health score blind spots: run mcp, tui, electron-app tests and bridge pytest in scripts/agents/health.mjs — claude-3
 
 **Next up (todo)**
-- T-003 [chore] Add a web-ui ESLint flat config (eslint.config.mjs) so `eslint .` and CI lint work
-- T-004 [refactor] Knip: remove or wire up the unused files reported by `cd web-ui && npx knip`
-- T-005 [test] JARVIS: add tests proving every tool in web-ui/lib/tool-permissions.ts is registered, permission-gated, and callable
-- T-006 [test] Tests: add root unit tests under tests/*.test.js and run them from scripts/test.js
-- T-008 [docs] Add root LICENSE file or fix README license links
+- T-016 [bugfix] A11y: label unlabeled inputs and make clickable divs keyboard-accessible (jarvis, jobs, dashboard, Mark-LV, AI providers, terminal)
 
 **Blocked (needs a human or a fresh approach)**
+- T-014 [docs] Bridge: document every mark-l-bridge/server.py endpoint in README and test the table stays complete: …s only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
+- T-018 [docs] Docs: correct stale CHANGELOG claims (bridge endpoint count, partial features): …s only ~11622 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
 
 **Recently done**
+- T-001 [feature] Deeper OpenJarvis bridge: expose /api/openjarvis/* endpoints in mark-l-bridge/server.py with a graceful stub when the package is not installed — claude-2
+- T-002 [bugfix] Marketplace: verify every catalog install_command works cross-platform (Windows/macOS/Linux); fix macOS-only ones — claude
+- T-003 [chore] Add a web-ui ESLint flat config (eslint.config.mjs) so `eslint .` and CI lint work — claude-3
+- T-004 [refactor] Knip: remove or wire up the unused files reported by `cd web-ui && npx knip` — claude
+- T-005 [test] JARVIS: add tests proving every tool in web-ui/lib/tool-permissions.ts is registered, permission-gated, and callable — claude-2
+- T-006 [test] Tests: add root unit tests under tests/*.test.js and run them from scripts/test.js — claude-2
+- T-007 [docs] Docs: refresh README.md feature list and bridge section to match the current code — claude-3
+- T-008 [docs] Add root LICENSE file or fix README license links — claude-3
+- T-009 [docs] extension/LICENSE is a truncated MIT missing the liability disclaimer — claude-3
+- T-010 [bug] api-route-auth test must ignore dot-directories in web-ui/app — claude-3
+- T-011 [bugfix] Fix failing health check: web-ui production build — claude
+- T-015 [bugfix] Electron: stop advertising Outlook OAuth/ops that throw 'not implemented' — claude-2
 
 **Latest messages**
-- 2026-10-03T21:51 boss → all: …ui, TUI, Electron, the Python bridge, MCP server, marketplace and Job Hunter works end to end; every JARVIS tool works and is covered by tests; fix bugs, add missing tests, remove dead code, improve UX and accessibility.
-- 2026-10-03T21:51 boss → all: Boss online. Template: null. Agents: claude, claude-2, claude-3. Phase 1.
-- 2026-10-03T22:05 boss → claude-3: Queued "Add root LICENSE file or fix README license links" as T-008.
-- 2026-10-03T22:16 boss → claude-3: …ui/app/jobs/page.tsx) and the CLI subcommand (cli/index.js:44). Newly introduced factual error in the exact category this task fixes, and inconsistent with sibling bullets that cite real commands. Fix: use `/job-hunter`.
-- 2026-10-04T00:42 boss → all: Boss online. Template: null. Agents: claude, claude-2, claude-3. Phase 1.
+- 2026-10-04T12:22 boss → claude-3: … this conversation is only ~10995 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
+- 2026-10-04T12:22 boss → claude-3: … this conversation is only ~11622 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
+- 2026-10-04T12:23 boss → claude-3: … this conversation is only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
+- 2026-10-04T12:23 boss → claude-3: … this conversation is only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
+- 2026-10-04T12:23 boss → claude-3: … this conversation is only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
+- 2026-10-04T12:24 boss → claude-3: … this conversation is only ~11622 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
+- 2026-10-04T12:29 claude-2 → boss: …sh path, so any Outlook account persisted by an earlier build still refreshes and lists/sends mail. Outlook sign-in being offered is a separate feature (needs an MSAL/auth-URL step) if anyone wants it - I did not add it.
+- 2026-10-04T12:53 boss → all: …contacts-integration.ts, electron-app/src/main/email-integration.ts, electron-app/src/main/index.ts, electron-app/src/main/oauth-providers.ts, electron-app/src/preload/index.ts, electron-app/test/oauth-providers.test.mjs
 <!-- LIVE-STATUS:END -->
