@@ -53,14 +53,22 @@ function sendError(res, status, type, message) {
   res.end(JSON.stringify({ type: 'error', error: { type, message } }))
 }
 
-/** Pick a free model on OpenRouter that supports tool calling (cached 1h). */
+/** Pick a free model on OpenRouter that supports tool calling (cached 1h).
+ *  Some free models have no ":free" suffix (e.g. stealth/space-bunny-alpha), so
+ *  go by price rather than by name, and skip openrouter/free itself (a router,
+ *  not a model, which would defeat per-model cooldown). */
 let orCache = { at: 0, model: null }
 async function openRouterFreeModel(p) {
   if (p.model && p.model !== 'auto-free') return p.model
   if (orCache.model && Date.now() - orCache.at < 3600_000) return orCache.model
-  const r = await fetch('https://openrouter.ai/api/v1/models')
+  const key = keyFor('openrouter', p)
+  const r = await fetch('https://openrouter.ai/api/v1/models', {
+    headers: key ? { authorization: `Bearer ${key}` } : {},
+  })
   const { data = [] } = await r.json()
-  const free = data.filter(m => m.id.endsWith(':free') && (m.supported_parameters ?? []).includes('tools'))
+  const free = data.filter(m => m.id !== 'openrouter/free'
+      && `${m.pricing?.prompt}` === '0' && `${m.pricing?.completion}` === '0'
+      && (m.supported_parameters ?? []).includes('tools'))
     .sort((a, b) => (b.context_length ?? 0) - (a.context_length ?? 0))
   orCache = { at: Date.now(), model: free[0]?.id ?? 'openrouter/free' }
   return orCache.model
@@ -113,9 +121,14 @@ async function serveFree(chain, body, res, why) {
       const detail = (await r.text().catch(() => '')).slice(0, 160).replace(/\s+/g, ' ')
       tried.push(`${slot}: ${r.status}`)
       log(`free ${slot} -> ${r.status} ${detail}`)
-      // Auth failures sink the whole provider; rate limits and errors only this model.
-      if (r.status === 401 || r.status === 403) { providerCooldown.set(name, Date.now() + 3600_000); continue }
-      const after = Number(r.headers.get('retry-after') || detail.match(/retry.afterD{0,4}(d+)/i)?.[1])
+      // A bad key sinks the whole provider. 403 is often model-specific (e.g. a
+      // model restricted to certain apps), so it only benches that model.
+      if (r.status === 401) { providerCooldown.set(name, Date.now() + 3600_000); continue }
+      if (r.status === 403) { providerCooldown.set(slot, Date.now() + 3600_000); continue }
+      // 400 means this request is malformed for this model; benching the model
+      // would also block the next, well-formed request.
+      if (r.status === 400) continue
+      const after = Number(r.headers.get('retry-after') || detail.match(/retry.after\D{0,4}(\d+)/i)?.[1])
       const wait = r.status === 429 ? (after > 0 ? after * 1000 : 120_000) : 30_000
       // A daily/account quota covers every model on the provider.
       const quota = r.status === 429 && /quota/i.test(detail)
