@@ -1,0 +1,25 @@
+{
+  "id": "T-008",
+  "title": "Resolve merge conflict: wip/fix-jarvis-quit vs agent/integration (electron app-lifecycle)",
+  "kind": "decision",
+  "area": ["electron-app", "agent-world"],
+  "agent": "boss",
+  "assignee": null,
+  "leader": "boss",
+  "workflow": "single",
+  "dependencies": [],
+  "acceptanceCriteria": [
+    "Decide which electron shutdown/quit implementation agent/integration keeps: T-115 and T-167 (bound quit cleanup; fail headless smoke when shutdown cleanup fails) already landed on agent/integration, while wip/fix-jarvis-quit re-implemented the same work from an older base.",
+    "Merging wip/fix-jarvis-quit conflicts in 5 files with 24 conflict markers: electron-app/src/main/index.ts (10), electron-app/src/main/bridge-manager.ts (2), electron-app/src/main/headless-smoke.ts (2), electron-app/test/app-lifecycle.test.mjs (2, add/add), electron-app/test/headless-launch-smoke.test.mjs (8).",
+    "Produce the resolution: either a resolved merge commit on agent/integration, or an explicit decision to drop wip/fix-jarvis-quit as superseded.",
+    "Do not silently drop either quit-fix. Confirm that explicit app quit still works and that tray-minimize behaviour is preserved.",
+    "electron-app/src/main/app-lifecycle.ts is added by wip/fix-jarvis-quit; confirm whether integration's inline implementation or this extracted module is preferred."
+  ],
+  "status": "todo",
+  "owner": null,
+  "attempts": 0,
+  "notes": "Raised by the user via Claude Code. The conflict was ABORTED, not hand-resolved, so nothing is half-merged. Refs at time of raising: agent/integration=7ce0eca (includes merges of agent/claude/work, work-2, work-3, claude-switch), wip/fix-jarvis-quit=a4e74c6. Worktree for integration is C:\\Users\\User\\Desktop\\GhostForge\\gf-integration.",
+  "phase": 1,
+  "createdAt": "2026-10-03T00:00:00.000Z",
+  "updatedAt": "2026-10-03T00:00:00.000Z"
+}
