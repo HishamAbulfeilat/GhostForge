@@ -3,6 +3,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { validateOutboundUrl } from './outbound-url';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
+import { assertOAuthProvider, unsupportedOperation, type CalendarOAuthProvider } from './oauth-providers';
 
 const CREDENTIALS_DIR = join(homedir(), '.ghostforge', 'credentials');
 const CALENDAR_TOKENS_FILE = join(CREDENTIALS_DIR, 'calendar-tokens.json');
@@ -484,39 +485,36 @@ export function startGoogleCalendarOAuth(): { authUrl: string } {
   return { authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` };
 }
 
-export async function handleCalendarOAuthCallback(code: string, provider: 'google' | 'outlook'): Promise<CalendarAccount> {
-  if (provider === 'google') {
-    const tokenData = await apiRequest('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      body: {
-        code,
-        client_id: GOOGLE_CLIENT_ID,
-        client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri: GOOGLE_CALENDAR_REDIRECT,
-        grant_type: 'authorization_code',
-      },
-    }) as { access_token: string; refresh_token: string; expires_in: number };
+export async function handleCalendarOAuthCallback(code: string, provider: CalendarOAuthProvider): Promise<CalendarAccount> {
+  assertOAuthProvider('calendar', provider);
+  const tokenData = await apiRequest('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    body: {
+      code,
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      redirect_uri: GOOGLE_CALENDAR_REDIRECT,
+      grant_type: 'authorization_code',
+    },
+  }) as { access_token: string; refresh_token: string; expires_in: number };
 
-    const userInfo = await apiRequest('https://www.googleapis.com/oauth2/v2/userinfo', {
-      accessToken: tokenData.access_token,
-    }) as { email: string; name: string };
+  const userInfo = await apiRequest('https://www.googleapis.com/oauth2/v2/userinfo', {
+    accessToken: tokenData.access_token,
+  }) as { email: string; name: string };
 
-    const account: CalendarAccount = {
-      id: `gcal-${Date.now()}`,
-      provider: 'google',
-      email: userInfo.email,
-      accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token,
-      tokenExpiry: Date.now() + tokenData.expires_in * 1000,
-    };
+  const account: CalendarAccount = {
+    id: `gcal-${Date.now()}`,
+    provider: 'google',
+    email: userInfo.email,
+    accessToken: tokenData.access_token,
+    refreshToken: tokenData.refresh_token,
+    tokenExpiry: Date.now() + tokenData.expires_in * 1000,
+  };
 
-    const accounts = loadAccounts();
-    accounts[account.id] = account;
-    saveAccounts(accounts);
-    return account;
-  }
-
-  throw new Error(`OAuth callback for ${provider} not implemented`);
+  const accounts = loadAccounts();
+  accounts[account.id] = account;
+  saveAccounts(accounts);
+  return account;
 }
 
 export function addCaldavAccount(config: {
@@ -589,20 +587,20 @@ export function createEvent(params: CreateEventParams & { accountId?: string }):
 export function updateEvent(eventId: string, updates: Partial<CreateEventParams> & { accountId?: string }): Promise<CalendarEvent> {
   const account = getAccount(updates.accountId);
   if (account.provider === 'google') return googleUpdateEvent(account, eventId, updates);
-  throw new Error(`Update not implemented for ${account.provider}`);
+  throw unsupportedOperation('Update', account.provider);
 }
 
 export function deleteEvent(eventId: string, accountId?: string): Promise<void> {
   const account = getAccount(accountId);
   if (account.provider === 'google') return googleDeleteEvent(account, eventId);
   if (account.provider === 'outlook') return outlookDeleteEvent(account, eventId);
-  throw new Error(`Delete not implemented for ${account.provider}`);
+  throw unsupportedOperation('Delete', account.provider);
 }
 
 export function checkAvailability(timeMin: string, timeMax: string, accountId?: string): Promise<FreeBusySlot[]> {
   const account = getAccount(accountId);
   if (account.provider === 'google') return googleFreeBusy(account, timeMin, timeMax);
-  throw new Error(`Free/busy not implemented for ${account.provider}`);
+  throw unsupportedOperation('Free/busy', account.provider);
 }
 
 export async function getFreeSlots(date: string, accountId?: string): Promise<FreeBusySlot[]> {
