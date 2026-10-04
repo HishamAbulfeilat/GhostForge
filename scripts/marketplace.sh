@@ -9,6 +9,14 @@ GHOSTFORGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CATALOG="$GHOSTFORGE_DIR/marketplace/catalog.json"
 SOURCES="$GHOSTFORGE_DIR/marketplace/sources.json"
 REGISTRY="$GHOSTFORGE_DIR/marketplace/registry.json"
+# Shared platform resolver — also used by the TUI so both surfaces pick the
+# same command for an item. Two path forms are needed because GHOSTFORGE_DIR
+# comes from `pwd` (a POSIX path that Windows node cannot open):
+#   CATALOG_NODE — native absolute path, for fs.readFileSync
+#   RESOLVER     — file:// URL, because node's ESM loader rejects a bare "C:/…"
+#                  specifier in import()
+CATALOG_NODE="$(node -e 'console.log(require("path").resolve(process.argv[1]))' "$CATALOG")"
+RESOLVER="$(node -e 'console.log(require("url").pathToFileURL(process.argv[1]).href)' "$GHOSTFORGE_DIR/marketplace/install-commands.mjs")"
 
 BLUE='\033[0;34m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 RED='\033[0;31m'; BOLD='\033[1m'; DIM='\033[2m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -101,20 +109,29 @@ install_item() {
   header
   echo ""
   local install_cmd name
-  install_cmd="$(node -e "
-const fs = require('fs');
-const catalog = JSON.parse(fs.readFileSync('$CATALOG', 'utf8'));
-const item = catalog.items.find(i => i.id === '$item_id');
-if (!item) { console.log('NOT_FOUND'); process.exit(0); }
-console.log(item.install_command || item.url || 'BUILT_IN:' + (item.file || ''));
-" 2>/dev/null)"
-  
+  # Platform-aware: resolveInstallCommand() returns the Windows command on win32
+  # and never falls back to a POSIX one-liner there (Git Bash reports win32, so
+  # this script used to hand `brew install …` to cmd.exe). When the catalog
+  # declares no installer for this platform we fall through to item.url.
+  # Both node -e calls run under --input-type=module so the resolver can be
+  # imported; $RESOLVER is a file:// URL and $CATALOG_NODE a native path, since
+  # $GHOSTFORGE_DIR from `pwd` is a POSIX path Windows node cannot open.
+  install_cmd="$(node --input-type=module -e "
+import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+const { resolveInstallCommand } = await import(process.argv[1]);
+const catalog = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+const item = catalog.items.find(i => i.id === process.argv[3]);
+if (!item) { console.log('NOT_FOUND'); }
+else { console.log(resolveInstallCommand(item) || item.url || 'BUILT_IN:' + (item.file || '')); }
+" "$RESOLVER" "$CATALOG_NODE" "$item_id" 2>/dev/null)"
+
   name="$(node -e "
 const fs = require('fs');
-const c = JSON.parse(fs.readFileSync('$CATALOG', 'utf8'));
-const i = c.items.find(i => i.id === '$item_id');
+const c = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+const i = c.items.find(i => i.id === process.argv[2]);
 console.log(i ? i.name : 'Unknown');
-" 2>/dev/null)"
+" "$CATALOG_NODE" "$item_id" 2>/dev/null)"
 
   if [[ "$install_cmd" == "NOT_FOUND" ]]; then
     echo -e "${RED}  ✖ Item '$item_id' not found in catalog${NC}"
@@ -123,7 +140,7 @@ console.log(i ? i.name : 'Unknown');
   fi
 
   echo -e "${BLUE}${BOLD}  Installing: $name${NC}"
-  
+
   if [[ "$install_cmd" == BUILT_IN:* ]]; then
     echo -e "${GREEN}  ✅ Already available! File: ${install_cmd#BUILT_IN:}${NC}"
   elif [[ "$install_cmd" == http* ]]; then
@@ -131,8 +148,12 @@ console.log(i ? i.name : 'Unknown');
     open "$install_cmd" 2>/dev/null || xdg-open "$install_cmd" 2>/dev/null || echo -e "${DIM}  Visit: $install_cmd${NC}"
   else
     echo -e "${DIM}  Running: $install_cmd${NC}"
-    eval "$install_cmd"
-    echo -e "${GREEN}  ✅ $name installed!${NC}"
+    # Report the real outcome: a non-zero exit must not print "installed".
+    if eval "$install_cmd"; then
+      echo -e "${GREEN}  ✅ $name installed!${NC}"
+    else
+      echo -e "${RED}  ✖ $name install failed. Try manually: $install_cmd${NC}"
+    fi
   fi
   echo ""
 }

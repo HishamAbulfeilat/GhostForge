@@ -14,7 +14,9 @@ depth. This file covers what none of them can see from inside a single module:
 * the **structured-unavailable path** for the endpoints that have one, so a
   missing local dependency degrades to a documented body instead of a 500 or a
   hang;
-* that the read-only surface **executes nothing** — no subprocess, no shell.
+* that the read-only surface **executes nothing** — no subprocess, no shell. The
+  two POSTs that do run an allow-listed script (``/api/code-health``,
+  ``/api/tickets``) are asserted separately and explicitly.
 
 Run with: python -m pytest mark-l-bridge/test_readonly_endpoints.py
 (also works with python -m unittest).
@@ -35,6 +37,7 @@ import resource_catalogs as rc  # noqa: E402
 import server  # noqa: E402
 import setup_status as ss  # noqa: E402
 import snippets_docs as sd  # noqa: E402
+import tickets as tk  # noqa: E402
 
 # Every read-only route this file owns, as (method, path). The auth test below
 # asserts against this tuple, so a route that gains or loses its token
@@ -46,6 +49,8 @@ READONLY_ROUTES = (
     ("GET", "/api/setup/status"),
     ("GET", "/api/code-health"),
     ("POST", "/api/code-health"),
+    ("GET", "/api/tickets"),
+    ("POST", "/api/tickets"),
     ("GET", "/api/commands"),
     ("GET", "/api/free-apis"),
     ("GET", "/api/design-resources"),
@@ -60,6 +65,8 @@ CONCRETE_PATHS = (
     ("/api/setup/status", None),
     ("/api/code-health", None),
     ("/api/code-health", {"script": "unused"}),
+    ("/api/tickets", None),
+    ("/api/tickets", {"tool": "ado", "action": "config"}),
     ("/api/commands", None),
     ("/api/free-apis", None),
     ("/api/design-resources", None),
@@ -348,14 +355,14 @@ class ReadOnlyGuaranteeTests(_Base):
     """These endpoints read; they never execute or write anything."""
 
     def test_no_subprocess_is_spawned_by_any_readonly_route(self):
-        """Every GET here is a pure read; POST /api/code-health is the sole
-        exception and is bounded separately by test_code_health_post_is_the_only_route_that_may_spawn."""
+        """Every GET here is a pure read; the two POSTs that run scripts are the
+        sole exceptions and are bounded separately below."""
         with patch.object(subprocess, "run") as run, \
                 patch.object(subprocess, "Popen") as popen, \
                 patch.object(subprocess, "check_output") as check_output:
             for path, _body in CONCRETE_PATHS:
-                if path == "/api/code-health":
-                    continue  # POST form is excluded; its GET is a plain status read
+                if path in ("/api/code-health", "/api/tickets"):
+                    continue  # POST forms are excluded; their GETs are plain status reads
                 self.get(path)
         run.assert_not_called()
         popen.assert_not_called()
@@ -379,6 +386,29 @@ class ReadOnlyGuaranteeTests(_Base):
         self.assertEqual(argv[0], "/usr/bin/bash")
         self.assertEqual(argv[1:], [str(ch.REPO_ROOT / "scripts" / "unused.sh")])
         self.assertNotIn("--fix", argv)
+
+    def test_tickets_post_never_shells_out(self):
+        """POST /api/tickets runs a read-only script — bound the blast radius the
+        same way: one allow-listed script, one fixed argv, no shell.
+
+        `config` needs no Azure DevOps credentials, so it runs on any machine.
+        """
+        calls = []
+
+        def fake_run(argv, **kw):
+            calls.append((argv, kw))
+            kw["stdout"].write(b"ok")
+            return type("P", (), {"returncode": 0})()
+
+        with patch.object(tk, "find_bash", return_value="/usr/bin/bash"), \
+                patch.object(tk.subprocess, "run", side_effect=fake_run), \
+                patch.object(tk, "_CREDENTIAL_FILES", ()):
+            r = self.post("/api/tickets", {"tool": "ado", "action": "config"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(calls), 1)
+        argv, kw = calls[0]
+        self.assertEqual(argv, ["/usr/bin/bash", str(tk.REPO_ROOT / "scripts" / "ado.sh"), "config"])
+        self.assertIs(kw["shell"], False)
 
     def test_readonly_routes_reject_the_unsafe_methods(self):
         for path in ("/api/snippets", "/api/setup/status", "/api/commands",

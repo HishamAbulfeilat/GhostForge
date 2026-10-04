@@ -10,6 +10,7 @@
       "description": "React codebase health scanner \u2014 scores 0-100 across security, performance, correctness, a11y, bundle, architecture",
       "source": "ghostforge-official",
       "install_command": "npx react-doctor@latest install --yes",
+      "install_command_windows": "npx react-doctor@latest install --yes",
       "tags": [
         "react",
         "health",
@@ -161,13 +162,13 @@
       "category": "Design",
       "description": "74 AI-ready design system templates (Stripe, Apple, Vercel, Notion, Tesla\u2026). Drop DESIGN.md in project for consistent AI-generated UI.",
       "source": "VoltAgent/awesome-design-md",
+      "url": "https://github.com/VoltAgent/awesome-design-md",
       "tags": [
         "design",
         "ai",
         "ui",
         "templates"
-      ],
-      "install_command": "Ask JARVIS: apply stripe design to my project"
+      ]
     },
     {
       "id": "awesome-design",
@@ -197,7 +198,8 @@
         "vulnerability",
         "ai"
       ],
-      "install_command": "npm install -g @vigolium/vigolium"
+      "install_command": "npm install -g @vigolium/vigolium",
+      "install_command_windows": "npm install -g @vigolium/vigolium"
     },
     {
       "id": "llmfit-recommender",
@@ -226,7 +228,8 @@
         "interpreter",
         "computer-use"
       ],
-      "install_command": "pip3 install open-interpreter"
+      "install_command": "pip3 install open-interpreter || pipx install open-interpreter",
+      "install_command_windows": "pip install open-interpreter"
     },
     {
       "id": "herdr-task-agent",
@@ -295,7 +298,8 @@
         "ollama",
         "reasoning"
       ],
-      "install_command": "ollama pull qwen3:14b"
+      "install_command": "ollama pull qwen3:14b",
+      "install_command_windows": "ollama pull qwen3:14b"
     },
     {
       "id": "jsrepl-tool",
@@ -449,7 +453,8 @@
       "description": "OWASP web application security scanner (DAST). For testing web apps you own or are authorized to assess.",
       "source": "zaproxy/zaproxy",
       "url": "https://www.zaproxy.org",
-      "install_command": "brew install --cask zap 2>/dev/null || echo 'See https://www.zaproxy.org/download/'",
+      "install_command": "brew install --cask zap 2>/dev/null || (sudo apt-get update && sudo apt-get install -y zaproxy)",
+      "install_command_windows": "winget install --id ZAP.ZAP -e",
       "authorized_use_only": true,
       "tags": [
         "security",
@@ -468,6 +473,7 @@
       "source": "sqlmapproject/sqlmap",
       "url": "https://sqlmap.org",
       "install_command": "brew install sqlmap 2>/dev/null || pipx install sqlmap || pip3 install sqlmap",
+      "install_command_windows": "pip install sqlmap",
       "authorized_use_only": true,
       "tags": [
         "security",
@@ -485,6 +491,7 @@
       "source": "sullo/nikto",
       "url": "https://github.com/sullo/nikto",
       "install_command": "brew install nikto 2>/dev/null || sudo apt-get install -y nikto",
+      "install_command_windows": "git clone --depth 1 https://github.com/sullo/nikto.git \"%LOCALAPPDATA%\\nikto\"",
       "authorized_use_only": true,
       "tags": [
         "security",
@@ -501,6 +508,7 @@
       "source": "ffuf/ffuf",
       "url": "https://github.com/ffuf/ffuf",
       "install_command": "brew install ffuf 2>/dev/null || go install github.com/ffuf/ffuf/v2@latest",
+      "install_command_windows": "winget install --id ffuf.ffuf -e",
       "authorized_use_only": true,
       "tags": [
         "security",
@@ -517,7 +525,8 @@
       "description": "Attack-surface mapping and subdomain enumeration (OSINT). For scoping assets you are authorized to assess.",
       "source": "owasp-amass/amass",
       "url": "https://github.com/owasp-amass/amass",
-      "install_command": "brew install amass 2>/dev/null || go install -v github.com/owasp-amass/amass/v4/...@master",
+      "install_command": "brew install amass 2>/dev/null || go install github.com/owasp-amass/amass/v5/cmd/amass@latest",
+      "install_command_windows": "winget install --id OWASP.Amass -e",
       "authorized_use_only": true,
       "tags": [
         "security",
@@ -553,6 +562,7 @@
       "source": "semgrep/semgrep",
       "url": "https://semgrep.dev",
       "install_command": "brew install semgrep 2>/dev/null || pipx install semgrep || pip3 install semgrep",
+      "install_command_windows": "pip install semgrep",
       "tags": [
         "security",
         "defensive",
@@ -568,7 +578,8 @@
       "description": "Defensive secret scanner \u2014 finds leaked credentials and keys in your repos and history.",
       "source": "trufflesecurity/trufflehog",
       "url": "https://github.com/trufflesecurity/trufflehog",
-      "install_command": "brew install trufflehog 2>/dev/null || curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin",
+      "install_command": "brew install trufflehog 2>/dev/null || go install github.com/trufflesecurity/trufflehog/v3@latest",
+      "install_command_windows": "go install github.com/trufflesecurity/trufflehog/v3@latest",
       "tags": [
         "security",
         "defensive",
@@ -584,7 +595,8 @@
       "description": "AI pair programming in your terminal \u2014 edits code across files, auto-commits with git. Works with Claude, GPT, local models.",
       "source": "Aider-AI/aider",
       "url": "https://github.com/Aider-AI/aider",
-      "install_command": "python3 -m pip install aider-install && aider-install",
+      "install_command": "pipx install aider-install && aider-install",
+      "install_command_windows": "pip install aider-install && aider-install",
       "tags": [
         "ai",
         "coding",
@@ -600,7 +612,8 @@
       "description": "Autonomous AI software-development agent (formerly OpenDevin) \u2014 writes code, runs commands, browses the web to complete tasks.",
       "source": "All-Hands-AI/OpenHands",
       "url": "https://github.com/All-Hands-AI/OpenHands",
-      "install_command": "python3 -m pip install openhands-ai",
+      "install_command": "pipx install openhands-ai || pip3 install openhands-ai",
+      "install_command_windows": "pip install openhands-ai",
       "tags": [
         "ai",
         "agent",
@@ -617,6 +630,7 @@
       "source": "cline/cline",
       "url": "https://github.com/cline/cline",
       "install_command": "code --install-extension saoudrizwan.claude-dev",
+      "install_command_windows": "code --install-extension saoudrizwan.claude-dev",
       "tags": [
         "ai",
         "agent",
@@ -633,6 +647,7 @@
       "source": "continuedev/continue",
       "url": "https://github.com/continuedev/continue",
       "install_command": "code --install-extension Continue.continue",
+      "install_command_windows": "code --install-extension Continue.continue",
       "tags": [
         "ai",
         "autocomplete",
@@ -647,7 +662,8 @@
       "description": "Call 100+ LLM APIs (OpenAI, Anthropic, Groq, Ollama\u2026) in one unified format, with a proxy, spend tracking, and fallbacks.",
       "source": "BerriAI/litellm",
       "url": "https://github.com/BerriAI/litellm",
-      "install_command": "python3 -m pip install 'litellm[proxy]'",
+      "install_command": "pipx install 'litellm[proxy]' || pip3 install 'litellm[proxy]'",
+      "install_command_windows": "pip install 'litellm[proxy]'",
       "tags": [
         "ai",
         "llm",
@@ -696,7 +712,7 @@
       "description": "Google's dependency vulnerability scanner \u2014 checks your lockfiles against the OSV database of known CVEs.",
       "source": "google/osv-scanner",
       "url": "https://github.com/google/osv-scanner",
-      "install_command": "brew install osv-scanner 2>/dev/null || go install github.com/google/osv-scanner/cmd/osv-scanner@latest",
+      "install_command": "brew install osv-scanner 2>/dev/null || go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest",
       "install_command_windows": "winget install --id Google.OSVScanner -e",
       "tags": [
         "security",
@@ -713,7 +729,8 @@
       "description": "Generate a Software Bill of Materials (SBOM) from container images and filesystems. Pairs with Grype for vuln scanning.",
       "source": "anchore/syft",
       "url": "https://github.com/anchore/syft",
-      "install_command": "brew install syft 2>/dev/null || curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin",
+      "install_command": "brew install syft 2>/dev/null || go install github.com/anchore/syft/cmd/syft@latest",
+      "install_command_windows": "winget install --id Anchore.Syft -e",
       "tags": [
         "security",
         "defensive",
@@ -729,7 +746,8 @@
       "description": "Vulnerability scanner for container images and filesystems \u2014 fast CVE detection from SBOMs or images.",
       "source": "anchore/grype",
       "url": "https://github.com/anchore/grype",
-      "install_command": "brew install grype 2>/dev/null || curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin",
+      "install_command": "brew install grype 2>/dev/null || go install github.com/anchore/grype/cmd/grype@latest",
+      "install_command_windows": "winget install --id Anchore.Grype -e",
       "tags": [
         "security",
         "defensive",
@@ -794,7 +812,8 @@
       "description": "Extremely fast Python linter and formatter (Rust-based) \u2014 replaces flake8, isort, black, and more in one tool.",
       "source": "astral-sh/ruff",
       "url": "https://github.com/astral-sh/ruff",
-      "install_command": "python3 -m pip install ruff",
+      "install_command": "brew install ruff 2>/dev/null || pipx install ruff || pip3 install ruff",
+      "install_command_windows": "winget install --id astral-sh.ruff -e",
       "tags": [
         "quality",
         "python",
@@ -811,6 +830,7 @@
       "source": "biomejs/biome",
       "url": "https://github.com/biomejs/biome",
       "install_command": "npm install -D --save-exact @biomejs/biome",
+      "install_command_windows": "npm install -D --save-exact @biomejs/biome",
       "tags": [
         "quality",
         "javascript",
@@ -860,7 +880,8 @@
       "description": "Latest cross-platform personal AI assistant (FatihMakes/Mark-LV) \u2014 real-time Gemini Live voice, screen+webcam vision, computer control, 'Hey Jarvis' wake word, persistent memory, plugins, and a holographic avatar HUD. Needs a free Gemini API key. License: CC BY-NC 4.0 (non-commercial).",
       "source": "FatihMakes/Mark-LV",
       "url": "https://github.com/FatihMakes/Mark-LV",
-      "install_command": "git clone https://github.com/FatihMakes/Mark-LV.git && cd Mark-LV && python setup.py",
+      "install_command": "git clone https://github.com/FatihMakes/Mark-LV.git && cd Mark-LV && python3 setup.py",
+      "install_command_windows": "git clone https://github.com/FatihMakes/Mark-LV.git && cd Mark-LV && py -3 setup.py",
       "tags": [
         "ai",
         "voice",

@@ -2658,6 +2658,37 @@ def code_health_run(req: CodeHealthRequest):
         raise HTTPException(status_code=409, detail="A code-health run is already in progress") from None
 
 
+class TicketRunRequest(BaseModel):
+    """Allowlisted tool id plus its one argument; paths, args and env are never accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+    tool: str
+    action: str
+
+
+@app.get("/api/tickets", dependencies=[Depends(require_token)])
+def tickets_status():
+    """Which read-only ticket/Azure DevOps/estimate tools can run, and whether ado.sh is configured."""
+    import tickets
+
+    return tickets.status()
+
+
+@app.post("/api/tickets", dependencies=[Depends(require_token)])
+def tickets_run(req: TicketRunRequest):
+    """Run one allowlisted read-only tool (ticket, ado, estimate) with a fixed argv."""
+    import tickets
+
+    if req.tool not in tickets.TOOLS:
+        raise HTTPException(status_code=400, detail="Unknown tool")
+    try:
+        return tickets.run(req.tool, req.action)
+    except tickets.Busy:
+        raise HTTPException(status_code=409, detail="A ticket tool run is already in progress") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
 @app.get("/api/commands", dependencies=[Depends(require_token)])
 def commands_catalog():
     """Read-only catalog of commands/ and scripts/ entries (name/description/kind)."""
