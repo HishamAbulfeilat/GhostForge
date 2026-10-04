@@ -120,6 +120,37 @@ jobs:
             exit "$TEST_STATUS"
           fi
 
+  # T-231: nothing in CI ran the Python bridge suite at all — the only bridge
+  # check anywhere was py_compile, so a broken handler passed. These tests need
+  # fastapi + httpx + pytest only; the heavy bridge deps (crewai, mem0ai,
+  # browser-use, huggingface_hub) are all optional at import time and the
+  # handlers under test are mocked, so the suite runs on a bare interpreter.
+  bridge-tests:
+    name: bridge tests (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Deliberately not cached: the pinned set here is small and does not come
+      # from requirements.txt, so a requirements.txt cache key would be wrong.
+      - name: Install test dependencies
+        working-directory: mark-l-bridge
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install fastapi httpx pytest python-multipart
+
+      - name: Bridge tests
+        working-directory: mark-l-bridge
+        run: python -m pytest . -q
+
   pr-check:
     name: GhostForge PR Quality Checks
     runs-on: ubuntu-latest
