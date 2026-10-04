@@ -11,13 +11,14 @@ export const TOOL_PERMISSION: Record<string, string> = {
   google_search: 'web_search',
 
   // ── files ─────────────────────────────────────────────────────────────────────
+  // NOTE: the vendored Mark-LIV `file_controller` *actions* (create_file,
+  // write_file, edit_file, delete_file) are reached through the `mark_liv`
+  // tool, not as top-level JARVIS tools — don't list them here or the gate
+  // advertises tools the executor can't dispatch. File writes go through
+  // /api/files, which checks file_write directly.
   get_files: 'file_read',
   read_file: 'file_read',
   open_file: 'file_read',
-  create_file: 'file_write',
-  write_file: 'file_write',
-  edit_file: 'file_write',
-  delete_file: 'file_write',
   file_processor: 'file_process',
   office_document: 'documents',
   career: 'career',
@@ -27,8 +28,8 @@ export const TOOL_PERMISSION: Record<string, string> = {
   read_text_on_screen: 'file_read',
 
   // ── messaging ────────────────────────────────────────────────────────────────
-  send_imessage: 'send_message',
   send_message: 'send_message',
+  send_imessage: 'send_message',
   send_user_message: 'user_message',
   email_list: 'email',
   email_send: 'email',
@@ -82,7 +83,6 @@ export const TOOL_PERMISSION: Record<string, string> = {
   execute_code: 'code_helper',
   code_helper: 'code_helper',
   flight_finder: 'web_search',
-  remote: 'remote',
 
   // ── voice / memory / MCP / native ───────────────────────────────────────────
   voice_status: 'voice',
@@ -160,7 +160,12 @@ export const TOOL_PERMISSION: Record<string, string> = {
 }
 
 export function permissionForTool(tool: string): string | undefined {
-  return TOOL_PERMISSION[tool]
+  // Own-property lookup: an inherited key like 'toString' or 'constructor' is
+  // not a tool, and returning Object.prototype members would hand the caller a
+  // non-string permission that silently fails every permission check.
+  return Object.prototype.hasOwnProperty.call(TOOL_PERMISSION, tool)
+    ? TOOL_PERMISSION[tool]
+    : undefined
 }
 
 /** Default permission allowed to all signed-in users (chat is the baseline) */

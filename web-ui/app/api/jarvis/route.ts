@@ -104,12 +104,12 @@ set_volume, type_text, mouse_click, key_combo, scroll, open_app, take_screenshot
 const TOOLS_BY_DOMAIN: Record<string, string> = {
   weather:     '- get_weather { city } | - get_time | - web_search { query }',
   time:        '- get_time | - set_reminder { title, notes? }',
-  system:      '- get_system_info | - mac_cleanup | - terminal_command { command } | - execute_code { language, code }',
+  system:      '- get_system_info | - mac_cleanup | - terminal_command { command } | - run_terminal { command } | - execute_code { language, code }',
   music:       '- play_music { action, app?, query? } | - set_volume { level } | - open_app { app }',
-  messaging:   '- send_imessage { contact, message } | - send_teams_message { contact, message } | - send_slack_message { channel, message } | - send_whatsapp_message { contact, message } | - discord_message { message, channel? } | - send_user_message { to, message } (message another GhostForge user, e.g. "say hello to feras" → to="feras")',
+  messaging:   '- send_imessage { contact, message } | - send_teams_message { contact, message } | - send_slack_message { channel, message } | - send_whatsapp_message { contact, message } | - discord_message { message, channel? } | - send_message { receiver, message, platform? } (any platform: WhatsApp, Telegram, …) | - send_user_message { to, message } (message another GhostForge user, e.g. "say hello to feras" → to="feras")',
   search:      '- web_search { query } | - web_search_deep { query } | - google_search { query }',
-  code:        '- execute_code { language, code } | - terminal_command { command } | - github_repos | - github_prs { repo? } | - github_issues { repo?, action? } | - open_interpreter { prompt, model? } | - jsrepl_run { code, language? }',
-  files:       '- get_files { path? } | - read_file { path } | - write_note { note } | - take_screenshot { filename? }',
+  code:        '- execute_code { language, code } | - terminal_command { command } | - github_repos | - github_prs { repo? } | - github_issues { repo?, action? } | - open_interpreter { prompt, model? } | - jsrepl_run { code, language? } | - code_helper { question } | - task_steps { goal }',
+  files:       '- get_files { path? } | - read_file { path } | - write_note { note } | - take_screenshot { filename? } | - install_on_device | - delegate_agent { role, task }',
   reminder:    '- set_reminder { title, notes? } | - write_note { note } | - set_goal { goal, deadline? } | - list_goals',
   mac_control: '- mac_control { script } | - browser_control { action, url?, text? } | - mouse_click { x, y, button? } | - mouse_move { x, y } | - drag_mouse { fromX,fromY,toX,toY } | - key_combo { keys } | - scroll { direction, amount?, x?, y? } | - focus_window { app } | - get_windows | - get_frontmost_app | - type_text { text } | - find_and_click { label, app? } | - lock_screen | - set_volume { level } | - point_cursor { x, y, label? } | - highlight_area { x, y, w, h }',
   vision:      '- describe_screen | - understand_screen { question? } | - find_element { description } | - read_text_on_screen | - take_screenshot { filename? } | - get_screen_info | - point_cursor { x, y, label? }',
@@ -124,9 +124,9 @@ const TOOLS_BY_DOMAIN: Record<string, string> = {
   general:     '- get_time | - get_weather { city } | - web_search { query, mode? } | - open_app { app } | - open_url { url } | - browser_control { action, url?, text? } | - get_system_info | - mac_control { script } | - terminal_command { command } | - lock_screen | - take_screenshot | - set_volume { level } | - play_music { action } | - set_reminder { title } | - get_files | - read_file { path } | - github_repos | - copilot_ask { question } | - llmfit_recommend | - list_local_models | - list_design_md | - design_resources { category? } | - vigolium_scan { target } | - apply_design_md { site } | - flight_finder { from, to, date? } | - vault_save { category, key, value } | - youtube_control { action, query?, url?, region? } | - game_manager { action, game_name? } | - clipboard_analyze { action, text? } | - browser_automate { action, url?, selector?, text? } | - file_processor { action, file_path?, question?, output_format? } | - hardware_monitor { report_type? } | - system_control { action, value? } | - setup_wizard { action, step_id?, config? } | - n8n_workflow { action, workflowId?, data?, channel?, message?, priority?, prNumber?, repo? } | - agent_team { action: "start"|"stop"|"status"|"say"|"add_task", from?, to?, message?, title?, kind?, area? } | - mark_liv { action: "status"|"run", id? } (Mark-LIV engine registry — status lists all 20 actions, run executes one by id)',
   youtube:     '- youtube_control { action, query?, url?, region? }',
   games:       '- game_manager { action, game_name? }',
-  clipboard:   '- clipboard_analyze { action, text? }',
+  clipboard:   '- clipboard_analyze { action, text? } | - get_clipboard | - copy_to_clipboard { text }',
   browser_ext: '- browser_automate { action, url?, selector?, text? } | - browser_control { action, url?, text? }',
-  files_ext:   '- file_processor { action, file_path?, question?, output_format? } | - get_files { path? } | - read_file { path } | - office_document { action: "generate"|"list"|"read", type?: "memo"|"minutes"|"report"|"cover"|"contract", title?, name?, subject?, body?, ... }',
+  files_ext:   '- file_processor { action, file_path?, question?, output_format? } | - get_files { path? } | - read_file { path } | - open_file { path } | - office_document { action: "generate"|"list"|"read", type?: "memo"|"minutes"|"report"|"cover"|"contract", title?, name?, subject?, body?, ... }',
   office:      '- office_document { action: "generate", type?: "memo"|"minutes"|"report"|"cover"|"contract", title?, subject?, body?, to?, from?, ... } | - office_document { action: "list" } | - office_document { action: "read", file }',
   career:      '- career { tool: "cv"|"track"|"gap"|"prep"|"linkedin", action, company?, role?, topic?, cv?, jd? } | - job_hunter { action: "search"|"status"|"list", terms? }',
   hardware:    '- hardware_monitor { report_type? } | - get_system_info',
@@ -962,6 +962,20 @@ end tell`
       await runScript(script)
       return `${action} on ${appName}`
     }
+
+    // Aliases kept in sync with lib/tool-permissions.ts: each is the same
+    // capability under a second name the model or a Mark-LIV quick action uses.
+    case 'run_terminal':
+      return executeTool('terminal_command', params, currentUser)
+
+    case 'open_file':
+      return executeTool('read_file', params, currentUser)
+
+    case 'reminder':
+      return executeTool('set_reminder', params, currentUser)
+
+    case 'code_helper':
+      return executeTool('copilot_ask', params, currentUser)
 
     case 'terminal_command': {
       const cmd = params.command || ''
@@ -3280,6 +3294,22 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
     }
 
     // ── Mark-LIV engine (vendored JARVIS) ─────────────────────────────────
+    case 'send_message': {
+      // The generic Mark-LIV send_message action (WhatsApp/Telegram/…).
+      // Accepts the upstream param names or the web-UI contact/message
+      // spelling so either prompt style resolves.
+      const { runMarkLiv } = await import('@/lib/mark-liv-bridge')
+      const receiver = params.receiver || params.contact || params.to || ''
+      const messageText = params.message_text || params.message || ''
+      if (!receiver) return 'Who should I message? Give me a contact name.'
+      if (!messageText) return 'What should I send?'
+      return runMarkLiv('send_message', {
+        receiver,
+        message_text: messageText,
+        platform: params.platform || 'WhatsApp',
+      })
+    }
+
     case 'mark_liv': {
       // Runs a real Mark-LIV action through the bridge: { tool, args } (args = JSON string)
       const { runMarkLiv, markLivCatalog } = await import('@/lib/mark-liv-bridge')
