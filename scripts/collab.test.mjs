@@ -26,8 +26,15 @@ test('help documents collaboration commands and bridge configuration', () => {
   assert.match(result.stdout, /MARKL_BRIDGE_TOKEN/)
 })
 
-test('shell launcher exists and forwards help to the collaboration CLI', () => {
+// On Windows `bash` may resolve to the WSL relay with no distro installed,
+// which fails before running anything. Only exercise the launcher where bash works.
+const bashWorks = spawnSync('bash', ['-c', 'exit 0'], { encoding: 'utf8' }).status === 0
+
+test('shell launcher exists', () => {
   assert.equal(existsSync(shellPath), true)
+})
+
+test('shell launcher forwards help to the collaboration CLI', { skip: !bashWorks && 'no working bash on PATH' }, () => {
   const result = spawnSync('bash', [shellPath, '--help'], { encoding: 'utf8' })
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /ghostforge collab create/)
