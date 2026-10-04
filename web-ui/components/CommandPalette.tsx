@@ -161,4 +161,3 @@ function CommandPalette() {
 }
 
 export default CommandPalette
-export { CommandPalette }
