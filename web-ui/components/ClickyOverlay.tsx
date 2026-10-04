@@ -193,5 +193,3 @@ export default function ClickyOverlay({ target, point, highlight, duration = 500
     </div>
   )
 }
-
-export type { CursorTarget }
