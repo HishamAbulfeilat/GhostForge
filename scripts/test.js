@@ -6,7 +6,14 @@
  *   1. tui/index.js parses (syntax check)
  *   2. marketplace catalog + registry are valid JSON with unique item ids
  *   3. every catalog item has the required fields
- *   4. focused runtime tests and node:test unit tests pass
+ *   4. every tests/*.test.js unit test passes
+ *   5. every scripts/**\/*.test.mjs suite passes
+ *
+ * (4) and (5) are discovered by glob, not listed by name. Six suites
+ * (collab, n8n, users, webhooks, workflows, package-apps) passed but were
+ * named in no runner — they only ran if you happened to know to run them, so
+ * a regression in any of them was invisible to CI. A new *.test.mjs file under
+ * scripts/ is now picked up automatically.
  *
  * The web-ui unit tests run in their own CI step (they need node_modules).
  * Exits non-zero on the first failure so it works in CI.
@@ -91,44 +98,36 @@ check('every catalog item has id, name, type, category, description', () => {
   if (bad.length) throw new Error(`${bad.length} item(s) missing required fields`);
 });
 
-check('Awesome LLM Apps CLI smoke tests pass', () => {
-  execFileSync(
-    process.execPath,
-    ['--test', 'scripts/awesome-llm-apps.test.mjs'],
-    { cwd: ROOT, stdio: 'pipe' }
-  );
-});
+/**
+ * Every *.test.mjs under scripts/, recursively, sorted for a stable order.
+ *
+ * scripts/agents/** is excluded: those suites have their own runner
+ * (`npm run test:agents`, and health.mjs's "Agent team unit tests" check)
+ * because they exercise the boss/watchdog and are not part of the root smoke
+ * test. Excluding them keeps the root run fast and avoids double-reporting.
+ */
+function scriptsTestFiles() {
+  const skip = path.join(ROOT, 'scripts', 'agents');
+  const out = [];
+  const walk = dir => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (full === skip) continue;
+        walk(full);
+      } else if (entry.name.endsWith('.test.mjs')) {
+        out.push(full);
+      }
+    }
+  };
+  walk(path.join(ROOT, 'scripts'));
+  return out.sort();
+}
 
-check('read-only files CLI tests pass', () => {
-  execFileSync(
-    process.execPath,
-    ['--test', 'scripts/test/files.test.mjs'],
-    { cwd: ROOT, stdio: 'pipe' }
-  );
-});
-
-check('Hugging Face models search tests pass', () => {
-  execFileSync(
-    process.execPath,
-    ['--test', 'scripts/test/hf-search.test.mjs'],
-    { cwd: ROOT, stdio: 'pipe' }
-  );
-});
-
-check('JARVIS CLI tests pass', () => {
-  execFileSync(
-    process.execPath,
-    ['--test', 'scripts/test/jarvis.test.mjs'],
-    { cwd: ROOT, stdio: 'pipe' }
-  );
-});
-
-check('managed worlds runtime tests pass', () => {
-  execFileSync(
-    process.execPath,
-    ['--test', 'scripts/worlds.test.mjs'],
-    { cwd: ROOT, stdio: 'pipe' }
-  );
+check('scripts/** CLI suites pass (node:test)', () => {
+  const testFiles = scriptsTestFiles();
+  if (!testFiles.length) throw new Error('no scripts/**/*.test.mjs files found');
+  execFileSync(process.execPath, ['--test', ...testFiles], { cwd: ROOT, stdio: 'pipe' });
 });
 
 check('tests/*.test.js unit tests pass (node:test)', () => {
