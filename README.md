@@ -148,7 +148,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and guidelines.
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+GhostForge is MIT licensed — see [LICENSE](LICENSE).
+
+Vendored third-party code keeps its own license, including `vendor/mark-liv`
+(CC BY-NC 4.0). See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ---
 
