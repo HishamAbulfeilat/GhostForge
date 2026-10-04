@@ -11,9 +11,16 @@
  */
 import fs, { readFileSync, readdirSync, writeFileSync, existsSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
 
 const DOCS_DIR = join(homedir(), '.ghostforge', 'documents');
+
+/** True when `candidate` resolves to `root` itself or something under it. */
+function isInside(root, candidate) {
+  const base = resolve(root);
+  const target = resolve(candidate);
+  return target === base || target.startsWith(base + sep);
+}
 
 const TYPES = {
   memo: {
@@ -166,7 +173,7 @@ function listDocs() {
 }
 
 const [cmd, ...args] = process.argv.slice(2);
-const type = cmd === 'list' || cmd === 'read' ? args[0] : args[0];
+const type = args[0];
 const title = args[1];
 const params = parseFields(args);
 
@@ -177,7 +184,11 @@ switch (cmd) {
   case 'template':
   case 'new': {
     if (!type) { console.error('usage: office.js generate <type> <Title> [--k=v ...]'); process.exit(2); }
-    const res = generate(cmd === 'template' ? title || type : type, cmd === 'template' ? params.title || 'Template ' + type : title, params);
+    // `template <type> <Title>` takes the same positional shape as `generate`;
+    // it previously swapped the two and then asked generate() for a type
+    // called by the title, so the documented command always failed.
+    const res = generate(type, title, params);
+    if (res.error) { console.error(res.error); process.exit(1); }
     console.log(JSON.stringify(res, null, 2));
     break;
   }
@@ -188,7 +199,15 @@ switch (cmd) {
   }
   case 'read': {
     if (!type) { console.error('usage: office.js read <file>'); process.exit(2); }
+    // Resolve inside DOCS_DIR only. `join` alone let `read ../secret` (and
+    // any `..` segment) escape the documents directory and print arbitrary
+    // files from the home directory — reachable from the JARVIS
+    // `office_document` tool, which passes a model-supplied name straight
+    // through.
     const file = join(DOCS_DIR, type);
+    if (!isInside(DOCS_DIR, file)) {
+      console.error('Invalid document path: ' + type); process.exit(1);
+    }
     if (!existsSync(file)) { console.error('Not found: ' + file); process.exit(1); }
     console.log(readFileSync(file, 'utf8'));
     break;
@@ -198,6 +217,7 @@ switch (cmd) {
     console.log(
       'GHOSTFORGE OFFICE-CLI\n' +
       '  node office.js generate <type> <Title> [--k=v ...]\n' +
+      '  node office.js template <type> <Title> [--k=v ...]\n' +
       '  node office.js list\n' +
       '  node office.js read <file>\n' +
       'Types: ' + Object.keys(TYPES).join(', ') + '\n' +
