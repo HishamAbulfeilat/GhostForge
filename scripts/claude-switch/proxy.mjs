@@ -3,8 +3,12 @@
 // Claude Code points ANTHROPIC_BASE_URL here. Your claude.ai login keeps flowing
 // to Anthropic untouched; only when Anthropic answers 429 (usage limit) does the
 // same request get served by free OpenAI-compatible providers, until the reset.
-// Mode (auto | pro | free | openrouter | omniroute) is read from state.json on
+// Mode (auto | pro | free | <any provider name>) is read from state.json on
 // every request, so `claude-mode <mode>` switches instantly, no restart.
+// `claude-mode pick <provider> <model>` additionally pins one exact model.
+// Each served reply is tagged with which provider/model answered (see BANNER_RE
+// in translate.mjs) and the choice is recorded in state.json as `last`, so
+// `claude-mode status` always shows what actually ran.
 // Bound to 127.0.0.1 only. Never logs headers or bodies.
 import http from 'node:http'
 import https from 'node:https'
@@ -78,19 +82,33 @@ function keyFor(name, p) {
   return p.key || (p.keyEnv && process.env[p.keyEnv]) || ''
 }
 
+// Bumped on every free-mode call and used to rotate which provider is tried
+// first (see `serveFree`). Several concurrent agents (boss.mjs's worker swarm
+// plus your own interactive session) all share this one proxy; always trying
+// providers in the same fixed order means they all pile onto the same
+// provider's daily quota at once. Round-robining the starting point spreads
+// concurrent requests across openrouter/kilo/llm7/pollinations instead.
+let rrCounter = 0
+
 /** Try each provider in `chain` until one answers; write an Anthropic-format response. */
 async function serveFree(chain, body, res, why) {
   const c = cfg()
+  const { forceModel } = state()
   const tried = []
+  const offset = chain.length ? rrCounter++ % chain.length : 0
+  const rotated = [...chain.slice(offset), ...chain.slice(0, offset)]
   // Expand providers into (provider, model) slots: a provider with `models: [...]`
   // gets one slot per model, so one rate-limited model doesn't sink the provider.
   const slots = []
-  for (const name of chain) {
+  for (const name of rotated) {
     const p = c.providers?.[name]
     if (!p || p.enabled === false) continue
     const key = keyFor(name, p)
     if (p.needsKey && !key) { tried.push(`${name}: no key`); continue }
     if ((providerCooldown.get(name) ?? 0) > Date.now()) { tried.push(`${name}: cooling down`); continue }
+    // `claude-mode pick <provider> <model>` pins an exact model: skip the
+    // provider's own model list and try only the pinned one.
+    if (forceModel && forceModel.provider === name) { slots.push({ name, p, key, model: forceModel.model }); continue }
     if (p.models?.length) { for (const m of p.models) slots.push({ name, p, key, model: m }); continue }
     let model
     try { model = name === 'openrouter' ? await openRouterFreeModel(p) : p.model } catch { model = p.model }
@@ -121,13 +139,26 @@ async function serveFree(chain, body, res, why) {
       const detail = (await r.text().catch(() => '')).slice(0, 160).replace(/\s+/g, ' ')
       tried.push(`${slot}: ${r.status}`)
       log(`free ${slot} -> ${r.status} ${detail}`)
-      // A bad key sinks the whole provider. 403 is often model-specific (e.g. a
-      // model restricted to certain apps), so it only benches that model.
-      if (r.status === 401) { providerCooldown.set(name, Date.now() + 3600_000); continue }
+      // A bad key sinks the whole provider — but only if we actually sent one;
+      // a 401 with no key just means this particular model needs a key we
+      // don't have (some providers mix free-anonymous and key-gated models in
+      // one `models` list), so bench only that slot, and for a long time since
+      // it'll never succeed without a key being added.
+      // 403 is often model-specific too (e.g. a model restricted to certain
+      // apps), so it only benches that model.
+      if (r.status === 401) { providerCooldown.set(key ? name : slot, Date.now() + (key ? 3600_000 : 24 * 3600_000)); continue }
       if (r.status === 403) { providerCooldown.set(slot, Date.now() + 3600_000); continue }
       // 400 means this request is malformed for this model; benching the model
-      // would also block the next, well-formed request.
-      if (r.status === 400) continue
+      // would also block the next, well-formed request. But some 400s are
+      // permanent (bad model id, context window too small for Claude Code's
+      // typical MCP-tool-schema-heavy requests) and would otherwise be retried
+      // on every single turn forever, wasting a round trip each time.
+      if (r.status === 400) {
+        if (/not a valid model|model_not_found|does not exist|maximum context length/i.test(detail)) {
+          providerCooldown.set(slot, Date.now() + 24 * 3600_000)
+        }
+        continue
+      }
       const after = Number(r.headers.get('retry-after') || detail.match(/retry.after\D{0,4}(\d+)/i)?.[1])
       const wait = r.status === 429 ? (after > 0 ? after * 1000 : 120_000) : 30_000
       // A daily/account quota covers every model on the provider.
@@ -135,29 +166,67 @@ async function serveFree(chain, body, res, why) {
       providerCooldown.set(quota ? name : slot, Date.now() + wait)
       continue
     }
-    log(`${why} -> free ${name}/${model}${oa.stream ? ' (stream)' : ''}`)
+    // Tag the reply so the user can see, right in Claude Code, which free
+    // provider/model actually answered (stripped back out of history before
+    // it's replayed upstream — see BANNER_RE in translate.mjs).
+    const banner = `⟦claude-switch: ${why} → ${name}/${model}⟧`
     if (!oa.stream) {
-      const j = await r.json()
+      const j = await r.json().catch(() => null)
+      const msg = j?.choices?.[0]?.message ?? {}
+      const hasContent = !!msg.content || (msg.tool_calls ?? []).some(c => c.function?.name) || !!(msg.reasoning || msg.reasoning_content)
+      if (!j || !hasContent) {
+        // A 200 with nothing in it (provider quietly rate-limited or cut the
+        // request short): don't show the user silence or a dead end — try the
+        // next model/provider instead, same as any other failure.
+        tried.push(`${slot}: empty reply`)
+        log(`free ${slot} -> 200 but empty, trying next`)
+        providerCooldown.set(slot, Date.now() + 60_000)
+        continue
+      }
+      log(`${why} -> free ${name}/${model}`)
+      saveState({ last: { via: 'free', provider: name, model, why, at: Date.now() } })
       res.writeHead(200, { 'content-type': 'application/json' })
-      return res.end(JSON.stringify(fromOpenAI(j, body.model)))
+      return res.end(JSON.stringify(fromOpenAI(j, body.model, banner)))
     }
-    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
-    const t = streamTranslator(body.model)
+    // Stream: buffer the whole translated reply (don't commit to the client)
+    // so an empty reply can still fall through to the next model/provider,
+    // exactly like the non-stream path above.
+    const t = streamTranslator(body.model, banner)
     const dec = new TextDecoder()
+    let sse = ''
     try {
-      for await (const chunk of r.body) res.write(t.push(dec.decode(chunk, { stream: true })))
-    } catch (e) { log(`free ${name} stream broke: ${e.message}`) }
-    res.write(t.end())
+      for await (const chunk of r.body) sse += t.push(dec.decode(chunk, { stream: true }))
+    } catch (e) { log(`free ${slot} stream broke: ${e.message}`) }
+    sse += t.end()
+    if (!t.hadContent()) {
+      tried.push(`${slot}: empty reply (stream)`)
+      log(`free ${slot} -> empty stream, trying next`)
+      providerCooldown.set(slot, Date.now() + 60_000)
+      continue
+    }
+    log(`${why} -> free ${name}/${model} (stream)`)
+    saveState({ last: { via: 'free', provider: name, model, why, at: Date.now() } })
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+    res.write(sse)
     return res.end()
   }
   log(`${why}: every free provider failed (${tried.join('; ')})`)
   sendError(res, 529, 'overloaded_error', `claude-switch: no free provider available (${tried.join('; ')}). Add keys with: claude-mode key <provider> <key>`)
 }
 
+/** Free chain for a task tier (deep | balanced | fast) from config `tierChains`,
+ *  falling back to the normal free chain. Lets the boss pick models per task. */
+function tierChain(tier) {
+  const chains = cfg().tierChains ?? {}
+  return chains[tier] ?? chainFor('free')
+}
+
 function chainFor(mode) {
   const c = cfg()
-  if (mode === 'openrouter') return ['openrouter']
-  if (mode === 'omniroute') return ['omniroute']
+  // Any mode matching a provider name forces that single provider's own
+  // model list (still with auto-fallback across that provider's models,
+  // unless a model is also pinned via `claude-mode pick <provider> <model>`).
+  if (c.providers?.[mode]) return [mode]
   return c.freeChain ?? Object.keys(c.providers ?? {}).filter(n => n !== 'omniroute')
 }
 
@@ -183,7 +252,12 @@ const server = http.createServer(async (req, res) => {
     const { mode, proCooldownUntil } = state()
     const json = () => { try { return JSON.parse(body.toString('utf8')) } catch { return null } }
     const proResting = mode === 'auto' && proCooldownUntil > Date.now()
-    const useFree = mode === 'free' || mode === 'openrouter' || mode === 'omniroute' || proResting
+    // A client can ask for free models per request (the GhostForge boss sends
+    // this for its workers so Pro is kept for the boss): "free" or "free:<tier>".
+    const route = String(req.headers['x-claude-switch-route'] ?? '').trim().toLowerCase()
+    delete req.headers['x-claude-switch-route'] // never forward it to Anthropic
+    const routeFree = route === 'free' || route.startsWith('free:')
+    const useFree = mode === 'free' || !!cfg().providers?.[mode] || proResting || routeFree
 
     if (useFree && isCount) {
       res.writeHead(200, { 'content-type': 'application/json' })
@@ -192,6 +266,7 @@ const server = http.createServer(async (req, res) => {
     if (useFree && isMessages) {
       const b = json()
       if (!b) return sendError(res, 400, 'invalid_request_error', 'claude-switch: body is not JSON')
+      if (routeFree && !cfg().providers?.[mode]) return await serveFree(tierChain(route.slice(5)), b, res, `worker ${route}`)
       return await serveFree(chainFor(mode), b, res, proResting ? 'pro limit (until ' + new Date(proCooldownUntil).toLocaleTimeString() + ')' : `mode ${mode}`)
     }
 
@@ -219,6 +294,10 @@ const server = http.createServer(async (req, res) => {
       log(`Claude Pro limit hit (429) -> free models until ${new Date(until).toISOString()}`)
       const b = json()
       if (b) return await serveFree(chainFor('free'), b, res, 'pro limit just hit')
+    }
+    if (isMessages && up.statusCode < 400) {
+      const b = json()
+      if (b) saveState({ last: { via: 'pro', provider: 'anthropic', model: b.model ?? 'claude', at: Date.now() } })
     }
     const headers = {}
     for (const [k, v] of Object.entries(up.headers)) if (!HOP.has(k)) headers[k] = v
