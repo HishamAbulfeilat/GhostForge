@@ -20,6 +20,7 @@ import { fileURLToPath } from 'url';
 import { filterMenuChoices, groupCommandChoices } from './lib/menu-search.js';
 import { readRecentCommands, rememberCommand } from './lib/recent-commands.js';
 import { applyEffectiveMarketplaceState } from './lib/marketplace-state.js';
+import { resolveInstallCommand, explainMissingCommand } from '../marketplace/install-commands.mjs';
 import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP } from './lib/platform-utils.js';
 import { askGFAI } from './lib/gfai-client.js';
 import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
@@ -3963,9 +3964,10 @@ async function screenMarketplace() {
     if (item) {
       console.log();
       console.log(T.brand.bold(`  Installing: ${item.name}...`));
-      const platformInstallCommand = (process.platform === 'win32' && item.install_command_windows)
-        ? item.install_command_windows
-        : item.install_command;
+      // Never fall back to the POSIX command on Windows: execSync would hand a
+      // brew/apt one-liner to cmd.exe. No command for this platform means the
+      // item links out instead (see explainMissingCommand).
+      const platformInstallCommand = resolveInstallCommand(item);
       if (platformInstallCommand) {
         console.log(T.muted(`  Running: ${platformInstallCommand}`));
         try {
@@ -4019,21 +4021,24 @@ async function screenMarketplace() {
       console.log(T.dim(`  ${item.description}`));
       if (item.installed) {
         console.log(T.success('\n  ✅ Already installed.'));
-      } else if (item.install_command) {
+      } else {
         // Security tools: show the command for review rather than piping
         // catalog data straight into a shell. Copy/paste to run.
-        const platformInstallCommand = (process.platform === 'win32' && item.install_command_windows)
-          ? item.install_command_windows
-          : item.install_command;
-        console.log(T.yellow('\n  Install command (review, then run in your shell):'));
-        console.log(T.cyan(`    ${platformInstallCommand}`));
-        const mark = await confirm({ message: 'Mark as installed?', default: false });
-        if (mark) {
-          item.installed = true;
-          installedSet.add(item.id); removedSet.delete(item.id);
-          registry.installed = [...installedSet]; registry.removed = [...removedSet];
-          writeFileSync(registryPath, JSON.stringify(registry, null, 2));
-          console.log(T.success(`  ✅ Marked ${item.name} as installed.`));
+        const platformInstallCommand = resolveInstallCommand(item);
+        if (platformInstallCommand) {
+          console.log(T.yellow('\n  Install command (review, then run in your shell):'));
+          console.log(T.cyan(`    ${platformInstallCommand}`));
+          const mark = await confirm({ message: 'Mark as installed?', default: false });
+          if (mark) {
+            item.installed = true;
+            installedSet.add(item.id); removedSet.delete(item.id);
+            registry.installed = [...installedSet]; registry.removed = [...removedSet];
+            writeFileSync(registryPath, JSON.stringify(registry, null, 2));
+            console.log(T.success(`  ✅ Marked ${item.name} as installed.`));
+          }
+        } else {
+          const hint = explainMissingCommand(item);
+          if (hint) console.log(T.muted(`\n  ${hint}`));
         }
       }
       if (item.url) {
