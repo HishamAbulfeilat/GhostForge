@@ -4,6 +4,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { validateOutboundUrl } from './outbound-url';
 import { createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { assertOAuthProvider, unsupportedOperation, type EmailOAuthProvider } from './oauth-providers';
 
 const CREDENTIALS_DIR = join(homedir(), '.ghostforge', 'credentials');
 const EMAIL_TOKENS_FILE = join(CREDENTIALS_DIR, 'email-tokens.json');
@@ -108,6 +109,9 @@ const GMAIL_SCOPES = [
   'https://www.googleapis.com/auth/contacts.readonly',
 ].join(' ');
 
+// Microsoft OAuth client settings: still used to refresh Outlook tokens for
+// accounts stored by earlier builds, even though new Outlook sign-in is not
+// offered (no authorization-URL step exists).
 const O365_CLIENT_ID = process.env.O365_CLIENT_ID || '';
 const O365_CLIENT_SECRET = process.env.O365_CLIENT_SECRET || '';
 const O365_REDIRECT_URI = 'http://localhost:18923/oauth/email/callback';
@@ -246,11 +250,9 @@ export function startGmailOAuth(): Promise<{ authUrl: string }> {
   return Promise.resolve({ authUrl });
 }
 
-export function handleOAuthCallback(code: string, provider: 'gmail' | 'outlook'): Promise<EmailAccount> {
-  if (provider === 'gmail') {
-    return handleGmailCallback(code);
-  }
-  return handleOutlookCallback(code);
+export function handleOAuthCallback(code: string, provider: EmailOAuthProvider): Promise<EmailAccount> {
+  assertOAuthProvider('email', provider);
+  return handleGmailCallback(code);
 }
 
 async function handleGmailCallback(code: string): Promise<EmailAccount> {
@@ -274,41 +276,6 @@ async function handleGmailCallback(code: string): Promise<EmailAccount> {
     provider: 'gmail',
     email: userInfo.email,
     displayName: userInfo.name,
-    accessToken: tokenData.access_token,
-    refreshToken: tokenData.refresh_token,
-    tokenExpiry: Date.now() + tokenData.expires_in * 1000,
-  };
-
-  const accounts = loadTokens();
-  accounts[account.id] = account;
-  saveTokens(accounts);
-
-  return account;
-}
-
-async function handleOutlookCallback(code: string): Promise<EmailAccount> {
-  const tokenData = await apiRequest('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id: O365_CLIENT_ID,
-      client_secret: O365_CLIENT_SECRET,
-      redirect_uri: O365_REDIRECT_URI,
-      grant_type: 'authorization_code',
-      scope: O365_SCOPES,
-    }).toString(),
-  }) as { access_token: string; refresh_token: string; expires_in: number };
-
-  const userInfo = await apiRequest('https://graph.microsoft.com/v1.0/me', {
-    accessToken: tokenData.access_token,
-  }) as { mail: string; displayName: string };
-
-  const account: EmailAccount = {
-    id: `outlook-${Date.now()}`,
-    provider: 'outlook',
-    email: userInfo.mail || '',
-    displayName: userInfo.displayName,
     accessToken: tokenData.access_token,
     refreshToken: tokenData.refresh_token,
     tokenExpiry: Date.now() + tokenData.expires_in * 1000,
@@ -791,14 +758,14 @@ export function listEmails(params: EmailSearchParams & { accountId?: string }): 
 export function readEmail(messageId: string, accountId?: string): Promise<EmailMessage> {
   const account = getAccount(accountId);
   if (account.provider === 'gmail') return gmailGetMessage(account, messageId);
-  throw new Error(`Read not implemented for ${account.provider}`);
+  throw unsupportedOperation('Read', account.provider);
 }
 
 export function sendEmail(params: EmailSendParams & { accountId?: string }): Promise<{ id: string; threadId?: string }> {
   const account = getAccount(params.accountId);
   if (account.provider === 'gmail') return gmailSendMessage(account, params);
   if (account.provider === 'outlook') return outlookSendMessage(account, params);
-  throw new Error(`Send not implemented for ${account.provider}`);
+  throw unsupportedOperation('Send', account.provider);
 }
 
 export function replyToEmail(
@@ -820,46 +787,46 @@ export function replyToEmail(
       }),
     );
   }
-  throw new Error(`Reply not implemented for ${account.provider}`);
+  throw unsupportedOperation('Reply', account.provider);
 }
 
 export function markAsRead(messageId: string, accountId?: string): Promise<void> {
   const account = getAccount(accountId);
   if (account.provider === 'gmail') return gmailModifyMessage(account, messageId, [], ['UNREAD']);
   if (account.provider === 'outlook') return outlookModifyMessage(account, messageId, true);
-  throw new Error(`Mark as read not implemented for ${account.provider}`);
+  throw unsupportedOperation('Mark as read', account.provider);
 }
 
 export function markAsUnread(messageId: string, accountId?: string): Promise<void> {
   const account = getAccount(accountId);
   if (account.provider === 'gmail') return gmailModifyMessage(account, messageId, ['UNREAD'], []);
   if (account.provider === 'outlook') return outlookModifyMessage(account, messageId, false);
-  throw new Error(`Mark as unread not implemented for ${account.provider}`);
+  throw unsupportedOperation('Mark as unread', account.provider);
 }
 
 export function starEmail(messageId: string, accountId?: string): Promise<void> {
   const account = getAccount(accountId);
   if (account.provider === 'gmail') return gmailModifyMessage(account, messageId, ['STARRED'], []);
-  throw new Error(`Star not implemented for ${account.provider}`);
+  throw unsupportedOperation('Star', account.provider);
 }
 
 export function unstarEmail(messageId: string, accountId?: string): Promise<void> {
   const account = getAccount(accountId);
   if (account.provider === 'gmail') return gmailModifyMessage(account, messageId, [], ['STARRED']);
-  throw new Error(`Unstar not implemented for ${account.provider}`);
+  throw unsupportedOperation('Unstar', account.provider);
 }
 
 export function deleteEmail(messageId: string, accountId?: string): Promise<void> {
   const account = getAccount(accountId);
   if (account.provider === 'gmail') return gmailTrashMessage(account, messageId);
-  throw new Error(`Delete not implemented for ${account.provider}`);
+  throw unsupportedOperation('Delete', account.provider);
 }
 
 export function getUnreadCount(accountId?: string): Promise<number> {
   const account = getAccount(accountId);
   if (account.provider === 'gmail') return gmailGetUnreadCount(account);
   if (account.provider === 'outlook') return outlookGetUnreadCount(account);
-  throw new Error(`Unread count not implemented for ${account.provider}`);
+  throw unsupportedOperation('Unread count', account.provider);
 }
 
 export function getRecentEmails(count: number = 10, accountId?: string): Promise<{ messages: EmailMessage[] }> {

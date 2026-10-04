@@ -3,6 +3,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { validateOutboundUrl } from './outbound-url';
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
+import { assertOAuthProvider, unsupportedOperation, type ContactsOAuthProvider } from './oauth-providers';
 
 const CREDENTIALS_DIR = join(homedir(), '.ghostforge', 'credentials');
 const CONTACTS_TOKENS_FILE = join(CREDENTIALS_DIR, 'contacts-tokens.json');
@@ -444,39 +445,36 @@ export function startGoogleContactsOAuth(): { authUrl: string } {
   return { authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` };
 }
 
-export async function handleContactsOAuthCallback(code: string, provider: 'google' | 'outlook'): Promise<ContactsAccount> {
-  if (provider === 'google') {
-    const tokenData = await apiRequest('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      body: {
-        code,
-        client_id: GOOGLE_CLIENT_ID,
-        client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri: GOOGLE_CONTACTS_REDIRECT,
-        grant_type: 'authorization_code',
-      },
-    }) as { access_token: string; refresh_token: string; expires_in: number };
+export async function handleContactsOAuthCallback(code: string, provider: ContactsOAuthProvider): Promise<ContactsAccount> {
+  assertOAuthProvider('contacts', provider);
+  const tokenData = await apiRequest('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    body: {
+      code,
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      redirect_uri: GOOGLE_CONTACTS_REDIRECT,
+      grant_type: 'authorization_code',
+    },
+  }) as { access_token: string; refresh_token: string; expires_in: number };
 
-    const userInfo = await apiRequest('https://www.googleapis.com/oauth2/v2/userinfo', {
-      accessToken: tokenData.access_token,
-    }) as { email: string };
+  const userInfo = await apiRequest('https://www.googleapis.com/oauth2/v2/userinfo', {
+    accessToken: tokenData.access_token,
+  }) as { email: string };
 
-    const account: ContactsAccount = {
-      id: `gcontacts-${Date.now()}`,
-      provider: 'google',
-      email: userInfo.email,
-      accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token,
-      tokenExpiry: Date.now() + tokenData.expires_in * 1000,
-    };
+  const account: ContactsAccount = {
+    id: `gcontacts-${Date.now()}`,
+    provider: 'google',
+    email: userInfo.email,
+    accessToken: tokenData.access_token,
+    refreshToken: tokenData.refresh_token,
+    tokenExpiry: Date.now() + tokenData.expires_in * 1000,
+  };
 
-    const accounts = loadAccounts();
-    accounts[account.id] = account;
-    saveAccounts(accounts);
-    return account;
-  }
-
-  throw new Error(`OAuth callback for ${provider} not implemented`);
+  const accounts = loadAccounts();
+  accounts[account.id] = account;
+  saveAccounts(accounts);
+  return account;
 }
 
 export function searchContacts(query: string, accountId?: string): Promise<Contact[]> {
@@ -500,7 +498,7 @@ export function searchContacts(query: string, accountId?: string): Promise<Conta
 export function getContact(contactId: string, accountId?: string): Promise<Contact> {
   const account = getAccount(accountId);
   if (account.provider === 'google') return googleGetContact(account, contactId);
-  throw new Error(`Get contact not implemented for ${account.provider}`);
+  throw unsupportedOperation('Get contact', account.provider);
 }
 
 export function createContact(contact: Partial<Contact> & { accountId?: string }): Promise<Contact> {

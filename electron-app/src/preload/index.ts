@@ -455,8 +455,8 @@ export interface ElectronAPI {
     accounts: () => Promise<Array<Record<string, unknown>>>;
     removeAccount: (accountId: string) => Promise<boolean>;
     addImap: (config: Record<string, unknown>) => Promise<Record<string, unknown>>;
-    oauthStart: (provider: 'gmail' | 'outlook') => Promise<{ authUrl: string }>;
-    oauthCallback: (code: string, provider: 'gmail' | 'outlook') => Promise<Record<string, unknown>>;
+    oauthStart: (provider: 'gmail') => Promise<{ authUrl: string }>;
+    oauthCallback: (code: string, provider: 'gmail') => Promise<Record<string, unknown>>;
   };
   aiStudio: {
     setKey: (apiKey: string) => Promise<{ success: boolean }>;
@@ -482,8 +482,8 @@ export interface ElectronAPI {
     freeSlots: (date: string, accountId?: string) => Promise<Array<Record<string, unknown>>>;
     accounts: () => Promise<Array<Record<string, unknown>>>;
     removeAccount: (accountId: string) => Promise<boolean>;
-    oauthStart: (provider: 'google' | 'outlook') => Promise<{ authUrl: string }>;
-    oauthCallback: (code: string, provider: 'google' | 'outlook') => Promise<Record<string, unknown>>;
+    oauthStart: (provider: 'google') => Promise<{ authUrl: string }>;
+    oauthCallback: (code: string, provider: 'google') => Promise<Record<string, unknown>>;
     addCaldav: (config: Record<string, unknown>) => Promise<Record<string, unknown>>;
   };
   contacts: {
@@ -495,8 +495,8 @@ export interface ElectronAPI {
     recent: (count?: number) => Promise<Array<Record<string, unknown>>>;
     accounts: () => Promise<Array<Record<string, unknown>>>;
     removeAccount: (accountId: string) => Promise<boolean>;
-    oauthStart: (provider: 'google' | 'outlook') => Promise<{ authUrl: string }>;
-    oauthCallback: (code: string, provider: 'google' | 'outlook') => Promise<Record<string, unknown>>;
+    oauthStart: (provider: 'google') => Promise<{ authUrl: string }>;
+    oauthCallback: (code: string, provider: 'google') => Promise<Record<string, unknown>>;
   };
   voicebox: {
     status: () => Promise<{ connected: boolean; version: string | null }>;
