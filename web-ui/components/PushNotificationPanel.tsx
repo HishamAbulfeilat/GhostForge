@@ -33,6 +33,7 @@ export default function PushNotificationPanel() {
   const [subscribed, setSubscribed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [testResult, setTestResult] = useState('')
   const serviceWorkerRegistrationRef = useRef<Promise<ServiceWorkerRegistration> | null>(null)
 
   const getServiceWorkerRegistration = useCallback(async () => {
@@ -148,6 +149,27 @@ export default function PushNotificationPanel() {
     }
   }
 
+  const sendTest = async () => {
+    if (!config?.configured || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const response = await fetch('/api/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notification: { title: 'GhostForge', body: 'Test notification — push is working.' } }),
+      })
+      const data = await response.json() as { error?: string; delivered?: number }
+      if (!response.ok) throw new Error(data.error || `Unable to send a test notification (${response.status}).`)
+      setTestResult(`Test notification sent to ${data.delivered ?? 0} subscription${data.delivered === 1 ? '' : 's'}.`)
+    } catch (cause) {
+      setTestResult('')
+      setError(cause instanceof Error ? cause.message : 'Unable to send a test notification.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const browserPermission = isPushSupported() ? Notification.permission : 'unsupported'
   const statusLabel = state === 'loading'
     ? 'Checking configuration…'
@@ -203,7 +225,11 @@ export default function PushNotificationPanel() {
             <button type="button" disabled={busy || !subscribed} onClick={() => void unsubscribe()} className="min-h-10 rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">
               {busy && subscribed ? 'Removing…' : 'Disable notifications'}
             </button>
+            <button type="button" disabled={!config.configured || busy || !subscribed} onClick={() => void sendTest()} className="min-h-10 rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-white/80 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">
+              Send a test notification
+            </button>
           </div>
+          {testResult && <p role="status" className="text-xs text-emerald-200/80">{testResult}</p>}
           {!config.configured && <p className="text-xs text-amber-200/70">Ask an administrator to configure the server VAPID key before enabling notifications.</p>}
         </>
       )}
