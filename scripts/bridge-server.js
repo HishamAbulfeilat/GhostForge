@@ -51,6 +51,11 @@ const READY_FILE = process.env.BRIDGE_READY_FILE
 const PORT = Number(process.env.BRIDGE_PORT || 4747)
 const HOST = process.env.BRIDGE_HOST || '127.0.0.1'
 const MAX_BODY_BYTES = 1024 * 1024
+// After refusing an over-cap body we still read and discard the rest, so the
+// 413 reaches the client instead of turning into an RST (see readJsonBody).
+// Bound that discard, or a peer that never stops sending keeps this process
+// reading forever.
+const MAX_DRAIN_BYTES = MAX_BODY_BYTES * 2
 const MAX_PROMPT_CHARS = 8000
 const MAX_OUTPUT_CHARS = 20000
 
@@ -93,18 +98,34 @@ function tokenize(command) {
 function readJsonBody(req, res, onBody) {
   const chunks = []
   let bytes = 0
+  let discarded = 0
   let tooLarge = false
   req.on('data', chunk => {
-    if (tooLarge) return
     // Chunks are buffers unless an encoding was set on the stream, in which
     // case `chunk.length` would count characters again and reopen the hole.
     const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    if (tooLarge) {
+      // Already refused. Keep reading so the response can flush, but only for
+      // a bounded while: past that the peer is not going to stop, and an
+      // unbounded drain is just as slow a denial as an unbounded buffer.
+      discarded += buf.length
+      if (discarded > MAX_DRAIN_BYTES) {
+        chunks.length = 0
+        req.destroy()
+      }
+      return
+    }
     bytes += buf.length
     if (bytes > MAX_BODY_BYTES) {
       tooLarge = true
       chunks.length = 0 // release what we already held, we are refusing it
       respond(res, 413, { error: 'Request body too large' })
-      req.destroy()
+      // Keep draining instead of destroying the socket here. The client is
+      // still streaming the body we just refused, so `destroy()` closes it with
+      // that data unread and the kernel answers with RST — which discards the
+      // 413 we just wrote and surfaces to the caller as ECONNRESET, i.e.
+      // "connection died". Draining lets the response flush and leaves the
+      // connection reusable.
       return
     }
     chunks.push(buf)
