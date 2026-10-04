@@ -175,52 +175,39 @@ Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). 
 ## LIVE STATUS
 
 <!-- LIVE-STATUS:START -->
-_Auto-updated by the boss (pid 3912) at 2026-10-02T15:39:17.089Z._
+_Auto-updated by the boss (pid 17308) at 2026-10-04T00:48:27.235Z._
 
-**Phase 4:** Production-perfect on every surface: every GhostForge feature works end to end and is reachable from the web UI, the TUI, the terminal CLI and JARVIS (feature parity — record gaps in docs/FEATURE-MATRIX.md and close them); the Electron desktop app builds and runs on Windows, macOS and Linux and the Android (Capacitor) app builds, with CI proving it; security hardened (fix every real finding from CodeQL, npm audit, secret/dependency scanners and security reviews); the Agentic OS dashboard (/agents) shows each agent's progress, the todo/in-progress/review/done/blocked board, messages, health and history; accessible, RTL-safe, polished UI. Keep going until every check is green, then keep improving.
+**Phase 1:** Make GhostForge fully working and polished: every feature in web-ui, TUI, Electron, the Python bridge, MCP server, marketplace and Job Hunter works end to end; every JARVIS tool works and is covered by tests; fix bugs, add missing tests, remove dead code, improve UX and accessibility.
 
-**Health:** 100/100 · **merges this run:** 7 · **PR:** https://github.com/HishamAbulfeilat/GhostForge/pull/12 · **boss:** claude
+**Health:** ?/100 · **merges this run:** 0 · **PR:** none yet · **boss:** claude
 
-**Board:** todo 6 · in-progress 0 · review 0 · done 154 · blocked 0
+**Board:** todo 5 · in-progress 3 · review 0 · done 0 · blocked 0
 
 **Agents**
-- **claude** (claude): idle — cooling down until 2026-10-02T15:39:29.935Z
-- **claude-2** (claude): idle — cooling down until 2026-10-02T15:40:50.659Z
-- **claude-3** (claude): idle — cooling down until 2026-10-02T15:40:30.667Z
+- **claude** (claude): working on T-002
+- **claude-2** (claude): working on T-001
+- **claude-3** (claude): working on T-007
 
 **In progress / review**
+- T-001 [feature] Deeper OpenJarvis bridge: expose /api/openjarvis/* endpoints in mark-l-bridge/server.py with a graceful stub when the package is not installed — claude-2
+- T-002 [bugfix] Marketplace: verify every catalog install_command works cross-platform (Windows/macOS/Linux); fix macOS-only ones — claude
+- T-007 [docs] Docs: refresh README.md feature list and bridge section to match the current code — claude-3
 
 **Next up (todo)**
-- T-142 [test] Agent Office = the real harishkotra/agent-office front-end running inside GhostForge: vendor its client scene code VERBATIM at a pinned commit (office scene, agent sprites/containers, name tags, thought bubbles, emotes, focus ring, camera follow; plus the vendored pixel-agents renderer if used) into web-ui/vendor/agent-office/ with BOTH MIT licenses (Harish Kotra; Pablo De Lucca for pixel-agents) and a NOTICE (commit sha). Keep upstream visuals and interaction. Replace only the Colyseus/Ollama/server state with an adapter from the GhostForge agent snapshot (agents -> office agents at desks, current task -> thought bubble, boss -> boss office). Upstream assets only where their license permits redistribution (document in THIRD_PARTY_NOTICES.md), else CC0 substitutes. Client-only dynamic import on /agent-world?world=office. Tests + tsc + build.
-- T-143 [test] Run a16z-infra/ai-town exactly as its README sets it up, as a managed GhostForge world app: clone at a pinned commit into apps/worlds/ai-town (gitignored checkout + a setup script, not vendored into git), install deps, run its local Convex backend + frontend per README with LLM via local Ollama or GhostForge's model gateway env (no keys committed), bound to 127.0.0.1. Add 'ghostforge worlds start|stop|status ai-town' (CLI + TUI menu) and Start/Stop/Open controls on /agent-world that embed the running app in an iframe. Document prerequisites and a smoke test that the app answers on its port.
-- T-144 [test] Run harishkotra/agent-office exactly as its README sets it up, as a managed GhostForge world app: clone at a pinned commit into apps/worlds/agent-office (gitignored checkout + a setup script), install deps, run its Colyseus server + client per README with LLM via local Ollama or GhostForge's model gateway env (no keys committed), bound to 127.0.0.1. Reuse 'ghostforge worlds start|stop|status agent-office' (CLI + TUI) and the /agent-world Start/Stop/Open iframe controls. Document prerequisites and a smoke test that the app answers on its port.
-- T-157 [test] Add root-smoke coverage for feature-matrix evidence
-- T-166 [feature] Add 'ghostforge worlds start|stop|status' for ai-town and agent-office
-- T-167 [bugfix] Make Electron headless smoke fail when shutdown cleanup fails or times out
+- T-003 [chore] Add a web-ui ESLint flat config (eslint.config.mjs) so `eslint .` and CI lint work
+- T-004 [refactor] Knip: remove or wire up the unused files reported by `cd web-ui && npx knip`
+- T-005 [test] JARVIS: add tests proving every tool in web-ui/lib/tool-permissions.ts is registered, permission-gated, and callable
+- T-006 [test] Tests: add root unit tests under tests/*.test.js and run them from scripts/test.js
+- T-008 [docs] Add root LICENSE file or fix README license links
 
 **Blocked (needs a human or a fresh approach)**
 
 **Recently done**
-- T-153 [bugfix] Keep the last Agent World snapshot visible on refresh errors
-- T-154 [test] Validate feature-matrix evidence in the root smoke suite
-- T-155 [security] Close the AppleScript shell-execution bypass
-- T-156 [bugfix] Refresh Agent World without losing the last snapshot
-- T-158 [test] Boss: a todo task whose dependency is blocked or unknown waits forever and keeps the board 'active', which stops planning (same stall releaseStuckTasks prevents). Block such tasks (or exclude them from the tick 'active' check) with a clear lastFailure, and test it
-- T-159 [security] Boss: when a security task gets no reviewer verdict, park it as todo with a cooldown (keep the worker's commits for re-review) instead of bounce(), so reviewer outages don't burn attempts or redo work; test it
-- T-160 [chore] Ignore world-app checkouts and fail root tests on stray gitlinks — claude-3
-- T-161 [bugfix] Boss: block tasks with unavailable dependencies and hold security tasks with no reviewer verdict — claude-2
-- T-162 [security] Close the AppleScript shell-execution bypass with an allowlist — claude
-- T-163 [bugfix] Poll Agent World live and keep the last snapshot visible on refresh errors — claude
-- T-164 [feature] Make the snippets page discoverable from the navbar and command palette — claude-2
-- T-165 [feature] Show model and bridge readiness in setup — claude-3
 
 **Latest messages**
-- 2026-10-02T14:25 boss → all: …es and added dependency-free gitlink detection to scripts/test.js that fails with clear remediation message (git rm --cached). All 8 smoke tests pass including new stray-gitlinks check. Files: .gitignore, scripts/test.js
-- 2026-10-02T14:27 boss → all: …hout a new agent run. Tests added in agents.test.mjs (35/35 pass), npm test passes, health ok. Files: scripts/agents/boss.mjs, scripts/agents/agents.test.mjs Files: scripts/agents/agents.test.mjs, scripts/agents/boss.mjs
-- 2026-10-02T14:31 boss → all: …) remain rejected by the pre-existing allowlist; widening needs new reviewed templates. Files: SECURITY-REVIEW.md, web-ui/app/api/mac-control/route.ts, web-ui/lib/apple-automation.js, web-ui/test/apple-automation.test.js
-- 2026-10-02T14:52 boss → all: Health 100/100. Planned 6 new task(s) for phase 4.
-- 2026-10-02T14:57 boss → all: …nents/Navbar.tsx, web-ui/components/CommandPalette.tsx, web-ui/test/snippets-discoverability.test.js Files: web-ui/components/CommandPalette.tsx, web-ui/components/Navbar.tsx, web-ui/test/snippets-discoverability.test.js
-- 2026-10-02T14:57 boss → all: PR to main updated with 134 task(s): https://github.com/HishamAbulfeilat/GhostForge/pull/12
-- 2026-10-02T14:58 boss → all: …s. tsc clean, web-ui npm test + root npm test + health pass. Files: web-ui/app/agent-world/page.tsx, web-ui/test/agent-world-refresh.test.js Files: web-ui/app/agent-world/page.tsx, web-ui/test/agent-world-refresh.test.js
-- 2026-10-02T14:59 boss → all: ….js, web-ui/test/setup-readiness.test.js. web-ui tsc clean, web-ui npm test 270/270, root npm test passed, no gitlinks. Files: web-ui/app/setup/page.tsx, web-ui/app/setup/readiness.js, web-ui/test/setup-readiness.test.js
+- 2026-10-03T21:51 boss → all: …ui, TUI, Electron, the Python bridge, MCP server, marketplace and Job Hunter works end to end; every JARVIS tool works and is covered by tests; fix bugs, add missing tests, remove dead code, improve UX and accessibility.
+- 2026-10-03T21:51 boss → all: Boss online. Template: null. Agents: claude, claude-2, claude-3. Phase 1.
+- 2026-10-03T22:05 boss → claude-3: Queued "Add root LICENSE file or fix README license links" as T-008.
+- 2026-10-03T22:16 boss → claude-3: …ui/app/jobs/page.tsx) and the CLI subcommand (cli/index.js:44). Newly introduced factual error in the exact category this task fixes, and inconsistent with sibling bullets that cite real commands. Fix: use `/job-hunter`.
+- 2026-10-04T00:42 boss → all: Boss online. Template: null. Agents: claude, claude-2, claude-3. Phase 1.
 <!-- LIVE-STATUS:END -->
