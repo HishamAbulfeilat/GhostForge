@@ -398,8 +398,15 @@ test('POST runs a tool the user is entitled to', async () => {
   assert.notEqual(body.toolResult, null)
 })
 
+// terminal_command spawns without a shell, so `echo` only exists where a
+// coreutils echo is on PATH (not stock Windows). The running node binary is
+// always there.
+function printCommand(text) {
+  return `"${process.execPath}" -e "process.stdout.write('${text}')"`
+}
+
 test('an admin is not permission-gated', async () => {
-  const body = await runJarvisTool('terminal_command', { command: 'echo hi' }, ADMIN, 'admin-tool')
+  const body = await runJarvisTool('terminal_command', { command: printCommand('hi') }, ADMIN, 'admin-tool')
   assert.equal(body.tool, 'terminal_command')
   assert.equal(state.executed.length, 0, 'terminal_command runs locally, not through the Mark-LIV stub')
   assert.equal(body.toolResult, 'hi')
@@ -435,8 +442,8 @@ test('send_message asks for the missing field instead of sending a blank message
 
 test('alias tools reach the same executor as the tool they alias', async () => {
   // run_terminal → terminal_command. Same argv, same blocklist, same result.
-  const viaAlias = await runJarvisTool('run_terminal', { command: 'echo aliased' }, ADMIN, 'alias-run')
-  const viaCanonical = await runJarvisTool('terminal_command', { command: 'echo aliased' }, ADMIN, 'alias-canon')
+  const viaAlias = await runJarvisTool('run_terminal', { command: printCommand('aliased') }, ADMIN, 'alias-run')
+  const viaCanonical = await runJarvisTool('terminal_command', { command: printCommand('aliased') }, ADMIN, 'alias-canon')
   assert.equal(viaAlias.toolResult, 'aliased')
   assert.equal(viaAlias.toolResult, viaCanonical.toolResult)
 })
