@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { href: '/orchestrate', icon: '🧠', label: 'Orchestrate' },
   { href: '/workflows',   icon: '🗺️', label: 'Flows' },
   { href: '/snippets',    icon: '📋', label: 'Snippets' },
+  { href: '/projects',    icon: '🗂️', label: 'Projects' },
   { href: '/users',      icon: '👥', label: 'Users' },
   { href: '/security',    icon: '🛡️', label: 'Security' },
   { href: '/marketplace', icon: '🏪', label: 'Market' },

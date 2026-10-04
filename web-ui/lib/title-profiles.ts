@@ -170,6 +170,7 @@ export const PAGE_ACCESS: PageAccess[] = [
   { path: '/testing',     label: 'Testing',     icon: '🧪', permission: 'admin' },
   { path: '/code-health', label: 'Code health', icon: '🩺', permission: 'admin' },
   { path: '/tickets',     label: 'Tickets',     icon: '🎫', permission: 'admin' },
+  { path: '/projects',    label: 'Projects',    icon: '🗂️', permission: 'admin' },
   { path: '/marketplace', label: 'Market',     icon: '🏪', permission: 'ai_models', nav: true },
   { path: '/settings',    label: 'Settings',    icon: '⚙️', permission: null, nav: true },
   { path: '/setup',       label: 'Setup',       icon: '🧭', permission: null },

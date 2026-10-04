@@ -49,6 +49,7 @@ function CommandPalette() {
     { id: 'security', label: 'Security Scan', icon: '🛡️', description: 'Run defensive security scans', ...go('/security'), keywords: ['admin', 'audit', 'secrets', 'cve'] },
     { id: 'testing', label: 'Test Runner', icon: '🧪', description: 'Run the project test suites', ...go('/testing'), keywords: ['admin', 'tests', 'qa'] },
     { id: 'code-health', label: 'Code Health', icon: '🩺', description: 'Perf, bundle, unused code and dependencies', ...go('/code-health'), keywords: ['admin', 'bundle', 'deps', 'perf'] },
+    { id: 'projects', label: 'Projects', icon: '🗂️', description: 'Registered projects and scaffolding', ...go('/projects'), keywords: ['admin', 'scaffold', 'create', 'template'] },
     { id: 'reload', label: 'Reload Page', icon: '🔄', description: 'Hard reload current page', action: () => { setOpen(false); window.location.reload() }, keywords: ['refresh'] },
     { id: 'theme-toggle', label: 'Toggle Theme', icon: '🎨', description: 'Switch light/dark mode', action: () => { document.documentElement.classList.toggle('light'); setOpen(false) }, keywords: ['dark', 'light', 'mode'] },
   ]
