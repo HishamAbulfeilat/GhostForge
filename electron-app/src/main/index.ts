@@ -62,6 +62,7 @@ import type { ScreenCaptureOptions, CursorTarget, JarvisConfig, EmailSearchParam
 import { DEFAULT_CONFIG } from '../shared/constants';
 import { readFileSync } from 'fs';
 import { join as pathJoin } from 'path';
+import { assertOAuthProvider } from './oauth-providers';
 
 let mainWindow: BrowserWindow | null = null;
 let trayManager: TrayManager | null = null;
@@ -918,12 +919,13 @@ function registerIPC(): void {
     return addImapAccount(config);
   });
 
-  ipcMain.handle('email:oauth-start', (_event, provider: 'gmail' | 'outlook') => {
-    if (provider === 'gmail') return startGmailOAuth();
-    throw new Error(`OAuth not implemented for ${provider}`);
+  ipcMain.handle('email:oauth-start', (_event, provider: unknown) => {
+    assertOAuthProvider('email', provider);
+    return startGmailOAuth();
   });
 
-  ipcMain.handle('email:oauth-callback', async (_event, code: string, provider: 'gmail' | 'outlook') => {
+  ipcMain.handle('email:oauth-callback', async (_event, code: string, provider: unknown) => {
+    assertOAuthProvider('email', provider);
     return handleOAuthCallback(code, provider);
   });
 
@@ -1013,12 +1015,13 @@ function registerIPC(): void {
     return removeCalendarAccount(accountId);
   });
 
-  ipcMain.handle('calendar:oauth-start', (_event, provider: 'google' | 'outlook') => {
-    if (provider === 'google') return startGoogleCalendarOAuth();
-    throw new Error(`OAuth not implemented for ${provider}`);
+  ipcMain.handle('calendar:oauth-start', (_event, provider: unknown) => {
+    assertOAuthProvider('calendar', provider);
+    return startGoogleCalendarOAuth();
   });
 
-  ipcMain.handle('calendar:oauth-callback', async (_event, code: string, provider: 'google' | 'outlook') => {
+  ipcMain.handle('calendar:oauth-callback', async (_event, code: string, provider: unknown) => {
+    assertOAuthProvider('calendar', provider);
     return handleCalendarOAuthCallback(code, provider);
   });
 
@@ -1059,12 +1062,13 @@ function registerIPC(): void {
     return removeContactAccount(accountId);
   });
 
-  ipcMain.handle('contacts:oauth-start', (_event, provider: 'google' | 'outlook') => {
-    if (provider === 'google') return startGoogleContactsOAuth();
-    throw new Error(`OAuth not implemented for ${provider}`);
+  ipcMain.handle('contacts:oauth-start', (_event, provider: unknown) => {
+    assertOAuthProvider('contacts', provider);
+    return startGoogleContactsOAuth();
   });
 
-  ipcMain.handle('contacts:oauth-callback', async (_event, code: string, provider: 'google' | 'outlook') => {
+  ipcMain.handle('contacts:oauth-callback', async (_event, code: string, provider: unknown) => {
+    assertOAuthProvider('contacts', provider);
     return handleContactsOAuthCallback(code, provider);
   });
 
