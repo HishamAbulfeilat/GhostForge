@@ -196,14 +196,50 @@ test('a multi-byte body over the cap is refused with 413, not accepted', async t
     'body must stay under the cap in characters — that is the whole bug'
   );
 
-  const res = await bridge.post('/execute', body);
-  assert.ok(res, 'connection died — a large body should not kill the bridge');
-  assert.equal(res.status, 413, `expected 413 for ${Buffer.byteLength(body)} bytes`);
-  assert.match(res.body.error, /too large/i);
+  // The server used to `req.destroy()` the moment the cap was crossed. The
+  // client is still streaming the body it was refused, so the socket closed
+  // with that data unread and the kernel answered RST, which threw the 413
+  // away: the caller saw ECONNRESET ("connection died") instead of a status
+  // code. Whether the response survives depends on whether the 413 reaches the
+  // socket before it is torn down, which in turn depends on how the body was
+  // split into chunks — so this test repeats the request. One pass is not
+  // evidence: the failure was intermittent and only showed up under the load
+  // of a full health run.
+  let lastStatus = null;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const res = await bridge.post('/execute', body);
+    assert.ok(
+      res,
+      `attempt ${attempt}: connection died — the oversized body reset the socket ` +
+        'instead of returning 413'
+    );
+    lastStatus = res.status;
+    assert.equal(res.status, 413, `expected 413 for ${Buffer.byteLength(body)} bytes`);
+    assert.match(res.body.error, /too large/i);
+  }
+  assert.equal(lastStatus, 413);
 
   assert.equal(bridge.exited(), null, 'bridge exited after an oversized body');
   const health = await bridge.get('/health');
   assert.equal(health?.status, 200, 'bridge stopped serving after a 413');
+});
+
+test('an oversized body does not stop the bridge answering later requests', async t => {
+  const bridge = await startBridge();
+  t.after(() => bridge.stop());
+
+  // Refusing a body must not poison the process for everything after it: the
+  // health check has to keep answering and a normal request has to keep working.
+  await bridge.post('/execute', multibyteBody(MAX_BODY_BYTES * 2, 'ࠀ'));
+
+  const health = await bridge.get('/health');
+  assert.equal(health?.status, 200, 'bridge stopped serving after refusing a large body');
+
+  // The server must not have wedged into a half-read state: a small, valid
+  // request still has to reach the handler (403 = not allowlisted).
+  const res = await bridge.post('/execute', JSON.stringify({ command: 'rm -rf /' }));
+  assert.equal(res.status, 403, 'bridge stopped handling normal requests after a 413');
+  assert.equal(bridge.exited(), null);
 });
 
 test('a multi-byte body under the cap is still parsed, not rejected', async t => {
