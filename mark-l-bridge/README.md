@@ -136,6 +136,33 @@ get 400), a minimal environment, a 180 s timeout and 20 KB of captured output,
 ANSI-stripped and secret-redacted. Statuses: `ok`, `error` (non-zero exit),
 `timeout`, `unavailable`. One run at a time; a second POST gets 409.
 
+### Tickets, Azure DevOps and estimates
+
+Read-only script wrappers only (`tickets.py`), bridge token required:
+
+| Endpoint | Method | Notes |
+|----------|--------|-------|
+| `/api/tickets` | GET | `{ running, timeout_s, tools: [{ id, available, subcommands, description, credentials_configured? }] }` |
+| `/api/tickets` | POST | `{ tool: "ticket" \| "ado" \| "estimate", action: string }` → `{ result }` |
+
+`action` is the tool's one argument — a ticket id, a description, or one of
+`ado.sh`'s read-only actions (`status`, `pipelines`, `tickets`, `config`). It is
+validated (printable, bounded, no control characters) and reaches the child as a
+single argv entry: no shell, no caller-supplied path, argument or environment
+(extra body keys are rejected), a minimal environment, a 180 s timeout and 20 KB
+of captured output, ANSI-stripped and secret-redacted. `estimate.sh` is always
+pointed at the repository root with a fixed `--path`. Nothing here creates or
+updates a ticket, work item or build — the action allow-list is the gate, and a
+test fails if a mutating verb is ever added to it.
+
+`ado.sh` needs an Azure DevOps org, project and PAT. It resolves them the way the
+script does (environment, then `.env.local`); the values reach the child process
+only — they are never returned, never logged, and are redacted from any output
+the child prints, including a `Basic <base64>` auth header. Status reports only
+whether they are set. Missing bash, missing script or missing credentials give
+`{ status: "unavailable", reason }` rather than an error. One run at a time; a
+second POST gets 409.
+
 ## Licensing
 
 Mark-LV is **CC BY-NC 4.0 (non-commercial)**. Its source is vendored under
