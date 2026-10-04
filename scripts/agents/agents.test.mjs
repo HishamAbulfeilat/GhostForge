@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { routeModel, classifyTask, KIND_TIER } from './lib/models.mjs'
+import { routeModel, classifyTask, KIND_TIER, workerRoute } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
 import { Boss, lastJSON, pickTask, stagePrompt } from './boss.mjs'
@@ -310,4 +310,12 @@ test('a security review with no verdict is held (no attempt burned); other kinds
   } finally {
     spawnSync('git', ['update-ref', '-d', holdRef], { cwd: root })
   }
+})
+
+test('workerRoute keeps Pro for deep work and sends other Claude work to free models', () => {
+  assert.deepEqual(workerRoute('claude', { tier: 'balanced' }), { env: { ANTHROPIC_CUSTOM_HEADERS: 'x-claude-switch-route: free:balanced' }, needsPro: false })
+  assert.deepEqual(workerRoute('claude', { tier: 'fast' }).env, { ANTHROPIC_CUSTOM_HEADERS: 'x-claude-switch-route: free:fast' })
+  assert.deepEqual(workerRoute('claude', { tier: 'deep' }), { env: {}, needsPro: true }, 'deep work stays on Pro and is flagged')
+  assert.deepEqual(workerRoute('copilot', { tier: 'balanced' }), { env: {}, needsPro: false }, 'only Claude workers go through claude-switch')
+  assert.deepEqual(workerRoute('claude', { tier: 'balanced' }, { workersOnFree: false }), { env: {}, needsPro: false }, 'team.json can turn it off')
 })

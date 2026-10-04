@@ -25,10 +25,11 @@
 import { spawn, spawnSync, execFileSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stateDir, loadBoard, saveBoard, addTask, areasOverlap, say, readMessages, takeResult, readJSON, writeJSON } from './lib/bus.mjs'
-import { routeModel, classifyTask } from './lib/models.mjs'
+import { routeModel, classifyTask, workerRoute } from './lib/models.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
 import { healthScore } from './health.mjs'
 import { buildECCContext, clearECCContext, ensureECC, loadECCConfig, stageECCContext } from './lib/ecc.mjs'
@@ -473,6 +474,15 @@ export class Boss {
     fs.rmSync(taken, { force: true })
   }
 
+  /** Append a line to the user's attention file (default ~/Desktop/IMPORTANT.txt). */
+  notifyUser(text) {
+    const file = this.cfg.attentionFile ?? path.join(os.homedir(), 'Desktop', 'IMPORTANT.txt')
+    try { fs.appendFileSync(file, `
+[${new Date().toISOString().slice(0, 16)}] boss: ${text}
+`) } catch (e) { this.log(`notify failed: ${e.message}`) }
+    this.log(`notify: ${text}`)
+  }
+
   // ── Running an agent CLI ──
 
   runAgent({ provider, model, mode, prompt, cwd, logFile, env = {}, config = {}, timeoutMs }) {
@@ -580,7 +590,9 @@ export class Boss {
         mode: 'work',
         area: task.area,
       }))
-      this.log(`${agentId} ← ${task.id} [${route.kind} → ${route.model}] ${task.title}`)
+      const wr = workerRoute(a.provider, route, this.cfg)
+      this.log(`${agentId} ← ${task.id} [${route.kind} → ${wr.env.ANTHROPIC_CUSTOM_HEADERS ? `free:${route.tier}` : route.model}] ${task.title}`)
+      if (wr.needsPro) this.notifyUser(`${task.id} "${task.title}" is ${route.kind} work, which needs the strongest model, so ${agentId} is running it on Claude Pro.`)
 
       let run
       try {
@@ -589,7 +601,7 @@ export class Boss {
           prompt: `Read the file .agent-sync/state/tasks/${task.id}-${agentId}.md and .agent-sync/state/ecc-context.md, then follow the task instructions exactly. Repository rules override supplementary ECC guidance. Work in the current directory.`,
           logFile: path.join(this.dir, 'logs', `${agentId}.log`),
           config: a.config ?? a.providerConfig ?? {},
-          env: { GF_AGENT: agentId }, timeoutMs: this.cfg.taskTimeoutMinutes * 60_000,
+          env: { GF_AGENT: agentId, ...wr.env }, timeoutMs: this.cfg.taskTimeoutMinutes * 60_000,
         })
       } finally {
         clearECCContext(eccFile)
