@@ -12,8 +12,17 @@ process.env.HOME = fakeHome
 process.env.USERPROFILE = fakeHome
 process.env.NODE_ENV = 'test'
 
+const WEB_UI = join(__dirname, '..')
 const hooks = Module.registerHooks({
   resolve(specifier, context, nextResolve) {
+    // Route files import through the '@/*' alias and Next's extensionless subpaths
+    if (specifier.startsWith('@/')) specifier = join(WEB_UI, specifier.slice(2))
+    if (specifier === 'next/server') specifier = 'next/server.js'
+    if (specifier.startsWith(WEB_UI)) {
+      for (const ext of ['', '.ts', '.js', '/index.ts']) {
+        try { return nextResolve(specifier + ext, context) } catch { /* next */ }
+      }
+    }
     try {
       return nextResolve(specifier, context)
     } catch (err) {
@@ -107,4 +116,37 @@ test('jpegSize reads width and height from the SOF marker', () => {
   const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x04, 0x38, 0x07, 0x80, 0x03, 0, 0, 0, 0, 0, 0])
   assert.deepEqual(desktop.jpegSize(jpeg), { width: 1920, height: 1080 })
   assert.equal(desktop.jpegSize(Buffer.from([0xff, 0xd8, 0, 0])), null)
+})
+
+test('opening a pairing link does not use the code; only the same-origin "Sign in" form does', async () => {
+  process.env.AUTH_SECRET = process.env.AUTH_SECRET || 'remote-test-secret-0123456789abcdef'
+  const { NextRequest } = require('next/server')
+  const pairRoute = require('../app/api/remote/pair/route.ts')
+  const redeemRoute = require('../app/api/remote/pair/redeem/route.ts')
+  const users = require('../lib/users.ts')
+  if (!(await users.getUserByUsername('erin'))) await users.createUser({ name: 'Erin', username: 'erin', password: 'erin-password-123', role: 'user' })
+  const { code } = await store.createPairing('erin')
+  const base = 'http://192.0.2.10:3001'
+
+  // Link previewers (chat apps, mail scanners) GET the link: page only, no cookie, code unused
+  const page = await pairRoute.GET(new NextRequest(`${base}/api/remote/pair?code=${code}`, { headers: { 'user-agent': 'facebookexternalhit/1.1' } }))
+  assert.equal(page.status, 200)
+  assert.equal(page.headers.get('set-cookie'), null)
+  const html = await page.text()
+  assert.match(html, /action="\/api\/remote\/pair\/redeem"/)
+  assert.ok(html.includes(`value="${code}"`))
+  assert.equal((await pairRoute.GET(new NextRequest(`${base}/api/remote/pair?code=<script>`))).status, 400)
+
+  const form = (origin, c = code) => new NextRequest(`${base}/api/remote/pair/redeem`, {
+    method: 'POST', body: new URLSearchParams({ code: c }),
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin, host: '192.0.2.10:3001', 'x-real-ip': '203.0.113.7' },
+  })
+  // Another site cannot post the code (login CSRF)
+  assert.equal((await redeemRoute.POST(form('https://evil.example'))).status, 403)
+  // Our own page can, once
+  const ok = await redeemRoute.POST(form(base))
+  assert.equal(ok.status, 200)
+  assert.match(ok.headers.get('set-cookie') || '', /HttpOnly/i)
+  assert.match(ok.headers.get('set-cookie') || '', /SameSite=strict/i)
+  assert.equal((await redeemRoute.POST(form(base))).status, 410)
 })

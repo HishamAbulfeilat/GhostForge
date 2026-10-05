@@ -138,7 +138,7 @@ export async function sendInput(input: DesktopInput): Promise<string> {
       return `Pressed ${input.key}`
     }
     case 'scroll': {
-      const amount = Math.max(1, Math.min(20, Math.round(input.amount ?? 5)))
+      const amount = Number.isFinite(input.amount) ? Math.max(1, Math.min(20, Math.round(input.amount as number))) : 5
       await (input.direction === 'up' ? n.mouse.scrollUp(amount) : n.mouse.scrollDown(amount))
       return `Scrolled ${input.direction}`
     }
