@@ -263,6 +263,9 @@ test('application links must be public http(s) addresses', () => {
   const { isSafeApplyUrl } = require('../lib/job-hunter/apply.ts')
   assert.equal(isSafeApplyUrl('https://jobs.lever.co/acme/1/apply'), true)
   assert.equal(isSafeApplyUrl('http://careers.example.com/job'), true)
+  // Hostnames that merely start like an IPv6 prefix are ordinary public names
+  for (const ok of ['https://fcbarcelona.com/jobs/1', 'https://www.fdic.gov/careers', 'https://fe80jobs.example.com/'])
+    assert.equal(isSafeApplyUrl(ok), true, ok)
   for (const bad of ['http://localhost:3001/api/execute', 'http://127.0.0.1/', 'http://192.168.1.5/', 'http://10.0.0.1/', 'http://172.20.0.1/',
     'http://169.254.169.254/latest/meta-data', 'http://[::1]/', 'file:///etc/passwd', 'javascript:alert(1)', 'http://printer.local/', 'not a url']) {
     assert.equal(isSafeApplyUrl(bad), false, bad)

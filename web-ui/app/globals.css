@@ -10,6 +10,16 @@ html, body {
   min-height: 100%;
 }
 
+/* Phones: long words/URLs wrap instead of widening the page, and grid cells
+   may shrink below their content's width (min-width:auto lets one long string
+   blow a whole column past the screen). */
+body {
+  overflow-wrap: break-word;
+}
+.grid > * {
+  min-width: 0;
+}
+
 body {
   /* gf-bg — unify on the design-system background instead of the older #020617 */
   background-color: #0B0D12;

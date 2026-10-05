@@ -84,11 +84,8 @@ export default function ModelsPage() {
   }, [router])
 
   useEffect(() => {
-    if (!document.cookie.split(';').some(cookie => cookie.trim().startsWith('gf_token='))) {
-      router.push('/login')
-      return
-    }
-
+    // The session cookie is httpOnly (invisible to document.cookie); loadData()
+    // sends the user to /login when the API answers 401.
     void loadData()
   }, [loadData, router])
 

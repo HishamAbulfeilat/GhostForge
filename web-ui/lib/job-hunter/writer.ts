@@ -82,10 +82,19 @@ function currentEmployer(p: JobProfile): string {
   return m ? m[1].trim().slice(0, 80) : ''
 }
 
-/** Answer a form label from the profile (custom answers win) */
+/** A form label without required-markers, extra spaces or a trailing colon. */
+export function normalizeLabel(label: string): string {
+  return String(label || '').replace(/\*/g, '').replace(/\(required\)/gi, '').replace(/\s+/g, ' ').replace(/[:\s]+$/, '').trim()
+}
+
+/** Comparison key for saved answers: case, punctuation and spacing don't matter. */
+const answerKey = (label: string) => normalizeLabel(label).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+/** Answer a form label from the profile (answers the user saved win) */
 export function answerFor(label: string, profile: JobProfile, job: JobRecord): string {
-  const clean = label.replace(/\*/g, '').replace(/\s+/g, ' ').trim()
-  const cached = Object.entries(profile.customAnswers).find(([k]) => k.toLowerCase() === clean.toLowerCase())
+  const clean = normalizeLabel(label)
+  const key = answerKey(clean)
+  const cached = Object.entries(profile.customAnswers).find(([k]) => answerKey(k) === key)
   if (cached) return cached[1]
   const rule = FIELD_RULES.find(r => r.pattern.test(clean))
   return rule ? rule.value(profile, job) : ''
