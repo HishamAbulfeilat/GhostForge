@@ -1,6 +1,6 @@
 ---
 name: job-hunter
-description: Find jobs that match the user's CV in their preferred locations (LinkedIn, Indeed and Glassdoor via JSearch, plus Remotive, RemoteOK, The Muse, Arbeitnow, Greenhouse and Lever boards), score fit, tailor the CV and cover letter, and fill applications that the user approves with one click. Use when the user wants to find jobs, apply for jobs, tailor a CV or cover letter to a posting, or check application status.
+description: Find jobs that match the user's CV in their preferred locations (LinkedIn, Indeed and Glassdoor via JSearch, Adzuna, USAJobs and Reed with free keys, plus Remotive, RemoteOK, We Work Remotely, Himalayas, Jobicy, HN Who is hiring, The Muse, Arbeitnow, and company boards on Greenhouse, Lever, Ashby, Workable, SmartRecruiters and Recruitee), score fit, tailor the CV and cover letter, and fill applications that the user approves with one click. Use when the user wants to find jobs, apply for jobs, tailor a CV or cover letter to a posting, or check application status.
 argument-hint: "cv <file> | search [role] | status | apply <job id>"
 ---
 
@@ -46,7 +46,8 @@ offer the others, and publish only the one they choose, only after they confirm.
   otherwise the model selected in Settings, with GhostForge's free models as fallback.
 - **Autopilot** is fully automated: on a schedule it searches, prepares, and **submits**
   High-fit applications scoring at or above the minimum, up to the daily limit, on
-  Lever/Greenhouse/Ashby. Turn it on **only when the user explicitly asks** for automatic
+  Lever/Greenhouse/Ashby/Workable/Recruitee (or any site in "Any site" mode), and only
+  for postings verified as real and still open. Turn it on **only when the user explicitly asks** for automatic
   applying, and confirm the limits with them. It runs while the web UI server runs;
   LinkedIn, Workday and other sites always stay in the queue for the user.
 
@@ -57,7 +58,7 @@ offer the others, and publish only the one they choose, only after they confirm.
    (`jobs me <field> <value>`). Ask once for work authorization and visa sponsorship.
 2. **Preferences.** Target roles (use the CV's suggested roles if the user has none),
    preferred locations, work style, and optionally a minimum salary, dealbreakers
-   and company boards (Greenhouse/Lever slugs). Save with `jobs prefs`.
+   and company boards (a board name such as `stripe`, or pinned to one ATS such as `ashby:openai`). Save with `jobs prefs`.
 3. **Search.** `jobs search`. Report: jobs found, how many are in the user's
    locations, how many were prepared. Show the High/Medium matches with id, title,
    company, location and the one-line reason. Offer the LinkedIn search link it prints.
@@ -102,11 +103,16 @@ unusual questions are cached and reused on later forms.
 
 ## Sources
 
-No key needed: Remotive, RemoteOK, The Muse, Arbeitnow, Greenhouse and Lever
-company boards. LinkedIn, Indeed, Glassdoor and ZipRecruiter listings come
-through the licensed JSearch API — the user adds a free RapidAPI key as
-`JSEARCH_API_KEY` in `web-ui/.env.local`. LinkedIn is never scraped.
-Remotive asks that listings link back to Remotive; always show the job's URL and source.
+No key needed: Remotive, RemoteOK, We Work Remotely (RSS), Himalayas, Jobicy,
+Hacker News "Who is hiring" (Algolia API), The Muse, Arbeitnow, and company boards on
+Greenhouse, Lever, Ashby, Workable, SmartRecruiters and Recruitee. LinkedIn, Indeed,
+Glassdoor and ZipRecruiter listings come through the licensed JSearch API — the user
+adds a free RapidAPI key as `JSEARCH_API_KEY` in `web-ui/.env.local`. Adzuna
+(`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`), USAJobs (`USAJOBS_API_KEY`/`USAJOBS_EMAIL`) and
+Reed (`REED_API_KEY`) also take free keys. LinkedIn is never scraped.
+Remotive, Jobicy, Himalayas and Adzuna ask that listings link back to them; always
+show the job's URL and source. Stale postings (default 30 days), broken links and
+likely scams are removed; a "Possible scam" or "Unverified" badge means: tell the user.
 
 ## Credits
 
