@@ -283,15 +283,15 @@ export function ChatInterface() {
   return (
     <div className="mx-auto flex h-screen max-w-2xl flex-col overflow-hidden bg-gray-950/80 bg-grid bg-[size:22px_22px]">
       <div className="border-b border-gray-800 bg-gray-950/95 px-4 py-3 backdrop-blur">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <span className="text-xl">🔫</span>
             <div>
               <h1 className="text-sm font-bold uppercase tracking-[0.24em] text-white">GhostForge</h1>
               <p className="text-xs text-gray-400">Operator console · mobile access</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <DeviceStatus status={bridgeStatus} />
             <button type="button"
               title="Toggle Copilot CLI mode (tap to cycle: GhostForge AI → Copilot Suggest → Copilot Explain)"
