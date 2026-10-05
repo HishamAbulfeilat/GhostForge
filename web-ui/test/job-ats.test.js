@@ -389,3 +389,71 @@ test('a closed posting is reported as closed, not as a form to finish', async t 
     assert.equal(outcome.closed, true)
   } finally { await page.close() }
 })
+
+// ── review regressions ───────────────────────────────────────────────────────
+
+test('regression: page errors after Submit (navigation) end as "check it", never as a retryable failure', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const page = await browser.newPage()
+  try {
+    await page.setContent(`<form><label for="fn">First name *</label><input id="fn" required>
+      <button type="button" onclick="window.__sent = true">Submit application</button></form>`)
+    // Simulate a navigation tearing down the page context once Submit was pressed
+    const evaluate = page.evaluate.bind(page)
+    const destroyed = () => new Error('Execution context was destroyed, most likely because of a navigation')
+    page.evaluate = async (fn, arg) => { if (await evaluate(() => window.__sent === true).catch(() => false)) throw destroyed(); return evaluate(fn, arg) }
+    page.waitForFunction = async () => { throw destroyed() }
+    const out = await runFormAgent(page, await ctxFor())
+    assert.equal(out.status, 'needs_user', JSON.stringify(out))
+    assert.equal(out.submitPressed, true)
+    assert.match(out.message, /Submit was pressed/)
+  } finally { await page.close() }
+})
+
+test('regression: a field sharing its wrapper with another control keeps the wrapper label', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const html = `<!doctype html><body><form>
+    <div class="form-field"><label>Phone *</label><select aria-label="Dial code"><option>+1</option><option>+49</option></select><input type="tel"></div>
+    <div class="form-field"><span class="label">Email *</span><input name="hp_email" style="display:none"><input type="email"></div>
+    <button type="button" onclick="${THANKS}">Submit application</button></form></body>`
+  const { outcome, page } = await runOn({ 'https://careers.acme.example/apply': html }, await ctxFor())
+  try {
+    assert.equal(outcome.status, 'submitted', JSON.stringify(outcome))
+    assert.ok(outcome.filled.includes('Phone *'), 'phone answered under its wrapper label')
+    assert.ok(outcome.filled.includes('Email *'), 'a hidden honeypot sibling does not hide the label')
+  } finally { await page.close() }
+})
+
+test('regression: the CV only goes into a resume upload, never a transcript slot or a cloud picker', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const make = (label, button, id) => `<div class="upload"><span>${label}</span><button type="button" onclick="window.__clicked=(window.__clicked||[]).concat('${id}');const i=document.createElement('input');i.type='file';i.id='${id}';i.style.display='none';this.after(i);i.click()">${button}</button></div>`
+  const html = `<!doctype html><body><form><label for="fn">First name *</label><input id="fn" required>
+    ${make('Transcript', 'Attach', 'transcript')}${make('Resume', 'Upload from Google Drive', 'drive')}
+    <button type="button" onclick="${THANKS}">Submit application</button></form></body>`
+  const { outcome, page } = await runOn({ 'https://careers.acme.example/apply2': html }, await ctxFor())
+  try {
+    assert.ok(!outcome.filled.includes('Resume upload'), JSON.stringify(outcome))
+    assert.equal(await page.evaluate(() => window.__clicked || null), null, 'neither button was pressed')
+  } finally { await page.close() }
+
+  const ok = `<!doctype html><body><form><label for="fn">First name *</label><input id="fn" required>
+    ${make('Transcript', 'Attach', 'transcript')}${make('Resume / CV', 'Attach', 'resume')}
+    <button type="button" onclick="${THANKS}">Submit application</button></form></body>`
+  const r = await runOn({ 'https://careers.acme.example/apply3': ok }, await ctxFor())
+  try {
+    assert.ok(r.outcome.filled.includes('Resume upload'), JSON.stringify(r.outcome))
+    assert.deepEqual(await r.page.evaluate(() => window.__clicked || null), ['resume'])
+  } finally { await r.page.close() }
+})
+
+test('regression: a closed-sounding sentence in the description is not a closed posting', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const html = `<!doctype html><body><h1>Frontend Engineer</h1><p>${'About us. '.repeat(60)}This role is not available for visa sponsorship. The position is closed to agencies.</p>
+    <button type="button" onclick="document.getElementById('f').hidden=false;this.remove()">Apply now</button>
+    <form id="f" hidden><label for="fn">First name *</label><input id="fn" required><button type="button" onclick="${THANKS}">Submit application</button></form></body>`
+  const { outcome, page } = await runOn({ 'https://careers.acme.example/job/7': html }, await ctxFor())
+  try {
+    assert.equal(outcome.status, 'submitted', JSON.stringify(outcome))
+    assert.ok(!outcome.closed)
+  } finally { await page.close() }
+})

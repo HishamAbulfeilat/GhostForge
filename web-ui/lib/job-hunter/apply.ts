@@ -27,6 +27,8 @@ export interface ApplyResult {
   missing: string[]
   /** The posting turned out to be closed */
   closed?: boolean
+  /** Submit was pressed: never retry automatically (it may have been sent) */
+  submitPressed?: boolean
 }
 
 /** ATSes whose forms can be completed and submitted unattended (single-page, predictable public forms) */
@@ -220,7 +222,7 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
         allowSubmit: opts.allowSubmit ?? AUTO_SUBMIT_ATS.has(job.ats),
         log: opts.log,
       })
-      return finish({ status: out.status, message: out.message, filled: out.filled, missing: out.missing, questions: out.questions, aiAnswers: out.aiAnswers, closed: out.closed })
+      return finish({ status: out.status, message: out.message, filled: out.filled, missing: out.missing, questions: out.questions, aiAnswers: out.aiAnswers, closed: out.closed, submitPressed: out.submitPressed })
     } catch (e) {
       return finish({ status: 'failed', message: `Applying failed: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`, filled: [], missing: [] })
     }
