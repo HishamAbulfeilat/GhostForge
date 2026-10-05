@@ -2,7 +2,12 @@ name: CodeQL
 
 # CodeQL code scanning for the JavaScript/TypeScript surfaces (web-ui,
 # electron-app, tui, mcp, extension, cli) and the Python bridge/voice pipeline.
-# Results upload as SARIF to the repository's Security → Code scanning tab.
+#
+# Public repo: results upload to the Security → Code scanning tab (free).
+# Private repo: GitHub only accepts uploads with paid Code Security, so the
+# scan still runs but results are kept as a SARIF artifact and summarised on
+# the run page instead. Switching happens automatically from the repository's
+# visibility on every run — see docs/CODE-SCANNING.md.
 on:
   push:
     branches: [main, agent/integration]
@@ -37,6 +42,13 @@ jobs:
         language: [javascript-typescript, python]
     steps:
       - uses: actions/checkout@v4
+      # Visibility decides whether results can be uploaded. Read it from the API:
+      # scheduled runs carry no repository details in their event payload.
+      - name: Repository visibility
+        id: repo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "private=$(gh api "repos/${{ github.repository }}" --jq .private)" >> "$GITHUB_OUTPUT"
       - uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
@@ -58,3 +70,31 @@ jobs:
       - uses: github/codeql-action/analyze@v3
         with:
           category: /language:${{ matrix.language }}
+          # 'always' when public (free code scanning); 'never' while private or unknown
+          upload: ${{ steps.repo.outputs.private == 'false' && 'always' || 'never' }}
+          output: codeql-results
+      - name: Summarise findings (private repo)
+        if: ${{ always() && steps.repo.outputs.private != 'false' }}
+        run: |
+          shopt -s nullglob
+          files=(codeql-results/*.sarif)
+          {
+            echo "### CodeQL (${{ matrix.language }})"
+            if [ ${#files[@]} -eq 0 ]; then
+              echo "No results file was produced."
+            else
+              count=$(jq '[.runs[].results[]] | length' "${files[@]}" | awk '{s+=$1} END {print s+0}')
+              echo "**${count} finding(s).** The repository is private, so results are not uploaded to the Security tab."
+              echo "Download the \`codeql-${{ matrix.language }}\` artifact from this run to see them (open the .sarif in VS Code with the SARIF Viewer extension)."
+              echo
+              jq -r '.runs[].results[] | "- \(.ruleId): \(.message.text | split("\n")[0]) — \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine)"' "${files[@]}" | head -50
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep results as an artifact (private repo)
+        if: ${{ always() && steps.repo.outputs.private != 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-${{ matrix.language }}
+          path: codeql-results/
+          if-no-files-found: ignore
+          retention-days: 30
