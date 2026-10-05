@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { AUTH_COOKIE, AUTH_COOKIE_NAME, createSessionToken, getAccessPin, isValidAuthToken } from '@/lib/auth'
-import { ensureUserStore, getUserByUsername, verifyPassword } from '@/lib/users'
+import { ensureUserStore, getUserByUsername, ownerUsername, verifyPassword } from '@/lib/users'
+import { isHostedMode } from '@/lib/hosted'
 import { timingSafeEqual } from 'crypto'
 import { getClientIP } from '@/lib/ratelimit'
 import { auditLog } from '@/lib/audit'
@@ -45,10 +46,14 @@ export async function POST(req: NextRequest) {
   }
   const pin = body.pin?.trim()
 
-  // Legacy PIN login: maps to the default admin account.
+  // Legacy PIN login: maps to the default admin account. Off when hosted —
+  // a shared PIN would hand any friend the owner's admin account.
+  if (pin && isHostedMode()) {
+    return NextResponse.json({ error: 'PIN sign-in is not available on the hosted version — use your username and password' }, { status: 403 })
+  }
   if (pin) {
     if (safeEqual(pin, getAccessPin())) {
-      const admin = await getUserByUsername(process.env.ADMIN_USERNAME || 'hisham')
+      const admin = await getUserByUsername(ownerUsername())
       if (admin) {
         clearFailedLogins(getClientIP(req))
         const token = createSessionToken(admin)

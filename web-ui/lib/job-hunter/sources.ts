@@ -20,6 +20,7 @@
  * autopilot runs) don't hammer the same feed; every source fails soft.
  */
 import { dedupeKey, type Ats, type JobPreferences, type Trust } from './store'
+import { ownerEnv } from '../hosted'
 
 export interface RawJob {
   key: string
@@ -204,7 +205,8 @@ async function leverBoard(company: string): Promise<RawJob[]> {
 }
 
 export function jsearchKey(): string {
-  return process.env.JSEARCH_API_KEY || process.env.RAPIDAPI_KEY || ''
+  // ownerEnv: never the server's key on the hosted version
+  return ownerEnv('JSEARCH_API_KEY') || ownerEnv('RAPIDAPI_KEY') || ''
 }
 
 /** LinkedIn, Indeed, Glassdoor… via the JSearch aggregator API */
@@ -378,7 +380,7 @@ const ADZUNA_COUNTRIES: Record<string, string> = {
 }
 
 export function adzunaCountry(places: string[]): string | null {
-  const env = (process.env.ADZUNA_COUNTRY || '').toLowerCase()
+  const env = (ownerEnv('ADZUNA_COUNTRY') || '').toLowerCase()
   if (/^[a-z]{2}$/.test(env)) return env
   for (const p of places) {
     const l = p.toLowerCase()
@@ -393,7 +395,7 @@ interface ReedJob { jobId: number; employerName?: string; jobTitle: string; loca
 
 /** Adzuna (free key) — aggregated listings in ~20 countries */
 async function adzuna(term: string, where: string, country: string): Promise<RawJob[]> {
-  const id = process.env.ADZUNA_APP_ID, key = process.env.ADZUNA_APP_KEY
+  const id = ownerEnv('ADZUNA_APP_ID'), key = ownerEnv('ADZUNA_APP_KEY')
   if (!id || !key) return []
   const p = new URLSearchParams({ app_id: id, app_key: key, what: term, results_per_page: '50', max_days_old: '30', 'content-type': 'application/json', ...(where ? { where } : {}) })
   const data = await getJson<{ results?: AdzunaJob[] }>(`https://api.adzuna.com/v1/api/jobs/${country}/search/1?${p}`)
@@ -406,7 +408,7 @@ async function adzuna(term: string, where: string, country: string): Promise<Raw
 
 /** USAJobs (free key) — US federal government jobs */
 async function usaJobs(term: string, where: string): Promise<RawJob[]> {
-  const key = process.env.USAJOBS_API_KEY, email = process.env.USAJOBS_EMAIL
+  const key = ownerEnv('USAJOBS_API_KEY'), email = ownerEnv('USAJOBS_EMAIL')
   if (!key || !email) return []
   const p = new URLSearchParams({ Keyword: term, ResultsPerPage: '50', DatePosted: '30', ...(where ? { LocationName: where } : {}) })
   const data = await getJson<{ SearchResult?: { SearchResultItems?: UsaJob[] } }>(`https://data.usajobs.gov/api/search?${p}`, { 'User-Agent': email, 'Authorization-Key': key })
@@ -419,7 +421,7 @@ async function usaJobs(term: string, where: string): Promise<RawJob[]> {
 
 /** Reed (free key) — UK jobs */
 async function reed(term: string, where: string): Promise<RawJob[]> {
-  const key = process.env.REED_API_KEY
+  const key = ownerEnv('REED_API_KEY')
   if (!key) return []
   const p = new URLSearchParams({ keywords: term, resultsToTake: '50', ...(where ? { locationName: where } : {}) })
   const data = await getJson<{ results?: ReedJob[] }>(`https://www.reed.co.uk/api/1.0/search?${p}`, { Authorization: `Basic ${Buffer.from(`${key}:`).toString('base64')}` })
@@ -437,9 +439,9 @@ async function reed(term: string, where: string): Promise<RawJob[]> {
 export function keyedSources(): { jsearch: boolean; adzuna: boolean; usajobs: boolean; reed: boolean } {
   return {
     jsearch: Boolean(jsearchKey()),
-    adzuna: Boolean(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY),
-    usajobs: Boolean(process.env.USAJOBS_API_KEY && process.env.USAJOBS_EMAIL),
-    reed: Boolean(process.env.REED_API_KEY),
+    adzuna: Boolean(ownerEnv('ADZUNA_APP_ID') && ownerEnv('ADZUNA_APP_KEY')),
+    usajobs: Boolean(ownerEnv('USAJOBS_API_KEY') && ownerEnv('USAJOBS_EMAIL')),
+    reed: Boolean(ownerEnv('REED_API_KEY')),
   }
 }
 

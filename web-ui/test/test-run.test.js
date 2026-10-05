@@ -43,6 +43,8 @@ const route = loadTs(path.join(routeDir, 'route.ts'), {
       },
     },
   },
+  // Real hosted-mode policy: off unless GHOSTFORGE_MODE=hosted
+  '@/lib/hosted': require('../lib/hosted.ts'),
   '@/lib/auth': {
     getCurrentUser: async () => state.user,
     isAdmin: user => user?.role === 'admin',

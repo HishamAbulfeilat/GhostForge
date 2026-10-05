@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { exec } from 'child_process'
 import fs from 'fs'
 import os from 'os'
@@ -272,6 +273,8 @@ function readEnvLocal(): Record<string, string> {
 }
 
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

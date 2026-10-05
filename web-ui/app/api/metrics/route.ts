@@ -1,8 +1,11 @@
 import { NextRequest } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { isAuthorizedRequest } from '@/lib/auth'
 import { getCPU, getRAM, getDisk, getBattery, type MetricStat, type BatteryStat } from '@/lib/system-info'
 
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return new Response('Unauthorized', { status: 401 })
   }

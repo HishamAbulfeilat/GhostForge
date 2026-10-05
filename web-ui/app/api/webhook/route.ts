@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import path from 'path'
@@ -118,6 +119,8 @@ async function fanOutToJarvis(message: string) {
 }
 
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -128,6 +131,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const { searchParams } = new URL(req.url)
   const rawBody = await req.text().catch(() => '')
 
@@ -183,6 +188,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

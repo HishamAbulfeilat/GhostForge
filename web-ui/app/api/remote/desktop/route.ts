@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { auditLog } from '@/lib/audit'
 import { getCurrentUser, isAdmin } from '@/lib/auth'
 import { getClientIP } from '@/lib/ratelimit'
@@ -55,6 +56,8 @@ const failures = new Map<string, { n: number; until: number }>()
 const MAX_FAILURES = 5
 
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const { user, error } = await adminUser(req)
   if (error) return error
   const on = await isOn()
@@ -77,6 +80,8 @@ export async function GET(req: NextRequest) {
 let lastInputLog = 0
 
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const { user, error } = await adminUser(req)
   if (error) return error
   let body: { action?: string; password?: string; input?: DesktopInput } = {}

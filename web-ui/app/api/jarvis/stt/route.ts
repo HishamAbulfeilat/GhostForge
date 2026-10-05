@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { isAuthorizedRequest } from '@/lib/auth'
 import { localStt } from '@/lib/voice'
 
@@ -10,6 +11,8 @@ export const dynamic = 'force-dynamic'
  * 503 so the client can switch to the Web Speech API.
  */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

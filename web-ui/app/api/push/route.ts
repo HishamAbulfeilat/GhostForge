@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { getCurrentUser, isAuthorizedRequest } from '@/lib/auth'
 import {
   isPushConfigured,
@@ -26,6 +27,8 @@ const NOT_CONFIGURED = 'Push notifications are not configured: set VAPID_PUBLIC_
 
 /** Config + the caller's own subscription count, so the panel can be honest. */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const user = await getCurrentUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -48,6 +51,8 @@ export async function GET(req: NextRequest) {
  * them answers 501 with `configured: false` rather than reporting success.
  */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const user = await getCurrentUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

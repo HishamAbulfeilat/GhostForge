@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'child_process'
+import { hostedGuard } from '@/lib/hosted'
 import { closeSync, mkdirSync, openSync } from 'fs'
 import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
@@ -42,6 +43,8 @@ function requireAdmin(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const hostedBlock = hostedGuard(request)
+  if (hostedBlock) return hostedBlock
   const access = await requireAdmin(request)
   if (access instanceof NextResponse) return access
   try {
@@ -54,6 +57,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const hostedBlock = hostedGuard(request)
+  if (hostedBlock) return hostedBlock
   const access = await requireAdmin(request)
   if (access instanceof NextResponse) return access
 

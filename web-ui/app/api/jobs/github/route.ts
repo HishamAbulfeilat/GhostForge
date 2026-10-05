@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { requirePermission } from '@/lib/access'
@@ -24,6 +25,8 @@ async function localGhToken(): Promise<string> {
 
 /** GET /api/jobs/github — the saved draft and generated designs */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const user = await requirePermission(req, 'job_hunter')
   if (user instanceof NextResponse) return user
   const p = await getProfile(user.username)
@@ -39,6 +42,8 @@ export async function GET(req: NextRequest) {
  * The token is used for this request only — never stored or logged.
  */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const user = await requirePermission(req, 'job_hunter')
   if (user instanceof NextResponse) return user
 

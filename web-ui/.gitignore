@@ -2,3 +2,5 @@
 .env
 .next/
 certs/
+# Hosted (friends) mode state: users, per-user AI keys, memory (GHOSTFORGE_DATA_DIR default)
+.hosted-data/

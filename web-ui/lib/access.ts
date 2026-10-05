@@ -12,6 +12,7 @@ import { getCurrentUser, hasPermission, isAuthorizedRequest } from './auth'
 import type { GhostUser } from './users'
 import { getClientIP } from './ratelimit'
 import { PRIVILEGED_PERMISSIONS, reportUnauthorizedAccess } from './intrusion'
+import { HOSTED_UNAVAILABLE, isBlockedPermission } from './hosted'
 
 /**
  * Resolve the caller and check they hold `permission`.
@@ -23,6 +24,8 @@ export async function requirePermission(req: NextRequest, permission: string): P
   }
   const user = await getCurrentUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Off on the hosted version for everyone — not an intrusion
+  if (isBlockedPermission(permission)) return NextResponse.json({ error: HOSTED_UNAVAILABLE, hosted: true }, { status: 403 })
   if (hasPermission(user, permission)) return user
 
   if (PRIVILEGED_PERMISSIONS.has(permission)) {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { getCurrentUser, hasPermission } from '@/lib/auth'
 import {
   AGENT_SESSION_CONNECTOR_MAX_BYTES,
@@ -39,6 +40,8 @@ async function requireAdminUser(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const hostedBlock = hostedGuard(request)
+  if (hostedBlock) return hostedBlock
   if (!await requireAdminUser(request)) return adminToolsForbidden()
   const workspaceRoot = resolveWorkspaceRoot(repoRootFromLib())
   let connectorConfig: unknown
@@ -63,6 +66,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const hostedBlock = hostedGuard(request)
+  if (hostedBlock) return hostedBlock
   if (!await requireAdminUser(request)) return adminToolsForbidden()
 
   try {

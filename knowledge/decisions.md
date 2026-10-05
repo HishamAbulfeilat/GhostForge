@@ -98,3 +98,22 @@ launches the real Electron binary rather than mocking the download.
 used when electron-builder downloads platform binaries for packaging; it is not
 in the shipped app bundle and no shipped code path reaches it.
 **Status**: Accepted
+
+## ADR-008: Hosted ("friends") mode — GHOSTFORGE_MODE=hosted
+
+**Context:** The owner wants to share the web UI with friends without
+exposing the host machine, the owner's accounts or the owner's AI keys.
+
+**Decision:** One switch, `GHOSTFORGE_MODE=hosted`, with the policy in
+`web-ui/lib/hosted-policy.json`, enforced server-side in four layers:
+`server.js` (403 before Next, no `/ws`), `hostedGuard()` first in every
+blocked route, `hasPermission()` denying host permissions to everyone
+(admins included), and a web-only JARVIS tool allow-list. Server env keys
+are never used and are scrubbed at startup. AI keys, model choice and
+custom models are per user (`hosted-ai/<userId>.json`). Startup fails
+closed without `AUTH_SECRET`/`ADMIN_PASSWORD`, there is no PIN login and no
+sign-up, and state lives in `GHOSTFORGE_DATA_DIR`. Recommended deployment
+is the Docker image on an always-on box behind Cloudflare Tunnel + Access
+(or Tailscale). Vercel and GitHub Pages are not supported (no writable
+state, no custom server). See `docs/HOSTING.md`.
+**Status**: Accepted

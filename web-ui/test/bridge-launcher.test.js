@@ -171,6 +171,8 @@ const spawnCalls = []
 const state = { authed: true, launcher: null }
 const route = loadTs(path.join(WEB_UI, 'app', 'api', 'bridge-start', 'route.ts'), {
   'next/server': { NextResponse: { json: (b, i = {}) => ({ status: i.status ?? 200, json: async () => b }) } },
+  // Real hosted-mode policy: off unless GHOSTFORGE_MODE=hosted
+  '@/lib/hosted': require('../lib/hosted.ts'),
   '@/lib/auth': { isAuthorizedRequest: () => state.authed },
   // The route calls resolveBridgeLauncher() with no arguments; the mock
   // supplies the outcome so both the found and missing cases are exercised.

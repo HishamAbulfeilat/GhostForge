@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { isAuthorizedRequest } from '@/lib/auth'
 import { requirePermission } from '@/lib/access'
 import { ensureMarkLivBridge, type MarkLivTool } from '@/lib/mark-liv-bridge'
@@ -43,6 +44,8 @@ async function bridgeOnline(): Promise<boolean> {
 
 /** GET — list Mark-LV tools; { online: false } when the bridge is down. */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -66,6 +69,8 @@ export async function GET(req: NextRequest) {
 
 /** POST { kind: 'weather' | 'flight' | 'reminder' | 'run', ... } — run one action on the bridge. */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

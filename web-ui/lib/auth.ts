@@ -17,6 +17,7 @@ import { getAuthSecret } from './auth-secret'
 import { AUTH_COOKIE, AUTH_COOKIE_NAME, type SessionRole } from './auth-edge'
 import { ensureUserStore, getUserById, type GhostUser, type Role, toPublicUser, touchLastSeen } from './users'
 import { isDeviceActive, touchDevice } from './remote/store'
+import { isBlockedPermission } from './hosted'
 
 export { getAuthSecret, AUTH_COOKIE, AUTH_COOKIE_NAME }
 export type { SessionRole }
@@ -187,6 +188,8 @@ export function isAdmin(user?: Pick<GhostUser, 'role'> | null): boolean {
 
 export function hasPermission(user: Pick<GhostUser, 'role' | 'permissions'> | null | undefined, key: string): boolean {
   if (!user) return false
+  // Hosted mode: host / owner-account capabilities are off for everyone, admins included
+  if (isBlockedPermission(key)) return false
   if (user.role === 'admin') return true
   return Array.isArray(user.permissions) && user.permissions.includes(key)
 }

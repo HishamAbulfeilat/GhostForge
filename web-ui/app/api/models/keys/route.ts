@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser, isAdmin } from '@/lib/auth'
 import { isFreeTierSyncable, syncFreeKeysToOmniRoute, syncProviderToOmniRoute } from '@/lib/omniroute-sync'
-import { PROVIDERS, isProviderId, keySource, saveProviderKey } from '@/lib/providers'
+import { PROVIDERS, isProviderId, keySource, runWithAIUser, saveProviderKey } from '@/lib/providers'
+import { isHostedMode } from '@/lib/hosted'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -15,7 +16,10 @@ export const maxDuration = 120
  */
 export async function POST(req: NextRequest) {
   const me = await getCurrentUser(req)
-  if (!me || !isAdmin(me)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Hosted mode: each signed-in user saves their own keys (stored per user, never returned)
+  const hosted = isHostedMode()
+  if (!hosted && !isAdmin(me)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   let body: { provider?: unknown; key?: unknown; action?: unknown }
   try {
@@ -25,6 +29,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.action === 'sync') {
+    if (hosted) return NextResponse.json({ error: 'OmniRoute is not available on the hosted version' }, { status: 403 })
     return NextResponse.json({ ok: true, omniroute: await syncFreeKeysToOmniRoute() })
   }
 
@@ -36,12 +41,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'That does not look like an API key' }, { status: 400 })
   }
 
+  const provider = body.provider
   try {
-    saveProviderKey(body.provider, key)
+    runWithAIUser(me.id, () => saveProviderKey(provider, key))
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Cannot save key' }, { status: 500 })
   }
 
+  if (hosted) return NextResponse.json({ ok: true, keySource: runWithAIUser(me.id, () => keySource(provider)), omniroute: null })
   const omniroute = isFreeTierSyncable(body.provider) ? await syncProviderToOmniRoute(body.provider) : null
   return NextResponse.json({ ok: true, keySource: keySource(body.provider), omniroute })
 }

@@ -3,9 +3,10 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { generateText, type ModelMessage, type LanguageModel } from 'ai'
 import { totalmem } from 'os'
 import { buildLocalRuntimeOrder } from './local-runtime'
+import { isHostedMode } from './hosted'
 import {
-  FREE_CATALOG, PROVIDERS, getCustomModel, getOmniRouteKey, getProviderKey, getSavedSelection, isProviderId, omniRouteBaseURL,
-  type ProviderId,
+  FREE_CATALOG, PROVIDERS, currentAIUser, getCustomModel, getOmniRouteKey, getProviderKey, getSavedSelection, isProviderId, omniRouteBaseURL,
+  runWithAIUser, type ProviderId,
 } from './providers'
 
 export { omniRouteBaseURL }
@@ -21,6 +22,11 @@ export interface ModelOverride {
   activeProvider?: string
   offline?: boolean
   task?: string
+  /**
+   * Whose saved keys / model choice to use. Required for keys in hosted mode
+   * (GHOSTFORGE_MODE=hosted), where the server's environment keys are never used.
+   */
+  userId?: string
 }
 
 /**
@@ -302,6 +308,8 @@ async function detectLocalModels(opts?: ModelOverride) {
 }
 
 async function appendLocalModels(chain: ModelEntry[], push: (entry: ModelEntry) => void, opts?: ModelOverride) {
+  // Ollama / llama.cpp run on the host machine — not offered to hosted users
+  if (isHostedMode()) return chain
   const local = await detectLocalModels(opts)
   for (const entry of local.order) {
     if (entry.provider === 'ollama') {
@@ -362,6 +370,8 @@ const _omniProbeCache = new Map<string, { up: boolean; ts: number }>()
 const _omniProbesInFlight = new Map<string, Promise<boolean>>()
 
 export async function isOmniRouteUp(omniUrl?: string): Promise<boolean> {
+  // A local gateway on the host (with the owner's keys inside) — never for hosted users
+  if (isHostedMode()) return false
   const raw = (omniUrl || process.env.OMNIROUTE_URL || 'http://localhost:20128/v1').replace(/\/+$/, '')
   const url = raw.endsWith('/v1') ? raw : `${raw}/v1`
   const now = Date.now()
@@ -410,6 +420,10 @@ const FREE_MODELS_PER_PROVIDER = 3
  * selected — never as a silent fallback. Cached for 30s per selection.
  */
 export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[]> {
+  if (opts?.userId && opts.userId !== currentAIUser()) {
+    const userId = opts.userId
+    return runWithAIUser(userId, () => buildModelChain({ ...opts, userId }))
+  }
   const offline = opts?.offline === true
   const override = opts?.activeProvider && opts?.activeModel
     ? { provider: opts.activeProvider, model: opts.activeModel }
@@ -418,7 +432,9 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
   const localSelected = !!selection && LOCAL_PROVIDERS.has(selection.provider)
   const localOpts: ModelOverride = { ...opts, activeProvider: selection?.provider, activeModel: selection?.model }
 
-  const cacheKey = `${offline}|${selection?.provider}|${selection?.model}|${opts?.task || ''}`
+  // Hosted: chains hold each user's own keys, so never share them between users
+  const userScope = isHostedMode() ? currentAIUser() || '-' : ''
+  const cacheKey = `${offline}|${selection?.provider}|${selection?.model}|${opts?.task || ''}|${userScope}`
   const cached = _chainCache.get(cacheKey)
   if (cached && Date.now() - cached.ts < CHAIN_CACHE_TTL) return cached.chain
 
@@ -496,6 +512,10 @@ export async function generateWithFallback(
   opts: GenerateOpts,
   overrides?: ModelOverride,
 ): Promise<{ text: string; usedProvider: string; usedModel: string }> {
+  if (overrides?.userId && overrides.userId !== currentAIUser()) {
+    const userId = overrides.userId
+    return runWithAIUser(userId, () => generateWithFallback(opts, { ...overrides, userId }))
+  }
   const chain = await buildModelChain(overrides)
 
   if (chain.length === 0) {
@@ -505,13 +525,15 @@ export async function generateWithFallback(
   }
 
   // Skip models that just failed; if every model is cooling down, try them all anyway
+  // Hosted: one friend's bad key must not put a model on cooldown for everyone
+  const scope = isHostedMode() ? `${currentAIUser() || '-'}:` : ''
   const now = Date.now()
-  const ready = chain.filter(entry => (_cooldown.get(`${entry.provider}/${entry.modelId}`) ?? 0) <= now)
+  const ready = chain.filter(entry => (_cooldown.get(`${scope}${entry.provider}/${entry.modelId}`) ?? 0) <= now)
   const attempts = ready.length ? ready : chain
 
   let lastError: unknown
   for (const entry of attempts) {
-    const key = `${entry.provider}/${entry.modelId}`
+    const key = `${scope}${entry.provider}/${entry.modelId}`
     try {
       let text: string
       if (entry.generate) text = await entry.generate(opts)
@@ -589,8 +611,8 @@ export async function generateVision(opts: VisionOpts): Promise<{ text: string; 
   const orKey = getProviderKey('openrouter')
   const mimeType = opts.mimeType || 'image/jpeg'
 
-  // 1. Try Ollama vision models (local, free)
-  try {
+  // 1. Try Ollama vision models (local, free) — host-only, skipped when hosted
+  if (!isHostedMode()) try {
     const tagsRes = await fetch(`${ollamaUrl}/api/tags`, { signal: AbortSignal.timeout(1500) })
     if (tagsRes.ok) {
       const { models = [] } = await tagsRes.json() as { models?: Array<{ name: string }> }

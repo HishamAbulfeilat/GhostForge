@@ -1,4 +1,5 @@
 import { spawnSync } from 'child_process'
+import { hostedGuard } from '@/lib/hosted'
 import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 import { requirePermission } from '@/lib/access'
@@ -42,6 +43,8 @@ function readWorldStatus() {
 }
 
 export async function GET(request: NextRequest) {
+  const hostedBlock = hostedGuard(request)
+  if (hostedBlock) return hostedBlock
   const access = await requirePermission(request, 'admin_tools')
   if (access instanceof NextResponse) return access
   try {
@@ -53,6 +56,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const hostedBlock = hostedGuard(request)
+  if (hostedBlock) return hostedBlock
   const access = await requirePermission(request, 'admin_tools')
   if (access instanceof NextResponse) return access
 

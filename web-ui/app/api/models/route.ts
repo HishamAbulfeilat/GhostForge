@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser, isAdmin, isAuthorizedRequest } from '@/lib/auth'
 import { isOmniRouteUp } from '@/lib/ai'
+import { isHostedMode } from '@/lib/hosted'
 import {
   PROVIDERS, clearSelection, getSavedSelection, isSelectableProvider, keySource, listCustomModels, listProviderModels,
-  omniRouteBaseURL, saveSelection, type ProviderId,
+  omniRouteBaseURL, runWithAIUser, saveSelection, type ProviderId,
 } from '@/lib/providers'
 
 export const dynamic = 'force-dynamic'
 
 async function ollamaModels(): Promise<string[] | null> {
+  if (isHostedMode()) return null // the host's local models are not offered when hosted
   const base = (process.env.OLLAMA_URL || 'http://localhost:11434').replace(/\/v1\/?$/, '')
   try {
     const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(1500) })
@@ -31,6 +33,13 @@ export async function GET(req: NextRequest) {
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const me = await getCurrentUser(req)
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Hosted mode: keys, model choice and custom models are the caller's own
+  return runWithAIUser(me.id, () => listModels(req, me))
+}
+
+async function listModels(req: NextRequest, me: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>) {
   const refresh = req.nextUrl.searchParams.get('refresh') === '1'
   const [omniUp, ollama] = await Promise.all([isOmniRouteUp(), ollamaModels()])
 
@@ -56,7 +65,6 @@ export async function GET(req: NextRequest) {
   }))
 
   const saved = getSavedSelection()
-  const me = await getCurrentUser(req)
   return NextResponse.json({
     providers,
     custom: listCustomModels(),
@@ -64,7 +72,9 @@ export async function GET(req: NextRequest) {
     omniroute: { up: omniUp, url: omniRouteBaseURL(), dashboard: omniRouteBaseURL().replace(/\/v1$/, '/dashboard') },
     active: saved ?? { provider: 'auto', model: 'free models' },
     isDefault: !saved,
-    canEditKeys: !!me && isAdmin(me),
+    // Hosted: every user manages their own keys; otherwise the admin's server-wide keys
+    canEditKeys: isHostedMode() || isAdmin(me),
+    hosted: isHostedMode(),
   })
 }
 
@@ -82,10 +92,13 @@ export async function POST(req: NextRequest) {
   if (!isSelectableProvider(body.provider) || !modelId || modelId.length > 200) {
     return NextResponse.json({ error: 'provider and modelId are required' }, { status: 400 })
   }
+  const me = await getCurrentUser(req)
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
-    saveSelection({ provider: body.provider, model: modelId })
-  } catch {
-    return NextResponse.json({ error: 'Cannot write settings' }, { status: 500 })
+    runWithAIUser(me.id, () => saveSelection({ provider: body.provider as Parameters<typeof saveSelection>[0]['provider'], model: modelId }))
+  } catch (e) {
+    const hostedError = isHostedMode() && e instanceof Error ? e.message : null
+    return NextResponse.json({ error: hostedError || 'Cannot write settings' }, { status: hostedError ? 400 : 500 })
   }
   return NextResponse.json({ ok: true, active: { provider: body.provider, model: modelId } })
 }
@@ -94,6 +107,8 @@ export async function DELETE(req: NextRequest) {
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  clearSelection()
+  const me = await getCurrentUser(req)
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  runWithAIUser(me.id, () => clearSelection())
   return NextResponse.json({ ok: true })
 }

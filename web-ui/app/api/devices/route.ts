@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { getCurrentUser, isAdmin } from '@/lib/auth'
 import { getClientIP } from '@/lib/ratelimit'
 import {
@@ -27,6 +28,8 @@ import { reportUnauthorizedAccess } from '@/lib/intrusion'
  *        Owner only — remove a device record.
  */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const me = await getCurrentUser(req)
   if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -56,6 +59,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const me = await getCurrentUser(req)
   if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -99,6 +104,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const me = await getCurrentUser(req)
   if (!me || !isOwner(me)) {
     void reportUnauthorizedAccess({ reason: 'devices:delete by non-owner', username: me?.username, ip: getClientIP(req), userAgent: req.headers.get('user-agent') || undefined })

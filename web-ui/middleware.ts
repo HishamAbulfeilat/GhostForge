@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isValidAuthToken, AUTH_COOKIE } from '@/lib/auth-edge'
+import { isBlockedPage } from '@/lib/hosted'
 
 const AUTH_COOKIE_NAME = AUTH_COOKIE
 
@@ -62,6 +63,15 @@ export async function middleware(req: NextRequest) {
     loginUrl.pathname = '/login'
     loginUrl.searchParams.set('from', pathname)
     return NextResponse.redirect(loginUrl)
+  }
+
+  // Hosted mode: pages for host / owner-account features are off (their APIs return 403)
+  if (isBlockedPage(pathname)) {
+    const home = req.nextUrl.clone()
+    home.pathname = '/jarvis'
+    home.search = ''
+    home.searchParams.set('unavailable', pathname)
+    return NextResponse.redirect(home)
   }
 
   return NextResponse.next()

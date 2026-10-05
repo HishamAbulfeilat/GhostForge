@@ -251,6 +251,8 @@ test('webhook POST rejects unsigned, unauthenticated non-GitHub deliveries', asy
   const routePath = path.join(apiRoot, 'webhook', 'route.ts')
   let jarvisCalls = 0
   const stubs = {
+    // Real hosted-mode policy: off unless GHOSTFORGE_MODE=hosted
+    '@/lib/hosted': require('../lib/hosted.ts'),
     '@/lib/auth': { isAuthorizedRequest: () => false, getAuthSecret: () => 'secret' },
     '../jarvis/route': { POST: async () => { jarvisCalls++; return { text: async () => '' } } },
     'next/server': {

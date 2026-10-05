@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { execFileSync } from 'child_process'
 import { writeFileSync, readFileSync, existsSync, unlinkSync, mkdirSync } from 'fs'
 import { join } from 'path'
@@ -12,6 +13,8 @@ const CAPTURE_DIR = join(homedir(), '.ghostforge', 'screenshots')
 const FORMATS = ['jpeg', 'png', 'tiff'] as const
 
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const access = await requirePermission(req, 'screenshots')
   if (access instanceof NextResponse) return access
 
@@ -86,6 +89,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const access = await requirePermission(req, 'screenshots')
   if (access instanceof NextResponse) return access
 

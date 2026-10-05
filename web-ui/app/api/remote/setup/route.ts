@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import net from 'net'
@@ -66,6 +67,8 @@ async function getRemoteStatus() {
 }
 
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const access = await requirePermission(req, 'remote')
   if (access instanceof NextResponse) return access
 
@@ -73,6 +76,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const access = await requirePermission(req, 'remote')
   if (access instanceof NextResponse) return access
 

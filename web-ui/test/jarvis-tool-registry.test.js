@@ -294,7 +294,7 @@ const stubs = {
       hasStableAuthSecret: () => false,
       reportUnauthorizedAccess: async () => ({ locked: false, method: null }),
     },
-    '@/lib/users': { isOwner: () => state.user?.role === 'admin' },
+    '@/lib/users': { isOwner: () => state.user?.role === 'admin', defaultAdminName: () => 'Owner' },
     '@/lib/local-runtime': { chooseBestInstalledModel: () => null },
     '@/lib/mark-liv-bridge': {
       runMarkLiv: async (name, params) => {

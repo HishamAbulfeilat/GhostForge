@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdir, readFile, writeFile } from 'fs/promises'
@@ -96,6 +97,8 @@ function matchesDate(session: HistorySession, date: string) {
 }
 
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const searchParams = req.nextUrl.searchParams
@@ -126,6 +129,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let payload: Partial<HistorySession>
@@ -160,6 +165,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const id = req.nextUrl.searchParams.get('id')?.trim()

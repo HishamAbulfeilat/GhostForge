@@ -1,0 +1,33 @@
+{
+  // GhostForge in GitHub Codespaces, running the web UI in hosted ("friends") mode.
+  // See docs/HOSTING.md → "GitHub Codespaces". Set AUTH_SECRET and ADMIN_PASSWORD
+  // as Codespaces secrets for this repository before creating the codespace.
+  "name": "GhostForge (hosted mode)",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "containerEnv": {
+    "GHOSTFORGE_MODE": "hosted",
+    "GHOSTFORGE_DATA_DIR": "/workspaces/.ghostforge-hosted",
+    "NEXT_TELEMETRY_DISABLED": "1"
+  },
+  "secrets": {
+    "AUTH_SECRET": {
+      "description": "Session signing secret, at least 32 random characters (openssl rand -hex 32)."
+    },
+    "ADMIN_PASSWORD": {
+      "description": "Password for the GhostForge 'admin' account, at least 12 characters."
+    }
+  },
+  "postCreateCommand": "cd web-ui && npm ci --no-audit --no-fund && npm run build",
+  "postAttachCommand": "cd web-ui && npm run start:hosted:bg",
+  "forwardPorts": [3001],
+  "portsAttributes": {
+    "3001": {
+      "label": "GhostForge (hosted mode)",
+      "onAutoForward": "notify"
+    }
+  },
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "8gb"
+  }
+}

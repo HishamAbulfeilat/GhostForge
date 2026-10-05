@@ -3,7 +3,8 @@ import { generateWithFallback } from '@/lib/ai'
 import { auditLog, assessRisk } from '@/lib/audit'
 import { checkRateLimit, getClientIP } from '@/lib/ratelimit'
 import { isAuthorizedRequest, getCurrentUser, hasPermission, sessionTokenStatus, AUTH_COOKIE_NAME } from '@/lib/auth'
-import { isOwner } from '@/lib/users'
+import { defaultAdminName, isOwner } from '@/lib/users'
+import { HOSTED_UNAVAILABLE, isHostedJarvisToolAllowed, ownerEnv } from '@/lib/hosted'
 import { speakerContext, toSpeaker, type Speaker } from '@/lib/speaker'
 import { PRIVILEGED_PERMISSIONS, hasStableAuthSecret, reportUnauthorizedAccess } from '@/lib/intrusion'
 import { permissionForTool } from '@/lib/tool-permissions'
@@ -484,7 +485,7 @@ OUTPUT: valid JSON only, starting with '{':
   // it is client-controlled content and would allow prompt injection. It is
   // passed to the model as an ordinary prior assistant message instead.
   if (speaker) {
-    dynamic += speakerContext(speaker, speaker.owner ? speaker.name : (process.env.ADMIN_NAME || 'Hisham'))
+    dynamic += speakerContext(speaker, speaker.owner ? speaker.name : defaultAdminName())
   }
   if (bypassPlanning) {
     dynamic += '\nUSER SAID: just do it — skip all clarifying questions, execute immediately with best defaults (React+Tailwind, modern design).'
@@ -534,8 +535,8 @@ async function captureScreenPng(): Promise<Buffer> {
 // ── Web search (Google CSE → DuckDuckGo fallback) ────────────────────────────
 
 async function webSearch(query: string): Promise<string> {
-  const gKey = process.env.GOOGLE_SEARCH_API_KEY
-  const gCx  = process.env.GOOGLE_SEARCH_CX
+  const gKey = ownerEnv('GOOGLE_SEARCH_API_KEY')
+  const gCx  = ownerEnv('GOOGLE_SEARCH_CX')
 
   if (gKey && gCx) {
     try {
@@ -625,6 +626,9 @@ async function webSearchDeep(query: string): Promise<string> {
 // ── Tool executor ─────────────────────────────────────────────────────────────
 
 async function executeTool(tool: string, params: Record<string, string>, currentUser?: { username?: string } | null): Promise<string> {
+  // Hosted mode: only tools that call public web services; nothing touches the host or the owner's accounts
+  if (!isHostedJarvisToolAllowed(tool)) return `${tool}: ${HOSTED_UNAVAILABLE}.`
+
   // Windows/Linux host: macOS-only tools run through the matching Mark-LIV action
   if (process.platform !== 'darwin') {
     const mapped = macToolToMarkLiv(tool, params)
@@ -3653,6 +3657,7 @@ export async function POST(req: NextRequest) {
   const domain = classifyDomain(message)
 
   const modelOpts = {
+    userId: currentUser.id,
     activeProvider: selectedProvider || undefined,
     activeModel: selectedModel || undefined,
     offline: offlineMode,

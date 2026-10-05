@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { spawn } from 'child_process'
 import { MODEL_DATABASE, scoreModels, detectHardware, tryLLMFitCLI } from '@/lib/llmfit-models'
 import { chooseBestInstalledModel } from '@/lib/local-runtime'
@@ -9,6 +10,8 @@ export const dynamic = 'force-dynamic'
 // ── GET /api/llmfit — return scored model recommendations ────────────────────
 
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -62,6 +65,8 @@ export async function GET(req: NextRequest) {
 // ── POST /api/llmfit/pull — trigger ollama pull ───────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
