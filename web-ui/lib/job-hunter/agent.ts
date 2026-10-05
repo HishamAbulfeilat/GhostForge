@@ -308,7 +308,8 @@ export function isNewConfirmation(before: string, after: string): boolean {
   const re = new RegExp(CONFIRMED.source, 'gi')
   const was: string[] = before.match(re) || []
   const now = after.match(re) || []
-  return now.length > was.length || now.some(m => !was.includes(m))
+  const seen = new Set(was)
+  return now.length > was.length || now.some(m => !seen.has(m))
 }
 
 /**
@@ -417,7 +418,8 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
         const rx = new RegExp(re, 'gi')
         const was: string[] = prev.match(rx) || []
         const now = (document.body?.innerText || '').match(rx) || []
-        return now.length > was.length || now.some(m => !was.includes(m))
+        const seen = new Set(was)
+        return now.length > was.length || now.some(m => !seen.has(m))
       }, [CONFIRMED.source, before] as const, { timeout: 25_000 }).then(() => true).catch(() => false)
       if (ok) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
       // Some sites show errors instead of confirming (or confirm on a new page): loop once more to read them

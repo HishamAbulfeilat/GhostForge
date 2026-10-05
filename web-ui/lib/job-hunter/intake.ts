@@ -72,9 +72,7 @@ function splitTitle(p: Posting): Posting {
  * (rebinding) cannot reach this machine or the LAN.
  */
 export async function fetchPublic(rawUrl: string, maxBytes = 2_000_000, hops = 5): Promise<{ status: number; body: string }> {
-  const { request: httpRequest } = await import('http')
-  const { request: httpsRequest } = await import('https')
-  const { lookup } = await import('dns')
+  const [{ request: httpRequest }, { request: httpsRequest }, { lookup }] = await Promise.all([import('http'), import('https'), import('dns')])
   const guardedLookup = (host: string, options: object, cb: (err: Error | null, address?: unknown, family?: number) => void) => {
     lookup(host, { ...options, all: true }, (err, addresses) => {
       if (err) return cb(err)
