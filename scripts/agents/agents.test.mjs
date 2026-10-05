@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { routeModel, classifyTask, KIND_TIER } from './lib/models.mjs'
+import { routeModel, classifyTask, KIND_TIER, workerRoute } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
 import { Boss, describeGitError, lastJSON, pickTask, reviewDiff, shouldRestartBoss, stagePrompt } from './boss.mjs'
@@ -477,4 +477,12 @@ test('describeGitError names the failing command and is idempotent', () => {
   assert.match(msg, /ENOBUFS/)
   assert.match(msg, /maxBuffer/)
   assert.equal(describeGitError({ message: msg }, ['diff', '--stat', 'a..b'], '/repo'), msg)
+})
+
+test('workerRoute keeps Pro for deep work and sends other Claude work to free models', () => {
+  assert.deepEqual(workerRoute('claude', { tier: 'balanced' }), { env: { ANTHROPIC_CUSTOM_HEADERS: 'x-claude-switch-route: free:balanced' }, needsPro: false })
+  assert.deepEqual(workerRoute('claude', { tier: 'fast' }).env, { ANTHROPIC_CUSTOM_HEADERS: 'x-claude-switch-route: free:fast' })
+  assert.deepEqual(workerRoute('claude', { tier: 'deep' }), { env: {}, needsPro: true }, 'deep work stays on Pro and is flagged')
+  assert.deepEqual(workerRoute('copilot', { tier: 'balanced' }), { env: {}, needsPro: false }, 'only Claude workers go through claude-switch')
+  assert.deepEqual(workerRoute('claude', { tier: 'balanced' }, { workersOnFree: false }), { env: {}, needsPro: false }, 'team.json can turn it off')
 })
