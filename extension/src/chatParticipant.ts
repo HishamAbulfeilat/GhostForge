@@ -34,7 +34,8 @@ let selectedProvider = '';
 let selectedModelId  = '';
 const GF_API_BASE    = 'http://localhost:3001';
 const GF_HTTPS_BASE  = 'https://localhost:3001';
-const GF_COOKIE      = 'gf_token=';
+// GhostForge session token (sign in to the web UI and copy the gf_token cookie), never hardcoded
+const GF_COOKIE      = `gf_token=${process.env.GHOSTFORGE_TOKEN || ''}`;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -25,7 +25,8 @@ function requestJarvis(payload, timeoutMs) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
-        Cookie: `gf_token=${process.env.AUTH_SECRET || ''}`,
+        // The session token, not AUTH_SECRET: the server's signing secret must never be sent as a cookie
+        Cookie: `gf_token=${process.env.GHOSTFORGE_TOKEN || ''}`,
       },
     }, res => {
       let data = '';
