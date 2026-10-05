@@ -11,6 +11,8 @@ process.env.USERPROFILE = fakeHome
 process.env.NODE_ENV = 'test'
 delete process.env.JSEARCH_API_KEY
 delete process.env.RAPIDAPI_KEY
+// Listings older than 30 days are dropped as stale, so fixtures are dated relative to today
+const RECENT = new Date(Date.now() - 2 * 86_400_000).toISOString()
 
 // lib/*.ts use extensionless relative imports; resolve them to the .ts/.js file.
 const hooks = Module.registerHooks({
@@ -202,9 +204,9 @@ test('search → prepare → approve guards, end to end with mocked sources', as
     const host = new URL(String(url)).hostname
     const body = host === 'remotive.com'
       ? { jobs: [
-          { title: 'Senior Frontend Engineer', company_name: 'Acme', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/acme/1', salary: '', description: '<p>React TypeScript Next.js</p>', publication_date: '2026-09-01' },
-          { title: 'Frontend Developer', company_name: 'Singa', candidate_required_location: 'Singapore', url: 'https://example.com/2', salary: '', description: 'React', publication_date: '2026-09-01' },
-          { title: 'Freelance Writer', company_name: 'Words', candidate_required_location: 'Worldwide', url: 'https://example.com/3', salary: '', description: 'Blog posts', publication_date: '2026-09-01' },
+          { title: 'Senior Frontend Engineer', company_name: 'Acme', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/acme/1', salary: '', description: '<p>React TypeScript Next.js</p>', publication_date: RECENT },
+          { title: 'Frontend Developer', company_name: 'Singa', candidate_required_location: 'Singapore', url: 'https://example.com/2', salary: '', description: 'React', publication_date: RECENT },
+          { title: 'Freelance Writer', company_name: 'Words', candidate_required_location: 'Worldwide', url: 'https://example.com/3', salary: '', description: 'Blog posts', publication_date: RECENT },
         ] }
       : host === 'remoteok.com' ? [{ legal: 'notice' }]
       : host === 'www.arbeitnow.com' ? { data: [] }

@@ -71,7 +71,7 @@ function splitTitle(p: Posting): Posting {
  * connect time, so a redirect or a DNS answer that changes between checks
  * (rebinding) cannot reach this machine or the LAN.
  */
-export async function fetchPublic(rawUrl: string, maxBytes = 2_000_000, hops = 5): Promise<{ status: number; body: string }> {
+export async function fetchPublic(rawUrl: string, maxBytes = 2_000_000, hops = 5): Promise<{ status: number; body: string; url: string }> {
   const [{ request: httpRequest }, { request: httpsRequest }, { lookup }] = await Promise.all([import('http'), import('https'), import('dns')])
   const guardedLookup = (host: string, options: object, cb: (err: Error | null, address?: unknown, family?: number) => void) => {
     lookup(host, { ...options, all: true }, (err, addresses) => {
@@ -103,7 +103,7 @@ export async function fetchPublic(rawUrl: string, maxBytes = 2_000_000, hops = 5
       req.on('error', reject)
       req.end()
     })
-    if (!res.location) return { status: res.status, body: res.body }
+    if (!res.location) return { status: res.status, body: res.body, url }
     url = new URL(res.location, url).toString()
   }
   throw new Error('Too many redirects')
@@ -144,7 +144,7 @@ export async function addJobByUrl(username: string, rawUrl: string, generate: Ge
   const raw: RawJob = {
     key: `url|${url.replace(/[?#].*$/, '').toLowerCase()}`,
     source: 'Added by link', title: p.title, company, location: p.location, remote: p.remote, salary: p.salary,
-    url, applyUrl: url, ats: detectAts(url), description: p.description, postedAt: p.postedAt,
+    url, applyUrl: url, ats: detectAts(url), description: p.description, postedAt: p.postedAt, trust: 'link',
   }
   const [score] = await scoreJobs([raw], profile, generate)
   await upsertJobs(username, [{ ...raw, ...score }])

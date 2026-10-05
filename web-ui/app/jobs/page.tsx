@@ -19,6 +19,7 @@ interface SearchResult {
   matched: number
   added: number
   prepared: number
+  dropped?: { stale: number; invalid: number; scam: number; flagged: number }
   report: Array<{ source: string; count: number; error?: string }>
   linkedin: Array<{ term: string; location: string; url: string }>
 }
@@ -39,6 +40,22 @@ const STATUS_VIEW: Record<string, { label: string; style: string; cta: string }>
   needs_user: { label: 'Needs you',    style: 'bg-gf-warn-soft text-gf-warn',         cta: 'Finish application' },
   submitted:  { label: 'Applied',      style: 'bg-gf-ok-soft text-gf-ok',             cta: 'View' },
   failed:     { label: 'Failed',       style: 'bg-red-950 text-red-300',              cta: 'Retry' },
+}
+
+/** Is this listing a real, open job? (see lib/job-hunter/verify.ts) */
+const VERIFY_VIEW: Record<string, { label: string; style: string }> = {
+  verified:   { label: 'Verified',   style: 'bg-gf-ok-soft text-gf-ok' },
+  unverified: { label: 'Unverified', style: 'bg-[#1A1F2B] text-gf-muted' },
+  flagged:    { label: 'Possible scam', style: 'bg-red-950 text-red-300' },
+  closed:     { label: 'Closed',     style: 'bg-[#1A1F2B] text-gf-muted' },
+}
+
+function VerifyBadge({ job }: { job: JobRecord }) {
+  const v = VERIFY_VIEW[job.verification?.status || 'unverified']
+  return (
+    <span title={job.verification?.flags.join('\n') || 'Not checked yet: it is checked before it is prepared or applied to'}
+      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${v.style}`}>{v.label}</span>
+  )
 }
 
 const splitList = (v: string) => v.split(',').map(s => s.trim()).filter(Boolean)
@@ -69,6 +86,8 @@ export default function JobsPage() {
   const [minSalary, setMinSalary] = useState('')
   const [dealbreakers, setDealbreakers] = useState('')
   const [companies, setCompanies] = useState('')
+  const [maxAge, setMaxAge] = useState('30')
+  const [keyed, setKeyed] = useState<{ jsearch: boolean; adzuna: boolean; usajobs: boolean; reed: boolean } | null>(null)
   const [applicant, setApplicant] = useState<ApplicantData | null>(null)
   const [section, setSection] = useState<'jobs' | 'cv' | 'github'>('jobs')
   const [model, setModel] = useState<ModelChoice | null>(null)
@@ -78,11 +97,12 @@ export default function JobsPage() {
 
   const load = useCallback(async () => {
     const [j, p] = await Promise.all([
-      api<{ jobs: JobRecord[]; sources: { linkedInViaJSearch: boolean }; model: ModelChoice | null; autopilot: AutopilotSettings & { submittedToday: number }; linkedin?: { connected: boolean; connectedAt: string | null } }>('/api/jobs'),
+      api<{ jobs: JobRecord[]; sources: { linkedInViaJSearch: boolean; keyed?: { jsearch: boolean; adzuna: boolean; usajobs: boolean; reed: boolean } }; model: ModelChoice | null; autopilot: AutopilotSettings & { submittedToday: number }; linkedin?: { connected: boolean; connectedAt: string | null } }>('/api/jobs'),
       api<{ profile: ProfileView }>('/api/jobs/profile'),
     ])
     setJobs(j.jobs)
     setJsearch(j.sources.linkedInViaJSearch)
+    setKeyed(j.sources.keyed || null)
     setModel(j.model)
     setAutopilot(j.autopilot)
     if (j.linkedin) setLinkedinStatus(j.linkedin)
@@ -98,6 +118,7 @@ export default function JobsPage() {
       setMinSalary(p.preferences.minSalary ? String(p.preferences.minSalary) : '')
       setDealbreakers(p.preferences.dealbreakers.join(', '))
       setCompanies(p.preferences.companies.join(', '))
+      setMaxAge(String(p.preferences.maxAgeDays || 30))
       setApplicant(p.applicant)
     }).catch(e => setNotice({ tone: 'error', text: e.message }))
   }, [load])
@@ -113,7 +134,7 @@ export default function JobsPage() {
       preferences: {
         titles: splitList(roles), locations: splitList(places), remote,
         minSalary: minSalary ? Number(minSalary) : null,
-        dealbreakers: splitList(dealbreakers), companies: splitList(companies),
+        dealbreakers: splitList(dealbreakers), companies: splitList(companies), maxAgeDays: Number(maxAge) || 30,
         mustHaves: profile?.preferences.mustHaves || [], niceToHaves: profile?.preferences.niceToHaves || [],
       },
     }),
@@ -136,7 +157,9 @@ export default function JobsPage() {
     setLastSearch(result)
     await load()
     setTab(result.prepared ? 'waiting' : 'all')
-    setNotice({ tone: 'info', text: `Found ${result.found} jobs, ${result.matched} in your locations, ${result.added} new. ${result.prepared} prepared for your approval.` })
+    const d = result.dropped
+    const removed = d ? d.stale + d.invalid + d.scam : 0
+    setNotice({ tone: 'info', text: `Found ${result.found} jobs, ${result.matched} in your locations, ${result.added} new. ${result.prepared} prepared for your approval.${removed ? ` Removed ${removed} (old, broken link or scam).` : ''}${d?.flagged ? ` ${d.flagged} flagged as possible scams.` : ''}` })
   })
 
   const act = (action: 'prepare' | 'approve' | 'dismiss', id: string) => run(`${action}:${id}`, async () => {
@@ -282,7 +305,9 @@ export default function JobsPage() {
                 <div className="mt-3 flex flex-col gap-3">
                   <Field id="jh-salary" label="Minimum salary (yearly)" value={minSalary} onChange={setMinSalary} placeholder="e.g. 8000000" inputMode="numeric" />
                   <Field id="jh-deal" label="Dealbreakers" value={dealbreakers} onChange={setDealbreakers} placeholder="agency, crypto, relocation" />
-                  <Field id="jh-comp" label="Company boards to watch" value={companies} onChange={setCompanies} placeholder="Greenhouse or Lever slugs, e.g. stripe" />
+                  <Field id="jh-comp" label="Company boards to watch" value={companies} onChange={setCompanies} placeholder="stripe, ashby:openai, workable:acme" />
+                  <span className="-mt-2 text-xs text-gf-muted">A company&apos;s job-board name. Plain names are tried on Greenhouse, Lever, Ashby, Workable, SmartRecruiters and Recruitee.</span>
+                  <Field id="jh-age" label="Hide jobs older than (days)" value={maxAge} onChange={setMaxAge} placeholder="30" inputMode="numeric" />
                 </div>
               </details>
               <button type="button" onClick={() => void search()} disabled={busy === 'search' || !profile?.cv}
@@ -310,9 +335,14 @@ export default function JobsPage() {
             <section className="flex flex-col gap-2.5 rounded-2xl border border-gf-line bg-gf-surface p-5">
               <h2 className="font-display text-sm font-semibold">Sources</h2>
               <SourceRow name="LinkedIn · Indeed (JSearch)" state={jsearch ? 'connected' : 'add JSEARCH_API_KEY'} ok={jsearch} />
-              <SourceRow name="Remotive · RemoteOK" state="on" ok />
-              <SourceRow name="The Muse · Arbeitnow" state="on" ok />
+              <SourceRow name="Remotive · RemoteOK · We Work Remotely" state="on" ok />
+              <SourceRow name="Himalayas · Jobicy · HN Who is hiring" state="on" ok />
+              <SourceRow name="The Muse · Arbeitnow" state={remote === 'remote' ? 'off (remote only)' : 'on'} ok={remote !== 'remote'} />
+              <SourceRow name="Adzuna" state={keyed?.adzuna ? 'connected' : 'add ADZUNA_APP_ID/KEY'} ok={Boolean(keyed?.adzuna)} />
+              <SourceRow name="USAJobs" state={keyed?.usajobs ? 'connected' : 'add USAJOBS_API_KEY'} ok={Boolean(keyed?.usajobs)} />
+              <SourceRow name="Reed (UK)" state={keyed?.reed ? 'connected' : 'add REED_API_KEY'} ok={Boolean(keyed?.reed)} />
               <SourceRow name="Company boards" state={companies ? `${splitList(companies).length} watched` : 'none'} ok={Boolean(companies)} />
+              <span className="text-xs text-gf-muted">Old postings, broken links and likely scams are removed. Only verified postings are applied to by autopilot.</span>
               {lastSearch?.report.filter(r => r.error).map(r => (
                 <span key={r.source} className="text-xs text-red-300">{r.source}: {r.error}</span>
               ))}
@@ -395,6 +425,7 @@ export default function JobsPage() {
                             <span>{j.location || '—'}{j.remote ? ' · Remote' : ''}</span>
                             <span className="font-mono">{j.source}</span>
                             <span className="font-mono capitalize">{j.ats}</span>
+                            <VerifyBadge job={j} />
                           </span>
                           {j.reasons && <span className="text-sm text-slate-300">{j.reasons}</span>}
                         </button>
@@ -482,8 +513,14 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
             <span>{job.location}{job.remote ? ' · Remote' : ''}</span>
             <span className="font-mono">{job.source}</span>
             <span className="font-mono capitalize">{job.ats} form</span>
+            <VerifyBadge job={job} />
             {job.url && <a href={job.url} target="_blank" rel="noreferrer" className="text-sky-300 hover:text-sky-200">View posting ↗</a>}
           </div>
+          {job.verification && job.verification.flags.length > 0 && (
+            <ul className={`flex list-disc flex-col gap-0.5 ps-5 text-sm ${job.verification.status === 'flagged' ? 'text-red-300' : 'text-gf-muted'}`}>
+              {job.verification.flags.map(f => <li key={f}>{f}</li>)}
+            </ul>
+          )}
         </div>
         <div className="flex flex-wrap gap-3">
           <button type="button" onClick={onDismiss} className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px]">Dismiss</button>
