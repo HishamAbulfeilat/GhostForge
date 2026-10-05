@@ -69,7 +69,8 @@ Play Store (see [docs/SIGNING.md](docs/SIGNING.md)). To build locally:
 - **Google AI Studio** — List, update, test, and compare AI Studio apps
 - **AI Bridge (Mark-LV + OpenJarvis)** — One FastAPI service (`mark-l-bridge/`, `:8765`) unifying real-time Gemini Live voice, screen/webcam vision, and computer control (Mark-LV) with a local-first, Ollama-backed agent runtime (OpenJarvis, opt-in) — see `mark-l-bridge/README.md`
 - **Marketplace** — Browse, install, and track agents, skills, tools, and templates via `/marketplace`; see `marketplace/README.md`
-- **Job Hunter** — Find CV-matched jobs, tailor a CV and cover letter, and apply with one approval (`/job-hunter`, web `/jobs`, CLI `ghostforge jobs`)
+- **Job Hunter** — Find CV-matched jobs, tailor a CV and cover letter, and apply for you: an autopilot fills multi-step forms on career sites, Workday and (opt-in) LinkedIn Easy Apply, asks you only what your CV can't answer, and can fall back to computer use on a visible browser when a form gets stuck (`/job-hunter`, web `/jobs`, CLI `ghostforge jobs`; [guide](docs/JOB-HUNTER.md))
+- **Remote Access** — Pair your phone or another computer with a QR code, reach the laptop over Wi-Fi, Tailscale or a Cloudflare tunnel, and (admins, password-confirmed) view and control the laptop's screen from the phone (web `/remote`; [guide](docs/REMOTE-ACCESS.md))
 
 ### Platform
 - **Persistent Daemon** — JARVIS stays running when the window closes
