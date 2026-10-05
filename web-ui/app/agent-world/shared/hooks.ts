@@ -57,6 +57,7 @@ export function useStoredFlag(key: string, initial: boolean): [boolean, (next: b
  */
 export function useCompactions(agents: Pick<WorldAgent, 'id' | 'context'>[], holdMs = 2600): Set<string> {
   const seen = useRef(new Map<string, number>())
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>())
   const [active, setActive] = useState<Set<string>>(() => new Set())
   useEffect(() => {
     const fresh: string[] = []
@@ -68,13 +69,18 @@ export function useCompactions(agents: Pick<WorldAgent, 'id' | 'context'>[], hol
     }
     if (!fresh.length) return
     setActive(prev => new Set([...prev, ...fresh]))
-    const t = setTimeout(() => setActive(prev => {
-      const next = new Set(prev)
-      for (const id of fresh) next.delete(id)
-      return next
-    }), holdMs)
-    return () => clearTimeout(t)
+    // Not cancelled by the next snapshot: a refresh inside holdMs must not leave the animation stuck on.
+    const t = setTimeout(() => {
+      timers.current.delete(t)
+      setActive(prev => {
+        const next = new Set(prev)
+        for (const id of fresh) next.delete(id)
+        return next
+      })
+    }, holdMs)
+    timers.current.add(t)
   }, [agents, holdMs])
+  useEffect(() => () => { for (const t of timers.current) clearTimeout(t) }, [])
   return active
 }
 

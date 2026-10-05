@@ -65,11 +65,27 @@ export default function TownStage({
       frame = requestAnimationFrame(place)
       const vp = viewportRef.current
       if (!vp) return
-      for (const p of walkingRef.current) {
+      // Bottom-most bubbles first; a bubble that would overlap one already
+      // placed moves up above it, so neighbours stay readable.
+      const placed: { left: number; right: number; top: number; bottom: number }[] = []
+      const items = walkingRef.current.flatMap(p => {
         const el = bubbleRefs.current.get(p.id)
-        if (!el) continue
+        if (!el) return []
         const pt = vp.toScreen(p.x * TILE + TILE / 2, p.y * TILE + TILE / 2)
-        el.style.transform = `translate(${Math.round(pt.x)}px, ${Math.round(pt.y - 26 * vp.scale.y)}px) translate(-50%, -100%)`
+        return [{ el, x: pt.x, y: pt.y - 26 * vp.scale.y }]
+      }).sort((a, b) => b.y - a.y)
+      for (const item of items) {
+        const w = item.el.offsetWidth, h = item.el.offsetHeight
+        let bottom = item.y
+        const left = item.x - w / 2, right = item.x + w / 2
+        for (let moved = true, guard = 0; moved && guard < 20; guard++) {
+          moved = false
+          for (const r of placed) {
+            if (left < r.right && right > r.left && bottom > r.top && bottom - h < r.bottom) { bottom = r.top - 2; moved = true }
+          }
+        }
+        placed.push({ left, right, top: bottom - h, bottom })
+        item.el.style.transform = `translate(${Math.round(item.x)}px, ${Math.round(bottom)}px) translate(-50%, -100%)`
       }
     }
     frame = requestAnimationFrame(place)

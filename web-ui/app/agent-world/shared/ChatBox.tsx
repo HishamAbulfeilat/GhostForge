@@ -34,7 +34,8 @@ export default function ChatBox({
     if (selectedId && claude.some(a => a.id === selectedId)) setTarget(selectedId)
   }, [selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const current = claude.find(a => a.id === target) ?? (target ? undefined : claude[0])
+  // Falls back to the first session when the chosen one has left the snapshot.
+  const current = claude.find(a => a.id === target) ?? claude[0]
   const lines = current ? log[current.id] ?? [] : []
 
   useEffect(() => {

@@ -30,7 +30,7 @@ const NAV_ITEMS = [
 const FULLSCREEN_ROUTES = ['/terminal', '/login', '/chat', '/jarvis', '/setup']
 
 export function Navbar() {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
   const { user } = useAccess()
   if (FULLSCREEN_ROUTES.some(r => pathname.startsWith(r))) return null
   // Only show pages the signed-in user's title (or admin role) grants
