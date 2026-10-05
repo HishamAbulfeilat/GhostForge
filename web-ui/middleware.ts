@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isValidAuthToken, AUTH_COOKIE } from '@/lib/auth-edge'
-import { isBlockedPage } from '@/lib/hosted'
+import { HOSTED_UNAVAILABLE, isBlockedApi, isBlockedPage } from '@/lib/hosted'
 
 const AUTH_COOKIE_NAME = AUTH_COOKIE
 
 // Page routes that require authentication. Every top-level app/ section except
 // the public '/' and '/login' must be listed here (and in config.matcher below);
 // test/api-route-auth.test.js fails when a new section is left unprotected.
-// /api/* is NOT covered here — each API route handler guards itself in-route.
+// /api/* is NOT covered by the login redirect — each API route handler
+// authenticates in-route. '/api' is listed only so the matcher runs the hosted
+// allowlist check on every API request (handled first, below).
+const API_PREFIX = '/api'
 const PROTECTED_PREFIXES = [
+  '/api',
   '/chat',
   '/dashboard',
   '/terminal',
@@ -51,8 +55,13 @@ const PROTECTED_PREFIXES = [
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
+  // Hosted mode: only allowlisted API routes are reachable (fail closed)
+  if (isBlockedApi(pathname, req.method)) {
+    return NextResponse.json({ error: HOSTED_UNAVAILABLE, hosted: true }, { status: 403 })
+  }
+
   // Exact-or-subpath match to avoid /chat → /chatbot false positive
-  if (!PROTECTED_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))) {
+  if (!PROTECTED_PREFIXES.some(p => p !== API_PREFIX && (pathname === p || pathname.startsWith(p + '/')))) {
     return NextResponse.next()
   }
 
@@ -80,6 +89,7 @@ export async function middleware(req: NextRequest) {
 // Next.js requires a static literal here; keep it in sync with PROTECTED_PREFIXES.
 export const config = {
   matcher: [
+    '/api/:path*',
     '/chat/:path*',
     '/dashboard/:path*',
     '/terminal/:path*',

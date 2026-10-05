@@ -6,8 +6,9 @@
  * owner's AI keys. When the web UI is hosted for other people, none of that
  * may be reachable. This module is the single place that says what is off:
  *
- *   - API routes that act on the host machine or the owner's accounts
- *     (blocked in middleware AND by hostedGuard() inside the routes)
+ *   - every API route that is not on the hosted ALLOWLIST (server.js and
+ *     middleware answer 403; blocked routes also call hostedGuard() first),
+ *     so a new route is off until someone decides it is safe for friends
  *   - permissions that unlock those capabilities (hasPermission() denies them,
  *     even for admins)
  *   - pages for those features (hidden in the navbar, redirected in middleware)
@@ -17,7 +18,7 @@
  * Edge-safe and dependency-free: middleware, server code and plain Node tests
  * all import it.
  */
-// Shared with server.js (plain CommonJS), hence JSON: lists what hosted mode switches off
+// Shared with server.js (plain CommonJS), hence JSON
 import policy from './hosted-policy.json' with { type: 'json' }
 
 export const HOSTED_UNAVAILABLE = 'Not available on the hosted version'
@@ -26,14 +27,16 @@ export function isHostedMode(env: Record<string, string | undefined> = process.e
   return (env.GHOSTFORGE_MODE || '').trim().toLowerCase() === 'hosted'
 }
 
-interface BlockedRoute {
-  prefix: string
-  /** Only these methods are blocked; omitted = every method */
+interface AllowedRoute {
+  path: string
+  /** Match only this path, not its sub-paths */
+  exact?: boolean
+  /** Only these methods are allowed; omitted = every method */
   methods?: string[]
 }
 
-/** API surface that is off in hosted mode (prefix match on a path-segment boundary) */
-export const HOSTED_BLOCKED_API: readonly BlockedRoute[] = policy.blockedApi
+/** The only API routes reachable in hosted mode — everything else under /api is 403 */
+export const HOSTED_ALLOWED_API: readonly AllowedRoute[] = policy.allowedApi
 
 /** Pages for the blocked features (hidden in the UI, redirected in middleware) */
 export const HOSTED_BLOCKED_PAGES: readonly string[] = policy.blockedPages
@@ -51,11 +54,37 @@ function matchesPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(prefix + '/')
 }
 
-/** Is this API request blocked in hosted mode? (Pure: pass `hosted` to test.) */
+/**
+ * Canonical form of a request path for policy checks: percent-decoded,
+ * repeated and trailing slashes collapsed. Null when it can't be decoded
+ * (treated as blocked).
+ */
+export function normalizeApiPath(pathname: string): string | null {
+  let p: string
+  try { p = decodeURIComponent(pathname) } catch { return null }
+  if (p.includes('\\') || p.includes('\0')) return null
+  return p.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/'
+}
+
+/** Is this API request on the hosted allowlist? */
+export function isAllowedApi(pathname: string, method = 'GET'): boolean {
+  const p = normalizeApiPath(pathname)
+  if (!p) return false
+  const m = method.toUpperCase()
+  return HOSTED_ALLOWED_API.some(r =>
+    (r.exact ? p === r.path : matchesPrefix(p, r.path)) && (!r.methods || r.methods.includes(m)))
+}
+
+/**
+ * Is this API request blocked in hosted mode? Any /api path that is not
+ * explicitly allowed is blocked (fail closed). (Pure: pass `hosted` to test.)
+ */
 export function isBlockedApi(pathname: string, method = 'GET', hosted = isHostedMode()): boolean {
   if (!hosted) return false
-  const m = method.toUpperCase()
-  return HOSTED_BLOCKED_API.some(r => matchesPrefix(pathname, r.prefix) && (!r.methods || r.methods.includes(m)))
+  const p = normalizeApiPath(pathname)
+  if (!p) return true
+  if (!matchesPrefix(p.toLowerCase(), '/api')) return false
+  return !isAllowedApi(p, method)
 }
 
 export function isBlockedPage(pathname: string, hosted = isHostedMode()): boolean {
@@ -99,7 +128,7 @@ export function ownerEnv(name: string): string | undefined {
 }
 
 /** Env vars hosted mode needs to keep; everything else that looks like a secret is dropped */
-const KEEP_ENV = new Set(['AUTH_SECRET', 'ADMIN_PASSWORD'])
+const KEEP_ENV = new Set(['AUTH_SECRET', 'ADMIN_PASSWORD', 'GF_CLIENT_IP_TOKEN'])
 const SECRET_ENV = /(^|_)(API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASS|PIN|CREDENTIALS?|WEBHOOK_URL|COOKIE|SESSION)$/i
 
 /** Is this env var an owner/integration secret that hosted mode must not keep? */
@@ -147,31 +176,4 @@ export function assertHostedConfig(env: Record<string, string | undefined> = pro
   if (problems.length) {
     throw new Error(`[hosted] GhostForge will not start in hosted mode:\n  - ${problems.join('\n  - ')}`)
   }
-}
-
-/**
- * Is a URL safe for the server to call on a friend's behalf? Hosted mode
- * refuses plain http and loopback / private / link-local hosts, so a custom
- * model URL can't reach services on the host (Ollama, the bridge, metadata).
- * Literal-address check only; DNS that resolves to a private address is not
- * caught here.
- */
-export function isPublicHttpsUrl(raw: string): boolean {
-  let url: URL
-  try { url = new URL(raw) } catch { return false }
-  if (url.protocol !== 'https:') return false
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false
-  if (host === '::1' || host === '::' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80') || host.startsWith('::ffff:')) return false
-  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])]
-    if (a === 0 || a === 10 || a === 127 || a >= 224) return false
-    if (a === 169 && b === 254) return false
-    if (a === 172 && b >= 16 && b <= 31) return false
-    if (a === 192 && b === 168) return false
-    if (a === 100 && b >= 64 && b <= 127) return false // CGNAT / Tailscale
-  }
-  if (/^\d+$/.test(host)) return false // decimal-encoded IPv4
-  return true
 }

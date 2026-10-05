@@ -196,9 +196,14 @@ test('the audit catches a handler whose only guard is nested in a branch', () =>
   }
 })
 
-test('/api is not middleware-protected, so in-route guards remain mandatory', () => {
+test('/api is not login-protected by middleware, so in-route guards remain mandatory', () => {
   const mw = fs.readFileSync(path.join(webRoot, 'middleware.ts'), 'utf8')
-  assert.doesNotMatch(mw, /'\/api'|'\/api\/:path\*'/)
+  // The matcher runs on /api only for the hosted-mode allowlist (403 when
+  // hosted); the login redirect explicitly skips it.
+  assert.match(mw, /const API_PREFIX = '\/api'/)
+  assert.match(mw, /PROTECTED_PREFIXES\.some\(p => p !== API_PREFIX && /)
+  const apiBranch = mw.slice(mw.indexOf('export async function middleware'), mw.indexOf('// Exact-or-subpath match'))
+  assert.doesNotMatch(apiBranch, /redirect|isValidAuthToken/, 'nothing but the hosted check may run before the login check')
 })
 
 test('every app page section is covered by middleware PROTECTED_PREFIXES and matcher', () => {

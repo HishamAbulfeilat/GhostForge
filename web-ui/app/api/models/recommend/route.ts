@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { isAuthorizedRequest } from '@/lib/auth'
 import { LOCAL_MODELS, getLLMFitLabel, getLLMFitWeight, type LocalModel, type RunnerId } from '@/lib/local-models'
 import { detectHardware } from '@/lib/llmfit-models'
@@ -37,6 +38,8 @@ function pickRecommendation(models: LocalModel[], availableGB: number) {
 }
 
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
