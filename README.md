@@ -60,6 +60,7 @@ Play Store (see [docs/SIGNING.md](docs/SIGNING.md)). To build locally:
 - **Autopilot Mode** — `/autopilot` runs commands end to end without pausing to ask
 - **Clicky Vision** — AI sees your screen and points at what it means (`/clicky`)
 - **Autonomous Agent Team** — A supervisor boss assigns board tasks, reviews commits, and merges approved work ([guide](docs/AGENT-TEAMS.md))
+- **Agent World** — `/agent-world`: your Claude Code and Copilot CLI sessions plus the agent team as a live dashboard, a16z AI Town and Agent Office pixel worlds, needs-you alerts, a chat box that messages a session, context-window tracking and minimaps ([guide](docs/AGENT-WORLD.md)). Also runs standalone as the external Agent World app with the same code
 
 ### Integrations
 - **n8n Workflows** — Visual workflow automation, with shipped agent, deploy, and PR workflows

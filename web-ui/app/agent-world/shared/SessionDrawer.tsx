@@ -2,12 +2,14 @@
 
 import { useEffect } from 'react'
 import { useCliSessionDetail } from './api'
+import ContextMeter from './ContextMeter'
 import { activity, ago, compact, duration, healthLabel, isClaude, modelShort, project, providerLabel, usd } from './format'
 import type { SessionDetail, SessionEvent } from './types'
 import { Bars, Spark } from './charts'
+import RawJson from './RawJson'
 
 const EVENT_TONE: Record<SessionEvent['type'], string> = {
-  tool: 'text-gf-muted', subagent: 'text-gf-violet', prompt: 'text-gf-ink', error: 'text-gf-danger', request: 'text-gf-muted',
+  tool: 'text-gf-muted', subagent: 'text-gf-violet', prompt: 'text-gf-ink', error: 'text-gf-danger', request: 'text-gf-muted', compaction: 'text-gf-warn',
 }
 
 function Field({ label, value, mono }: { label: string; value?: React.ReactNode; mono?: boolean }) {
@@ -64,8 +66,21 @@ function Usage({ d }: { d: SessionDetail }) {
   )
 }
 
-export default function SessionDrawer({ id, heartbeat, onClose }: { id?: string; heartbeat?: string; onClose: () => void }) {
-  const { detail: d, error } = useCliSessionDetail(id, heartbeat)
+/**
+ * Details for one CLI session. `detailUrl` builds the app's detail endpoint;
+ * the raw JSON panel shows that response exactly as returned.
+ */
+export default function SessionDrawer({
+  id, heartbeat, onClose, detailUrl, compacting = false,
+}: {
+  id?: string
+  heartbeat?: string
+  onClose: () => void
+  detailUrl: (id: string) => string
+  compacting?: boolean
+}) {
+  const url = id ? detailUrl(id) : undefined
+  const { detail: d, error } = useCliSessionDetail(url, id, heartbeat)
 
   useEffect(() => {
     if (!id) return
@@ -88,7 +103,7 @@ export default function SessionDrawer({ id, heartbeat, onClose }: { id?: string;
             {d ? (
               <>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className={`rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold ${isClaude(d.provider) ? 'bg-orange-950 text-orange-300' : 'bg-gf-violet-soft text-gf-violet'}`}>{providerLabel(d.provider)}</span>
+                  <span className={`rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold ${isClaude(d.provider) ? 'bg-orange-500/15 text-orange-500' : 'bg-gf-violet-soft text-gf-violet'}`}>{providerLabel(d.provider)}</span>
                   <span className="font-mono text-xs">{modelShort(d.model)}</span>
                   <StatusPill status={d.status} health={d.health} />
                 </div>
@@ -116,6 +131,10 @@ export default function SessionDrawer({ id, heartbeat, onClose }: { id?: string;
 
             <Section title="Activity · last 2 hours">
               <Spark values={d.timeline} className="h-12 w-full" label="session activity, 5-minute buckets" />
+            </Section>
+
+            <Section title="Context window">
+              <ContextMeter context={d.context} compacting={compacting} size="md" />
             </Section>
 
             <Section title="Usage"><Usage d={d} /></Section>
@@ -167,6 +186,8 @@ export default function SessionDrawer({ id, heartbeat, onClose }: { id?: string;
               ) : <p className="text-xs text-gf-muted">No events recorded.</p>}
               <p className="mt-3 text-[11px] text-gf-muted">Metadata only: tool names and counts, never prompts, arguments or output.</p>
             </Section>
+
+            <RawJson value={d} source={url ?? ''} />
           </div>
         )}
       </aside>

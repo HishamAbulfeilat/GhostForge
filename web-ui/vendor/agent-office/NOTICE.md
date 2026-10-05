@@ -32,3 +32,10 @@ Local deviations from upstream `Game.ts` (everything else is verbatim):
   current task every 5s (`THOUGHT_REFRESH_MS`), so it now stays visible.
 
 See `/THIRD_PARTY_NOTICES.md` for the character sprite credits.
+
+Agent World additions to the GhostForge-owned `src/snapshot-room.ts` (no upstream
+file changed): `SnapshotOffice.send(type, message)` delivers the room messages the
+scene already handles (`chat`, `highlight-event`, `scenario-event`,
+`relationship-update`), as the Colyseus server would. The snapshot no longer
+emits `highlight-event` on every task change; the host sends it when a session
+newly needs the user, so cinematic camera follow is meaningful.

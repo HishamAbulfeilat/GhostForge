@@ -24,6 +24,7 @@ export const Player = ({
       isMoving={player.isMoving ?? false}
       isThinking={player.isThinking}
       isSpeaking={player.isSpeaking}
+      emoji={player.emoji ?? ''}
       isViewer={isViewer}
       textureUrl={character.textureUrl}
       spritesheetData={character.spritesheetData}

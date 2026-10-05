@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { mapheight, mapwidth, objmap } from '../../../vendor/ai-town/data/gentle.js'
-import type { AgentTownCharacter } from '../../../vendor/ai-town/src/types'
+import { mapheight, mapwidth, objmap } from '../../../../vendor/ai-town/data/gentle.js'
+import type { AgentTownCharacter } from '../../../../vendor/ai-town/src/types'
 
 // Upstream AI Town treats any object tile as an obstacle; use the same rule.
 const blocked = (x: number, y: number) =>
@@ -49,12 +49,16 @@ function pickTarget(w: Walker): [number, number] {
  * Animates the adapter's static characters: working ones stroll around their
  * slot one tile at a time (never through obstacles); everyone else stands at
  * their slot facing down. Returns the characters with live pose fields.
+ * With `still` (prefers-reduced-motion) nobody walks: characters jump to
+ * their slot and stand.
  */
-export function useWalkers(players: AgentTownCharacter[]): AgentTownCharacter[] {
+export function useWalkers(players: AgentTownCharacter[], still = false): AgentTownCharacter[] {
   const walkers = useRef(new Map<string, Walker>())
   const [, setFrame] = useState(0)
   const playersRef = useRef(players)
   playersRef.current = players
+  const stillRef = useRef(still)
+  stillRef.current = still
 
   useEffect(() => {
     const map = walkers.current
@@ -75,6 +79,14 @@ export function useWalkers(players: AgentTownCharacter[]): AgentTownCharacter[] 
       for (const p of playersRef.current) {
         const w = walkers.current.get(p.id)
         if (!w) continue
+        if (stillRef.current) {
+          if (w.x !== w.homeX || w.y !== w.homeY || w.moving || w.orientation !== DOWN) {
+            w.x = w.homeX; w.y = w.homeY; w.hopX = w.hopY = undefined
+            w.targetX = w.homeX; w.targetY = w.homeY; w.moving = false; w.orientation = DOWN
+            changed = true
+          }
+          continue
+        }
         const wandering = p.isThinking
         if (!wandering && w.hopX === undefined && w.x === w.homeX && w.y === w.homeY) {
           if (w.moving) { w.moving = false; changed = true }

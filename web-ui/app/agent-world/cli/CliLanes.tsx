@@ -1,7 +1,7 @@
 'use client'
 
-import { activity, ago, isClaude, modelShort, providerLabel, project, usd } from './format'
-import type { Session, World } from './types'
+import { activity, ago, isClaude, modelShort, providerLabel, project, usd } from '../shared/format'
+import type { Session, World } from '../shared/types'
 
 /** Working → FORGING, waiting on you → QUENCH · REVIEW, trouble → BLOCKED,
  *  finished in the last 12 hours → ARMORY · DONE. */
