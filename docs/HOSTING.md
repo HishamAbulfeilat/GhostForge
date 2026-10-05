@@ -31,26 +31,35 @@ GHOSTFORGE_MODE=hosted
 | Email, calendar, contacts, iMessage/Slack/Teams/WhatsApp, GitHub token and Copilot, webhooks, push | **Off** |
 | Model install, local models (Ollama, llama.cpp, LLMfit), OmniRoute gateway | **Off** (they would use the host's resources and the owner's gateway keys) |
 | Marketplace | Browse **on**; install/remove **off** (shared state). Install commands are only copied, never run |
-| JARVIS history and vault (stored server-wide, so one friend would see another's) | **Off** |
-| Job Hunter | Search, tailoring and add-by-link **on**; auto-apply, autopilot and LinkedIn sign-in **off** (they drive a browser on the host); the server's JSearch key is ignored |
+| JARVIS history, vault and audit log, morning/proactive briefings (stored server-wide, so one friend would see another's), model recommendations (they inspect the host) | **Off** |
+| Any API route not on the allowlist, **including routes added later** | **Off** until someone adds it to `allowedApi` |
+| Job Hunter | Search and tailoring **on**; add-by-link **fetch-only** (LinkedIn links refused, no browser fallback); auto-apply, autopilot and LinkedIn sign-in **off** (they drive a browser on the host); the server's JSearch/Adzuna/USAJobs/Reed keys are ignored |
 | JARVIS chat | **On**, with web-only tools: time, weather and web search. Every other tool answers "Not available on the hosted version" |
 | Chat, Settings → AI Models, Users, Setup, Jobs, Snippets, Media, Marketplace browse, Agent World page | **On** |
 
 How it is enforced (server-side, not only in the UI):
 
-1. **`server.js`** answers 403 for blocked API routes before Next sees them,
+1. **An allowlist, not a denylist.** Only the API routes listed in
+   `allowedApi` (`web-ui/lib/hosted-policy.json`) answer when hosted. Any other
+   `/api` path, including one added next month, gets 403 from `server.js`
+   and from middleware. A new route stays off until someone decides it is
+   safe for friends.
+2. **`server.js`** answers 403 for non-allowlisted API routes before Next sees them,
    refuses terminal WebSocket upgrades, skips OmniRoute/voice autostart and
    mkcert, and listens on plain HTTP. TLS is the tunnel's or platform's job.
-2. **Every blocked route handler** calls `hostedGuard()` first
+3. **Every blocked route handler** calls `hostedGuard()` first
    (`web-ui/lib/hosted.ts`). That keeps the routes safe under `next start` or
    any host without `server.js`.
-3. **`hasPermission()`** denies host permissions (terminal, files, mac_control,
+4. **`hasPermission()`** denies host permissions (terminal, files, mac_control,
    remote, email, github…) to everyone, **admins included**.
-4. **Middleware** redirects the blocked pages to `/jarvis`, and the navbar hides them.
-5. **JARVIS `executeTool()`** refuses any tool outside the web-only allow-list.
+5. **Middleware** answers 403 for non-allowlisted API routes (covering `next
+   start` without `server.js`), redirects the blocked pages to `/jarvis`, and
+   the navbar hides them.
+6. **JARVIS `executeTool()`** refuses any tool outside the web-only allow-list.
 
 The lists live in one file, `web-ui/lib/hosted-policy.json`.
-`web-ui/test/hosted-mode.test.js` fails if a blocked route loses its guard.
+`web-ui/test/hosted-mode.test.js` walks `app/api` and fails unless every route
+is either allowlisted or calls the guard first.
 
 ### No keys, no owner accounts
 
@@ -67,10 +76,15 @@ The lists live in one file, `web-ui/lib/hosted-policy.json`.
 - **No key?** JARVIS and Chat fall back to keyless free models (Pollinations).
   Free keys are worth adding: OpenRouter `:free` models, Gemini (AI Studio),
   Groq and Cerebras all have free tiers.
-- **Custom models** must use a public `https://` URL. Loopback, private,
-  link-local and Tailscale addresses are refused, so nobody can reach Ollama,
-  the bridge or cloud metadata through them. (DNS names that resolve to
-  private IPs are not caught.)
+- **Custom models** must use a public `https://` URL, so nobody can reach
+  Ollama, the bridge or cloud metadata through them. Loopback, private,
+  link-local and Tailscale addresses are refused, both as literals and when a
+  DNS name resolves to them. Every call re-checks DNS at connect time, so DNS
+  rebinding fails too, and redirects are never followed. Upstream error
+  bodies are not passed back to the user.
+- **No host services:** semantic memory skips the host's Ollama embeddings
+  (keyword matching instead), and JARVIS research search uses the public
+  search instead of the local Vane server.
 - **Data isolation:** `server.js` points `HOME` at `GHOSTFORGE_DATA_DIR`
   (default `web-ui/.hosted-data`, `/data` in Docker). The real
   `~/.ghostforge` of the machine (your memory, CV, jobs, keys) is never read.
@@ -92,8 +106,17 @@ The lists live in one file, `web-ui/lib/hosted-policy.json`.
 - The legacy shared **PIN login is disabled**, and `ACCESS_PIN` is ignored.
 - The admin account defaults to username `admin` and name `Admin`, not the
   owner's name (`ADMIN_USERNAME` / `ADMIN_NAME` override this).
-- Failed logins are rate-limited per IP. They **never lock the host PC**, which
+- Failed logins are limited **per IP** (5 in 10 minutes) and **per username**
+  (10 in 10 minutes, whatever the IP). They **never lock the host PC**, which
   the local build does.
+- The client IP used for those limits is the TCP peer, stamped by `server.js`.
+  Headers sent by the client (`X-Forwarded-For`, `X-Real-IP`) are ignored.
+  Behind a tunnel on the same machine every request comes from `127.0.0.1`,
+  so tell the server which proxy header to trust:
+  `GHOSTFORGE_TRUST_PROXY=cloudflare` (cloudflared, uses `CF-Connecting-IP`)
+  or `GHOSTFORGE_TRUST_PROXY=xff` (rightmost `X-Forwarded-For`). The header is
+  trusted only when the connection comes from the proxy: loopback, or an
+  address listed in `GHOSTFORGE_TRUSTED_PROXIES`.
 - Add a second gate in front of the app (Cloudflare Access, Tailscale,
   Codespaces org visibility). App passwords alone are fine, but two locks are
   better than one.
@@ -200,7 +223,12 @@ domain whose DNS is on Cloudflare.
 2. **Tunnel**: Cloudflare dashboard → Zero Trust → Networks → Tunnels →
    *Create a tunnel* → run the `cloudflared` command it shows on the same
    machine. Add a public hostname such as `ghostforge.example.com` →
-   `http://localhost:3001`.
+   `http://localhost:3001`. So that login rate limits see real client IPs,
+   add `-e GHOSTFORGE_TRUST_PROXY=cloudflare -e GHOSTFORGE_TRUSTED_PROXIES=172.17.0.1`
+   to the `docker run` in step 1. Inside the container, cloudflared's
+   connections arrive from the Docker bridge gateway, usually `172.17.0.1`
+   (check with `docker network inspect bridge`). If you skip this, every
+   friend shares one per-IP bucket, but per-username limits still apply.
 
 3. **Access (friends-only)**: Zero Trust → Access → Applications → *Add
    application* → *Self-hosted* → domain `ghostforge.example.com`. Add a policy
@@ -301,6 +329,16 @@ node scripts/hosted-user.mjs bob                # or type a password yourself
 Missing accounts are created at startup with the default (non-admin)
 permissions. Accounts that already exist are left alone.
 
+**Revoking a friend:**
+- On a persistent host, delete them on the Users page. GhostForge remembers
+  which `GHOSTFORGE_FRIENDS` accounts it has created, so a deleted friend is
+  not re-created at the next restart, even if they are still listed.
+- On a host that wipes its disk (Render, Koyeb, Spaces), that memory is
+  wiped too. **There, removing someone from `GHOSTFORGE_FRIENDS` (and
+  redeploying) is how you revoke them.**
+- Deleting an account also deletes its saved AI keys. A new account with the
+  same username gets a fresh random id and inherits nothing.
+
 **Also add each friend's email to the Cloudflare Access policy** (or share the
 Tailscale node with them) if you use the recommended setup.
 
@@ -317,6 +355,8 @@ Gemini, Groq…). Without one, JARVIS and Chat use the free keyless models.
 | `ADMIN_USERNAME` / `ADMIN_NAME` | no | Default `admin` / `Admin` |
 | `GHOSTFORGE_FRIENDS` | no | `user:salt:hash,…` friend accounts (§5) |
 | `GHOSTFORGE_DATA_DIR` | no | State directory (default `web-ui/.hosted-data`; `/data` in Docker) |
+| `GHOSTFORGE_TRUST_PROXY` | no | `cloudflare` or `xff`: trust that proxy header for the client IP (§1) |
+| `GHOSTFORGE_TRUSTED_PROXIES` | no | Extra proxy addresses besides loopback, e.g. `172.17.0.1` for Docker |
 | `HOST` / `PORT` | no | Listen address/port (default `0.0.0.0:3001`; use `127.0.0.1` behind a local tunnel) |
 
 Template: `web-ui/.env.hosted.example`. **Do not** set AI or integration keys:
