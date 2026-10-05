@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 
 export const AGENT_WORLD_VIEWS = [
+  { id: 'cli', label: 'CLI Sessions' },
   { id: 'forge', label: 'Forge World' },
   { id: 'town', label: 'Agent Town' },
   { id: 'office', label: 'Agent Office' },
