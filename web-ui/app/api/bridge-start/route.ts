@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'child_process'
+import { hostedGuard } from '@/lib/hosted'
 import { NextRequest, NextResponse } from 'next/server'
 import { bridgeArgv, resolveBridgeLauncher } from '@/lib/bridge-launcher'
 import { isAuthorizedRequest } from '@/lib/auth'
@@ -26,6 +27,8 @@ export const maxDuration = 60
  * /api/bridge-status to confirm the bridge state changed.
  */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

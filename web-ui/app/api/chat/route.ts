@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { getCurrentUser, isAuthorizedRequest } from '@/lib/auth'
 import { generateWithFallback, GHOSTFORGE_SYSTEM } from '@/lib/ai'
 import type { ModelMessage } from 'ai'
 
@@ -22,6 +22,8 @@ export async function POST(req: NextRequest) {
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const user = await getCurrentUser(req)
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const body = (await req.json()) as { messages?: unknown }
     const messages = toModelMessages(body.messages).slice(-10)
@@ -29,7 +31,7 @@ export async function POST(req: NextRequest) {
       system: GHOSTFORGE_SYSTEM,
       messages,
       maxTokens: 800,
-    })
+    }, { userId: user.id })
     // Strip thinking tokens from thinking models (qwen3:14b, deepseek-r1)
     const reply = text
       .replace(/<think>[\s\S]*?<\/think>/gi, '')

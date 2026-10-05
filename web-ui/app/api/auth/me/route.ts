@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser, isAdmin } from '@/lib/auth'
+import { getCurrentUser, hasPermission, isAdmin } from '@/lib/auth'
+import { HOSTED_BLOCKED_PAGES, isHostedMode } from '@/lib/hosted'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,7 +13,8 @@ export async function GET(req: NextRequest) {
       name: user.name,
       username: user.username,
       role: user.role,
-      permissions: user.permissions,
+      // Hosted mode drops host / owner-account permissions (hasPermission denies them)
+      permissions: user.permissions.filter(p => p === '*' || hasPermission(user, p)),
       active: user.active,
       createdAt: user.createdAt,
       jobTitle: user.jobTitle,
@@ -20,5 +22,8 @@ export async function GET(req: NextRequest) {
       setupComplete: Boolean(user.setupComplete),
     },
     isAdmin: isAdmin(user),
+    hosted: isHostedMode(),
+    // Pages the UI hides on the hosted version (middleware redirects them too)
+    blockedPages: isHostedMode() ? HOSTED_BLOCKED_PAGES : [],
   })
 }

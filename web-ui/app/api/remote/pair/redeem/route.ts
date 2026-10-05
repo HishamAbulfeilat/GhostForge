@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { auditLog } from '@/lib/audit'
 import { AUTH_COOKIE_NAME, createSessionToken } from '@/lib/auth'
 import { getClientIP } from '@/lib/ratelimit'
@@ -36,6 +37,8 @@ function sameOrigin(req: NextRequest): boolean {
  * Signs the device in with a revocable device session and continues to /jarvis.
  */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const ip = getClientIP(req)
   const now = Date.now()
   const f = failures.get(ip)

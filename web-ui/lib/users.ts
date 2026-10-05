@@ -9,6 +9,8 @@ import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'crypto'
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
+import { isHostedMode } from './hosted'
+import { DEFAULT_USER_PERMISSIONS } from './permissions'
 
 export type Role = 'admin' | 'user'
 
@@ -48,6 +50,16 @@ const USERS_FILE = join(homedir(), '.ghostforge', 'users.json')
 const DEFAULT_ADMIN_USERNAME = 'hisham'
 const DEFAULT_ADMIN_NAME = 'Hisham'
 
+/** Hosted mode never falls back to the owner's personal name */
+function defaultAdminUsername(): string {
+  return isHostedMode() ? 'admin' : DEFAULT_ADMIN_USERNAME
+}
+
+/** Display name for the owner account (ADMIN_NAME, else a neutral default when hosted) */
+export function defaultAdminName(): string {
+  return process.env.ADMIN_NAME || (isHostedMode() ? 'Admin' : DEFAULT_ADMIN_NAME)
+}
+
 // ── password hashing (scrypt) ──────────────────────────────────────────────
 
 export function hashPassword(password: string): string {
@@ -70,7 +82,7 @@ export function verifyPassword(password: string, stored: string): boolean {
  * access. Other admins keep full tool access but cannot edit users.
  */
 export function ownerUsername(): string {
-  return (process.env.ADMIN_USERNAME || DEFAULT_ADMIN_USERNAME).toLowerCase()
+  return (process.env.ADMIN_USERNAME || defaultAdminUsername()).toLowerCase()
 }
 
 export function isOwner(user?: Pick<GhostUser, 'username' | 'role'> | null): boolean {
@@ -133,10 +145,15 @@ async function writeUsers(users: GhostUser[]): Promise<void> {
  */
 export async function ensureUserStore(): Promise<GhostUser[]> {
   const users = await readUsers()
-  if (users.some(u => u.role === 'admin')) return users
+  if (users.some(u => u.role === 'admin')) return seedHostedFriends(users)
 
-  const username = (process.env.ADMIN_USERNAME || DEFAULT_ADMIN_USERNAME).toLowerCase()
-  const envPassword = process.env.ADMIN_PASSWORD || process.env.ACCESS_PIN
+  const username = ownerUsername()
+  // Hosted mode fails closed: only an explicit ADMIN_PASSWORD seeds the admin
+  // (no shared ACCESS_PIN, no generated password printed to a host's logs).
+  const envPassword = isHostedMode() ? process.env.ADMIN_PASSWORD : (process.env.ADMIN_PASSWORD || process.env.ACCESS_PIN)
+  if (isHostedMode() && !envPassword) {
+    throw new Error('[hosted] ADMIN_PASSWORD must be set to create the admin account')
+  }
   let password: string
   if (!envPassword) {
     const generated = randomBytes(12).toString('base64url')
@@ -146,7 +163,7 @@ export async function ensureUserStore(): Promise<GhostUser[]> {
   } else {
     password = envPassword
   }
-  const name = process.env.ADMIN_NAME || DEFAULT_ADMIN_NAME
+  const name = defaultAdminName()
   const admin: GhostUser = {
     id: userIdFor(username),
     name,
@@ -159,7 +176,48 @@ export async function ensureUserStore(): Promise<GhostUser[]> {
   }
   users.push(admin)
   await writeUsers(users)
-  return users
+  return seedHostedFriends(users)
+}
+
+/**
+ * Hosted mode on a host with an ephemeral disk (Render, Koyeb, HF Spaces…):
+ * friend accounts can come from GHOSTFORGE_FRIENDS, so they survive restarts.
+ * Format: "alice:<salt>:<hash>,bob:<salt>:<hash>" — password hashes only,
+ * made with `node scripts/hosted-user.mjs <username>`. Missing accounts are
+ * added once per value of the variable; existing ones (and their changes) are left alone.
+ */
+let _friendsSeededFrom: string | undefined
+export function parseHostedFriends(raw: string | undefined): Array<{ username: string; passwordHash: string }> {
+  return String(raw || '')
+    .split(/[,\n]/)
+    .map(entry => entry.trim())
+    .filter(Boolean)
+    .map(entry => {
+      const [username, salt, hash] = entry.split(':')
+      return { username: (username || '').toLowerCase(), passwordHash: `${salt}:${hash}` }
+    })
+    .filter(f => /^[a-z0-9][a-z0-9._-]{1,31}$/.test(f.username) && /^[0-9a-f]{32}:[0-9a-f]{128}$/.test(f.passwordHash))
+}
+
+async function seedHostedFriends(users: GhostUser[]): Promise<GhostUser[]> {
+  const raw = process.env.GHOSTFORGE_FRIENDS || ''
+  if (!isHostedMode() || !raw || raw === _friendsSeededFrom) return users
+  _friendsSeededFrom = raw
+  const missing = parseHostedFriends(raw).filter(f => !users.some(u => u.username === f.username))
+  if (!missing.length) return users
+  const now = new Date().toISOString()
+  const next = [...users, ...missing.map(f => ({
+    id: userIdFor(f.username),
+    name: f.username,
+    username: f.username,
+    role: 'user' as const,
+    passwordHash: f.passwordHash,
+    permissions: [...new Set(DEFAULT_USER_PERMISSIONS)],
+    active: true,
+    createdAt: now,
+  }))]
+  await writeUsers(next)
+  return next
 }
 
 // ── queries ────────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { getCurrentUser, isAdmin } from '@/lib/auth'
 import { auditLog } from '@/lib/audit'
 import { isTestCommandId, listTestCommands, runTestCommand } from './runner'
@@ -18,6 +19,8 @@ async function requireAdmin(req: NextRequest) {
 
 /** GET — list the allowlisted test commands and whether each is available. */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const { error } = await requireAdmin(req)
   if (error) return error
   return NextResponse.json({ commands: listTestCommands() })
@@ -28,6 +31,8 @@ export async function GET(req: NextRequest) {
  * The body may only name a command; arguments, paths and options are rejected.
  */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const { me, error } = await requireAdmin(req)
   if (error) return error
 

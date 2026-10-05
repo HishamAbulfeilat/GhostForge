@@ -4,6 +4,11 @@ import { answerQuestions, approveJob, dismissJob, generatorFor, getProfile, list
 import { addJobByUrl, connectLinkedIn, disconnectLinkedIn } from '@/lib/job-hunter/intake'
 import { jsearchKey } from '@/lib/job-hunter/sources'
 import { runAutopilot, submittedToday } from '@/lib/job-hunter/autopilot'
+import { hostedUnavailableResponse, isHostedMode } from '@/lib/hosted'
+import { runWithAIUser } from '@/lib/providers'
+
+// Hosted mode: no browser automation on the host (form filling, LinkedIn sign-in)
+const HOSTED_BLOCKED_ACTIONS = new Set(['approve', 'autopilot', 'answer', 'linkedin-connect', 'linkedin-disconnect'])
 
 export const dynamic = 'force-dynamic'
 // Searching, tailoring and form filling can take a few minutes
@@ -44,7 +49,14 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
+  if (isHostedMode() && HOSTED_BLOCKED_ACTIONS.has(String(body.action))) return hostedUnavailableResponse()
 
+  // AI calls inside use the caller's own keys in hosted mode
+  return runWithAIUser(user.id, () => runAction(user.username, body))
+}
+
+async function runAction(username: string, body: { action?: string; id?: string; terms?: string[]; autoPrepare?: number; answers?: Record<string, string>; url?: string }) {
+  const user = { username }
   try {
     switch (body.action) {
       case 'search': {

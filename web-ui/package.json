@@ -8,6 +8,8 @@
     "build": "next build",
     "start": "node server.js",
     "start:next": "next start",
+    "start:hosted": "GHOSTFORGE_MODE=hosted NODE_ENV=production node server.js",
+    "start:hosted:bg": "nohup env GHOSTFORGE_MODE=hosted NODE_ENV=production node server.js > /tmp/ghostforge-hosted.log 2>&1 &",
     "test": "node --test test/*.test.js app/agents/builder/*.test.js app/agents/builder/launch/*.test.js app/agents/builder/templates/*.test.js app/agent-world/town/*.test.js app/agent-world/office/*.test.js",
     "test:e2e": "playwright test",
     "lint": "eslint ."

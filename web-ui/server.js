@@ -9,6 +9,14 @@
  *   PORT        — HTTPS port (default 3001)
  *   HTTP_PORT   — HTTP → HTTPS redirect port (default: PORT - 1)
  *   NODE_ENV    — "production" runs Next in production mode
+ *
+ * Hosted ("friends") mode — GHOSTFORGE_MODE=hosted (see docs/HOSTING.md):
+ *   - refuses to start without AUTH_SECRET (32+ chars) and ADMIN_PASSWORD (12+)
+ *   - plain HTTP on HOST:PORT (TLS is the tunnel's / platform's job), no mkcert
+ *   - no terminal WebSocket proxy, no OmniRoute / voice-pipeline autostart
+ *   - blocked API routes answer 403 before Next sees them (lib/hosted-policy.json)
+ *   - all state lives in GHOSTFORGE_DATA_DIR (default web-ui/.hosted-data), never
+ *     in the real ~/.ghostforge of the machine it runs on
  */
 const https     = require('https')
 const http      = require('http')
@@ -20,13 +28,55 @@ const crypto    = require('crypto')
 const { spawnSync } = require('child_process')
 const next      = require('next')
 
+// Load .env* the same way Next does, so GHOSTFORGE_MODE set there is seen here too
+const dev       = process.env.NODE_ENV !== 'production'
+try { require('@next/env').loadEnvConfig(__dirname, dev) } catch { /* Next loads it later anyway */ }
+
+const HOSTED    = (process.env.GHOSTFORGE_MODE || '').trim().toLowerCase() === 'hosted'
+const hostedPolicy = HOSTED ? require('./lib/hosted-policy.json') : null
+if (HOSTED) {
+  const problems = []
+  if (!process.env.AUTH_SECRET || process.env.AUTH_SECRET.length < 32) problems.push('AUTH_SECRET must be at least 32 random characters (openssl rand -hex 32)')
+  if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD.length < 12) problems.push('ADMIN_PASSWORD must be set (at least 12 characters)')
+  if (problems.length) {
+    console.error(`\n  ❌ Hosted mode will not start:\n     - ${problems.join('\n     - ')}\n`)
+    process.exit(1)
+  }
+  // Keep every ~/.ghostforge file (users, keys, memory, jobs) away from the
+  // real home directory of the machine this runs on.
+  const dataDir = path.resolve(process.env.GHOSTFORGE_DATA_DIR || path.join(__dirname, '.hosted-data'))
+  fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 })
+  process.env.HOME = dataDir
+  process.env.USERPROFILE = dataDir
+}
+
+/** Hosted mode: is this request for an API route that is off? (mirrors lib/hosted.ts isBlockedApi) */
+function isHostedBlocked(req) {
+  if (!hostedPolicy) return false
+  let pathname
+  try { pathname = new URL(req.url || '/', 'http://localhost').pathname } catch { return true }
+  try { pathname = decodeURIComponent(pathname) } catch { return true }
+  pathname = pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/'
+  const method = String(req.method || 'GET').toUpperCase()
+  return hostedPolicy.blockedApi.some(r =>
+    (pathname === r.prefix || pathname.startsWith(r.prefix + '/')) && (!r.methods || r.methods.includes(method)))
+}
+
+function handleRequest(req, res) {
+  if (isHostedBlocked(req)) {
+    res.writeHead(403, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Not available on the hosted version', hosted: true }))
+    return
+  }
+  handle(req, res)
+}
+
 const PORT      = parseInt(process.env.PORT || '3001', 10)
 const HTTP_PORT = Math.max(1, parseInt(process.env.HTTP_PORT || '0', 10) || (PORT - 1))
 const PTY_PORT  = parseInt(process.env.PTY_PORT || '4748', 10)
 const CERT_DIR  = path.join(__dirname, 'certs')
 const CERT_FILE = path.join(CERT_DIR, 'cert.pem')
 const KEY_FILE  = path.join(CERT_DIR, 'key.pem')
-const dev       = process.env.NODE_ENV !== 'production'
 
 /**
  * Auto-start the OmniRoute local free-AI gateway (default port 20128).
@@ -36,6 +86,7 @@ const dev       = process.env.NODE_ENV !== 'production'
 const OMNI_PORT = 20128
 const OMNI_URL  = process.env.OMNIROUTE_URL || `http://localhost:${OMNI_PORT}/v1`
 function ensureOmniRouteRunning() {
+  if (HOSTED) return // a local gateway with the owner's keys — never for hosted users
   if (process.env.GHOSTFORGE_AUTOSTART_OMNI !== '1' && process.env.NODE_ENV === 'production') {
     // In production require explicit opt-in to avoid arbitrary binary exec
     return
@@ -81,6 +132,7 @@ function getBridgeToken() {
   try { return fs.readFileSync(tokenFile, 'utf8').trim() } catch { return '' }
 }
 function ensureVoiceServerRunning() {
+  if (HOSTED) return // local STT/TTS on the host — off when hosted
   if (process.env.GHOSTFORGE_AUTOSTART_VOICE === '0') return
   const token = getBridgeToken()
   fetch(`${VOICE_URL}/api/voice/health`, {
@@ -217,7 +269,10 @@ function attachUpgradeHandler(server) {
     const token = url.searchParams.get('token') || req.headers['x-bridge-token'] || ''
     const expected = getBridgeToken()
     const hasValidToken = tokenMatches(token, expected)
-    if (pathname === '/ws' && originMatchesRequest(req.headers.origin, host) && hasValidToken) {
+    if (HOSTED && !(dev && pathname.startsWith('/_next/'))) {
+      // No terminal / PTY bridge on the hosted version
+      socket.destroy()
+    } else if (pathname === '/ws' && originMatchesRequest(req.headers.origin, host) && hasValidToken) {
       proxyWsUpgrade(req, socket, head)
     } else if (dev && pathname.startsWith('/_next/')) {
       // Next dev HMR / React refresh websockets — handled by the dev server.
@@ -299,6 +354,25 @@ let nextUpgradeHandler = null
 
 app.prepare().then(() => {
   nextUpgradeHandler = dev && typeof app.getUpgradeHandler === 'function' ? app.getUpgradeHandler() : null
+
+  if (HOSTED) {
+    // Plain HTTP: the platform or tunnel (Cloudflare, Tailscale, Codespaces…) terminates TLS
+    const HOST = process.env.HOST || '0.0.0.0'
+    const hostedServer = http.createServer(handleRequest)
+    hostedServer.on('error', (err) => {
+      console.error(err.code === 'EADDRINUSE' ? `\n  ❌ Port ${PORT} is already in use.` : `\n  ❌ HTTP server error: ${err.message}`)
+      process.exit(1)
+    })
+    attachUpgradeHandler(hostedServer)
+    hostedServer.listen(PORT, HOST, () => {
+      console.log('\n  👻 GhostForge — hosted (friends) mode\n')
+      console.log(`  ➜ Listening: http://${HOST}:${PORT}`)
+      console.log(`  ➜ Data dir:  ${process.env.HOME}`)
+      console.log('  ➜ Host features (terminal, files, desktop, bridge) are off; see docs/HOSTING.md\n')
+    })
+    return
+  }
+
   const needsCerts = certIsMissingOrExpired()
   let certResult = { ok: false, reason: 'certs are missing' }
 
@@ -318,9 +392,7 @@ app.prepare().then(() => {
       key:  fs.readFileSync(KEY_FILE),
     }
 
-    const httpsServer = https.createServer(creds, (req, res) => {
-      handle(req, res)
-    })
+    const httpsServer = https.createServer(creds, handleRequest)
 
     httpsServer.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
@@ -364,9 +436,7 @@ app.prepare().then(() => {
     }
   } else {
     // ── HTTP fallback (only when HTTPS is impossible) ─────────────────────────
-    const httpServer = http.createServer((req, res) => {
-      handle(req, res)
-    })
+    const httpServer = http.createServer(handleRequest)
 
     httpServer.on('error', (err) => {
       if (err.code === 'EADDRINUSE') {

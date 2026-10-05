@@ -14,6 +14,7 @@
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { auditLog } from './audit'
+import { isHostedMode } from './hosted'
 
 const execFileAsync = promisify(execFile)
 
@@ -33,6 +34,8 @@ export const PRIVILEGED_PERMISSIONS = new Set([
 
 export function lockOnUnauthorizedEnabled(): boolean {
   if (process.env.NODE_ENV === 'test') return false
+  // Hosted mode: a friend's failed login must never lock the machine it runs on
+  if (isHostedMode()) return false
   return process.env.GF_LOCK_ON_UNAUTHORIZED !== '0'
 }
 

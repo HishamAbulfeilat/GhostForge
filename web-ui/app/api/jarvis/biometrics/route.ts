@@ -11,6 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { writeFile, readFile, unlink, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import { isAuthorizedRequest } from '@/lib/auth'
@@ -99,6 +100,8 @@ print(f"{similarity:.4f}")
 `
 
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -155,6 +158,8 @@ interface BiometricMeta {
 }
 
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     void auditLog({ level: 'security', event: 'biometric_unauthorized', risk: 90 })
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

@@ -4,13 +4,21 @@
  *
  * Keys saved through Settings (~/.ghostforge/provider-keys.json, owner-only
  * file mode) take precedence over the environment (.env / .env.local).
+ *
+ * Hosted mode (GHOSTFORGE_MODE=hosted) is different: the environment is never
+ * read for keys, and keys, the model choice and custom models are stored per
+ * user (~/.ghostforge/hosted-ai/<userId>.json). The user comes from
+ * runWithAIUser() (or ModelOverride.userId in lib/ai.ts); with no user there
+ * is no key, so only keyless free models (Pollinations) answer.
  * Pollinations needs no key and no install: it is the always-on free default.
  * OmniRoute is optional — used when it is running.
  */
 import Anthropic from '@anthropic-ai/sdk'
+import { AsyncLocalStorage } from 'async_hooks'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { isHostedMode, isPublicHttpsUrl } from './hosted'
 
 export type ProviderId =
   | 'pollinations' | 'omniroute' | 'openai' | 'anthropic' | 'google'
@@ -98,7 +106,7 @@ export const FREE_CATALOG: Partial<Record<ProviderId, Array<{ id: string; label:
   ],
 }
 
-// ── API keys ────────────────────────────────────────────────────────────────
+// ── Storage ─────────────────────────────────────────────────────────────────
 
 const GF_DIR = path.join(os.homedir(), '.ghostforge')
 const KEYS_PATH = path.join(GF_DIR, 'provider-keys.json')
@@ -108,19 +116,69 @@ function readJSON<T>(file: string, fallback: T): T {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')) as T } catch { return fallback }
 }
 
+// ── Hosted mode: per-user AI settings ───────────────────────────────────────
+
+const aiUser = new AsyncLocalStorage<string>()
+
+/** Run `fn` with `userId` as the owner of any AI key looked up inside it (hosted mode) */
+export function runWithAIUser<T>(userId: string, fn: () => T): T {
+  return aiUser.run(userId, fn)
+}
+
+/** The user whose keys apply right now (hosted mode); undefined = nobody's */
+export function currentAIUser(): string | undefined {
+  return aiUser.getStore()
+}
+
+interface HostedAISettings {
+  keys?: Record<string, string>
+  activeProvider?: string
+  activeModel?: string
+  customModels?: CustomModel[]
+}
+
+const HOSTED_AI_DIR = path.join(GF_DIR, 'hosted-ai')
+
+function hostedAIPath(userId: string): string {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(userId)) throw new Error('Invalid user id')
+  return path.join(HOSTED_AI_DIR, `${userId}.json`)
+}
+
+function readHostedAI(userId = currentAIUser()): HostedAISettings {
+  if (!userId) return {}
+  return readJSON<HostedAISettings>(hostedAIPath(userId), {})
+}
+
+function writeHostedAI(update: (s: HostedAISettings) => HostedAISettings): void {
+  const userId = currentAIUser()
+  if (!userId) throw new Error('Sign in to save AI settings')
+  const next = update(readHostedAI(userId))
+  fs.mkdirSync(HOSTED_AI_DIR, { recursive: true, mode: 0o700 })
+  fs.writeFileSync(hostedAIPath(userId), JSON.stringify(next, null, 2), { mode: 0o600 })
+}
+
+// ── API keys ────────────────────────────────────────────────────────────────
+
 function readStoredKeys(): Record<string, string> {
+  if (isHostedMode()) return readHostedAI().keys || {}
   return readJSON<Record<string, string>>(KEYS_PATH, {})
 }
 
-/** A key saved in Settings overrides the environment, so a stale .env key can be fixed from the UI */
+/**
+ * A key saved in Settings overrides the environment, so a stale .env key can
+ * be fixed from the UI. Hosted mode: only the current user's saved key —
+ * never the server's environment.
+ */
 export function getProviderKey(provider: ProviderId): string | undefined {
   const env = PROVIDERS[provider].keyEnv
   if (!env) return undefined
+  if (isHostedMode()) return readStoredKeys()[env] || undefined
   return readStoredKeys()[env] || process.env[env] || undefined
 }
 
 /** OmniRoute is a local gateway by default; only send an auth header when configured. */
 export function getOmniRouteKey(): string | undefined {
+  if (isHostedMode()) return undefined
   const key = process.env.OMNIROUTE_API_KEY?.trim()
   return key || undefined
 }
@@ -130,7 +188,7 @@ export function keySource(provider: ProviderId): 'none-needed' | 'env' | 'settin
   const env = PROVIDERS[provider].keyEnv
   if (!env) return 'none-needed'
   if (readStoredKeys()[env]) return 'settings'
-  if (process.env[env]) return 'env'
+  if (!isHostedMode() && process.env[env]) return 'env'
   return 'missing'
 }
 
@@ -138,12 +196,21 @@ export function keySource(provider: ProviderId): 'none-needed' | 'env' | 'settin
 export function saveProviderKey(provider: ProviderId, key: string): void {
   const env = PROVIDERS[provider].keyEnv
   if (!env) throw new Error(`${PROVIDERS[provider].name} does not use an API key`)
+  _modelCache.delete(modelCacheKey(provider))
+  if (isHostedMode()) {
+    writeHostedAI(s => {
+      const keys = { ...(s.keys || {}) }
+      if (key.trim()) keys[env] = key.trim()
+      else delete keys[env]
+      return { ...s, keys }
+    })
+    return
+  }
   const keys = readStoredKeys()
   if (key.trim()) keys[env] = key.trim()
   else delete keys[env]
   fs.mkdirSync(GF_DIR, { recursive: true })
   fs.writeFileSync(KEYS_PATH, JSON.stringify(keys, null, 2), { mode: 0o600 })
-  _modelCache.delete(provider)
 }
 
 // ── Saved model selection (shared by chat, JARVIS, TUI) ─────────────────────
@@ -158,13 +225,24 @@ export function isSelectableProvider(value: unknown): value is SelectableProvide
 export interface ModelSelection { provider: SelectableProvider; model: string }
 
 export function getSavedSelection(): ModelSelection | null {
-  const s = readJSON<{ activeProvider?: string; activeModel?: string }>(SETTINGS_PATH, {})
+  const s = isHostedMode() ? readHostedAI() : readJSON<{ activeProvider?: string; activeModel?: string }>(SETTINGS_PATH, {})
   if (!isSelectableProvider(s.activeProvider) || !s.activeModel) return null
+  // Local runtimes and OmniRoute belong to the host, not to a hosted user
+  if (isHostedMode() && (s.activeProvider === 'ollama' || s.activeProvider === 'llamacpp' || s.activeProvider === 'omniroute')) return null
   return { provider: s.activeProvider, model: s.activeModel }
 }
 
 /** Forget the saved choice — back to automatic free models */
 export function clearSelection(): void {
+  if (isHostedMode()) {
+    writeHostedAI(s => {
+      const next = { ...s }
+      delete next.activeProvider
+      delete next.activeModel
+      return next
+    })
+    return
+  }
   const s = readJSON<Record<string, unknown>>(SETTINGS_PATH, {})
   delete s.activeProvider
   delete s.activeModel
@@ -191,8 +269,17 @@ export interface CustomModel {
 export type CustomModelInfo = Omit<CustomModel, 'apiKey'> & { hasKey: boolean }
 
 function readCustomModels(): CustomModel[] {
-  const list = readJSON<CustomModel[]>(CUSTOM_MODELS_PATH, [])
+  const list = isHostedMode() ? readHostedAI().customModels : readJSON<CustomModel[]>(CUSTOM_MODELS_PATH, [])
   return Array.isArray(list) ? list : []
+}
+
+function writeCustomModels(list: CustomModel[]): void {
+  if (isHostedMode()) {
+    writeHostedAI(s => ({ ...s, customModels: list }))
+    return
+  }
+  fs.mkdirSync(GF_DIR, { recursive: true })
+  fs.writeFileSync(CUSTOM_MODELS_PATH, JSON.stringify(list, null, 2), { mode: 0o600 })
 }
 
 export function listCustomModels(): CustomModelInfo[] {
@@ -216,9 +303,11 @@ export function saveCustomModel(input: Omit<CustomModel, 'id'> & { id?: string }
     apiKey: input.apiKey || existing?.apiKey || undefined,
     free: input.free,
   }
-  const next = [...list.filter(m => m.id !== id), entry]
-  fs.mkdirSync(GF_DIR, { recursive: true })
-  fs.writeFileSync(CUSTOM_MODELS_PATH, JSON.stringify(next, null, 2), { mode: 0o600 })
+  // Hosted: no plain http, no loopback / private hosts (Ollama, the bridge, cloud metadata)
+  if (isHostedMode() && !isPublicHttpsUrl(entry.baseURL)) {
+    throw new Error('On the hosted version a custom model needs a public https:// URL')
+  }
+  writeCustomModels([...list.filter(m => m.id !== id), entry])
   const { apiKey, ...rest } = entry
   return { ...rest, hasKey: !!apiKey }
 }
@@ -227,11 +316,18 @@ export function deleteCustomModel(id: string): boolean {
   const list = readCustomModels()
   const next = list.filter(m => m.id !== id)
   if (next.length === list.length) return false
-  fs.writeFileSync(CUSTOM_MODELS_PATH, JSON.stringify(next, null, 2), { mode: 0o600 })
+  writeCustomModels(next)
   return true
 }
 
 export function saveSelection(selection: ModelSelection): void {
+  if (isHostedMode()) {
+    if (selection.provider === 'ollama' || selection.provider === 'llamacpp' || selection.provider === 'omniroute') {
+      throw new Error('Local models are not available on the hosted version')
+    }
+    writeHostedAI(s => ({ ...s, activeProvider: selection.provider, activeModel: selection.model }))
+    return
+  }
   const s = readJSON<Record<string, unknown>>(SETTINGS_PATH, {})
   s.activeProvider = selection.provider
   s.activeModel = selection.model
@@ -270,7 +366,12 @@ export interface ProviderModelList {
 }
 
 const MODEL_CACHE_TTL = 10 * 60_000
-const _modelCache = new Map<ProviderId, { ts: number; list: ProviderModelList }>()
+const _modelCache = new Map<string, { ts: number; list: ProviderModelList }>()
+
+/** Hosted mode caches each user's (key-dependent) model lists separately */
+function modelCacheKey(provider: ProviderId): string {
+  return isHostedMode() ? `${provider}|${currentAIUser() || '-'}` : provider
+}
 
 const NON_CHAT = /(embed|embedding|whisper|tts|audio|realtime|transcribe|dall-e|image|moderation|search|computer-use|guard|rerank|davinci|babbage)/i
 
@@ -284,6 +385,7 @@ type OpenAIModelsResponse = { data?: Array<{ id: string; name?: string; pricing?
 
 /** OmniRoute's `auto` routes always work; its full catalog may need OMNIROUTE_API_KEY */
 async function listOmniRoute(): Promise<{ models: ProviderModel[]; error?: string }> {
+  if (isHostedMode()) return { models: [], error: 'OmniRoute is not available on the hosted version' }
   const autos = OMNIROUTE_AUTO_MODELS.map(m => ({ ...m, free: m.id !== 'auto/cheap' }))
   try {
     const apiKey = getOmniRouteKey()
@@ -347,7 +449,8 @@ async function listGoogle(key: string): Promise<ProviderModel[]> {
 
 /** List a provider's models live (cached 10 min). Never throws — errors are reported in the result. */
 export async function listProviderModels(provider: ProviderId, { refresh = false } = {}): Promise<ProviderModelList> {
-  const cached = _modelCache.get(provider)
+  const cacheKey = modelCacheKey(provider)
+  const cached = _modelCache.get(cacheKey)
   if (!refresh && cached && Date.now() - cached.ts < MODEL_CACHE_TTL) return cached.list
 
   const catalog = (FREE_CATALOG[provider] || []).map(m => ({ ...m, free: true }))
@@ -377,6 +480,6 @@ export async function listProviderModels(provider: ProviderId, { refresh = false
     list = { ...list, models: [...missing, ...live].sort((a, b) => Number(b.free) - Number(a.free)) }
   }
   // Cache successes; retry failures on the next request after a short pause
-  _modelCache.set(provider, { ts: list.error ? Date.now() - MODEL_CACHE_TTL + 15_000 : Date.now(), list })
+  _modelCache.set(cacheKey, { ts: list.error ? Date.now() - MODEL_CACHE_TTL + 15_000 : Date.now(), list })
   return list
 }

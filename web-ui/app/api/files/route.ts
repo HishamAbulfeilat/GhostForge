@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
@@ -27,6 +28,8 @@ function getFileIcon(name: string, isDir: boolean): string {
 // GET /api/files?path=~/GhostForge — list directory
 // GET /api/files?path=~/GhostForge/file.ts&content=1 — read file content
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const access = await requirePermission(req, 'file_read')
   if (access instanceof NextResponse) return access
 
@@ -69,6 +72,8 @@ export async function GET(req: NextRequest) {
 
 // POST /api/files — write file { path, content }
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const access = await requirePermission(req, 'file_write')
   if (access instanceof NextResponse) return access
 

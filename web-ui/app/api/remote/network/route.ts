@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { auditLog } from '@/lib/audit'
 import { getCurrentUser } from '@/lib/auth'
 import { listAddresses, startTunnel, stopTunnel, tailscaleName, tunnelStatus } from '@/lib/remote/network'
@@ -10,6 +11,8 @@ export const maxDuration = 30
 
 /** GET /api/remote/network — how other devices can reach this machine. */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const user = await getCurrentUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const proto = req.nextUrl.protocol
@@ -29,6 +32,8 @@ export async function GET(req: NextRequest) {
  * GhostForge login still protects every page.
  */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const user = await getCurrentUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!isOwner(user)) return NextResponse.json({ error: 'Only the owner account can open a public tunnel.' }, { status: 403 })

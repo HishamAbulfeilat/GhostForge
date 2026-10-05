@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { getCurrentUser, hasPermission } from '@/lib/auth'
 import { buildSnapshot, getSessionDetail } from '@/lib/cli-sessions.mjs'
 import { connectorSnapshot } from '@/app/agent-world/shared/server/connector.mjs'
@@ -28,6 +29,8 @@ async function requireAdminUser(request: NextRequest) {
  *                         trimmed below the 65,536-byte connector limit
  */
 export async function GET(request: NextRequest) {
+  const hostedBlock = hostedGuard(request)
+  if (hostedBlock) return hostedBlock
   if (!await requireAdminUser(request)) {
     return NextResponse.json({ error: 'Admin tools permission required.' }, { status: 403 })
   }

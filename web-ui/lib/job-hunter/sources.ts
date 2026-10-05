@@ -8,6 +8,7 @@
  *                 (or RAPIDAPI_KEY). LinkedIn itself is never scraped.
  */
 import type { Ats, JobPreferences } from './store'
+import { ownerEnv } from '../hosted'
 
 export interface RawJob {
   key: string
@@ -153,7 +154,8 @@ async function leverBoard(company: string): Promise<RawJob[]> {
 }
 
 export function jsearchKey(): string {
-  return process.env.JSEARCH_API_KEY || process.env.RAPIDAPI_KEY || ''
+  // ownerEnv: never the server's key on the hosted version
+  return ownerEnv('JSEARCH_API_KEY') || ownerEnv('RAPIDAPI_KEY') || ''
 }
 
 /** LinkedIn, Indeed, Glassdoor… via the JSearch aggregator API */

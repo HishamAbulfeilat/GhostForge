@@ -179,12 +179,15 @@ export const PAGE_ACCESS: PageAccess[] = [
 export interface AccessSubject {
   role: 'admin' | 'user'
   permissions: string[]
+  /** Hosted mode: pages that are off for everyone, admins included */
+  blockedPages?: readonly string[]
 }
 
 export function canAccessPage(user: AccessSubject | null | undefined, pathname: string): boolean {
   const page = PAGE_ACCESS.find(p => pathname === p.path || pathname.startsWith(p.path + '/'))
   if (!page) return true // pages outside the catalog (login, home) aren't gated here
   if (!user) return false
+  if (user.blockedPages?.includes(page.path)) return false
   if (user.role === 'admin') return true
   if (page.permission === null) return true
   if (page.permission === 'admin') return false

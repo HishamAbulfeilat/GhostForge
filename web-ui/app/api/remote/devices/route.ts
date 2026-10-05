@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { auditLog } from '@/lib/audit'
 import { getCurrentUser } from '@/lib/auth'
 import { readRemote, revokeDevice } from '@/lib/remote/store'
@@ -9,6 +10,8 @@ export const runtime = 'nodejs'
 
 /** GET /api/remote/devices — paired devices (the owner sees everyone's). */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const user = await getCurrentUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const owner = isOwner(user)
@@ -20,6 +23,8 @@ export async function GET(req: NextRequest) {
 
 /** DELETE /api/remote/devices?id=… — revoke a device; its session stops working at once. */
 export async function DELETE(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const user = await getCurrentUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const id = req.nextUrl.searchParams.get('id') || ''

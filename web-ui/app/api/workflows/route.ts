@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { requirePermission } from '@/lib/access'
 import {
   createWorkflow, deleteWorkflow, getWorkflow, listWorkflows, progress, readySteps,
@@ -15,6 +16,8 @@ export const dynamic = 'force-dynamic'
 /** GET /api/workflows            list all
  *  GET /api/workflows?id=<id>    one workflow + progress + ready steps */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const user = await requirePermission(req, 'workflows')
   if (user instanceof NextResponse) return user
 
@@ -30,6 +33,8 @@ export async function GET(req: NextRequest) {
 
 /** POST /api/workflows { name, goal?, steps? } — create */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const user = await requirePermission(req, 'workflows')
   if (user instanceof NextResponse) return user
   let body: WorkflowInput
@@ -54,6 +59,8 @@ export async function POST(req: NextRequest) {
  *   { id, stepId, step: { status?, notes?, title?, ref? }, log? }  update one step
  */
 export async function PUT(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const user = await requirePermission(req, 'workflows')
   if (user instanceof NextResponse) return user
   let body: {
@@ -84,6 +91,8 @@ export async function PUT(req: NextRequest) {
 
 /** DELETE /api/workflows?id=<id> */
 export async function DELETE(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const user = await requirePermission(req, 'workflows')
   if (user instanceof NextResponse) return user
   const id = req.nextUrl.searchParams.get('id')

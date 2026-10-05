@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { getCurrentUser, isAdmin } from '@/lib/auth'
 import { auditLog } from '@/lib/audit'
 import {
@@ -26,6 +27,8 @@ async function requireAdmin(req: NextRequest) {
 
 /** GET — the registered projects and the templates they can be scaffolded from. */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const { error } = await requireAdmin(req)
   if (error) return error
   return NextResponse.json({ projects: listProjects(), templates: TEMPLATES })
@@ -39,6 +42,8 @@ export async function GET(req: NextRequest) {
  * and the argv holds only the server-resolved script path).
  */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const { me, error } = await requireAdmin(req)
   if (error) return error
 

@@ -40,7 +40,11 @@ export function AccessProvider({ children }: { children: React.ReactNode }) {
       .then(res => (res.ok ? res.json() : null))
       .then(data => {
         if (cancelled) return
-        setUser(data?.user ? { ...data.user, setupComplete: Boolean(data.user.setupComplete) } : null)
+        setUser(data?.user ? {
+          ...data.user,
+          setupComplete: Boolean(data.user.setupComplete),
+          blockedPages: Array.isArray(data.blockedPages) ? data.blockedPages : [],
+        } : null)
         setLoaded(true)
       })
       .catch(() => { if (!cancelled) setLoaded(true) })

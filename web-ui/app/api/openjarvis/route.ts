@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { isAuthorizedRequest } from '@/lib/auth'
 import { openjarvisAsk, openjarvisHealth } from '@/lib/openjarvis'
 
@@ -6,6 +7,8 @@ export const dynamic = 'force-dynamic'
 
 /** GET — OpenJarvis install/health status (mirrors /api/bridge-status). */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -15,6 +18,8 @@ export async function GET(req: NextRequest) {
 
 /** POST { prompt } — run `jarvis ask "<prompt>"` on the bridge and return its reply. */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

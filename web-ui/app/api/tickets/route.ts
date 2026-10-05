@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { getCurrentUser, isAdmin } from '@/lib/auth'
 import { auditLog } from '@/lib/audit'
 import { getTicketCommand, isTicketCommandId, listTicketCommands, runTicketCommand, validateTicketInput } from './runner'
@@ -18,6 +19,8 @@ async function requireAdmin(req: NextRequest) {
 
 /** GET — list the allowlisted ticket, Azure DevOps and estimate commands. */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const { error } = await requireAdmin(req)
   if (error) return error
   return NextResponse.json({ commands: listTicketCommands() })
@@ -28,6 +31,8 @@ export async function GET(req: NextRequest) {
  * for commands that need it (ticket id, task description) and is strictly validated.
  */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const { me, error } = await requireAdmin(req)
   if (error) return error
 

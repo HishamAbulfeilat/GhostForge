@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { spawn } from 'child_process'
 import { requirePermission } from '@/lib/access'
 import { LOCAL_MODELS, RUNNER_META, type RunnerId } from '@/lib/local-models'
@@ -18,6 +19,8 @@ const RUNNER_LINKS: Record<Exclude<RunnerId, 'ollama'>, string> = {
 }
 
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const access = await requirePermission(req, 'ai_models')
   if (access instanceof NextResponse) return access
 

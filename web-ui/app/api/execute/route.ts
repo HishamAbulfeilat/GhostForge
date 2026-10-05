@@ -1,4 +1,5 @@
 import { execFile } from 'child_process'
+import { hostedGuard } from '@/lib/hosted'
 import { access, readFile } from 'fs/promises'
 import { NextRequest, NextResponse } from 'next/server'
 import os from 'os'
@@ -141,6 +142,8 @@ async function executeBridgeCommand(command: string, bridgeToken: string, timeou
 }
 
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const access = await requirePermission(req, 'terminal')
   if (access instanceof NextResponse) return access
 

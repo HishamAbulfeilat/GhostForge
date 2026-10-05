@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import os from 'os'
 import { getBridgeUrlCandidates, getLiveBridgeToken } from '@/lib/bridge-token'
 import { isAuthorizedRequest } from '@/lib/auth'
@@ -15,6 +16,8 @@ const PLATFORM_LABEL: Record<string, string> = {
 }
 
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   // Host details (hostname, platform, bridge URL) must not leak to unauthenticated
   // callers — the middleware does not cover /api/*, so guard in-route.
   if (!isAuthorizedRequest(req)) {

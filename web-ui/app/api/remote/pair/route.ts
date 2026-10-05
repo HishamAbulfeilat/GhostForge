@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import QRCode from 'qrcode'
 import { auditLog } from '@/lib/audit'
 import { getCurrentUser } from '@/lib/auth'
@@ -18,6 +19,8 @@ function pairUrl(base: string, code: string) {
  * QR code) that signs a phone/tablet in as them. Valid for 10 minutes, once.
  */
 export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const user = await getCurrentUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   let body: { label?: string } = {}
@@ -48,6 +51,8 @@ export async function POST(req: NextRequest) {
  * POSTs to /api/remote/pair/redeem instead.
  */
 export async function GET(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
   const code = req.nextUrl.searchParams.get('code') || ''
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(code)) {
     return htmlPage('This pairing link is incomplete', 'Scan the QR code again, or copy the whole link.', 400)

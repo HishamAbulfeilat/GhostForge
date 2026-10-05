@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hostedGuard } from '@/lib/hosted'
 import { getCurrentUser, hasPermission } from '@/lib/auth'
 import { buildSnapshot } from '@/lib/cli-sessions.mjs'
 import { CHAT_MAX_BODY_BYTES, sendChat, validateChat } from '@/app/agent-world/shared/server/chat.mjs'
@@ -20,6 +21,8 @@ async function requireAdminUser(request: NextRequest) {
  * GF_CLI_SESSIONS=0 or GF_CLI_CHAT=0.
  */
 export async function POST(request: NextRequest) {
+  const hostedBlock = hostedGuard(request)
+  if (hostedBlock) return hostedBlock
   if (!await requireAdminUser(request)) {
     return NextResponse.json({ error: 'Admin tools permission required.' }, { status: 403 })
   }

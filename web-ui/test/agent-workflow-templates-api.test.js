@@ -31,6 +31,8 @@ const dependencies = {
       },
     },
   },
+  // Real hosted-mode policy: off unless GHOSTFORGE_MODE=hosted
+  '@/lib/hosted': require('../lib/hosted.ts'),
   '@/lib/auth': {
     getCurrentUser: async () => state.user,
     hasPermission: (user, permission) => Boolean(user && (user.role === 'admin' || user.permissions?.includes(permission))),

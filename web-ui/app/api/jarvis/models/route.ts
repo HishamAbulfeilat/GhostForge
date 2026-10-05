@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { chooseBestInstalledModel } from '@/lib/local-runtime'
 import { totalmem } from 'os'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { getCurrentUser, isAuthorizedRequest } from '@/lib/auth'
 import { isOmniRouteUp } from '@/lib/ai'
-import { PROVIDERS, getProviderKey, getSavedSelection, listCustomModels, listProviderModels, type ProviderId } from '@/lib/providers'
+import { isHostedMode, ownerEnv } from '@/lib/hosted'
+import { PROVIDERS, getProviderKey, getSavedSelection, listCustomModels, listProviderModels, runWithAIUser, type ProviderId } from '@/lib/providers'
 
 interface JarvisModel {
   provider: string
@@ -58,11 +59,19 @@ export async function GET(req: NextRequest) {
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const me = await getCurrentUser(req)
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Hosted mode: the caller's own keys and model choice
+  return runWithAIUser(me.id, () => listJarvisModels())
+}
 
-  // Check Ollama availability
+async function listJarvisModels() {
+  const hosted = isHostedMode()
+
+  // Check Ollama availability (the host's local runtimes are not offered when hosted)
   let ollamaModels: string[] = []
   let ollamaRunning = false
-  try {
+  if (!hosted) try {
     const res = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1500) })
     if (res.ok) {
       const d = await res.json() as { models: Array<{ name: string }> }
@@ -72,7 +81,7 @@ export async function GET(req: NextRequest) {
   } catch { /* not running */ }
 
   let llamaCppModels: string[] = []
-  try {
+  if (!hosted) try {
     const baseURL = process.env.LLAMACPP_URL || 'http://localhost:8080/v1'
     const res = await fetch(`${baseURL}/models`, { signal: AbortSignal.timeout(1500) })
     if (res.ok) {
@@ -88,7 +97,7 @@ export async function GET(req: NextRequest) {
   for (const name of ollamaModels) {
     models.push({ provider: 'ollama', id: name, label: `${name} (Local) 🔒`, free: true, requiresKey: null, available: true })
   }
-  for (const s of LOCAL_SUGGESTIONS) {
+  for (const s of hosted ? [] : LOCAL_SUGGESTIONS) {
     if (!ollamaModels.includes(s.id)) {
       models.push({ provider: 'ollama', id: s.id, label: s.label, free: true, requiresKey: null, available: false })
     }
@@ -110,8 +119,8 @@ export async function GET(req: NextRequest) {
   const activeProvider = saved?.provider ?? fallback.provider
   const activeModel = saved?.model ?? fallback.model
 
-  const hasFishAudio  = !!process.env.FISH_AUDIO_API_KEY
-  const hasElevenLabs = !!process.env.ELEVENLABS_API_KEY
+  const hasFishAudio  = !!ownerEnv('FISH_AUDIO_API_KEY')
+  const hasElevenLabs = !!ownerEnv('ELEVENLABS_API_KEY')
   const ttsEngine     = hasFishAudio ? 'fish-audio' : hasElevenLabs ? 'elevenlabs' : 'browser'
 
   return NextResponse.json({
@@ -121,11 +130,12 @@ export async function GET(req: NextRequest) {
     llamaCpp: { running: llamaCppModels.length > 0, models: llamaCppModels },
     host: {
       platform: process.platform,
-      macControl: process.platform === 'darwin',
-      screenCapture: process.platform === 'darwin',
-      browserControl: process.platform === 'darwin',
-      shell: true,
-      remoteClientControl: true,
+      hosted,
+      macControl: !hosted && process.platform === 'darwin',
+      screenCapture: !hosted && process.platform === 'darwin',
+      browserControl: !hosted && process.platform === 'darwin',
+      shell: !hosted,
+      remoteClientControl: !hosted,
       freeLocalAI: ollamaRunning || llamaCppModels.length > 0,
     },
     tts: {
@@ -138,10 +148,10 @@ export async function GET(req: NextRequest) {
     integrations: {
       elevenlabs:   hasElevenLabs,
       fishAudio:    hasFishAudio,
-      github:       !!process.env.GITHUB_TOKEN,
-      googleSearch: !!(process.env.GOOGLE_SEARCH_API_KEY && process.env.GOOGLE_SEARCH_CX),
-      discord:      !!process.env.DISCORD_WEBHOOK_URL,
-      grok:         !!process.env.XAI_API_KEY,
+      github:       !!ownerEnv('GITHUB_TOKEN'),
+      googleSearch: !!(ownerEnv('GOOGLE_SEARCH_API_KEY') && ownerEnv('GOOGLE_SEARCH_CX')),
+      discord:      !!ownerEnv('DISCORD_WEBHOOK_URL'),
+      grok:         !!getProviderKey('xai'),
     },
   })
 }

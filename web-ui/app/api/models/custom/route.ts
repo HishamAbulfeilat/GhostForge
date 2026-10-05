@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser, isAdmin, isAuthorizedRequest } from '@/lib/auth'
 import { generateOpenAICompatible } from '@/lib/ai'
-import { deleteCustomModel, getCustomModel, listCustomModels, saveCustomModel } from '@/lib/providers'
+import { deleteCustomModel, getCustomModel, listCustomModels, runWithAIUser, saveCustomModel } from '@/lib/providers'
+import { isHostedMode, isPublicHttpsUrl } from '@/lib/hosted'
+
+/** Hosted mode: any signed-in user manages their own custom models; otherwise admins only */
+async function customModelUser(req: NextRequest) {
+  const me = await getCurrentUser(req)
+  if (!me || (!isHostedMode() && !isAdmin(me))) return null
+  return me
+}
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -16,12 +24,18 @@ export const maxDuration = 120
  */
 export async function GET(req: NextRequest) {
   if (!isAuthorizedRequest(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  return NextResponse.json({ models: listCustomModels() })
+  const me = await getCurrentUser(req)
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  return NextResponse.json({ models: runWithAIUser(me.id, () => listCustomModels()) })
 }
 
 export async function POST(req: NextRequest) {
-  const me = await getCurrentUser(req)
-  if (!me || !isAdmin(me)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const me = await customModelUser(req)
+  if (!me) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  return runWithAIUser(me.id, () => saveOrTest(req))
+}
+
+async function saveOrTest(req: NextRequest) {
 
   let body: Record<string, unknown>
   try {
@@ -60,6 +74,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Base URL must be an http(s) URL, e.g. http://localhost:1234/v1' }, { status: 400 })
   }
   if (/\s/.test(apiKey)) return NextResponse.json({ error: 'That does not look like an API key' }, { status: 400 })
+  if (isHostedMode() && !isPublicHttpsUrl(baseURL)) {
+    return NextResponse.json({ error: 'On the hosted version a custom model needs a public https:// URL' }, { status: 400 })
+  }
 
   const saved = saveCustomModel({
     id: str(body.id, 60) || undefined,
@@ -73,9 +90,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const me = await getCurrentUser(req)
-  if (!me || !isAdmin(me)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const me = await customModelUser(req)
+  if (!me) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   const id = req.nextUrl.searchParams.get('id') || ''
-  if (!deleteCustomModel(id)) return NextResponse.json({ error: 'Unknown model' }, { status: 404 })
+  if (!runWithAIUser(me.id, () => deleteCustomModel(id))) return NextResponse.json({ error: 'Unknown model' }, { status: 404 })
   return NextResponse.json({ ok: true })
 }
