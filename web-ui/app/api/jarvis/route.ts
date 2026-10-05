@@ -4,7 +4,7 @@ import { auditLog, assessRisk } from '@/lib/audit'
 import { checkRateLimit, getClientIP } from '@/lib/ratelimit'
 import { isAuthorizedRequest, getCurrentUser, hasPermission, sessionTokenStatus, AUTH_COOKIE_NAME } from '@/lib/auth'
 import { defaultAdminName, isOwner } from '@/lib/users'
-import { HOSTED_UNAVAILABLE, isHostedJarvisToolAllowed, ownerEnv } from '@/lib/hosted'
+import { HOSTED_UNAVAILABLE, isHostedJarvisToolAllowed, isHostedMode, ownerEnv } from '@/lib/hosted'
 import { speakerContext, toSpeaker, type Speaker } from '@/lib/speaker'
 import { PRIVILEGED_PERMISSIONS, hasStableAuthSecret, reportUnauthorizedAccess } from '@/lib/intrusion'
 import { permissionForTool } from '@/lib/tool-permissions'
@@ -607,6 +607,8 @@ async function openUrl(url: string): Promise<string> {
 }
 
 async function webSearchDeep(query: string): Promise<string> {
+  // Hosted mode: Vane runs on the host (localhost:3100) — use the public search instead
+  if (isHostedMode()) return webSearch(query)
   try {
     const res = await fetch(`http://localhost:3100/api/search?q=${encodeURIComponent(query)}`, { signal: AbortSignal.timeout(5000) })
     if (res.ok) {

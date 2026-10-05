@@ -13,6 +13,7 @@
 import { auditLog } from '../audit'
 import { isPrivateAddress, isSafeApplyUrl, launchProfile, resolvesPublicly, withProfile, withProfileLock } from './apply'
 import { scoreJobs } from './match'
+import { isHostedMode } from '../hosted'
 import { detectAts, stripHtml, type RawJob } from './sources'
 import { getProfile, saveProfile, upsertJobs, listJobs, type JobRecord } from './store'
 
@@ -110,6 +111,15 @@ export async function fetchPublic(rawUrl: string, maxBytes = 2_000_000, hops = 5
 }
 
 async function fetchHtml(url: string, username: string): Promise<string> {
+  // Hosted mode: fetch only, never a browser on the host machine
+  if (isHostedMode()) {
+    if (detectAts(url) === 'linkedin') throw new Error('LinkedIn links can’t be added on the hosted version: LinkedIn only opens in a signed-in browser. Paste the company’s own job page instead.')
+    const res = await fetchPublic(url).catch(e => {
+      throw new Error(/private network/i.test(String(e)) ? 'That link leads to a private network address, so it was not opened' : 'Could not read that page')
+    })
+    if (res.status >= 200 && res.status < 300) return res.body
+    throw new Error(`Could not read that page (HTTP ${res.status}); the browser fallback is off on the hosted version`)
+  }
   // LinkedIn answers plain HTTP clients with status 999; read it in the user's browser profile instead.
   if (detectAts(url) !== 'linkedin') {
     try {

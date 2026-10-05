@@ -57,6 +57,9 @@ async function saveStore(username: string, records: SemanticMemoryRecord[]): Pro
 // ── Embeddings ──────────────────────────────────────────────────────────────
 
 async function ollamaEmbed(text: string): Promise<number[] | null> {
+  // Hosted mode: no calls to services on the host (Ollama); keyword hashing only.
+  // (Same check as isHostedMode() in lib/hosted.ts, inlined so this module stays import-free.)
+  if ((process.env.GHOSTFORGE_MODE || '').trim().toLowerCase() === 'hosted') return null
   for (let i = 0; i < MAX_EMBED_TRIES; i++) {
     try {
       const res = await fetch(EMBED_URL, {
