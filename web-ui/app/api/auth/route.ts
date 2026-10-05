@@ -5,7 +5,7 @@ import { isHostedMode } from '@/lib/hosted'
 import { timingSafeEqual } from 'crypto'
 import { getClientIP } from '@/lib/ratelimit'
 import { auditLog } from '@/lib/audit'
-import { MAX_FAILED_LOGINS, clearFailedLogins, isLoginBlocked, recordFailedLogin, reportUnauthorizedAccess } from '@/lib/intrusion'
+import { MAX_FAILED_LOGINS, clearFailedLogins, clearFailedUserLogins, isLoginBlocked, isUserLoginBlocked, recordFailedLogin, recordFailedUserLogin, reportUnauthorizedAccess } from '@/lib/intrusion'
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a)
@@ -21,11 +21,13 @@ async function failLogin(req: NextRequest, username: string, error: string) {
   const ip = getClientIP(req)
   const userAgent = req.headers.get('user-agent') || undefined
   const count = recordFailedLogin(ip)
+  // Also count per account, so rotating IPs doesn't give more guesses
+  const userBlocked = username && username !== 'pin' ? recordFailedUserLogin(username) && isUserLoginBlocked(username) : false
   void auditLog({ level: 'security', event: 'login_failed', ip, userAgent, params: { username }, risk: 50 })
   if (count === MAX_FAILED_LOGINS) {
     void reportUnauthorizedAccess({ reason: `${count} failed logins`, username, ip, userAgent })
   }
-  if (count >= MAX_FAILED_LOGINS) {
+  if (count >= MAX_FAILED_LOGINS || userBlocked) {
     return NextResponse.json({ error: 'Too many failed attempts. Try again later.' }, { status: 429 })
   }
   return NextResponse.json({ error }, { status: 401 })
@@ -69,11 +71,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Username and password are required' }, { status: 400 })
   }
 
+  if (isUserLoginBlocked(username)) {
+    return NextResponse.json({ error: 'Too many failed attempts. Try again later.' }, { status: 429 })
+  }
+
   const user = await getUserByUsername(username)
   if (!user || !user.active || !verifyPassword(password, user.passwordHash)) {
     return failLogin(req, username, 'Invalid credentials')
   }
   clearFailedLogins(getClientIP(req))
+  clearFailedUserLogins(username)
 
   const token = createSessionToken(user)
   return setSession(token, req)

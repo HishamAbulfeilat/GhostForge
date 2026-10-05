@@ -1,3 +1,4 @@
+import { isHostedMode } from './hosted'
 /**
  * In-memory rate limiter for GhostForge API routes
  * Sliding window: max N requests per window (default 30/min)
@@ -63,8 +64,22 @@ export function checkRateLimit(
   return { allowed: true, remaining: remaining - 1, resetIn, limit }
 }
 
-/** Extract client IP from Next.js request */
+/**
+ * Extract the client IP for rate limiting and audit logs.
+ *
+ * Under server.js the address is stamped by the server itself
+ * (x-gf-client-ip = "<per-process token>:<ip>", any client copy dropped), so
+ * it can't be chosen by the client; proxies are only trusted when configured
+ * (GHOSTFORGE_TRUST_PROXY, see server.js). Without that stamp:
+ *   - hosted mode trusts no client-supplied header ('unknown' shares one bucket);
+ *   - the local build keeps its old order: x-real-ip, req.ip, rightmost
+ *     x-forwarded-for, cf-connecting-ip.
+ */
 export function getClientIP(req: { headers: { get(k: string): string | null }; ip?: string | null }): string {
+  const token = process.env.GF_CLIENT_IP_TOKEN
+  const stamped = req.headers.get('x-gf-client-ip')?.trim()
+  if (token && stamped && stamped.startsWith(token + ':')) return stamped.slice(token.length + 1) || 'unknown'
+  if (isHostedMode()) return req.ip?.trim() || 'unknown'
   return (
     req.headers.get('x-real-ip')?.trim() ||
     req.ip?.trim() ||

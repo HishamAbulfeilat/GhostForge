@@ -14,7 +14,8 @@
  *   - refuses to start without AUTH_SECRET (32+ chars) and ADMIN_PASSWORD (12+)
  *   - plain HTTP on HOST:PORT (TLS is the tunnel's / platform's job), no mkcert
  *   - no terminal WebSocket proxy, no OmniRoute / voice-pipeline autostart
- *   - blocked API routes answer 403 before Next sees them (lib/hosted-policy.json)
+ *   - only allowlisted API routes are reachable; the rest answer 403 before
+ *     Next sees them (lib/hosted-policy.json)
  *   - all state lives in GHOSTFORGE_DATA_DIR (default web-ui/.hosted-data), never
  *     in the real ~/.ghostforge of the machine it runs on
  */
@@ -50,19 +51,57 @@ if (HOSTED) {
   process.env.USERPROFILE = dataDir
 }
 
-/** Hosted mode: is this request for an API route that is off? (mirrors lib/hosted.ts isBlockedApi) */
+/**
+ * Hosted mode: is this request for an API route that is off? Mirrors
+ * lib/hosted.ts isBlockedApi: an ALLOWLIST, so any /api route not listed in
+ * lib/hosted-policy.json answers 403 (new routes fail closed).
+ */
 function isHostedBlocked(req) {
   if (!hostedPolicy) return false
   let pathname
-  try { pathname = new URL(req.url || '/', 'http://localhost').pathname } catch { return true }
-  try { pathname = decodeURIComponent(pathname) } catch { return true }
+  try { pathname = decodeURIComponent(new URL(req.url || '/', 'http://localhost').pathname) } catch { return true }
+  if (pathname.includes('\\') || pathname.includes('\0')) return true
   pathname = pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '') || '/'
+  const lower = pathname.toLowerCase()
+  if (lower !== '/api' && !lower.startsWith('/api/')) return false
   const method = String(req.method || 'GET').toUpperCase()
-  return hostedPolicy.blockedApi.some(r =>
-    (pathname === r.prefix || pathname.startsWith(r.prefix + '/')) && (!r.methods || r.methods.includes(method)))
+  return !hostedPolicy.allowedApi.some(r =>
+    (r.exact ? pathname === r.path : (pathname === r.path || pathname.startsWith(r.path + '/')))
+    && (!r.methods || r.methods.includes(method)))
+}
+
+/**
+ * Trusted client IP for rate limiting (lib/ratelimit.ts getClientIP). The
+ * server stamps x-gf-client-ip with a per-process token, after dropping any
+ * copy the client sent, so a client can't pick its own rate-limit bucket.
+ * The address is the TCP peer, except behind a proxy you configured
+ * yourself: GHOSTFORGE_TRUST_PROXY=cloudflare (cf-connecting-ip) or =xff
+ * (rightmost x-forwarded-for), and only when the peer is the proxy itself:
+ * loopback, or an address in GHOSTFORGE_TRUSTED_PROXIES (comma-separated,
+ * e.g. the Docker bridge gateway 172.17.0.1 or a cloudflared container's IP).
+ */
+const CLIENT_IP_TOKEN = crypto.randomBytes(16).toString('hex')
+process.env.GF_CLIENT_IP_TOKEN = CLIENT_IP_TOKEN
+const TRUST_PROXY = (process.env.GHOSTFORGE_TRUST_PROXY || '').trim().toLowerCase()
+const TRUSTED_PROXIES = new Set((process.env.GHOSTFORGE_TRUSTED_PROXIES || '').split(',').map(a => a.trim()).filter(Boolean))
+function isTrustedProxy(addr) {
+  const plain = addr.replace(/^::ffff:/, '')
+  return plain === '127.0.0.1' || addr === '::1' || TRUSTED_PROXIES.has(plain) || TRUSTED_PROXIES.has(addr)
+}
+function stampClientIp(req) {
+  delete req.headers['x-gf-client-ip']
+  const peer = (req.socket && req.socket.remoteAddress) || ''
+  let ip = peer.replace(/^::ffff:/, '')
+  if (TRUST_PROXY && isTrustedProxy(peer)) {
+    const header = (name) => String(req.headers[name] || '').trim()
+    if (TRUST_PROXY === 'cloudflare' && header('cf-connecting-ip')) ip = header('cf-connecting-ip')
+    else if (TRUST_PROXY === 'xff' && header('x-forwarded-for')) ip = header('x-forwarded-for').split(',').pop().trim()
+  }
+  req.headers['x-gf-client-ip'] = `${CLIENT_IP_TOKEN}:${ip || 'unknown'}`
 }
 
 function handleRequest(req, res) {
+  stampClientIp(req)
   if (isHostedBlocked(req)) {
     res.writeHead(403, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'Not available on the hosted version', hosted: true }))

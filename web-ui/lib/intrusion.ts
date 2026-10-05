@@ -138,6 +138,27 @@ export function clearFailedLogins(key: string): void {
   failedLogins.delete(key)
 }
 
+/**
+ * Per-account limit, independent of the IP: rotating addresses doesn't buy an
+ * attacker more guesses at one username. Higher than the per-IP limit so a
+ * friend mistyping on two devices isn't locked out at once.
+ */
+export const MAX_FAILED_LOGINS_PER_USER = 10
+const userKey = (username: string) => `user:${username.trim().toLowerCase()}`
+
+export function recordFailedUserLogin(username: string, now = Date.now()): number {
+  return recordFailedLogin(userKey(username), now)
+}
+
+export function isUserLoginBlocked(username: string, now = Date.now()): boolean {
+  const recent = (failedLogins.get(userKey(username)) || []).filter(t => now - t < LOGIN_WINDOW_MS)
+  return recent.length >= MAX_FAILED_LOGINS_PER_USER
+}
+
+export function clearFailedUserLogins(username: string): void {
+  failedLogins.delete(userKey(username))
+}
+
 export function _resetIntrusionState(): void {
   failedLogins.clear()
   lastLockAt = 0
