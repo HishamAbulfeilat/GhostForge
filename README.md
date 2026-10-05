@@ -25,7 +25,24 @@ GhostForge JARVIS is a desktop + web app that turns GitHub Copilot into a full A
 | macOS (Apple Silicon) | [Download DMG](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
 | Windows | [Download Installer](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
 | Linux | [Download AppImage](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
+| Android | [Download APK](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) (`GhostForge-JARVIS-<version>-android.apk`) |
 | Source | [tar.gz](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) · [zip](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
+
+### Installing on Android
+
+1. On your phone, open the [latest release](https://github.com/HishamAbulfeilat/GhostForge/releases/latest)
+   and download `GhostForge-JARVIS-<version>-android.apk`.
+2. Open the file. When Android asks, allow your browser / file manager to
+   **install unknown apps**, then tap **Install**.
+3. The release also carries an `.aab` (App Bundle) for Play Store uploads.
+
+Every push to `main` builds the APK too: open the **Build Apps** run under
+*Actions* and download the `ghostforge-android` artifact. Releases are published
+when a `v*` tag is pushed, or by running **Build Apps** manually with
+`release_tag` set (e.g. `v5.3.1`). Without the `ANDROID_KEYSTORE_*` secrets the
+APK is signed with the Android debug key — fine for sideloading, not for the
+Play Store (see [docs/SIGNING.md](docs/SIGNING.md)). To build locally:
+`cd electron-app && npx cap sync android && bash scripts/build-android.sh debug`.
 
 ## Features
 
