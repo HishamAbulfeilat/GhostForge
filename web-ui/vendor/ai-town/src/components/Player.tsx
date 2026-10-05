@@ -20,10 +20,11 @@ export const Player = ({
     <Character
       x={player.x * tileDim + tileDim / 2}
       y={player.y * tileDim + tileDim / 2}
-      orientation={0}
-      isMoving={false}
+      orientation={player.orientation ?? 0}
+      isMoving={player.isMoving ?? false}
       isThinking={player.isThinking}
       isSpeaking={player.isSpeaking}
+      emoji={player.emoji ?? ''}
       isViewer={isViewer}
       textureUrl={character.textureUrl}
       spritesheetData={character.spritesheetData}

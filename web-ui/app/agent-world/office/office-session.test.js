@@ -10,7 +10,7 @@ const read = (...p) => fs.readFileSync(path.join(webUi, ...p), 'utf8')
 
 // Transpile the TS sources into a temp tree with the same relative layout.
 const out = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-office-'))
-for (const file of ['vendor/agent-office/src/snapshot-room.ts', 'app/agent-world/office/office-session.ts']) {
+for (const file of ['vendor/agent-office/src/snapshot-room.ts', 'app/agent-world/shared/office/office-session.ts']) {
   const { outputText } = ts.transpileModule(read(file), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   })
@@ -19,7 +19,7 @@ for (const file of ['vendor/agent-office/src/snapshot-room.ts', 'app/agent-world
   fs.writeFileSync(dest, outputText)
 }
 const room = require(path.join(out, 'vendor/agent-office/src/snapshot-room.js'))
-const { startOfficeSession } = require(path.join(out, 'app/agent-world/office/office-session.js'))
+const { startOfficeSession } = require(path.join(out, 'app/agent-world/shared/office/office-session.js'))
 test.after(() => fs.rmSync(out, { recursive: true, force: true }))
 
 const agent = (id, thought = '') => ({
@@ -87,8 +87,8 @@ test('scene load errors are reported unless the session was stopped', async () =
   live.stop()
 })
 
-test('OfficeWorld creates and disposes the office in one effect and clears the ref', () => {
-  const host = read('app/agent-world/office/OfficeWorld.tsx')
+test('OfficeStage creates and disposes the office in one effect and clears the ref', () => {
+  const host = read('app/agent-world/shared/office/OfficeStage.tsx')
   assert.doesNotMatch(host, /new SnapshotOffice\(/)
   assert.doesNotMatch(host, /useEffect\(\(\) => \(\) => officeRef\.current\?\.dispose\(\)/)
   assert.match(host, /officeRef\.current = session\.office[\s\S]*return \(\) => \{[\s\S]*officeRef\.current = null[\s\S]*session\.stop\(\)/)

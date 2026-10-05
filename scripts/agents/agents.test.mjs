@@ -6,11 +6,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { routeModel, classifyTask, KIND_TIER } from './lib/models.mjs'
+import { routeModel, classifyTask, KIND_TIER, workerRoute } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
 import { Boss, describeGitError, lastJSON, pickTask, reviewDiff, shouldRestartBoss, stagePrompt } from './boss.mjs'
-import { scoreOf } from './health.mjs'
+import { scoreOf, checks, needsDeps, pythonProbe, BRIDGE_TEST_MODULES } from './health.mjs'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 test('classifyTask maps free text to task kinds', () => {
   assert.equal(classifyTask('Fix SSRF in github-profile'), 'security')
@@ -205,6 +207,93 @@ test('scoreOf weights checks and ignores skipped ones', () => {
   assert.equal(scoreOf([]), 0)
 })
 
+test('needsDeps skips — not fails — when a toolchain is absent, and runs when it is present', () => {
+  let ran = 0
+  const inner = () => (ran++, { ok: true, output: 'ok', ms: 1 })
+
+  const absent = needsDeps(() => false, 'thing/node_modules missing — run `cd thing && npm ci`', inner)()
+  assert.equal(absent.skipped, true, 'a missing dependency is not a code defect')
+  assert.equal(absent.ok, false, 'a skip is never ok — it must stay visible in the report')
+  assert.match(absent.output, /thing\/node_modules missing/, 'the hint names how to fix it')
+  assert.equal(absent.ms, 0)
+  assert.equal(ran, 0, 'the real check must not run without its deps')
+
+  const present = needsDeps(() => true, 'unused', inner)()
+  assert.deepEqual(present, { ok: true, output: 'ok', ms: 1 })
+  assert.equal(present.skipped, undefined, 'a running check is never marked skipped')
+  assert.equal(ran, 1, 'the real check runs once deps are present')
+})
+
+test('a skipped check is dropped from the score entirely, so an uninstalled tree cannot lower it', () => {
+  // The shape that motivated the rule: mcp's suite cannot run without its
+  // node_modules, and reporting that as a failure sent the boss after a defect
+  // that was never in the code (the web-ui/app/.omc failure, T-010).
+  const withDeps = scoreOf([{ ok: true, weight: 15 }, { ok: true, weight: 5 }])
+  const withoutDeps = scoreOf([{ ok: true, weight: 15 }, { ok: false, skipped: true, weight: 5 }])
+  assert.equal(withDeps, 100)
+  assert.equal(withoutDeps, 100, 'skipping must not cost points')
+})
+
+test('the added checks skip on a checkout with no node_modules and no bridge tests', () => {
+  // A bare tree: nothing installed anywhere. Every added check must SKIP, so a
+  // fresh clone scores 100 instead of collapsing on missing toolchains. The
+  // mark-l-bridge dir is left empty on purpose so this holds whether or not the
+  // machine running it has pytest — a bare dir makes pytest exit 5, not 0.
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-health-bare-'))
+  try {
+    for (const dir of ['mcp', 'tui', 'electron-app', 'web-ui', 'mark-l-bridge']) fs.mkdirSync(path.join(bare, dir))
+    const byId = Object.fromEntries(checks(bare).map(c => [c.id, c]))
+    for (const id of ['mcp-tests', 'tui-tests', 'electron-tests', 'bridge-tests']) {
+      const r = byId[id].run()
+      assert.equal(r.skipped, true, `${id} must skip without its toolchain`)
+      assert.match(r.output, /missing|not found|not installed|no .* tests/, `${id} explains why it skipped`)
+    }
+  } finally {
+    fs.rmSync(bare, { recursive: true, force: true })
+  }
+})
+
+test('each added check is a real suite runner for the surface its label claims', () => {
+  // Regression guard for the blind spot itself: a check that only syntax-checks
+  // (mcp-parse) or byte-compiles (bridge-compile) must not be able to pose as
+  // the suite it stands in for.
+  const all = checks(ROOT)
+  const find = id => all.find(c => c.id === id)
+  assert.match(find('mcp-tests').label, /MCP server unit tests/)
+  assert.match(find('tui-tests').label, /TUI unit tests/)
+  assert.match(find('electron-tests').label, /Electron desktop app tests/)
+  assert.match(find('bridge-tests').label, /bridge tests \(pytest\)/)
+  for (const id of ['mcp-tests', 'tui-tests', 'electron-tests', 'bridge-tests']) {
+    assert.ok(find(id).weight > 0, `${id} counts toward the score`)
+  }
+})
+
+test('pythonProbe reports an importable interpreter and names what is missing otherwise', () => {
+  // stdlib, so this passes on any machine with a working interpreter — and it
+  // is the regression guard for running the probe without shell:true. With a
+  // shell on Windows the `-c` argument gets word-split and python sees a bare
+  // `import`, so the probe reported "json not installed" on a healthy install.
+  const ok = pythonProbe(['json'])
+  assert.equal(ok.ok, true, 'a stdlib import must succeed on any working interpreter')
+  assert.ok(ok.cmd, 'names the interpreter to run pytest with')
+
+  const missing = pythonProbe(['definitely_not_a_real_module_xyz'])
+  assert.equal(missing.ok, false)
+  assert.match(missing.reason, /definitely_not_a_real_module_xyz not installed/)
+  assert.equal(missing.cmd, undefined, 'a probe that failed cannot name a command')
+})
+
+test('the bridge pytest modules match what CI installs for the same suite', () => {
+  // If these drift apart, health skips a suite CI still runs (or vice versa),
+  // and the two disagree about whether the bridge is healthy.
+  const workflow = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'pr-check.yml'), 'utf8')
+  const install = workflow.match(/pip install ([^\n#]*)/g).join(' ')
+  for (const mod of BRIDGE_TEST_MODULES) {
+    assert.ok(new RegExp(`\\b${mod === 'multipart' ? 'python-multipart' : mod}\\b`).test(install), `CI installs ${mod}`)
+  }
+  assert.ok(BRIDGE_TEST_MODULES.includes('pytest'), 'the suite itself must be probed')
+})
+
 test('strayNeedle never lets one worktree match a sibling that shares its prefix', async () => {
   const { strayNeedle } = await import('./boss.mjs')
   const claude = strayNeedle(path.join(os.tmpdir(), 'gf-claude'))
@@ -388,4 +477,12 @@ test('describeGitError names the failing command and is idempotent', () => {
   assert.match(msg, /ENOBUFS/)
   assert.match(msg, /maxBuffer/)
   assert.equal(describeGitError({ message: msg }, ['diff', '--stat', 'a..b'], '/repo'), msg)
+})
+
+test('workerRoute keeps Pro for deep work and sends other Claude work to free models', () => {
+  assert.deepEqual(workerRoute('claude', { tier: 'balanced' }), { env: { ANTHROPIC_CUSTOM_HEADERS: 'x-claude-switch-route: free:balanced' }, needsPro: false })
+  assert.deepEqual(workerRoute('claude', { tier: 'fast' }).env, { ANTHROPIC_CUSTOM_HEADERS: 'x-claude-switch-route: free:fast' })
+  assert.deepEqual(workerRoute('claude', { tier: 'deep' }), { env: {}, needsPro: true }, 'deep work stays on Pro and is flagged')
+  assert.deepEqual(workerRoute('copilot', { tier: 'balanced' }), { env: {}, needsPro: false }, 'only Claude workers go through claude-switch')
+  assert.deepEqual(workerRoute('claude', { tier: 'balanced' }, { workersOnFree: false }), { env: {}, needsPro: false }, 'team.json can turn it off')
 })

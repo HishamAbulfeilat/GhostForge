@@ -4,7 +4,7 @@ import {
   releaseSnapshotOffice,
   type AgentFields,
   type LayoutItem,
-} from '../../../vendor/agent-office/src/snapshot-room'
+} from '../../../../vendor/agent-office/src/snapshot-room'
 
 export type OfficeModel = { agents: AgentFields[]; layout: LayoutItem[] }
 

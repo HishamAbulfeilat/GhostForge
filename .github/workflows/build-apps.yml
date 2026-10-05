@@ -1,13 +1,19 @@
 name: Build Apps
 
-# Builds GhostForge JARVIS for every platform. Release APK/AAB artifacts are kept
-# here for signed release builds; the debug APK for PR validation is built in the
-# Android validation workflow and downloaded from the run's Artifacts page.
+# Builds GhostForge JARVIS for every platform, Android included, on every push
+# to main. A `v*` tag push (or a manual run with `release_tag` set) also
+# publishes a GitHub Release with the desktop installers, the Android APK/AAB
+# and the iOS build attached.
 on:
   push:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish a GitHub Release with this tag (e.g. v5.3.1). Leave empty to only build.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -86,7 +92,8 @@ jobs:
 
   android:
     name: Android
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    # Built on every run (it used to run only for tags / manual runs, so main
+    # never produced an APK and the release had nothing Android to attach).
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -119,18 +126,39 @@ jobs:
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore" && echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
-      - run: ./gradlew assembleRelease bundleRelease
+      - name: Version
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "GF_ANDROID_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+          echo "GF_ANDROID_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "GF_VERSION=$VERSION" >> "$GITHUB_ENV"
+      # Without a keystore the release APK is unsigned and Android refuses to
+      # install it, so the debug APK (signed with the debug key) is built too and
+      # shipped as the installable APK.
+      - run: ./gradlew --no-daemon assembleDebug assembleRelease bundleRelease
         working-directory: electron-app/android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - name: Name the Android files
+        working-directory: electron-app/android/app/build/outputs
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/android-dist"
+          OUT="$GITHUB_WORKSPACE/android-dist/GhostForge-JARVIS-$GF_VERSION-android"
+          if [ "$HAS_KEYSTORE" = "true" ]; then
+            cp apk/release/app-release.apk "$OUT.apk"
+            cp bundle/release/app-release.aab "$OUT.aab"
+          else
+            cp apk/debug/app-debug.apk "$OUT.apk"
+            cp apk/release/app-release-unsigned.apk "$OUT-release-unsigned.apk"
+            cp bundle/release/app-release.aab "$OUT-unsigned.aab"
+          fi
+          ls -l "$GITHUB_WORKSPACE/android-dist"
       - uses: actions/upload-artifact@v4
         with:
           name: ghostforge-android
-          path: |
-            electron-app/android/app/build/outputs/apk/release/*.apk
-            electron-app/android/app/build/outputs/bundle/release/*.aab
+          path: android-dist/*
           if-no-files-found: error
 
   ios:
@@ -186,16 +214,31 @@ jobs:
 
   release:
     name: Publish release
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Tag pushes, or a manual run with release_tag. Desktop and Android must
+    # succeed; iOS (unsigned simulator build) is attached when it succeeds but
+    # no longer blocks the release.
+    if: >-
+      always() &&
+      (startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != '') &&
+      needs.desktop.result == 'success' && needs.android.result == 'success'
     needs: [desktop, android, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.release_tag }}
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+      - run: ls -l dist
+      - name: Create or update the release
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+          fi
         env:
           GH_TOKEN: ${{ github.token }}
