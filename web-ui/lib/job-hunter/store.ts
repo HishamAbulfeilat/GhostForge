@@ -15,7 +15,9 @@ import { randomUUID } from 'crypto'
  * interleave (autopilot runs for minutes while the UI polls/writes), or updates
  * are lost. Callers serialize on the user's directory.
  */
-const locks = new Map<string, Promise<unknown>>()
+// Kept on globalThis: Next.js can load this module more than once (instrumentation
+// and route bundles), and two lock maps would not exclude each other.
+const locks: Map<string, Promise<unknown>> = ((globalThis as { __gfJobLocks?: Map<string, Promise<unknown>> }).__gfJobLocks ??= new Map())
 function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prev = locks.get(key) ?? Promise.resolve()
   const next = prev.then(fn, fn)
@@ -212,6 +214,10 @@ export interface JobRecord {
   verification?: Verification
   /** Application attempts so far (autopilot retries a failed one once) */
   attempts?: number
+  /** When Submit was last pressed on this job's form: it may have been sent, so autopilot never retries it */
+  submitPressedAt?: string
+  /** Found by probing a plain company name on an ATS (not pinned as "ats:slug"): may be another company with the same board name */
+  boardUnconfirmed?: boolean
   fit: Fit
   score: number
   reasons: string
@@ -354,7 +360,9 @@ export function dedupeKey(job: Pick<JobRecord, 'company' | 'title' | 'location'>
   const n = (s: string) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ')
   const company = n(job.company).replace(COMPANY_SUFFIX, ' ').replace(/\s+/g, ' ').trim()
   const title = n(job.title).replace(/\b(sr)\b/g, 'senior').replace(/\b(jr)\b/g, 'junior').replace(/\s+/g, ' ').trim()
-  const loc = n(job.location).replace(/\b(remote|worldwide|anywhere|global|fully|100)\b/g, ' ').replace(/\s+/g, ' ').trim().split(' ')[0] || ''
+  // City plus region ("New York, NY" ≠ "New Delhi, India"); remote wording ignored
+  const loc = String(job.location || '').split(/[,/|;(]/).slice(0, 2).map(n).join(' ')
+    .replace(/\b(remote|worldwide|anywhere|global|fully|hybrid|onsite|on site|100)\b/g, ' ').replace(/\s+/g, ' ').trim()
   return `${company}|${title}|${loc}`
 }
 
@@ -371,9 +379,12 @@ export function upsertJobs(
   const now = new Date().toISOString()
   let added = 0
   for (const f of found) {
-    const existing = byKey.get(f.key) || byLoose.get(dedupeKey(f))
+    const loose = byLoose.get(dedupeKey(f))
+    // A loose match only counts across boards: two postings from the same source with
+    // different keys are different jobs and both are kept.
+    const existing = byKey.get(f.key) || (loose && loose.source !== f.source ? loose : undefined)
     if (existing) {
-      if (existing.key !== f.key) continue // a duplicate from another source: keep the first record
+      if (existing.key !== f.key) continue // the same job from another board: keep the first record
       // Refresh listing details but never clobber application progress, and keep a
       // live check result unless the fresh listing is flagged
       const keepCheck = existing.verification?.live && f.verification?.status !== 'flagged'
@@ -391,6 +402,31 @@ export function upsertJobs(
   }
   await saveJobs(username, jobs)
   return { added, jobs }
+  })
+}
+
+/**
+ * Atomically move a job into `patch.status` only if it is currently in one of
+ * `from` (compare-and-set under the user's write lock). Returns null when
+ * another request got there first — e.g. two "approve"s, or autopilot and the
+ * user, racing to submit the same application.
+ */
+export function claimJob(
+  username: string,
+  id: string,
+  from: JobStatus[],
+  patch: Partial<JobRecord>,
+  logMsg?: string,
+): Promise<JobRecord | null> {
+  return withLock(userDir(username), async () => {
+    const jobs = await listJobs(username)
+    const job = jobs.find(j => j.id === id)
+    if (!job || !from.includes(job.status)) return null
+    const now = new Date().toISOString()
+    Object.assign(job, patch, { updatedAt: now })
+    if (logMsg) job.log = [...(job.log || []), { at: now, msg: logMsg }].slice(-50)
+    await saveJobs(username, jobs)
+    return job
   })
 }
 

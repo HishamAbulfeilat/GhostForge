@@ -137,16 +137,26 @@ test('one job listed on several boards is kept once, preferring the company\'s o
   ])
   assert.equal(jobs.length, 2)
   assert.equal(jobs.find(j => /frontend/i.test(j.title)).source, 'Greenhouse (acme)')
-  assert.equal(store.dedupeKey({ company: 'Beta GmbH', title: 'Jr Developer', location: 'Berlin, Germany' }), store.dedupeKey({ company: 'beta', title: 'Junior Developer', location: 'Berlin' }))
+  assert.equal(store.dedupeKey({ company: 'Beta GmbH', title: 'Jr Developer', location: 'Berlin, Germany' }), store.dedupeKey({ company: 'beta', title: 'Junior Developer', location: 'Berlin, Germany (Hybrid)' }))
+})
+
+test('regression: different cities sharing a first word are different jobs', () => {
+  const key = location => store.dedupeKey({ company: 'Acme', title: 'Engineer', location })
+  assert.notEqual(key('New York, NY'), key('New Delhi, India'))
+  assert.notEqual(key('San Francisco, CA'), key('San Jose, CA'))
+  assert.equal(sources.dedupeListings([listing({ location: 'New York, NY' }), listing({ location: 'New Delhi, India' })]).length, 2)
 })
 
 test('the same job from another board is not added twice to a user\'s list', async () => {
   const user = 'dupes'
   const a = await store.upsertJobs(user, [{ ...listing({ key: 'remotive|1' }), fit: 'High', score: 90, reasons: '' }])
   assert.equal(a.added, 1)
-  const b = await store.upsertJobs(user, [{ ...listing({ key: 'arbeitnow|1', company: 'Acme Inc' }), fit: 'High', score: 90, reasons: '' }])
+  const b = await store.upsertJobs(user, [{ ...listing({ key: 'arbeitnow|1', source: 'Arbeitnow', company: 'Acme Inc' }), fit: 'High', score: 90, reasons: '' }])
   assert.equal(b.added, 0)
   assert.equal((await store.listJobs(user)).length, 1)
+  // Two postings from the SAME source are distinct jobs, even if they look alike
+  const c = await store.upsertJobs(user, [{ ...listing({ key: 'remotive|2' }), fit: 'High', score: 90, reasons: '' }])
+  assert.equal(c.added, 1)
 })
 
 // ── live check ───────────────────────────────────────────────────────────────
@@ -185,8 +195,8 @@ test('live check uses Greenhouse and Lever public APIs, and never fetches Linked
   assert.equal((await verify.checkLive({ ats: 'lever', url: `https://jobs.lever.co/acme/${id}`, applyUrl: `https://jobs.lever.co/acme/${id}/apply` }, lever)).live, 'live')
   assert.deepEqual(lever.calls, [`https://api.lever.co/v0/postings/acme/${id}`])
 
-  const redirected = async () => ({ status: 200, body: '<h1>Acme jobs</h1>', url: 'https://job-boards.greenhouse.io/acme?error=true' })
-  assert.equal((await verify.checkLive({ ats: 'greenhouse', url: 'https://job-boards.greenhouse.io/acme/jobs/9', applyUrl: '' }, redirected)).live, 'gone')
+  const redirected = async () => ({ status: 200, body: '<h1>Acme jobs</h1>', url: 'https://careers.acme.com/jobs?error=true' })
+  assert.equal((await verify.checkLive({ ats: 'other', url: 'https://careers.acme.com/jobs/9', applyUrl: '' }, redirected)).live, 'gone')
 
   const li = fetcherFor({})
   assert.equal((await verify.checkLive({ ats: 'linkedin', url: 'https://www.linkedin.com/jobs/view/1', applyUrl: '' }, li)).live, 'unknown')
@@ -286,7 +296,10 @@ test('searchSources reads the new boards, probes company ATSes quietly and only 
     const { jobs, report } = await sources.searchSources(prefs, ['frontend'])
     const bySource = Object.fromEntries(jobs.map(j => [j.source, j]))
     for (const s of ['Jobicy', 'Himalayas', 'We Work Remotely', 'HN Who is hiring', 'Ashby (acme)']) assert.ok(bySource[s], `${s} listing`)
-    assert.equal(bySource['Ashby (acme)'].trust, 'official')
+    // Matched by a plain name: could be another company with the same board name
+    assert.equal(bySource['Ashby (acme)'].trust, 'board')
+    assert.equal(bySource['Ashby (acme)'].boardUnconfirmed, true)
+    assert.match(report.find(r => r.source === 'Ashby acme').note, /"ashby:acme"/)
     assert.equal(bySource['We Work Remotely'].company, 'WWR Co')
     assert.equal(bySource.Jobicy.salary, 'USD 90000-120000')
     // "acme" was probed on every ATS; only Ashby answered, and the misses are not errors
@@ -301,10 +314,13 @@ test('searchSources reads the new boards, probes company ATSes quietly and only 
 })
 
 test('keyed sources: Adzuna picks its country from your location and is called only with both keys', async () => {
-  assert.equal(sources.adzunaCountry(['Berlin, Germany']), 'de')
-  assert.equal(sources.adzunaCountry(['Tokyo']), null)
+  // Per location; no silent fallback to the UK
+  assert.equal(sources.adzunaCountry('Berlin, Germany'), 'de')
+  assert.equal(sources.adzunaCountry('Austin, United States'), 'us')
+  assert.equal(sources.adzunaCountry('Tokyo'), null)
   process.env.ADZUNA_COUNTRY = 'GB'
-  assert.equal(sources.adzunaCountry(['Berlin, Germany']), 'gb')
+  assert.equal(sources.adzunaCountry('Berlin, Germany'), 'de', 'the location wins')
+  assert.equal(sources.adzunaCountry('Tokyo'), 'gb', 'a configured default is used only when set')
   delete process.env.ADZUNA_COUNTRY
 
   sources.clearSourceCache()
@@ -320,9 +336,12 @@ test('keyed sources: Adzuna picks its country from your location and is called o
   process.env.ADZUNA_APP_KEY = 'test-key'
   try {
     assert.equal(sources.keyedSources().adzuna, true)
-    const prefs = { titles: ['frontend'], locations: ['Berlin, Germany'], remote: 'any', minSalary: null, mustHaves: [], niceToHaves: [], dealbreakers: [], companies: [] }
+    const prefs = { titles: ['frontend'], locations: ['Berlin, Germany', 'Austin, United States', 'Tokyo'], remote: 'any', minSalary: null, mustHaves: [], niceToHaves: [], dealbreakers: [], companies: [] }
     const { jobs, report } = await sources.searchSources(prefs, ['frontend'])
-    assert.ok(urls.some(u => u.startsWith('https://api.adzuna.com/v1/api/jobs/de/search/1?')))
+    const adz = urls.filter(u => u.includes('api.adzuna.com'))
+    assert.ok(adz.some(u => u.startsWith('https://api.adzuna.com/v1/api/jobs/de/search/1?') && u.includes('where=Berlin')))
+    assert.ok(adz.some(u => u.startsWith('https://api.adzuna.com/v1/api/jobs/us/search/1?') && u.includes('where=Austin')))
+    assert.ok(!adz.some(u => u.includes('where=Tokyo')), 'no country for Tokyo: skipped, not sent to the UK')
     assert.ok(jobs.some(j => j.source === 'Adzuna' && j.company === 'Adz'))
     assert.ok(!JSON.stringify(report).includes('test-key'), 'keys never appear in the report')
   } finally {
@@ -330,4 +349,81 @@ test('keyed sources: Adzuna picks its country from your location and is called o
     delete process.env.ADZUNA_APP_KEY
     globalThis.fetch = realFetch
   }
+})
+
+// ── review regressions ───────────────────────────────────────────────────────
+
+test('regression: a pinned board is official; unconfirmed boards are not, and probe outages are shown', async () => {
+  sources.clearSourceCache()
+  const json = body => new Response(JSON.stringify(body), { status: 200 })
+  globalThis.fetch = async url => {
+    const u = new URL(String(url))
+    if (u.hostname === 'api.ashbyhq.com') return json({ jobs: [{ id: 'a1', title: 'Frontend Engineer', location: 'Remote', isRemote: true, jobUrl: 'https://jobs.ashbyhq.com/acme/a1', descriptionPlain: 'React', publishedAt: iso(400) }] })
+    if (u.hostname === 'api.lever.co') return new Response('busy', { status: 503 })
+    return new Response('[]', { status: 404 })
+  }
+  try {
+    const prefs = { titles: ['frontend'], locations: ['Remote'], remote: 'remote', minSalary: null, mustHaves: [], niceToHaves: [], dealbreakers: [], companies: ['ashby:acme', 'globex'] }
+    const { jobs, report } = await sources.searchSources(prefs, ['frontend'])
+    const pinned = jobs.find(j => j.source === 'Ashby (acme)')
+    assert.equal(pinned.trust, 'official')
+    assert.ok(!pinned.boardUnconfirmed)
+    assert.ok(report.some(r => r.source === 'Lever globex' && /503/.test(r.error)), 'a probe outage (not a 404) is surfaced')
+    // Evergreen: a 400-day-old posting read from the company's ATS API is not dropped as stale
+    assert.equal(verify.screenListing(pinned, { now: NOW }).drop, null)
+    assert.equal(verify.screenListing({ ...pinned, trust: 'board', boardUnconfirmed: true }, { now: NOW }).drop, null)
+    assert.equal(verify.screenListing({ ...pinned, trust: 'board', fromBoardApi: false }, { now: NOW }).drop, 'stale')
+    assert.equal(verify.screenListing({ ...pinned, trust: 'board', boardUnconfirmed: true }, { now: NOW }).verification.status, 'unverified')
+  } finally {
+    globalThis.fetch = realFetch
+  }
+})
+
+test('regression: "k" is thousands only as a standalone suffix; non-major currencies are not judged', () => {
+  assert.equal(verify.salaryTop('600000 kr'), 600000)
+  assert.equal(verify.salaryTop('90000 Kč'), 90000)
+  assert.equal(verify.salaryTop('60000 KES'), 60000)
+  assert.equal(verify.salaryTop('$120k-$150k'), 150000)
+  assert.equal(verify.salaryTop('80K EUR'), 80000)
+  for (const salary of ['600000 kr', '90000 Kč', '60000 KES', '1500000 SEK', 'INR 2500000', 'JPY 8000000']) {
+    assert.equal(verify.screenListing(listing({ salary }), { now: NOW }).verification.status, 'unverified', salary)
+  }
+  for (const salary of ['$2,500,000', 'EUR 3000000', '2500000']) {
+    assert.equal(verify.screenListing(listing({ salary }), { now: NOW }).verification.status, 'flagged', salary)
+  }
+  const match = require('../lib/job-hunter/match.ts')
+  const prefs = { dealbreakers: [], minSalary: 500000 }
+  assert.equal(match.dealbreaker({ title: 'x', company: 'y', description: '', salary: '600000 kr' }, prefs), null, '"kr" is not ×1000 in the salary floor either')
+})
+
+test('regression: description wording does not mark a posting closed; ATS APIs are structured', async () => {
+  const page = body => async url => ({ status: 200, url, body })
+  const job = { url: 'https://careers.acme.com/jobs/1', applyUrl: '', ats: 'other' }
+  const desc = '<html><head><title>Frontend Engineer at Acme</title></head><body><h1>Frontend Engineer</h1>' + '<p>Lorem ipsum. '.repeat(60) + 'This role is not available for visa sponsorship. Applications are closed on public holidays. The position is closed to agencies.</p></body></html>'
+  assert.equal((await verify.checkLive(job, page(desc))).live, 'live')
+  assert.equal((await verify.checkLive(job, page('<h1>This job is no longer available</h1><p>See other roles</p>'))).live, 'gone')
+  // Greenhouse API answered: the posting exists, whatever its description says
+  const gh = { ats: 'greenhouse', url: 'https://boards.greenhouse.io/acme/jobs/42', applyUrl: '' }
+  assert.equal((await verify.checkLive(gh, page('{"content":"This position is closed to candidates needing sponsorship. No longer accepting applications from agencies."}'))).live, 'live')
+})
+
+test('regression: a "closed" reading is re-checked after a day', async () => {
+  const user = 'reopen'
+  await store.upsertJobs(user, [{ ...listing({ key: 'reopen|1', url: 'https://careers.acme.com/9', applyUrl: 'https://careers.acme.com/9' }), fit: 'High', score: 90, reasons: '' }])
+  const [job] = await store.listJobs(user)
+  const closed = await verify.ensureVerified(user, job.id, { fetcher: async url => ({ status: 404, body: '', url }), now: NOW })
+  assert.equal(closed.verification.status, 'closed')
+  const live = async url => ({ status: 200, body: '<h1>Engineer</h1>', url })
+  assert.equal((await verify.ensureVerified(user, job.id, { fetcher: live, now: NOW + 3_600_000 })).verification.status, 'closed', 'held for a day')
+  assert.equal((await verify.ensureVerified(user, job.id, { fetcher: live, now: NOW + 2 * DAY })).verification.status, 'verified', 'then checked again')
+})
+
+test('regression: claimJob is a compare-and-set, so only one approval starts', async () => {
+  const user = 'claim'
+  await store.upsertJobs(user, [{ ...listing({ key: 'claim|1' }), fit: 'High', score: 90, reasons: '' }])
+  const [job] = await store.listJobs(user)
+  await store.updateJob(user, job.id, { status: 'ready' })
+  const results = await Promise.all([1, 2, 3].map(() => store.claimJob(user, job.id, ['ready', 'needs_user', 'failed'], { status: 'submitting' })))
+  assert.equal(results.filter(Boolean).length, 1)
+  assert.equal((await store.getJob(user, job.id)).status, 'submitting')
 })

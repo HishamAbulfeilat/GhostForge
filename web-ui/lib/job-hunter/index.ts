@@ -18,7 +18,7 @@ import { analyzeCv, extractCvText } from './cv'
 import { dealbreaker, matchesLocation, relevantTo, scoreJobs } from './match'
 import { linkedInSearchUrl, searchSources, type SourceReport } from './sources'
 import {
-  getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs,
+  claimJob, getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs,
   type JobProfile, type JobRecord, type ModelChoice,
 } from './store'
 import { applyToJob } from './apply'
@@ -196,7 +196,10 @@ export async function approveJob(
 
   const by = opts.by || 'user'
   const ap = profile.autopilot
-  await updateJob(username, id, { status: 'submitting', attempts: (job.attempts || 0) + 1 }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
+  // Compare-and-set: only one approval (user or autopilot) may start filling this form
+  const claimed = await claimJob(username, id, ['ready', 'needs_user', 'failed'], { status: 'submitting', attempts: (job.attempts || 0) + 1 },
+    by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
+  if (!claimed) throw new Error('This application is already being submitted')
   void auditLog({ level: 'info', event: 'job_application_approved', params: { username, jobId: id, company: job.company, title: job.title, ats: job.ats, by } })
 
   // Laptop control on: a visible browser on this computer and screenshot-based
@@ -224,8 +227,11 @@ export async function approveJob(
     if (by === 'autopilot') void notify(username, { title: `Couldn't apply: ${job.title}`, body: msg.slice(0, 140) })
     return { job: failed!, message: msg, missing: [] }
   }
+  const settled = settleResult(result)
+  result = { ...result, ...settled }
   const updated = await updateJob(username, id, {
     status: result.status,
+    ...(result.submitPressed ? { submitPressedAt: new Date().toISOString() } : {}),
     questions: result.questions?.length ? result.questions : undefined,
     aiAnswers: result.aiAnswers?.length ? result.aiAnswers : job.aiAnswers,
     // The form agent found the posting closed: never retry it
@@ -240,6 +246,17 @@ export async function approveJob(
         : { title: `Needs you: ${job.title}`, body: result.questions?.length ? `${result.questions.length} question(s) to answer once; autopilot continues on its next run.` : result.message.slice(0, 140) })
   }
   return { job: updated!, message: result.message, missing: result.missing }
+}
+
+/**
+ * A failed run after Submit was pressed is not a failure to retry: the
+ * application may have gone through. Hand it to the user to check instead.
+ */
+export function settleResult<T extends { status: 'submitted' | 'needs_user' | 'failed'; message: string; submitPressed?: boolean }>(r: T): Pick<T, 'status' | 'message'> {
+  if (r.status === 'failed' && r.submitPressed) {
+    return { status: 'needs_user', message: `Submit was pressed but the result is unclear (${r.message.slice(0, 120)}). Check your email or the site before applying again.` }
+  }
+  return { status: r.status, message: r.message }
 }
 
 /** Screenshot → action, via GhostForge's vision model chain (computer-use fallback). */
