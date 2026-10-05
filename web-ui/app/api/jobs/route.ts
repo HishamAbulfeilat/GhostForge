@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/access'
-import { approveJob, dismissJob, getProfile, listJobs, missingApplicantFields, prepareJob, runSearch } from '@/lib/job-hunter'
+import { answerQuestions, approveJob, dismissJob, generatorFor, getProfile, listJobs, missingApplicantFields, prepareJob, runSearch } from '@/lib/job-hunter'
+import { addJobByUrl, connectLinkedIn, disconnectLinkedIn } from '@/lib/job-hunter/intake'
 import { jsearchKey } from '@/lib/job-hunter/sources'
 import { runAutopilot, submittedToday } from '@/lib/job-hunter/autopilot'
 
@@ -18,6 +19,7 @@ export async function GET(req: NextRequest) {
     ready: { hasCv: Boolean(profile.cv), missing: missingApplicantFields(profile), titles: profile.preferences.titles },
     model: profile.model,
     autopilot: { ...profile.autopilot, submittedToday: submittedToday(profile.autopilot) },
+    linkedin: { connected: Boolean(profile.linkedin?.connectedAt), connectedAt: profile.linkedin?.connectedAt || null },
     sources: { linkedInViaJSearch: Boolean(jsearchKey()) },
   })
 }
@@ -28,12 +30,15 @@ export async function GET(req: NextRequest) {
  *   prepare  tailor CV + cover letter for one job
  *   approve  fill (and where safe, submit) the application — the user's one click
  *   dismiss  hide a job
+ *   answer   { id, answers: { label: value } } — answer the questions an application stopped on
+ *   add-url  { url } — add any job by link (LinkedIn, careers page, ATS)
+ *   linkedin-connect / linkedin-disconnect — sign in to LinkedIn once in the GhostForge browser
  */
 export async function POST(req: NextRequest) {
   const user = await requirePermission(req, 'job_hunter')
   if (user instanceof NextResponse) return user
 
-  let body: { action?: string; id?: string; terms?: string[]; autoPrepare?: number }
+  let body: { action?: string; id?: string; terms?: string[]; autoPrepare?: number; answers?: Record<string, string>; url?: string }
   try {
     body = await req.json()
   } catch {
@@ -56,6 +61,19 @@ export async function POST(req: NextRequest) {
       case 'autopilot':
         // "Run now": one full autopilot pass, even if not due (or switched off)
         return NextResponse.json({ report: await runAutopilot(user.username, { force: true }) })
+      case 'answer':
+        if (!body.id || !body.answers || typeof body.answers !== 'object') return NextResponse.json({ error: 'Job id and answers required' }, { status: 400 })
+        return NextResponse.json({ job: await answerQuestions(user.username, body.id, body.answers) })
+      case 'add-url': {
+        if (typeof body.url !== 'string') return NextResponse.json({ error: 'url required' }, { status: 400 })
+        const { model } = await getProfile(user.username)
+        return NextResponse.json({ job: await addJobByUrl(user.username, body.url, generatorFor(model)) })
+      }
+      case 'linkedin-connect':
+        return NextResponse.json(await connectLinkedIn(user.username))
+      case 'linkedin-disconnect':
+        await disconnectLinkedIn(user.username)
+        return NextResponse.json({ ok: true })
       case 'dismiss':
         if (!body.id) return NextResponse.json({ error: 'Job id required' }, { status: 400 })
         return NextResponse.json({ job: await dismissJob(user.username, body.id) })
