@@ -60,9 +60,14 @@ export function tunnelStatus() {
  * Start `cloudflared tunnel --url <local>` and resolve with the public
  * https://*.trycloudflare.com address once cloudflared prints it.
  */
+let starting: Promise<ReturnType<typeof tunnelStatus>> | null = null
+
 export function startTunnel(localUrl: string): Promise<ReturnType<typeof tunnelStatus>> {
-  if (tunnel?.url) return Promise.resolve(tunnelStatus())
-  return new Promise(resolve => {
+  // One cloudflared at a time: a second click while it is starting (or slow to
+  // print its address) must not spawn another process that Stop cannot reach.
+  if (starting) return starting
+  if (tunnel) return Promise.resolve(tunnelStatus())
+  starting = new Promise<ReturnType<typeof tunnelStatus>>(resolve => {
     let child: ChildProcess
     try {
       // --no-tls-verify: the local server uses a mkcert certificate cloudflared does not trust.
@@ -90,7 +95,8 @@ export function startTunnel(localUrl: string): Promise<ReturnType<typeof tunnelS
       resolve({ running: false, url: null, error: missing ? 'cloudflared is not installed. Install it (winget install Cloudflare.cloudflared / brew install cloudflared) or use Tailscale.' : e.message } as never)
     })
     child.on('exit', () => { if (tunnel?.child === child) tunnel = null })
-  })
+  }).finally(() => { starting = null })
+  return starting
 }
 
 export function stopTunnel(): void {

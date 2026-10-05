@@ -245,6 +245,7 @@ function RemoteDesktop() {
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e))
           setLive(false)
+          void load() // it may have switched itself off after being idle
           return
         }
       }
@@ -252,7 +253,7 @@ function RemoteDesktop() {
     }
     void next()
     return () => { stopped = true; if (url) URL.revokeObjectURL(url) }
-  }, [live, status?.enabled])
+  }, [live, status?.enabled, load])
 
   const send = async (input: Record<string, unknown>) => {
     try { await call('/api/remote/desktop', { method: 'POST', body: JSON.stringify({ input }) }) } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
@@ -352,7 +353,7 @@ function RemoteDesktop() {
       )}
       {status && !status.enabled && (
         <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={e => { e.preventDefault(); void toggle(true) }}>
-          <p className="w-full text-sm text-gf-muted">Off. Turning it on lets your signed-in devices see this screen and use the mouse and keyboard. Enter your password to confirm.</p>
+          <p className="w-full text-sm text-gf-muted">Off. Turning it on lets your signed-in devices see this screen and use the mouse and keyboard. Enter your password to confirm. It turns itself off after 20 minutes without use.</p>
           <label className="grid gap-1 text-xs text-gf-muted">Password
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" className="min-h-10 rounded-lg border border-gf-line bg-gf-bar px-3 text-sm text-gf-ink" />
           </label>
