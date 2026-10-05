@@ -22,6 +22,7 @@ adapter that maps agents/tasks/boss to office state lives in
 
 Local deviations from upstream `Game.ts` (everything else is verbatim):
 - `import * as Colyseus from 'colyseus.js'` -> `'../snapshot-room'`.
+- `import Phaser from 'phaser'` -> `import * as Phaser from 'phaser'` (phaser has no default export; the default import broke the GhostForge build).
 - Sprite paths `/assets/characters/char_N.png` -> `/vendor/agent-office/characters/char_N.png`.
 - Status text no longer mentions Colyseus or a WebSocket endpoint.
 - The three hard-coded desk labels ("Alice's Desk", "Bob's Desk", "Vacant") read "Desk".
