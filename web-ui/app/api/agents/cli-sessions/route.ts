@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser, hasPermission } from '@/lib/auth'
 import { buildSnapshot, getSessionDetail } from '@/lib/cli-sessions.mjs'
+import { connectorSnapshot } from '@/app/agent-world/shared/server/connector.mjs'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -23,6 +24,8 @@ async function requireAdminUser(request: NextRequest) {
  * Claude Code and Copilot CLI sessions on this machine (metadata only).
  * GET                 -> world snapshot (sessions, agents, totals)
  * GET ?session=<id>   -> one session's detail (tools, events, subagents, usage)
+ * GET ?format=connector -> the snapshot in the /api/agents connector format,
+ *                         trimmed below the 65,536-byte connector limit
  */
 export async function GET(request: NextRequest) {
   if (!await requireAdminUser(request)) {
@@ -39,6 +42,9 @@ export async function GET(request: NextRequest) {
       return detail
         ? NextResponse.json(detail)
         : NextResponse.json({ error: 'Session is not in the current snapshot.' }, { status: 404 })
+    }
+    if (request.nextUrl.searchParams.get('format') === 'connector') {
+      return NextResponse.json(connectorSnapshot(await snapshot()))
     }
     return NextResponse.json(await snapshot())
   } catch (error) {

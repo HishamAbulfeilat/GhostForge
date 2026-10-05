@@ -3,17 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SessionDetail, World } from './types'
 
-const ENDPOINT = '/api/agents/cli-sessions'
-const REFRESH_MS = 10_000
-
 export type CliWorldState =
   | { status: 'loading' }
   | { status: 'loaded'; world: World; error?: string }
   | { status: 'disabled' }
   | { status: 'error'; message: string }
 
-/** Polls the CLI sessions snapshot while the page is visible. */
-export function useCliWorld(): CliWorldState {
+/**
+ * Polls the CLI-session world snapshot at `endpoint` while the page is
+ * visible. Keeps the last good snapshot when a refresh fails.
+ */
+export function useCliWorld(endpoint: string, { paused = false, refreshMs = 5000 } = {}): CliWorldState {
   const [state, setState] = useState<CliWorldState>({ status: 'loading' })
   const inFlight = useRef(false)
 
@@ -21,7 +21,7 @@ export function useCliWorld(): CliWorldState {
     if (inFlight.current) return
     inFlight.current = true
     try {
-      const r = await fetch(ENDPOINT, { cache: 'no-store' })
+      const r = await fetch(endpoint, { cache: 'no-store' })
       if (r.status === 404) {
         const body = await r.json().catch(() => ({}))
         if (body?.disabled) { setState({ status: 'disabled' }); return }
@@ -31,32 +31,32 @@ export function useCliWorld(): CliWorldState {
       setState({ status: 'loaded', world })
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unable to load CLI sessions.'
-      // Keep showing the last snapshot when a refresh fails.
       setState(prev => prev.status === 'loaded' ? { ...prev, error: message } : { status: 'error', message })
     } finally {
       inFlight.current = false
     }
-  }, [])
+  }, [endpoint])
 
   useEffect(() => {
+    if (paused) return
     void load()
     const tick = () => { if (document.visibilityState !== 'hidden') void load() }
-    const timer = setInterval(tick, REFRESH_MS)
+    const timer = setInterval(tick, refreshMs)
     return () => clearInterval(timer)
-  }, [load])
+  }, [load, paused, refreshMs])
 
   return state
 }
 
-/** One session's detail, reloaded whenever the world snapshot refreshes. */
-export function useCliSessionDetail(id: string | undefined, heartbeat: string | undefined) {
+/** One session's detail from `url`, reloaded whenever the world snapshot refreshes. */
+export function useCliSessionDetail(url: string | undefined, id: string | undefined, heartbeat: string | undefined) {
   const [detail, setDetail] = useState<SessionDetail>()
   const [error, setError] = useState<string>()
 
   useEffect(() => {
-    if (!id) { setDetail(undefined); return }
+    if (!id || !url) { setDetail(undefined); return }
     let cancelled = false
-    fetch(`${ENDPOINT}?session=${encodeURIComponent(id)}`, { cache: 'no-store' })
+    fetch(url, { cache: 'no-store' })
       .then(async r => {
         if (r.status === 404) throw new Error('This session is no longer in the snapshot.')
         if (!r.ok) throw new Error(`Request failed (${r.status})`)
@@ -65,7 +65,7 @@ export function useCliSessionDetail(id: string | undefined, heartbeat: string | 
       .then(d => { if (!cancelled) { setDetail(d); setError(undefined) } })
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)) })
     return () => { cancelled = true }
-  }, [id, heartbeat])
+  }, [url, id, heartbeat])
 
   return { detail: detail?.id === id ? detail : undefined, error }
 }

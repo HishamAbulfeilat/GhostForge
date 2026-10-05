@@ -41,6 +41,20 @@ const clip = (v, n = 200) => (typeof v === 'string' && v.trim() ? v.trim().slice
 const toMs = v => { const t = typeof v === 'number' ? v : Date.parse(v ?? ''); return Number.isFinite(t) ? t : 0 }
 const iso = ms => (ms ? new Date(ms).toISOString() : undefined)
 
+/**
+ * Context window per model, from the published Claude model table. Used only to
+ * show how full the window is, so an approximate table beats a wrong constant.
+ */
+const CONTEXT_LIMITS = {
+  haiku: 200_000, sonnet: 1_000_000, opus: 1_000_000, fable: 1_000_000, '1m': 1_000_000,
+}
+function contextLimit(model) {
+  if (!model) return 0
+  const m = model.toLowerCase()
+  for (const [family, limit] of Object.entries(CONTEXT_LIMITS)) if (m.includes(family)) return limit
+  return 200_000
+}
+
 // --- Claude Code: incremental transcript parser ------------------------------
 
 /** One entry per transcript file: parse position plus accumulated metadata. */
@@ -55,6 +69,9 @@ function freshClaudeStats() {
     cost: undefined,
     tools: {}, toolCalls: 0, lastTool: undefined, pendingTools: new Map(),
     toolErrors: 0, apiErrors: {}, lastError: undefined, lastApiError: undefined,
+    // Newest request's prompt size = how full the context window is right now.
+    // limit comes from CONTEXT_LIMITS by model family.
+    context: { used: 0, limit: 0, compactions: 0 },
     subagentCalls: 0,
     buckets: new Map(), // bucket start ms -> activity count
     events: [],
@@ -80,6 +97,14 @@ function applyClaudeRecord(st, o) {
   if (o.gitBranch) st.gitBranch = clip(o.gitBranch, 120)
   if (o.version) st.version = clip(o.version, 40)
   if (o.entrypoint) st.entrypoint = clip(o.entrypoint, 40)
+
+  // Claude Code marks a compaction with a compact_boundary system record.
+  if (o.type === 'system' && o.subtype === 'compact_boundary') {
+    st.context.compactions++
+    st.context.boundarySeen = true
+    pushEvent(st, { ts: iso(ts), type: 'compaction', name: o.compactMetadata?.trigger === 'manual' ? 'context compacted (/compact)' : 'context compacted' })
+    return
+  }
 
   if (o.type === 'cost-state') {
     // Written by Claude Code itself; the last one is authoritative.
@@ -120,6 +145,20 @@ function applyClaudeRecord(st, o) {
       st.tokens.output += u.output_tokens ?? 0
       st.tokens.cacheRead += u.cache_read_input_tokens ?? 0
       st.tokens.cacheWrite += u.cache_creation_input_tokens ?? 0
+      // The prompt this request sent: the context the model is holding now.
+      const promptTokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+      if (m.model && m.model !== '<synthetic>') st.context.limit = contextLimit(m.model)
+      // Subagent (sidechain) requests carry their own, smaller context.
+      if (!o.isSidechain && promptTokens > 0) {
+        // A big drop in prompt size between requests means Claude Code compacted
+        // (counted here only when no compact_boundary record announced it).
+        if (st.context.used > 20_000 && st.context.used - promptTokens > st.context.used * 0.3 && !st.context.boundarySeen) {
+          st.context.compactions++
+          pushEvent(st, { ts: iso(ts), type: 'compaction', name: 'context compacted' })
+        }
+        st.context.boundarySeen = false
+        st.context.used = promptTokens
+      }
       bump(st, ts)
     }
     for (const c of Array.isArray(m.content) ? m.content : []) {
@@ -248,6 +287,7 @@ function shapeClaude(s, now) {
       errors: st.toolErrors + sum(st.apiErrors),
       health,
       timeline: timeline(st.buckets, now),
+      context: { used: st.context.used, limit: st.context.limit, compactions: st.context.compactions, pct: st.context.limit ? Math.min(100, Math.round((st.context.used / st.context.limit) * 100)) : null },
     },
     detail: {
       models: st.models, modelUsage: st.cost?.models ?? {},

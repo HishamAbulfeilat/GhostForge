@@ -63,6 +63,49 @@ column are never returned. Subagents are reported by type only. A standalone
 copy of this collector runs outside the repo as the external Agent World app —
 keep the two in step when changing what is read.
 
+### Same Agent World as the external app
+
+`web-ui/app/agent-world/shared/` is byte-identical to the external Agent World
+app's `src/agent-world/shared/` (repo `agent-world-external`), and
+`web-ui/vendor/` matches its `vendor/` apart from the NOTICE copy notes. The
+only differences are the wiring: GhostForge serves the data from
+`/api/agents/cli-sessions` (admin_tools) and its worlds also show the
+GhostForge runtime agents and boss next to the CLI sessions. Check with
+`diff -r agent-world-external/src/agent-world/shared GhostForge/web-ui/app/agent-world/shared`.
+
+Features (both apps):
+
+- **Status columns** in every world — *Needs you* (waiting on you, or stalled /
+  rate limited / erroring) · *Working* · *Done* · *Ended*; a card opens the
+  session drawer.
+- **Needs-you badge** next to Refresh, with a list, and one browser
+  notification when a session *newly* needs you (permission asked once).
+- **Chat box** (bottom corner): message a Claude Code session.
+  `POST /api/agents/cli-sessions/chat` `{ sessionId, message }` (admin_tools,
+  JSON, same-origin) runs `claude -p --resume <id> --output-format json` in the
+  session's folder with the message on stdin — no shell — and returns the
+  reply. Only sessions in the current snapshot can be messaged; Copilot sessions
+  cannot yet. Off with `GF_CLI_CHAT=0` (or `GF_CLI_SESSIONS=0`). `CLAUDE_BIN`
+  overrides the binary. The page still reads metadata only; the chat box shows
+  just what you typed and Claude's reply.
+- **Agent Town** (a16z AI Town) and **Agent Office** (harishkotra/agent-office)
+  — short rotating bubbles (≤ 6 words: current tool or state, never message
+  text) through the upstream bubbles; Office cinematic camera follow on
+  `highlight-event` when a session needs you, `chat` messages for chat-box
+  traffic, `layout-sync` plus drag-to-move layout edit, and an activity log.
+- **Context trash can**: each session's context-window fill; a page drops into
+  the can when Claude Code compacts.
+- **Minimap** on both scenes (positions read from the Pixi viewport / Phaser
+  camera); click or drag to pan.
+- **Ambience**: day/night tint from local time; sessions idle 3+ minutes walk
+  to a break area. `prefers-reduced-motion` turns walking and animations off.
+- **Raw JSON** in the session drawer: the detail response as returned.
+
+`GET /api/agents/cli-sessions?format=connector` returns the snapshot in the
+connector format below, trimmed to stay under the 65,536-byte connector limit
+(the external app serves the same at `http://127.0.0.1:3461/api/connector`, so
+it can be registered as a `device` connector).
+
 ## Local-only default and connector configuration
 
 With `GF_AGENT_SESSION_CONNECTORS` unset or empty, the API makes no external

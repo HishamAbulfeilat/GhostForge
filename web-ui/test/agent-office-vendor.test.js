@@ -42,7 +42,7 @@ test('office loads client-only from /agent-world?world=office', () => {
   const page = read('app/agent-world/page.tsx')
   assert.match(page, /dynamic\(\(\) => import\('\.\/office\/OfficeWorld'\),\s*\{\s*ssr: false/)
   assert.match(page, /world === 'office'[\s\S]*<OfficeWorld/)
-  const host = read('app/agent-world/office/OfficeWorld.tsx')
+  const host = read('app/agent-world/shared/office/OfficeStage.tsx')
   assert.match(host, /import\('phaser'\)/)
   assert.doesNotMatch(host, /^import .*from 'phaser'/m)
 })

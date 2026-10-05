@@ -1,9 +1,9 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { activity, ago, compact, isClaude, modelShort, project, providerLabel, usd } from './format'
-import type { Provider, Session, World } from './types'
-import { Bars, Columns, Spark } from './charts'
+import { activity, ago, compact, isClaude, modelShort, project, providerLabel, usd } from '../shared/format'
+import type { Provider, Session, World } from '../shared/types'
+import { Bars, Columns, Spark } from '../shared/charts'
 
 type Filter = 'live' | 'today' | 'all'
 

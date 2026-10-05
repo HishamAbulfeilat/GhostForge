@@ -18,9 +18,16 @@ import AgentWorldSwitcher, { type AgentWorldView } from './AgentWorldSwitcher'
 import ForgeWorldScene from './ForgeWorldScene'
 import CliDashboard from './cli/CliDashboard'
 import CliLanes from './cli/CliLanes'
-import SessionDrawer from './cli/SessionDrawer'
-import { useCliWorld, useNow } from './cli/api'
-import { worldAgents, type WorldScope } from './cli/world-model'
+import { useCliWorld, useNow } from './shared/api'
+import AttentionBadge from './shared/AttentionBadge'
+import ChatBox, { type ChatTraffic } from './shared/ChatBox'
+import { useAttention, useCompactions } from './shared/hooks'
+import SessionDrawer from './shared/SessionDrawer'
+import StatusColumns from './shared/StatusColumns'
+import { worldAgents, type WorldAgent, type WorldScope } from './shared/world-model'
+
+const CLI_ENDPOINT = '/api/agents/cli-sessions'
+const cliDetailUrl = (id: string) => `${CLI_ENDPOINT}?session=${encodeURIComponent(id)}`
 
 const TownWorld = dynamic(() => import('./town/TownWorld'), {
   ssr: false,
@@ -165,15 +172,18 @@ export default function AgentWorldPage() {
   const changeWorld = useCallback((view: AgentWorldView) => setWorld(view), [])
   // CLI sessions: a second, read-only picture of this machine's Claude Code and
   // Copilot sessions. They join every world as extra characters, marked `cli`.
-  const cli = useCliWorld()
+  const cli = useCliWorld(CLI_ENDPOINT, { refreshMs: 10_000 })
   const now = useNow()
   const [cliScope, setCliScope] = useState<WorldScope>('live')
   const [cliSelected, setCliSelected] = useState<string>()
-  const cliCharacters = useMemo<AgentWorldRecord[]>(
-    () => (cli.status === 'loaded' ? worldAgents(cli.world, cliScope) : []),
-    [cli, cliScope],
-  )
-  // Worlds render this: the runtime view plus the CLI characters.
+  const [traffic, setTraffic] = useState<ChatTraffic & { at: number }>()
+  const cliWorld = cli.status === 'loaded' ? cli.world : undefined
+  const cliAgents = useMemo<WorldAgent[]>(() => worldAgents(cliWorld, cliScope), [cliWorld, cliScope])
+  const cliCharacters = cliAgents as unknown as AgentWorldRecord[]
+  // Everything recent, whatever the scope: chat targets, alerts, compactions.
+  const cliRecent = useMemo(() => worldAgents(cliWorld, 'today'), [cliWorld])
+  const compacting = useCompactions(cliRecent)
+  const attention = useAttention(cliRecent, setCliSelected)
   // Worlds render this instead of state.data: the runtime view plus the CLI
   // characters. Built from state.data so it stays narrowed where it is rendered.
   const mergedData = state.status === 'loaded'
@@ -237,9 +247,12 @@ export default function AgentWorldPage() {
             <h1 className="font-display text-2xl font-bold tracking-tight">🌐 Agent World</h1>
             <p className="mt-1 text-sm text-gf-muted">Live operations from the available agent and connector snapshots.</p>
           </div>
-          <button type="button" onClick={() => void load()} disabled={state.status === 'loading' || (state.status === 'loaded' && state.refreshing === true)} className="min-h-10 rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent disabled:opacity-50">
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <AttentionBadge items={attention.items} permission={attention.permission} onRequestPermission={attention.request} onOpen={setCliSelected} />
+            <button type="button" onClick={() => void load()} disabled={state.status === 'loading' || (state.status === 'loaded' && state.refreshing === true)} className="min-h-10 rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent disabled:opacity-50">
+              Refresh
+            </button>
+          </div>
         </header>
         <div className="flex flex-wrap items-center gap-3">
           <AgentWorldSwitcher onChange={changeWorld} />
@@ -282,20 +295,21 @@ export default function AgentWorldPage() {
             {world === 'forge' && (
               <>
                 <ForgeWorldScene agents={mergedData.agents} tasks={state.data.tasks} boss={state.data.boss} />
-                <CliLanes world={cli.status === 'loaded' ? cli.world : undefined} now={now} onOpen={setCliSelected} />
+                <CliLanes world={cliWorld} now={now} onOpen={setCliSelected} />
+                <StatusColumns title="CLI sessions" agents={cliAgents} selectedId={cliSelected} onSelect={setCliSelected} compacting={compacting} />
                 <SourceList connectors={state.data.connectors} />
               </>
             )}
             {world === 'town' && (
               <>
                 <AiTownControls />
-                <TownWorld data={mergedData} boss={state.data.boss} />
+                <TownWorld data={mergedData} boss={state.data.boss} cliAgents={cliAgents} selectedCliId={cliSelected} onSelectCli={setCliSelected} compacting={compacting} />
               </>
             )}
             {world === 'office' && (
               <>
                 <AgentOfficeControls />
-                <OfficeWorld data={mergedData} boss={state.data.boss} />
+                <OfficeWorld data={mergedData} boss={state.data.boss} cliAgents={cliAgents} selectedCliId={cliSelected} onSelectCli={setCliSelected} compacting={compacting} traffic={traffic} />
                 <AgentOfficeMap sessions={state.officeSessions} emptyMessage="No sessions were reported by the available snapshots." />
               </>
             )}
@@ -332,10 +346,18 @@ export default function AgentWorldPage() {
           </>
         )}
       </div>
+      <ChatBox
+        agents={cliRecent}
+        selectedId={cliSelected}
+        endpoint={`${CLI_ENDPOINT}/chat`}
+        onTraffic={t => setTraffic({ ...t, at: Date.now() })}
+      />
       <SessionDrawer
         id={cliSelected}
-        heartbeat={cli.status === 'loaded' ? cli.world.heartbeat : undefined}
+        heartbeat={cliWorld?.heartbeat}
         onClose={() => setCliSelected(undefined)}
+        detailUrl={cliDetailUrl}
+        compacting={!!cliSelected && compacting.has(cliSelected)}
       />
     </main>
   )

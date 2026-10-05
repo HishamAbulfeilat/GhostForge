@@ -1,5 +1,6 @@
-// Claude Code / Copilot CLI session model for Agent World. The external Agent
-// World app (outside this repo) carries the same types, helpers and mapping.
+// Claude Code / Copilot CLI session model for Agent World. This folder
+// (agent-world/shared) is byte-identical in the external Agent World app and in
+// GhostForge's web-ui; change both together (see SHARED.md).
 
 export type Provider = 'claude-code' | 'copilot-cli'
 export type Status = 'working' | 'active' | 'idle'
@@ -33,13 +34,21 @@ export type Session = {
   subagents: number
   errors: number
   health: Health
+  context?: Context
   open?: boolean
   working?: boolean
   timeline: number[]
   status: Status
 }
 
-export type SessionEvent = { ts?: string; type: 'tool' | 'subagent' | 'prompt' | 'error' | 'request'; name: string }
+export type SessionEvent = {
+  ts?: string
+  type: 'tool' | 'subagent' | 'prompt' | 'error' | 'request' | 'compaction'
+  name: string
+}
+
+/** How full the session's context window is, for the compaction animation. */
+export type Context = { used: number; limit: number; pct: number | null; compactions: number }
 
 export type SessionDetail = Session & {
   models: Record<string, number>

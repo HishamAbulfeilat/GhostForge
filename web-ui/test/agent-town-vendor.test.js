@@ -30,5 +30,6 @@ test('pixi deps stay on upstream majors and the town loads client-only', () => {
   assert.match(pkg.dependencies['@pixi/react'], /\^7/)
   assert.match(pkg.dependencies['pixi-viewport'], /\^5/)
   assert.match(read('app/agent-world/page.tsx'), /dynamic\(\(\) => import\('\.\/town\/TownWorld'\),\s*\{\s*ssr: false/)
-  assert.match(read('app/agent-world/town/TownWorld.tsx'), /ssr: false/)
+  // The shared town stage (loaded only inside the ssr:false TownWorld) lazy-loads the Pixi renderer.
+  assert.match(read('app/agent-world/shared/town/TownStage.tsx'), /lazy\(\(\) => import\('\.\.\/\.\.\/\.\.\/\.\.\/vendor\/ai-town\/src\/components\/Game'\)\)/)
 })
