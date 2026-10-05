@@ -11,6 +11,8 @@ process.env.USERPROFILE = fakeHome
 process.env.NODE_ENV = 'test'
 delete process.env.JSEARCH_API_KEY
 delete process.env.RAPIDAPI_KEY
+// Listings older than 30 days are dropped as stale, so fixtures are dated relative to today
+const RECENT = new Date(Date.now() - 2 * 86_400_000).toISOString()
 
 const hooks = Module.registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -32,16 +34,20 @@ const ap = require('../lib/job-hunter/autopilot.ts')
 
 // Three listings: two on Lever (auto-submittable), one on LinkedIn (never auto-submitted)
 const LISTINGS = [
-  { title: 'Senior Frontend Engineer', company_name: 'Acme', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/acme/1', salary: '', description: 'React TypeScript', publication_date: '2026-09-01' },
-  { title: 'Frontend Engineer', company_name: 'Beta', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/beta/2', salary: '', description: 'React', publication_date: '2026-09-01' },
-  { title: 'Frontend Lead', company_name: 'Gamma', candidate_required_location: 'Worldwide', url: 'https://www.linkedin.com/jobs/view/3', salary: '', description: 'React', publication_date: '2026-09-01' },
+  { title: 'Senior Frontend Engineer', company_name: 'Acme', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/acme/1', salary: '', description: 'React TypeScript', publication_date: RECENT },
+  { title: 'Frontend Engineer', company_name: 'Beta', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/beta/2', salary: '', description: 'React', publication_date: RECENT },
+  { title: 'Frontend Lead', company_name: 'Gamma', candidate_required_location: 'Worldwide', url: 'https://www.linkedin.com/jobs/view/3', salary: '', description: 'React', publication_date: RECENT },
 ]
+
+// Swapped in by tests that need other listings (clear the source cache when changing it)
+let extraListings = null
+const sources = require('../lib/job-hunter/sources.ts')
 
 const realFetch = globalThis.fetch
 test.before(() => {
   globalThis.fetch = async url => {
     const host = new URL(String(url)).hostname
-    const body = host === 'remotive.com' ? { jobs: LISTINGS }
+    const body = host === 'remotive.com' ? { jobs: extraListings || LISTINGS }
       : host === 'remoteok.com' ? [{ legal: 'notice' }]
       : host === 'www.arbeitnow.com' ? { data: [] }
       : host === 'www.themuse.com' ? { results: [] }
@@ -215,4 +221,71 @@ test('answering a job\'s questions saves them for every later application and re
   assert.equal(done.questions, undefined)
   await assert.rejects(jh.answerQuestions(user, job.id, { 'Notice period': '   ' }), /at least one/)
   await assert.rejects(jh.answerQuestions(user, 'missing', { a: 'b' }), /not found/)
+})
+
+test('autopilot applies only to verified, open postings, retries a failed one once and reports problems', async () => {
+  const user = 'verified-only'
+  const listing = (title, company, url, description = 'React') => ({ title, company_name: company, candidate_required_location: 'Worldwide', url, salary: '', description, publication_date: RECENT })
+  extraListings = [
+    listing('Frontend Engineer', 'Alpha', 'https://careers.alpha.example/1'),           // live → applied (fails once, then succeeds)
+    listing('Frontend Developer', 'Bravo', 'https://careers.bravo.example/2'),          // bot wall → unverified → left alone
+    listing('Frontend Lead', 'Charlie', 'https://jobs.lever.co/charlie/3'),             // 404 → closed
+    listing('Frontend Intern', 'Delta', 'https://careers.delta.example/4', 'React. New hires pay a training fee of $300.'), // scam signal
+    listing('Senior Frontend Engineer', 'Echo', 'https://careers.echo.example/5'),     // live, always fails
+  ]
+  sources.clearSourceCache()
+  const fetcher = async url => {
+    const host = new URL(url).hostname
+    const status = { 'careers.alpha.example': 200, 'careers.echo.example': 200, 'careers.bravo.example': 403, 'jobs.lever.co': 404 }[host] ?? 500
+    return { status, body: '<h1>Frontend role</h1>', url }
+  }
+  const calls = []
+  const approve = async (username, id) => {
+    const j = await jh.getJob(username, id)
+    calls.push(j.company)
+    const attempts = (j.attempts || 0) + 1
+    const ok = j.company === 'Alpha' && attempts > 1
+    const job = await jh.updateJob(username, id, { status: ok ? 'submitted' : 'failed', attempts }, 'test')
+    return { job, message: ok ? 'ok' : 'The site timed out', missing: [] }
+  }
+  try {
+    await setupUser(user, { enabled: true, intervalHours: 1, dailyLimit: 5, minScore: 75, mode: 'full' })
+    const r1 = await ap.runAutopilot(user, { generate: fakeAi, approve, fetcher })
+    assert.deepEqual(calls.sort(), ['Alpha', 'Echo'])
+    assert.equal(r1.failed, 2)
+    assert.ok(r1.unverified >= 1, 'Bravo could not be verified')
+    assert.match((await jh.getProfile(user)).autopilot.lastResult, /Problem: .*timed out/)
+
+    const jobs = await jh.listJobs(user)
+    const by = name => jobs.find(j => j.company === name)
+    assert.equal(by('Bravo').verification.status, 'unverified')
+    assert.equal(by('Charlie').verification.status, 'closed')
+    assert.equal(by('Delta').verification.status, 'flagged')
+    assert.equal(by('Delta').fit, 'Skip')
+
+    calls.length = 0
+    const r2 = await ap.runAutopilot(user, { force: true, generate: fakeAi, approve, fetcher })
+    assert.deepEqual(calls.sort(), ['Alpha', 'Echo'], 'each failed job gets one more try')
+    assert.equal(r2.submitted, 1)
+
+    calls.length = 0
+    await ap.runAutopilot(user, { force: true, generate: fakeAi, approve, fetcher })
+    assert.deepEqual(calls, [], 'no third attempt, and the submitted job is done')
+  } finally {
+    extraListings = null
+    sources.clearSourceCache()
+  }
+})
+
+test('an application cut off by a restart is handed back to the user, not resubmitted', async () => {
+  const user = 'interrupted'
+  await setupUser(user, { enabled: false, intervalHours: 12, dailyLimit: 5, minScore: 75 })
+  await jh.runSearch(user, { generate: fakeAi, autoPrepare: 0 })
+  const [job] = await jh.listJobs(user)
+  await jh.updateJob(user, job.id, { status: 'submitting' }, 'test')
+  assert.equal(await jh.recoverInterrupted(user, Date.now() + 5 * 60_000), 0, 'a recent one may still be running')
+  assert.equal(await jh.recoverInterrupted(user, Date.now() + 31 * 60_000), 1)
+  const after = await jh.getJob(user, job.id)
+  assert.equal(after.status, 'needs_user')
+  assert.match(after.log.at(-1).msg, /interrupted/)
 })

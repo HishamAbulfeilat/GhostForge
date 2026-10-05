@@ -19,6 +19,7 @@
  */
 import type { Page } from 'playwright-core'
 import { extractJson } from './match'
+import { CLOSED_POSTING, detectAts } from './sources'
 import type { FieldAnswer, JobProfile, JobRecord } from './store'
 import { answerFor, normalizeLabel } from './writer'
 
@@ -49,11 +50,14 @@ export interface AgentOutcome {
   questions: PendingQuestion[]
   /** Answers the AI wrote on this application (shown to the user, not saved as their own) */
   aiAnswers: FieldAnswer[]
+  /** The posting is closed ("no longer accepting applications") */
+  closed?: boolean
 }
 
 interface Field {
   id: string            // data-gf-idx of the element, or "r:<name>" for a radio group
-  kind: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'file' | 'number' | 'date'
+  /** combo = a custom dropdown (react-select, Workday/ARIA listbox) whose options appear when opened */
+  kind: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'file' | 'number' | 'date' | 'combo'
   label: string
   required: boolean
   empty: boolean
@@ -67,7 +71,9 @@ const SUBMIT = /^(submit( (my |your )?application)?|send( (my )?application)?|fi
 /** "Apply" / "Apply now" submits only when it belongs to a form; on a job page it opens the form. */
 const APPLY = /^apply( now)?$/i
 const NEXT = /^(next|continue|review( (my |your )?application)?|proceed|save (and|&) continue|next step|continue to (next|application))\b/i
-const START = /^(easy apply|apply( (now|for this (job|position|role)|on company (site|website)))?|i'?m interested|start (my )?application)$/i
+const START = /^(easy apply|apply( (now|manually|for (this|the) (job|position|role)|to (this )?(job|position|role)|on company (site|website)))?|apply for job|i'?m interested|start (my )?application)$/i
+/** Upload buttons of custom file pickers that create their file input on click */
+const UPLOAD_BUTTON = /^(attach|upload|choose file|select file|browse|add (a )?(file|resume|cv))\b/i
 const DECLINE = /decline|prefer not|don'?t wish|do not wish|choose not|not to (say|disclose|answer)|rather not/i
 const SENSITIVE = /criminal|convict|felony|arrest|background check|drug (test|screen)|disabilit|veteran|gender|\brace\b|ethnic|sexual|pregnan|religio|marital|\bage\b|date of birth|birth ?date|social security|ssn|passport (number|no)|national id|bank|credit card/i
 
@@ -85,34 +91,89 @@ async function scan(page: Page): Promise<Field[]> {
     const shown = (el: Element) => {
       if (visible(el)) return true
       const id = el.getAttribute('id')
-      const label = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null
+      const label = id ? scope(el).querySelector(`label[for="${CSS.escape(id)}"]`) : null
       return [label, el.closest('label'), el.closest('fieldset, [role="radiogroup"], [role="group"]')].some(x => x && visible(x))
     }
-    const dialogs = Array.from(document.querySelectorAll('[role="dialog"], dialog[open], [aria-modal="true"]')).filter(d => visible(d) && d.querySelector('input,select,textarea,button'))
+    // querySelectorAll that also walks open shadow roots (SmartRecruiters & co. build forms from web components)
+    const deepAll = (root: ParentNode, sel: string): Element[] => {
+      const out: Element[] = []
+      const walk = (node: ParentNode) => {
+        for (const el of Array.from(node.querySelectorAll('*'))) {
+          if (el.matches(sel)) out.push(el)
+          if (el.shadowRoot) walk(el.shadowRoot)
+        }
+      }
+      walk(root)
+      return out
+    }
+    const dialogs = deepAll(document, '[role="dialog"], dialog[open], [aria-modal="true"]').filter(d => visible(d) && d.querySelector('input,select,textarea,button'))
     const root: ParentNode = dialogs[dialogs.length - 1] || document
     // Markers from an earlier step (now hidden) would make the locators ambiguous
-    document.querySelectorAll('[data-gf-idx]').forEach(el => el.removeAttribute('data-gf-idx'))
+    deepAll(document, '[data-gf-idx]').forEach(el => el.removeAttribute('data-gf-idx'))
+    const scope = (el: Element) => el.getRootNode() as Document | ShadowRoot
     const text = (s: string | null | undefined) => (s || '').replace(/\s+/g, ' ').trim()
+    /**
+     * The label-like element nearest to a control: climbs a few wrappers
+     * (Lever's .application-label beside .application-field, Workday's
+     * data-automation-id containers) but stops at a wrapper that holds other
+     * fields, so a form's first label is never borrowed. `group` = the name of
+     * the radio group the control belongs to (its radios don't count as others).
+     */
+    const nearLabel = (el: Element, group?: string): Element | null => {
+      const labelish = 'legend, label, .label, [class*="label"], [class*="question-title"], [class*="questionTitle"]'
+      let node = el.parentElement
+      for (let depth = 0; node && depth < 5; depth++, node = node.parentElement) {
+        const others = Array.from(node.querySelectorAll('input:not([type="hidden"]), select, textarea'))
+          .filter(x => x !== el && !(group && (x as HTMLInputElement).name === group))
+        if (others.length) return null
+        const found = Array.from(node.querySelectorAll(labelish)).find(x => !x.contains(el) && !x.querySelector('input, select, textarea') && text(x.textContent))
+        if (found) return found
+      }
+      return null
+    }
     const labelFor = (el: Element): string => {
       const id = el.getAttribute('id')
-      const byFor = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null
+      const byFor = id ? scope(el).querySelector(`label[for="${CSS.escape(id)}"]`) : null
       const by = el.getAttribute('aria-labelledby')
-      const labelled = by ? by.split(/\s+/).map(x => document.getElementById(x)?.textContent || '').join(' ') : ''
+      const labelled = by ? by.split(/\s+/).map(x => (scope(el).getElementById?.(x) || document.getElementById(x))?.textContent || '').join(' ') : ''
+      // A custom host element (<spl-input label="…">) labels the input in its shadow root
+      const host = (el.getRootNode() as ShadowRoot).host
       return text(byFor?.textContent || labelled || el.getAttribute('aria-label') || el.closest('label')?.textContent
+        || host?.getAttribute('label') || host?.getAttribute('aria-label')
         || el.closest('fieldset')?.querySelector('legend')?.textContent
-        || el.closest('[class*="field"],[class*="question"],[class*="form-group"],[class*="form-element"],li')?.querySelector('label,legend,.label,[class*="label"],[class*="question"]')?.textContent
+        || nearLabel(el)?.textContent
         || el.getAttribute('placeholder') || el.getAttribute('name') || '').slice(0, 200)
     }
-    const isRequired = (el: Element, label: string) => (el as HTMLInputElement).required || el.getAttribute('aria-required') === 'true' || /\*\s*$|\*\s|required/i.test(label)
+    const isRequired = (el: Element, label: string) => (el as HTMLInputElement).required || el.getAttribute('aria-required') === 'true'
+      || ((el.getRootNode() as ShadowRoot).host?.hasAttribute('required') ?? false) || /[*✱]\s*$|[*✱]\s|\brequired\b/i.test(label)
     const placeholderOption = (s: string) => /^(select|choose|please select|pick|--|—|-)\b/i.test(s.trim()) || !s.trim()
     const out: Array<Record<string, unknown>> = []
     const seenGroups = new Set<string>()
     let idx = 0
-    for (const el of Array.from(root.querySelectorAll('input, textarea, select'))) {
+    for (const el of deepAll(root, 'input, textarea, select, button[aria-haspopup="listbox"], [role="combobox"]:not(input):not(select)')) {
       const input = el as HTMLInputElement
+      // Custom dropdowns: an ARIA combobox input (react-select) or a listbox button (Workday)
+      if (el.tagName === 'BUTTON' || (el.getAttribute('role') === 'combobox' && el.tagName !== 'SELECT' && el.tagName !== 'TEXTAREA')) {
+        if (!visible(el) || input.disabled || el.getAttribute('aria-disabled') === 'true') continue
+        const i = idx++
+        el.setAttribute('data-gf-idx', String(i))
+        const label = labelFor(el)
+        let empty: boolean
+        if (el.tagName === 'INPUT') {
+          const box = el.closest('[class*="select"], [class*="combobox"], [class*="dropdown"], [class*="field"]')
+          const chosen = box?.querySelector('[class*="single-value"], [class*="singleValue"], [class*="selected-value"], [class*="multi-value"]')?.textContent
+          const hidden = (box?.querySelector('input[type="hidden"]') as HTMLInputElement | null)?.value
+          empty = !input.value && !text(chosen) && !hidden
+        } else {
+          empty = placeholderOption(text(el.textContent).replace(label, ''))
+        }
+        out.push({ id: String(i), kind: 'combo', label, required: isRequired(el, label), empty, invalid: el.getAttribute('aria-invalid') === 'true', options: [] })
+        continue
+      }
       const type = (el.getAttribute('type') || el.tagName).toLowerCase()
       if (['hidden', 'submit', 'button', 'image', 'reset', 'search'].includes(type)) continue
-      if (type !== 'file' && !(type === 'radio' || type === 'checkbox' ? shown(el) : visible(el))) continue
+      // File inputs are usually hidden behind an "Attach" button: they count when their label or wrapper shows
+      if (type === 'file' ? !(shown(el) || (el.parentElement && visible(el.parentElement))) : !(type === 'radio' || type === 'checkbox' ? shown(el) : visible(el))) continue
       if (input.disabled || input.readOnly) continue
       const i = idx++
       el.setAttribute('data-gf-idx', String(i))
@@ -120,15 +181,15 @@ async function scan(page: Page): Promise<Field[]> {
         const name = input.name || `__radio${i}`
         if (seenGroups.has(name)) continue
         seenGroups.add(name)
-        const radios = Array.from(root.querySelectorAll(`input[type="radio"][name="${CSS.escape(name)}"]`)) as HTMLInputElement[]
+        const radios = deepAll(scope(el), `input[type="radio"][name="${CSS.escape(name)}"]`) as HTMLInputElement[]
         const fs = el.closest('fieldset')
         const groupLabel = text(fs?.querySelector('legend')?.textContent || fs?.getAttribute('aria-label') || el.closest('[role="radiogroup"]')?.getAttribute('aria-label')
-          || el.closest('[class*="question"],[class*="field"],[class*="form-group"]')?.querySelector('label,legend,span')?.textContent || name)
+          || nearLabel(el, name)?.textContent || name)
         out.push({
           id: `r:${name}`, kind: 'radio', label: groupLabel.slice(0, 200),
-          required: radios.some(r => r.required) || el.closest('[aria-required="true"]') !== null || /\*/.test(groupLabel),
+          required: radios.some(r => r.required) || el.closest('[aria-required="true"]') !== null || /[*✱]/.test(groupLabel),
           empty: !radios.some(r => r.checked), invalid: radios.some(r => r.getAttribute('aria-invalid') === 'true'),
-          options: radios.map(r => text((r.id && document.querySelector(`label[for="${CSS.escape(r.id)}"]`)?.textContent) || r.closest('label')?.textContent || r.value)),
+          options: radios.map(r => text((r.id && scope(r).querySelector(`label[for="${CSS.escape(r.id)}"]`)?.textContent) || r.closest('label')?.textContent || r.value)),
         })
         continue
       }
@@ -154,18 +215,31 @@ async function scan(page: Page): Promise<Field[]> {
 async function buttons(page: Page): Promise<Array<{ idx: number; text: string; inForm: boolean }>> {
   return page.evaluate(() => {
     const visible = (el: Element) => { const r = (el as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0 }
-    const dialogs = Array.from(document.querySelectorAll('[role="dialog"], dialog[open], [aria-modal="true"]')).filter(d => visible(d) && d.querySelector('button'))
+    const deepAll = (root: ParentNode, sel: string): Element[] => {
+      const out: Element[] = []
+      const walk = (node: ParentNode) => {
+        for (const el of Array.from(node.querySelectorAll('*'))) {
+          if (el.matches(sel)) out.push(el)
+          if (el.shadowRoot) walk(el.shadowRoot)
+        }
+      }
+      walk(root)
+      return out
+    }
+    const dialogs = deepAll(document, '[role="dialog"], dialog[open], [aria-modal="true"]').filter(d => visible(d) && d.querySelector('button'))
     const root: ParentNode = dialogs[dialogs.length - 1] || document
-    document.querySelectorAll('[data-gf-btn]').forEach(el => el.removeAttribute('data-gf-btn'))
-    return Array.from(root.querySelectorAll('button, input[type="submit"], input[type="button"], a[role="button"], a[href]'))
+    deepAll(document, '[data-gf-btn]').forEach(el => el.removeAttribute('data-gf-btn'))
+    return deepAll(root, 'button, input[type="submit"], input[type="button"], a[role="button"], a[href]')
+      // Dropdown triggers are fields, not navigation
+      .filter(el => el.getAttribute('aria-haspopup') !== 'listbox')
       .filter(el => visible(el) && !(el as HTMLButtonElement).disabled && el.getAttribute('aria-disabled') !== 'true')
       // Real buttons first, so "Continue" on a form wins over a "Continue reading" link
       .sort((a, b) => Number(a.tagName === 'A' && !a.getAttribute('role')) - Number(b.tagName === 'A' && !b.getAttribute('role')))
       .map((el, i) => {
         el.setAttribute('data-gf-btn', String(i))
         const t = (el.getAttribute('aria-label') || (el as HTMLInputElement).value || el.textContent || '').replace(/\s+/g, ' ').trim()
-        const form = el.closest('form, [role="dialog"], dialog')
-        const inForm = Boolean(form && form.querySelectorAll('input:not([type="hidden"]):not([type="search"]):not([type="submit"]):not([type="button"]), textarea, select').length >= 2)
+        const form = el.closest('form, [role="dialog"], dialog') || ((el.getRootNode() as ShadowRoot).host ? el.getRootNode() as ShadowRoot : null)
+        const inForm = Boolean(form && deepAll(form, 'input:not([type="hidden"]):not([type="search"]):not([type="submit"]):not([type="button"]), textarea, select').length >= 2)
         return { idx: i, text: t.slice(0, 80), inForm }
       })
   })
@@ -183,9 +257,41 @@ function bestOption(options: string[], value: string): string | undefined {
     || options.find(o => v.includes(o.toLowerCase()) && o.length > 2)
 }
 
+const OPTIONS = '[role="option"]:visible, [role="listbox"] li:visible'
+const optionText = (s: string) => s.replace(/\s+/g, ' ').trim()
+
+/** Open a custom dropdown and read its options (then close it again). */
+async function comboOptions(page: Page, f: Field, typed = ''): Promise<string[]> {
+  const l = loc(page, f)
+  await l.click({ timeout: 5000 })
+  if (typed && await l.evaluate(el => el.tagName === 'INPUT')) await l.fill(typed)
+  await page.locator(OPTIONS).first().waitFor({ timeout: 2000 }).catch(() => {})
+  return (await page.locator(OPTIONS).allInnerTexts()).map(optionText).filter(Boolean).slice(0, 60)
+}
+
+/** Pick the option matching `value` in a custom dropdown. */
+async function setCombo(page: Page, f: Field, value: string): Promise<boolean> {
+  // Typing narrows autocomplete lists (location, school); short answers like "Yes" are picked from the full list
+  const isInput = await loc(page, f).evaluate(el => el.tagName === 'INPUT')
+  let options = await comboOptions(page, f, isInput && value.length > 3 ? value : '')
+  let opt = bestOption(options, value)
+  if (!opt && isInput && value.length > 3) {
+    options = await comboOptions(page, f, value.split(/[,(]/)[0].trim())
+    opt = bestOption(options, value)
+  }
+  if (!opt) { await page.keyboard.press('Escape').catch(() => {}); return false }
+  const all = page.locator(OPTIONS)
+  const n = await all.count()
+  for (let i = 0; i < n; i++) {
+    if (optionText(await all.nth(i).innerText()) === opt) { await all.nth(i).click({ timeout: 5000 }); return true }
+  }
+  return false
+}
+
 /** Put a value into a field. Returns true when it took. */
 async function setField(page: Page, f: Field, value: string): Promise<boolean> {
   try {
+    if (f.kind === 'combo') return await setCombo(page, f, value)
     if (f.kind === 'select') {
       const opt = bestOption(f.options, value)
       if (!opt) return false
@@ -341,14 +447,37 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     if (beforeSubmit !== null && isNewConfirmation(beforeSubmit, await bodyText(pg))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
     const wall = await blocked(pg)
     if (wall === 'captcha') return outcome('needs_user', 'This form has a captcha. Solve it and press Submit; everything else is filled in.')
-    if (wall === 'login') return outcome('needs_user', `${new URL(pg.url()).hostname} wants you to sign in or create an account first. Sign in once in the GhostForge browser and the next attempt continues from there.`)
+    if (wall === 'login') {
+      const signUp = /create (an |your )?account|sign up|register|verify (new )?password/i.test(await bodyText(pg))
+      return outcome('needs_user', signUp
+        ? `${new URL(pg.url()).hostname} asks you to create an account before applying. GhostForge never creates accounts or passwords for you: create it once in the GhostForge browser, and the next attempt continues signed in.`
+        : `${new URL(pg.url()).hostname} wants you to sign in first. Sign in once in the GhostForge browser and the next attempt continues from there.`)
+    }
 
     const fields = await scan(pg)
     const btns = await buttons(pg)
+    const looksLikeForm = fields.some(f => f.kind === 'file' || (f.kind !== 'checkbox' && f.required))
+
+    if (!fields.length && CLOSED_POSTING.test(await bodyText(pg))) {
+      return { ...outcome('failed', 'This posting is closed: the site says it no longer accepts applications.'), closed: true }
+    }
+
+    // Career sites often embed the ATS form in an iframe (Greenhouse, iCIMS, Workable…):
+    // open the form itself, once. Only known ATS hosts are followed.
+    if (!looksLikeForm) {
+      const embed = (await pg.locator('iframe[src]').evaluateAll(els => els.map(e => (e as HTMLIFrameElement).src)).catch(() => [] as string[]))
+        .find(src => !['other', 'linkedin'].includes(detectAts(src)) && !opened.has(`frame|${src}`))
+      if (embed) {
+        opened.add(`frame|${embed}`)
+        ctx.log?.(`Opening the embedded application form (${new URL(embed).hostname})`)
+        await pg.goto(embed, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {})
+        continue
+      }
+    }
 
     // Job page, not the form yet (at most a search or newsletter box): press the
     // site's own Apply / Easy Apply button, once per page.
-    if (!fields.some(f => f.kind === 'file' || (f.kind !== 'checkbox' && f.required))) {
+    if (!looksLikeForm) {
       const start = btns.find(b => START.test(b.text) && !b.inForm)
       const key = start ? `${pg.url()}|${start.text}` : ''
       if (start && !opened.has(key)) {
@@ -385,6 +514,26 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
       const value = answerFor(f.label, ctx.profile, ctx.job)
       if (value && await setField(pg, f, value)) { filled.push(f.label); continue }
       unknown.push(f)
+    }
+
+    // Custom uploaders that only create their file input when the button is pressed
+    if (!resumeUploaded && ctx.profile.cv?.filePath && fields.length && !fields.some(f => f.kind === 'file')) {
+      const upload = btns.find(b => UPLOAD_BUTTON.test(b.text) && !opened.has(`upload|${pg.url()}|${b.text}`))
+      if (upload) {
+        opened.add(`upload|${pg.url()}|${upload.text}`)
+        const chooser = pg.waitForEvent('filechooser', { timeout: 4000 }).catch(() => null)
+        await pg.locator(`[data-gf-btn="${upload.idx}"]`).click({ timeout: 5000 }).catch(() => {})
+        const fc = await chooser
+        if (fc) { await fc.setFiles(ctx.profile.cv.filePath).then(() => { filled.push('Resume upload'); resumeUploaded = true }).catch(() => {}) }
+      }
+    }
+
+    // Custom dropdowns show their options only when opened: read them so answers can match
+    for (const f of unknown) {
+      if (f.kind === 'combo' && !f.options.length) {
+        f.options = await comboOptions(pg, f).catch(() => [])
+        await pg.keyboard.press('Escape').catch(() => {})
+      }
     }
 
     // 2. Ask the AI for the rest (grounded in the CV); never for sensitive questions.

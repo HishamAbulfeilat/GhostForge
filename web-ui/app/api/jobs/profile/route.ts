@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/access'
 import { getProfile, importCv, saveProfile, type ApplicantData, type AutopilotSettings, type JobPreferences, type ModelChoice } from '@/lib/job-hunter'
 import { MAX_CV_BYTES } from '@/lib/job-hunter/cv'
+import { BOARD_ATS } from '@/lib/job-hunter/sources'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -54,11 +55,18 @@ export async function PUT(req: NextRequest) {
     const p = body.preferences
     const remote = ['remote', 'hybrid', 'onsite', 'any'].includes(String(p.remote)) ? p.remote as JobPreferences['remote'] : 'any'
     const minSalary = Number(p.minSalary)
+    const maxAge = Number(p.maxAgeDays)
     patch.preferences = {
       titles: list(p.titles, 5), locations: list(p.locations, 10), remote,
       minSalary: Number.isFinite(minSalary) && minSalary > 0 ? minSalary : null,
       mustHaves: list(p.mustHaves), niceToHaves: list(p.niceToHaves), dealbreakers: list(p.dealbreakers),
-      companies: list(p.companies, 20).map(c => c.toLowerCase().replace(/[^a-z0-9-]/g, '')).filter(Boolean),
+      // "stripe" (tried on every supported ATS) or "ashby:openai" (one ATS)
+      companies: list(p.companies, 20).map(c => {
+        const [, ats, slug] = c.toLowerCase().match(/^(?:([a-z]+)\s*:\s*)?(.*)$/) || []
+        const clean = String(slug || '').replace(/[^a-z0-9_-]/g, '')
+        return clean && ats && BOARD_ATS.includes(ats as never) ? `${ats}:${clean}` : clean
+      }).filter(Boolean),
+      maxAgeDays: Number.isFinite(maxAge) && maxAge >= 1 ? Math.min(365, Math.round(maxAge)) : 30,
     }
   }
   if (body.customAnswers && typeof body.customAnswers === 'object') {

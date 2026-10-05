@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/access'
 import { answerQuestions, approveJob, dismissJob, generatorFor, getProfile, listJobs, missingApplicantFields, prepareJob, runSearch } from '@/lib/job-hunter'
 import { addJobByUrl, connectLinkedIn, disconnectLinkedIn } from '@/lib/job-hunter/intake'
-import { jsearchKey } from '@/lib/job-hunter/sources'
-import { runAutopilot, submittedToday } from '@/lib/job-hunter/autopilot'
+import { keyedSources } from '@/lib/job-hunter/sources'
+import { runAutopilot, startAutopilotScheduler, submittedToday } from '@/lib/job-hunter/autopilot'
 
 export const dynamic = 'force-dynamic'
 // Searching, tailoring and form filling can take a few minutes
@@ -13,6 +13,8 @@ export const maxDuration = 300
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, 'job_hunter')
   if (user instanceof NextResponse) return user
+  // Idempotent: makes sure autopilot runs even if instrumentation didn't start it
+  startAutopilotScheduler()
   const [jobs, profile] = await Promise.all([listJobs(user.username), getProfile(user.username)])
   return NextResponse.json({
     jobs: jobs.filter(j => j.status !== 'dismissed').sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
@@ -20,7 +22,7 @@ export async function GET(req: NextRequest) {
     model: profile.model,
     autopilot: { ...profile.autopilot, submittedToday: submittedToday(profile.autopilot) },
     linkedin: { connected: Boolean(profile.linkedin?.connectedAt), connectedAt: profile.linkedin?.connectedAt || null },
-    sources: { linkedInViaJSearch: Boolean(jsearchKey()) },
+    sources: { linkedInViaJSearch: keyedSources().jsearch, keyed: keyedSources() },
   })
 }
 

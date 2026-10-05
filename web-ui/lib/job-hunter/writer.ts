@@ -84,7 +84,7 @@ function currentEmployer(p: JobProfile): string {
 
 /** A form label without required-markers, extra spaces or a trailing colon. */
 export function normalizeLabel(label: string): string {
-  return String(label || '').replace(/\*/g, '').replace(/\(required\)/gi, '').replace(/\s+/g, ' ').replace(/[:\s]+$/, '').trim()
+  return String(label || '').replace(/[*✱]/g, '').replace(/\(required\)/gi, '').replace(/\s+/g, ' ').replace(/[:\s]+$/, '').trim()
 }
 
 /** Comparison key for saved answers: case, punctuation and spacing don't matter. */

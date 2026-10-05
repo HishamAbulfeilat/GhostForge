@@ -34,7 +34,36 @@ export type JobStatus =
   | 'failed'
   | 'dismissed'
 
-export type Ats = 'lever' | 'greenhouse' | 'ashby' | 'workday' | 'linkedin' | 'other'
+export type Ats =
+  | 'lever' | 'greenhouse' | 'ashby' | 'workday' | 'workable' | 'smartrecruiters' | 'recruitee'
+  | 'icims' | 'taleo' | 'bamboohr' | 'teamtailor' | 'linkedin' | 'other'
+
+/**
+ * How much a listing's origin can be trusted:
+ *   official   the company's own applicant-tracking system API (Greenhouse, Lever, Ashby…)
+ *   board      a curated job board or licensed aggregator (Remotive, Adzuna, JSearch…)
+ *   community  user-posted (Hacker News "Who is hiring")
+ *   link       pasted by the user
+ */
+export type Trust = 'official' | 'board' | 'community' | 'link'
+
+/**
+ * Whether a listing is believed to be a real, open job:
+ *   verified    from an official ATS API, or its page was checked and is live
+ *   unverified  not checked yet, or the check couldn't tell (bot wall, timeout)
+ *   flagged     scam signals (fees, Telegram-only contact, crypto pay…)
+ *   closed      the posting is gone (404/410, "no longer accepting applications")
+ */
+export type VerifyStatus = 'verified' | 'unverified' | 'flagged' | 'closed'
+
+export interface Verification {
+  status: VerifyStatus
+  /** Human-readable reasons (scam signals, check results) */
+  flags: string[]
+  /** When the live check (or the official API read) last confirmed it */
+  checkedAt?: string
+  live?: 'live' | 'gone' | 'unknown'
+}
 
 export interface ApplicantData {
   firstName: string
@@ -59,8 +88,13 @@ export interface JobPreferences {
   mustHaves: string[]
   niceToHaves: string[]
   dealbreakers: string[]
-  /** Optional Greenhouse board tokens / Lever company slugs to watch directly */
+  /**
+   * Companies whose own job boards are read directly: a slug tried on every
+   * supported ATS ("stripe"), or pinned to one ("ashby:openai", "workable:acme").
+   */
   companies: string[]
+  /** Hide postings older than this many days (when the source gives a date). Default 30. */
+  maxAgeDays?: number
 }
 
 /** The AI model Job Hunter uses; null follows the model selected in Settings */
@@ -174,6 +208,10 @@ export interface JobRecord {
   ats: Ats
   description: string
   postedAt: string
+  trust?: Trust
+  verification?: Verification
+  /** Application attempts so far (autopilot retries a failed one once) */
+  attempts?: number
   fit: Fit
   score: number
   reasons: string
@@ -197,7 +235,7 @@ const EMPTY_APPLICANT: ApplicantData = {
 
 const EMPTY_PREFERENCES: JobPreferences = {
   titles: [], locations: [], remote: 'any', minSalary: null,
-  mustHaves: [], niceToHaves: [], dealbreakers: [], companies: [],
+  mustHaves: [], niceToHaves: [], dealbreakers: [], companies: [], maxAgeDays: 30,
 }
 
 function safeUser(username: string): string {
@@ -305,6 +343,21 @@ export async function getJob(username: string, id: string): Promise<JobRecord | 
   return (await listJobs(username)).find(j => j.id === id) || null
 }
 
+const COMPANY_SUFFIX = /\b(inc|incorporated|llc|ltd|limited|gmbh|ag|sa|sas|bv|nv|plc|corp|corporation|co|company|kk|pty|srl|ab|as|oy|group|holdings?|technologies|labs?)\b/g
+
+/**
+ * Looser identity for spotting one job listed on several boards: case,
+ * punctuation, company suffixes ("Inc", "GmbH") and remote/location spelling
+ * don't matter.
+ */
+export function dedupeKey(job: Pick<JobRecord, 'company' | 'title' | 'location'>): string {
+  const n = (s: string) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ')
+  const company = n(job.company).replace(COMPANY_SUFFIX, ' ').replace(/\s+/g, ' ').trim()
+  const title = n(job.title).replace(/\b(sr)\b/g, 'senior').replace(/\b(jr)\b/g, 'junior').replace(/\s+/g, ' ').trim()
+  const loc = n(job.location).replace(/\b(remote|worldwide|anywhere|global|fully|100)\b/g, ' ').replace(/\s+/g, ' ').trim().split(' ')[0] || ''
+  return `${company}|${title}|${loc}`
+}
+
 /** Merge newly found jobs, keeping state for ones we've already seen */
 export function upsertJobs(
   username: string,
@@ -313,18 +366,27 @@ export function upsertJobs(
   return withLock(userDir(username), async () => {
   const jobs = await listJobs(username)
   const byKey = new Map(jobs.map(j => [j.key, j]))
+  // The same job found again on another board (different source key) is the same job
+  const byLoose = new Map(jobs.map(j => [dedupeKey(j), j]))
   const now = new Date().toISOString()
   let added = 0
   for (const f of found) {
-    const existing = byKey.get(f.key)
+    const existing = byKey.get(f.key) || byLoose.get(dedupeKey(f))
     if (existing) {
-      // Refresh listing details but never clobber application progress
-      Object.assign(existing, { ...f, status: existing.status, updatedAt: now })
+      if (existing.key !== f.key) continue // a duplicate from another source: keep the first record
+      // Refresh listing details but never clobber application progress, and keep a
+      // live check result unless the fresh listing is flagged
+      const keepCheck = existing.verification?.live && f.verification?.status !== 'flagged'
+      Object.assign(existing, {
+        ...f, status: existing.status, updatedAt: now,
+        attempts: existing.attempts, verification: keepCheck ? existing.verification : f.verification ?? existing.verification,
+      })
       continue
     }
     const record: JobRecord = { ...f, id: randomUUID().slice(0, 8), status: 'found', log: [{ at: now, msg: `Found on ${f.source}` }], createdAt: now, updatedAt: now }
     jobs.push(record)
     byKey.set(f.key, record)
+    byLoose.set(dedupeKey(f), record)
     added++
   }
   await saveJobs(username, jobs)

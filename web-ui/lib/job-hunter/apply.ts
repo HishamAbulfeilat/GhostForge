@@ -25,10 +25,12 @@ export interface ApplyResult {
   message: string
   filled: string[]
   missing: string[]
+  /** The posting turned out to be closed */
+  closed?: boolean
 }
 
-/** ATSes whose forms can be completed and submitted unattended */
-export const AUTO_SUBMIT_ATS = new Set(['lever', 'greenhouse', 'ashby'])
+/** ATSes whose forms can be completed and submitted unattended (single-page, predictable public forms) */
+export const AUTO_SUBMIT_ATS = new Set(['lever', 'greenhouse', 'ashby', 'workable', 'recruitee'])
 
 // Visible browsers left open for the user to finish, one per user (also keeps them from being collected).
 // The profile directory can only be open once, so later runs share this window instead of failing to launch.
@@ -218,7 +220,7 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
         allowSubmit: opts.allowSubmit ?? AUTO_SUBMIT_ATS.has(job.ats),
         log: opts.log,
       })
-      return finish({ status: out.status, message: out.message, filled: out.filled, missing: out.missing, questions: out.questions, aiAnswers: out.aiAnswers })
+      return finish({ status: out.status, message: out.message, filled: out.filled, missing: out.missing, questions: out.questions, aiAnswers: out.aiAnswers, closed: out.closed })
     } catch (e) {
       return finish({ status: 'failed', message: `Applying failed: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`, filled: [], missing: [] })
     }
