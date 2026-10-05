@@ -1,9 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentWorldData, AgentWorldRecord } from '../agent-world-model'
 import StatusColumns from '../shared/StatusColumns'
-import TownStage from '../shared/town/TownStage'
 import type { WorldAgent } from '../shared/world-model'
 import type { AgentTownCharacter } from '../../../vendor/ai-town/src/types'
 import { adaptAgentTownSnapshot } from './agent-town-model.js'
@@ -31,10 +30,31 @@ export default function TownWorld({ data, boss, cliAgents, selectedCliId, onSele
   const cliIds = useMemo(() => new Set(cliAgents.map(a => a.id)), [cliAgents])
   const [runtimeId, setRuntimeId] = useState<string>()
 
-  const select = (element?: { kind: 'player'; id: string }) => {
-    const id = element?.kind === 'player' ? element.id : undefined
+  const select = (id: string | undefined) => {
     if (id && cliIds.has(id)) { onSelectCli(id); setRuntimeId(undefined) } else setRuntimeId(id)
   }
+
+  // The scene runs in pages/agent-world/town-frame (React 18 for @pixi/react 7).
+  // It gets the characters by postMessage and sends selections back.
+  const frameRef = useRef<HTMLIFrameElement>(null)
+  const [frameReady, setFrameReady] = useState(false)
+  const selectRef = useRef(select)
+  selectRef.current = select
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow) return
+      const data = event.data as { type?: string; id?: string }
+      if (data?.type === 'aw-town-ready') setFrameReady(true)
+      else if (data?.type === 'aw-town-select') selectRef.current(data.id && data.id !== 'you' ? data.id : undefined)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+  const selectedId = selectedCliId ?? runtimeId
+  useEffect(() => {
+    if (!frameReady) return
+    frameRef.current?.contentWindow?.postMessage({ type: 'aw-town-state', players, agents: cliAgents, selectedId }, window.location.origin)
+  }, [frameReady, players, cliAgents, selectedId])
 
   return (
     <section aria-labelledby="agent-town-heading" className="grid min-w-0 gap-4 rounded-2xl border border-gf-line bg-gf-surface p-4">
@@ -50,7 +70,13 @@ export default function TownWorld({ data, boss, cliAgents, selectedCliId, onSele
           {players.length} reported {players.length === 1 ? 'character' : 'characters'}
         </span>
       </div>
-      <TownStage players={players} agents={cliAgents} selectedId={selectedCliId ?? runtimeId} onSelect={select} />
+      <iframe
+        ref={frameRef}
+        src="/agent-world/town-frame"
+        title="Agent Town scene"
+        className="block w-full rounded-xl border-0"
+        style={{ height: 'calc(min(70dvh, 680px) + 44px)', minHeight: 364 }}
+      />
       <StatusColumns title="CLI sessions" agents={cliAgents} selectedId={selectedCliId} onSelect={onSelectCli} compacting={compacting} />
       <RuntimeAgents
         agents={players.filter(p => !cliIds.has(p.id)).map(p => ({ id: p.id, name: p.name, role: p.role, status: p.status, task: p.description }))}

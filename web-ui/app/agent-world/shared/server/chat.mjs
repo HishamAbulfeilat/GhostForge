@@ -18,7 +18,9 @@ const REPLY_MAX_CHARS = 20_000
 const STDOUT_MAX_BYTES = 4 * 1024 * 1024
 const STDERR_MAX_BYTES = 64 * 1024
 const MAX_CONCURRENT = 3
-const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// A session id, optionally with the collector's ":<n>" suffix for duplicate transcripts.
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?::\d{1,3})?$/i
+const REAL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const busy = new Set()
 
@@ -62,6 +64,7 @@ export function validateChat(body, sessions) {
   const session = (sessions ?? []).find(s => s?.id === sessionId)
   if (!session) return { ok: false, status: 404, error: 'That session is not in the current snapshot.' }
   if (session.provider !== 'claude-code') return { ok: false, status: 400, error: 'Only Claude Code sessions can be messaged.' }
+  if (!REAL_ID.test(session.sessionId ?? session.id)) return { ok: false, status: 400, error: 'That session has no resumable id.' }
   let dir = false
   try { dir = !!session.cwd && fs.statSync(session.cwd).isDirectory() } catch { /* missing */ }
   if (!dir) return { ok: false, status: 409, error: "The session's folder no longer exists." }
@@ -89,14 +92,16 @@ export async function readJsonBody(stream, limit = CHAT_MAX_BODY_BYTES) {
  * @returns {Promise<{ reply: string, isError: boolean, costUSD?: number }>}
  */
 export function sendChat(session, message, { timeoutMs = Number(process.env.AW_CHAT_TIMEOUT_MS) || 5 * 60_000, spawnImpl = spawn, env = process.env } = {}) {
-  if (busy.has(session.id)) return Promise.reject(Object.assign(new Error('A message to this session is still running.'), { status: 409 }))
+  // The real Claude session id (rows for duplicate transcripts carry a ":<n>" suffix).
+  const resumeId = session.sessionId ?? session.id
+  if (busy.has(resumeId)) return Promise.reject(Object.assign(new Error('A message to this session is still running.'), { status: 409 }))
   if (busy.size >= MAX_CONCURRENT) return Promise.reject(Object.assign(new Error('Too many chats are running; try again shortly.'), { status: 429 }))
   const claude = resolveClaude(env)
   if (!claude) return Promise.reject(Object.assign(new Error('Claude Code (`claude`) was not found on PATH; set CLAUDE_BIN.'), { status: 503 }))
 
-  busy.add(session.id)
+  busy.add(resumeId)
   return new Promise((resolve, reject) => {
-    const child = spawnImpl(claude.command, [...claude.args, '-p', '--resume', session.id, '--output-format', 'json'], {
+    const child = spawnImpl(claude.command, [...claude.args, '-p', '--resume', resumeId, '--output-format', 'json'], {
       cwd: session.cwd,
       env,
       shell: false,
@@ -110,7 +115,7 @@ export function sendChat(session, message, { timeoutMs = Number(process.env.AW_C
       if (settled) return
       settled = true
       clearTimeout(timer)
-      busy.delete(session.id)
+      busy.delete(resumeId)
       fn(value)
     }
     const timer = setTimeout(() => {
