@@ -36,6 +36,10 @@ export interface RawJob {
   description: string
   postedAt: string
   trust: Trust
+  /** Read from a company's own ATS board API (open by definition: no age filter) */
+  fromBoardApi?: boolean
+  /** Found by probing a plain company name on an ATS that the user didn't pin */
+  boardUnconfirmed?: boolean
 }
 
 const UA = { 'User-Agent': 'GhostForge-JobHunter/1.0 (+https://github.com/HishamAbulfeilat/GhostForge)' }
@@ -116,8 +120,22 @@ function make(job: Omit<RawJob, 'key' | 'ats' | 'description' | 'trust'> & { des
   }
 }
 
-/** Wording job sites use for a posting that is closed or gone */
-export const CLOSED_POSTING = /no longer (accepting (applications|candidates)|available|open|active)|(job|position|posting|vacancy|role|opening) (has )?(expired|closed|been (filled|closed|removed))|(this|the) (job|position|posting|vacancy|role|opening) (is )?(no longer|closed|unavailable|not available|filled)|applications? (are |is )?(now )?closed|job not found|posting not found|couldn'?t find (that|this|the) job/i
+/**
+ * Tight wording for a closed posting. Deliberately specific: job descriptions
+ * say things like "this role is not available for visa sponsorship" or
+ * "applications are closed on public holidays", so it is only matched against
+ * a page's headline (see pageHeadline), never its whole text.
+ */
+export const CLOSED_POSTING = /\b(this|the) (job|position|posting|vacancy|role|opening|requisition) (is )?no longer (available|open|active|accepting applications)\b|\bno longer accepting applications\b|\b(this|the) (job|position|posting|vacancy|opening) has (expired|been filled|been closed|been removed)\b|\b(job|posting|position) (not found|no longer exists)\b|\b(this|the) (job|position|posting) (is )?closed\b/i
+
+/** Title, top-level headings and the first lines of a page: where sites say a job is closed */
+export function pageHeadline(html: string): string {
+  const clean = String(html || '').replace(/<(script|style|noscript|svg)\b[\s\S]*?<\/\1>/gi, ' ')
+  const parts = [...clean.matchAll(/<(title|h1|h2|h3)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map(m => stripHtml(m[2]))
+  const body = stripHtml(clean.replace(/^[\s\S]*?<body[^>]*>/i, '')).slice(0, 400)
+  return [...parts, body].join('\n')
+}
+
 
 const matchesTerm = (text: string, term: string) => text.toLowerCase().includes(term.toLowerCase())
 const isoFromSeconds = (s: unknown) => (Number(s) > 0 ? new Date(Number(s) * 1000).toISOString() : '')
@@ -379,14 +397,12 @@ const ADZUNA_COUNTRIES: Record<string, string> = {
   india: 'in', italy: 'it', mexico: 'mx', netherlands: 'nl', 'new zealand': 'nz', poland: 'pl', singapore: 'sg', 'south africa': 'za',
 }
 
-export function adzunaCountry(places: string[]): string | null {
+/** Adzuna country for one location: inferred from it, else ADZUNA_COUNTRY if set, else none (skipped) */
+export function adzunaCountry(place: string): string | null {
+  const l = String(place || '').toLowerCase()
+  for (const [name, code] of Object.entries(ADZUNA_COUNTRIES)) if (new RegExp(`\\b${name}\\b`).test(l)) return code
   const env = (ownerEnv('ADZUNA_COUNTRY') || '').toLowerCase()
-  if (/^[a-z]{2}$/.test(env)) return env
-  for (const p of places) {
-    const l = p.toLowerCase()
-    for (const [name, code] of Object.entries(ADZUNA_COUNTRIES)) if (new RegExp(`\\b${name}\\b`).test(l)) return code
-  }
-  return null
+  return /^[a-z]{2}$/.test(env) ? env : null
 }
 
 interface AdzunaJob { title: string; company?: { display_name?: string }; location?: { display_name?: string }; redirect_url: string; description?: string; created?: string; salary_min?: number; salary_max?: number }
@@ -480,7 +496,7 @@ const TRUST_RANK: Record<Trust, number> = { official: 3, board: 2, link: 2, comm
 
 // ── public API ───────────────────────────────────────────────────────────────
 
-export interface SourceReport { source: string; count: number; error?: string }
+export interface SourceReport { source: string; count: number; error?: string; note?: string }
 
 /** A LinkedIn search the user can open themselves (never scraped) */
 export function linkedInSearchUrl(term: string, location: string): string {
@@ -493,8 +509,7 @@ export async function searchSources(prefs: JobPreferences, terms: string[]): Pro
   const remoteOnly = prefs.remote === 'remote'
   const onsiteLocations = prefs.locations.filter(l => !/^remote$/i.test(l.trim()))
   const keyed = keyedSources()
-  const country = adzunaCountry(onsiteLocations)
-  const tasks: Array<{ source: string; run: () => Promise<RawJob[]>; probe?: boolean }> = []
+  const tasks: Array<{ source: string; run: () => Promise<RawJob[]>; probe?: boolean; pin?: string }> = []
 
   terms.slice(0, 5).forEach((term, n) => {
     tasks.push({ source: `Remotive "${term}"`, run: () => remotive(term) })
@@ -512,7 +527,8 @@ export async function searchSources(prefs: JobPreferences, terms: string[]): Pro
     for (const loc of places) {
       const at = loc ? ` in ${loc}` : ''
       if (keyed.jsearch) tasks.push({ source: `LinkedIn/Indeed via JSearch "${term}"${at}`, run: () => jsearch(term, loc, remoteOnly) })
-      if (keyed.adzuna && (country || loc)) tasks.push({ source: `Adzuna "${term}"${at}`, run: () => adzuna(term, loc, country || 'gb') })
+      const country = keyed.adzuna ? adzunaCountry(loc) : null
+      if (country) tasks.push({ source: `Adzuna "${term}"${at}`, run: () => adzuna(term, loc, country) })
       if (keyed.usajobs) tasks.push({ source: `USAJobs "${term}"${at}`, run: () => usaJobs(term, loc) })
       if (keyed.reed) tasks.push({ source: `Reed "${term}"${at}`, run: () => reed(term, loc) })
     }
@@ -520,7 +536,12 @@ export async function searchSources(prefs: JobPreferences, terms: string[]): Pro
   for (const company of prefs.companies.slice(0, 20)) {
     for (const { ats, slug, pinned } of parseCompany(company)) {
       // An unpinned slug is tried on every ATS; it only exists on one, so misses are silent
-      tasks.push({ source: `${ats[0].toUpperCase()}${ats.slice(1)} ${slug}`, run: () => BOARDS[ats](slug), probe: !pinned })
+      // Only a pinned board ("ashby:acme") is the company's own for sure; a plain name may
+      // match a different company with the same board name, so it is never auto-applied to.
+      tasks.push({
+        source: `${ats[0].toUpperCase()}${ats.slice(1)} ${slug}`, probe: !pinned, pin: `${ats}:${slug}`,
+        run: async () => (await BOARDS[ats](slug)).map(j => ({ ...j, fromBoardApi: true, ...(pinned ? {} : { trust: 'board' as const, boardUnconfirmed: true }) })),
+      })
     }
   }
 
@@ -528,13 +549,17 @@ export async function searchSources(prefs: JobPreferences, terms: string[]): Pro
   const report: SourceReport[] = []
   const all: RawJob[] = []
   settled.forEach((r, i) => {
+    const t = tasks[i]
     if (r.status === 'fulfilled') {
-      if (!tasks[i].probe || r.value.length) report.push({ source: tasks[i].source, count: r.value.length })
+      if (!t.probe) report.push({ source: t.source, count: r.value.length })
+      else if (r.value.length) report.push({ source: t.source, count: r.value.length, note: `matched by name. If this is the right company, enter it as "${t.pin}" so autopilot may apply` })
       all.push(...r.value)
     } else {
-      // A company slug only exists on one ATS — a 404 there is expected, not an error
+      // A company name only exists on one ATS: a 404 (or no such subdomain) there is an expected miss.
+      // Other HTTP errors (rate limits, outages) are worth showing.
       const msg = r.reason instanceof Error ? r.reason.message : String(r.reason)
-      if (!tasks[i].probe && !/returned 404/.test(msg)) report.push({ source: tasks[i].source, count: 0, error: msg.slice(0, 120) })
+      const status = Number(msg.match(/returned (\d+)/)?.[1] || 0)
+      if (status !== 404 && (!t.probe || status)) report.push({ source: t.source, count: 0, error: msg.slice(0, 120) })
     }
   })
   return { jobs: dedupeListings(all), report }

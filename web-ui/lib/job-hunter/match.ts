@@ -85,7 +85,7 @@ export function relevantTo(job: Pick<RawJob, 'title' | 'description'>, terms: st
 
 /** Parse the top of a salary string like "$120k-$150k" or "USD 90000-120000" */
 function salaryMax(s: string): number | null {
-  const nums = [...String(s || '').toLowerCase().matchAll(/(\d[\d,.]*)\s*(k)?/g)].map(m => {
+  const nums = [...String(s || '').toLowerCase().matchAll(/(\d[\d,.]*)\s*(k(?!\p{L}))?/gu)].map(m => {
     const n = parseFloat(m[1].replace(/,/g, ''))
     return m[2] ? n * 1000 : n
   }).filter(n => n >= 1000)

@@ -52,6 +52,12 @@ export interface AgentOutcome {
   aiAnswers: FieldAnswer[]
   /** The posting is closed ("no longer accepting applications") */
   closed?: boolean
+  /**
+   * Submit was pressed (or computer use acted on a finished form). The
+   * application may have been sent even when no confirmation was seen, so it
+   * must never be retried automatically.
+   */
+  submitPressed?: boolean
 }
 
 interface Field {
@@ -74,6 +80,10 @@ const NEXT = /^(next|continue|review( (my |your )?application)?|proceed|save (an
 const START = /^(easy apply|apply( (now|manually|for (this|the) (job|position|role)|to (this )?(job|position|role)|on company (site|website)))?|apply for job|i'?m interested|start (my )?application)$/i
 /** Upload buttons of custom file pickers that create their file input on click */
 const UPLOAD_BUTTON = /^(attach|upload|choose file|select file|browse|add (a )?(file|resume|cv))\b/i
+/** The upload is for the CV only when the button or its own label says so */
+const RESUME_WORDS = /\b(resume|résumé|cv|curriculum vitae)\b/i
+/** Pickers that pull from another service, never this machine's CV file */
+const THIRD_PARTY_PICKER = /google drive|dropbox|one ?drive|box\.com|icloud|linkedin|indeed|seek|from (a )?(link|url)|enter manually|paste/i
 const DECLINE = /decline|prefer not|don'?t wish|do not wish|choose not|not to (say|disclose|answer)|rather not/i
 const SENSITIVE = /criminal|convict|felony|arrest|background check|drug (test|screen)|disabilit|veteran|gender|\brace\b|ethnic|sexual|pregnan|religio|marital|\bage\b|date of birth|birth ?date|social security|ssn|passport (number|no)|national id|bank|credit card/i
 
@@ -123,13 +133,17 @@ async function scan(page: Page): Promise<Field[]> {
       const labelish = 'legend, label, .label, [class*="label"], [class*="question-title"], [class*="questionTitle"]'
       let node = el.parentElement
       for (let depth = 0; node && depth < 5; depth++, node = node.parentElement) {
+        // Hidden controls (honeypots, react-select's value input) don't count as other fields
         const others = Array.from(node.querySelectorAll('input:not([type="hidden"]), select, textarea'))
-          .filter(x => x !== el && !(group && (x as HTMLInputElement).name === group))
-        if (others.length) return null
+          .filter(x => x !== el && !(group && (x as HTMLInputElement).name === group) && visible(x))
+        if (others.length) break
         const found = Array.from(node.querySelectorAll(labelish)).find(x => !x.contains(el) && !x.querySelector('input, select, textarea') && text(x.textContent))
         if (found) return found
       }
-      return null
+      // A wrapper with several controls ("Phone *" = country-code select + number):
+      // they share the wrapper's own label
+      const wrap = el.closest('[class*="field"],[class*="question"],[class*="form-group"],[class*="form-element"],li')
+      return wrap ? Array.from(wrap.querySelectorAll(labelish)).find(x => !x.contains(el) && !x.querySelector('input, select, textarea') && text(x.textContent)) || null : null
     }
     const labelFor = (el: Element): string => {
       const id = el.getAttribute('id')
@@ -434,170 +448,199 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
   let beforeSubmit: string | null = null
   const opened = new Set<string>()
   const outcome = (status: AgentOutcome['status'], message: string, missing: string[] = [], questions: PendingQuestion[] = []): AgentOutcome =>
-    ({ status, message, filled, missing, questions, aiAnswers: aiUsed })
+    ({ status, message, filled, missing, questions, aiAnswers: aiUsed, submitPressed: beforeSubmit !== null })
+  let errorsAfterSubmit = 0
 
   // A site may open the form in a new tab; follow it.
   let current = page
   page.context().on('page', p => { current = p })
 
   for (let step = 0; step < maxSteps; step++) {
-    const pg = current
-    await pg.waitForLoadState('domcontentloaded').catch(() => {})
-    await pg.waitForTimeout(800)
-    if (beforeSubmit !== null && isNewConfirmation(beforeSubmit, await bodyText(pg))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
-    const wall = await blocked(pg)
-    if (wall === 'captcha') return outcome('needs_user', 'This form has a captcha. Solve it and press Submit; everything else is filled in.')
-    if (wall === 'login') {
-      const signUp = /create (an |your )?account|sign up|register|verify (new )?password/i.test(await bodyText(pg))
-      return outcome('needs_user', signUp
-        ? `${new URL(pg.url()).hostname} asks you to create an account before applying. GhostForge never creates accounts or passwords for you: create it once in the GhostForge browser, and the next attempt continues signed in.`
-        : `${new URL(pg.url()).hostname} wants you to sign in first. Sign in once in the GhostForge browser and the next attempt continues from there.`)
-    }
-
-    const fields = await scan(pg)
-    const btns = await buttons(pg)
-    const looksLikeForm = fields.some(f => f.kind === 'file' || (f.kind !== 'checkbox' && f.required))
-
-    if (!fields.length && CLOSED_POSTING.test(await bodyText(pg))) {
-      return { ...outcome('failed', 'This posting is closed: the site says it no longer accepts applications.'), closed: true }
-    }
-
-    // Career sites often embed the ATS form in an iframe (Greenhouse, iCIMS, Workable…):
-    // open the form itself, once. Only known ATS hosts are followed.
-    if (!looksLikeForm) {
-      const embed = (await pg.locator('iframe[src]').evaluateAll(els => els.map(e => (e as HTMLIFrameElement).src)).catch(() => [] as string[]))
-        .find(src => !['other', 'linkedin'].includes(detectAts(src)) && !opened.has(`frame|${src}`))
-      if (embed) {
-        opened.add(`frame|${embed}`)
-        ctx.log?.(`Opening the embedded application form (${new URL(embed).hostname})`)
-        await pg.goto(embed, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {})
-        continue
+    try {
+      const pg = current
+      await pg.waitForLoadState('domcontentloaded').catch(() => {})
+      await pg.waitForTimeout(800)
+      if (beforeSubmit !== null && isNewConfirmation(beforeSubmit, await bodyText(pg))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
+      const wall = await blocked(pg)
+      if (wall === 'captcha') return outcome('needs_user', 'This form has a captcha. Solve it and press Submit; everything else is filled in.')
+      if (wall === 'login') {
+        const signUp = /create (an |your )?account|sign up|register|verify (new )?password/i.test(await bodyText(pg))
+        return outcome('needs_user', signUp
+          ? `${new URL(pg.url()).hostname} asks you to create an account before applying. GhostForge never creates accounts or passwords for you: create it once in the GhostForge browser, and the next attempt continues signed in.`
+          : `${new URL(pg.url()).hostname} wants you to sign in first. Sign in once in the GhostForge browser and the next attempt continues from there.`)
       }
-    }
 
-    // Job page, not the form yet (at most a search or newsletter box): press the
-    // site's own Apply / Easy Apply button, once per page.
-    if (!looksLikeForm) {
-      const start = btns.find(b => START.test(b.text) && !b.inForm)
-      const key = start ? `${pg.url()}|${start.text}` : ''
-      if (start && !opened.has(key)) {
-        opened.add(key)
-        ctx.log?.(`Opening the form (${start.text})`)
-        await pg.locator(`[data-gf-btn="${start.idx}"]`).click({ timeout: 10_000 }).catch(() => {})
-        await pg.waitForTimeout(2000)
-        continue
+      const fields = await scan(pg)
+      const btns = await buttons(pg)
+      const looksLikeForm = fields.some(f => f.kind === 'file' || (f.kind !== 'checkbox' && f.required))
+
+      // Only the headline: descriptions say "not available for sponsorship" and the like
+      const headline = await pg.evaluate(() => [document.title, ...Array.from(document.querySelectorAll('h1, h2, h3')).map(h => h.textContent || ''), (document.body?.innerText || '').slice(0, 400)].join('\n')).catch(() => '')
+      if (!fields.length && CLOSED_POSTING.test(headline)) {
+        return { ...outcome('failed', 'This posting is closed: the site says it no longer accepts applications.'), closed: true }
       }
-    }
 
-    // 1. Answer what the profile already knows.
-    const unknown: Field[] = []
-    for (const f of fields) {
-      if (f.kind === 'file') {
-        if (!f.empty) { if (/resume|cv/i.test(f.label)) resumeUploaded = true; continue }
-        const wantsCover = /cover/i.test(f.label)
-        const path = wantsCover ? ctx.coverPath : (/resume|cv|curriculum/i.test(f.label) || (!resumeUploaded && (f.required || fields.filter(x => x.kind === 'file').length === 1))) ? ctx.profile.cv?.filePath : ''
-        if (path) {
-          try { await loc(pg, f).setInputFiles(path); filled.push(wantsCover ? 'Cover letter upload' : 'Resume upload'); if (!wantsCover) resumeUploaded = true } catch { /* custom uploader */ }
+      // Career sites often embed the ATS form in an iframe (Greenhouse, iCIMS, Workable…):
+      // open the form itself, once. Only known ATS hosts are followed.
+      if (!looksLikeForm) {
+        const embed = (await pg.locator('iframe[src]').evaluateAll(els => els.map(e => (e as HTMLIFrameElement).src)).catch(() => [] as string[]))
+          .find(src => !['other', 'linkedin'].includes(detectAts(src)) && !opened.has(`frame|${src}`))
+        if (embed) {
+          opened.add(`frame|${embed}`)
+          ctx.log?.(`Opening the embedded application form (${new URL(embed).hostname})`)
+          await pg.goto(embed, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {})
+          continue
         }
-        continue
       }
-      if (!f.empty && !f.invalid) continue
-      if (f.kind === 'checkbox') {
-        if (/privacy|consent|agree|acknowledg|terms|certify|confirm (that )?(the )?information/i.test(f.label)) {
-          if (await setField(pg, f, 'yes')) filled.push(f.label)
+
+      // Job page, not the form yet (at most a search or newsletter box): press the
+      // site's own Apply / Easy Apply button, once per page.
+      if (!looksLikeForm) {
+        const start = btns.find(b => START.test(b.text) && !b.inForm)
+        const key = start ? `${pg.url()}|${start.text}` : ''
+        if (start && !opened.has(key)) {
+          opened.add(key)
+          ctx.log?.(`Opening the form (${start.text})`)
+          await pg.locator(`[data-gf-btn="${start.idx}"]`).click({ timeout: 10_000 }).catch(() => {})
+          await pg.waitForTimeout(2000)
+          continue
         }
+      }
+
+      // 1. Answer what the profile already knows.
+      const unknown: Field[] = []
+      for (const f of fields) {
+        if (f.kind === 'file') {
+          if (!f.empty) { if (/resume|cv/i.test(f.label)) resumeUploaded = true; continue }
+          const wantsCover = /cover/i.test(f.label)
+          const path = wantsCover ? ctx.coverPath : (/resume|cv|curriculum/i.test(f.label) || (!resumeUploaded && (f.required || fields.filter(x => x.kind === 'file').length === 1))) ? ctx.profile.cv?.filePath : ''
+          if (path) {
+            try { await loc(pg, f).setInputFiles(path); filled.push(wantsCover ? 'Cover letter upload' : 'Resume upload'); if (!wantsCover) resumeUploaded = true } catch { /* custom uploader */ }
+          }
+          continue
+        }
+        if (!f.empty && !f.invalid) continue
+        if (f.kind === 'checkbox') {
+          if (/privacy|consent|agree|acknowledg|terms|certify|confirm (that )?(the )?information/i.test(f.label)) {
+            if (await setField(pg, f, 'yes')) filled.push(f.label)
+          }
+          continue
+        }
+        if (f.kind === 'textarea' && ctx.job.coverLetter && /cover letter|additional information|anything else|message to (the )?(hiring|recruit)/i.test(f.label)) {
+          if (await setField(pg, f, ctx.job.coverLetter)) { filled.push(f.label || 'Cover letter'); continue }
+        }
+        const value = answerFor(f.label, ctx.profile, ctx.job)
+        if (value && await setField(pg, f, value)) { filled.push(f.label); continue }
+        unknown.push(f)
+      }
+
+      // Custom uploaders that only create their file input when the button is pressed
+      if (!resumeUploaded && ctx.profile.cv?.filePath && fields.length && !fields.some(f => f.kind === 'file')) {
+        let upload: (typeof btns)[number] | undefined
+        for (const b of btns) {
+          if (!UPLOAD_BUTTON.test(b.text) || THIRD_PARTY_PICKER.test(b.text) || opened.has(`upload|${pg.url()}|${b.text}`)) continue
+          // The button's own wrapper text (stopping before a wrapper that holds other buttons)
+          const near = await pg.locator(`[data-gf-btn="${b.idx}"]`).evaluate(el => {
+            let n = el.parentElement, t = ''
+            for (let d = 0; n && d < 3; d++, n = n.parentElement) {
+              if (n.querySelectorAll('button, [role="button"]').length > 1) break
+              t = (n.textContent || '').replace(/\s+/g, ' ').trim()
+            }
+            return t.slice(0, 200)
+          }).catch(() => '')
+          if (RESUME_WORDS.test(`${b.text} ${near}`) && !/transcript|certificat|cover letter|portfolio|writing sample|diploma/i.test(`${b.text} ${near}`)) { upload = b; break }
+        }
+        if (upload) {
+          opened.add(`upload|${pg.url()}|${upload.text}`)
+          const chooser = pg.waitForEvent('filechooser', { timeout: 4000 }).catch(() => null)
+          await pg.locator(`[data-gf-btn="${upload.idx}"]`).click({ timeout: 5000 }).catch(() => {})
+          const fc = await chooser
+          if (fc) { await fc.setFiles(ctx.profile.cv.filePath).then(() => { filled.push('Resume upload'); resumeUploaded = true }).catch(() => {}) }
+        }
+      }
+
+      // Custom dropdowns show their options only when opened: read them so answers can match
+      for (const f of unknown) {
+        if (f.kind === 'combo' && !f.options.length) {
+          f.options = await comboOptions(pg, f).catch(() => [])
+          await pg.keyboard.press('Escape').catch(() => {})
+        }
+      }
+
+      // 2. Ask the AI for the rest (grounded in the CV); never for sensitive questions.
+      const answerable = unknown.filter(f => !SENSITIVE.test(f.label) || /gender|race|ethnic|veteran|disabilit|sexual/i.test(f.label))
+      const ai = await aiAnswers(answerable, ctx)
+      for (const f of unknown) {
+        const v = ai.get(f.id)
+        if (v && await setField(pg, f, v)) { filled.push(f.label); aiUsed.push({ label: f.label, value: v }) }
+      }
+
+      // 3. Anything required still empty is a question for the user.
+      await pg.waitForTimeout(300)
+      const after = await scan(pg)
+      const missing = after.filter(f => (f.required || f.invalid) && f.empty && f.kind !== 'file')
+      const missingFile = after.filter(f => f.required && f.empty && f.kind === 'file')
+      if (missing.length || missingFile.length) {
+        const questions = missing.map(f => ({ label: normalizeLabel(f.label) || 'Unlabelled field', type: f.kind, options: f.options.slice(0, 20) }))
+        return outcome('needs_user', `${questions.length + missingFile.length} question(s) need your answer. Answer them once and they are reused on every later application.`, [...questions.map(q => q.label), ...missingFile.map(f => f.label || 'File upload')], questions)
+      }
+
+      // 4. Move on: Submit, or Next/Continue/Review.
+      const submit = btns.find(b => SUBMIT.test(b.text) || /submit application|send application/i.test(b.text) || (APPLY.test(b.text) && b.inForm))
+      const next = btns.find(b => NEXT.test(b.text))
+      if (submit) {
+        if (!ctx.allowSubmit) return outcome('needs_user', 'Everything is filled in and ready. Review it and press Submit.')
+        ctx.log?.(`Submitting (${submit.text})`)
+        const before = await bodyText(pg)
+        beforeSubmit = before // from here on, the application may have been sent
+        await pg.locator(`[data-gf-btn="${submit.idx}"]`).click({ timeout: 10_000 })
+        const ok = await pg.waitForFunction(([re, prev]) => {
+          const rx = new RegExp(re, 'gi')
+          const was: string[] = prev.match(rx) || []
+          const now = (document.body?.innerText || '').match(rx) || []
+          const seen = new Set(was)
+          return now.length > was.length || now.some(m => !seen.has(m))
+        }, [CONFIRMED.source, before] as const, { timeout: 25_000 }).then(() => true).catch(() => false)
+        if (ok) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
+        // Some sites show errors instead of confirming (or confirm on a new page): loop once more to read them
+        await pg.waitForTimeout(1000)
+        if (isNewConfirmation(before, await bodyText(current))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
+        stuckCount++
+        if (stuckCount > 2) return outcome('needs_user', 'Submit was pressed but no confirmation appeared. Check the application in the browser.')
         continue
       }
-      if (f.kind === 'textarea' && ctx.job.coverLetter && /cover letter|additional information|anything else|message to (the )?(hiring|recruit)/i.test(f.label)) {
-        if (await setField(pg, f, ctx.job.coverLetter)) { filled.push(f.label || 'Cover letter'); continue }
+      if (next) {
+        const signature = `${pg.url()}|${after.map(f => f.label).join('|')}|${btns.map(b => b.text).join('|')}`
+        if (signature === lastSignature) stuckCount++
+        else { stuckCount = 0; lastSignature = signature }
+        if (stuckCount < 2) {
+          ctx.log?.(`Next page (${next.text})`)
+          await pg.locator(`[data-gf-btn="${next.idx}"]`).click({ timeout: 10_000 }).catch(() => {})
+          await pg.waitForTimeout(1500)
+          continue
+        }
       }
-      const value = answerFor(f.label, ctx.profile, ctx.job)
-      if (value && await setField(pg, f, value)) { filled.push(f.label); continue }
-      unknown.push(f)
-    }
 
-    // Custom uploaders that only create their file input when the button is pressed
-    if (!resumeUploaded && ctx.profile.cv?.filePath && fields.length && !fields.some(f => f.kind === 'file')) {
-      const upload = btns.find(b => UPLOAD_BUTTON.test(b.text) && !opened.has(`upload|${pg.url()}|${b.text}`))
-      if (upload) {
-        opened.add(`upload|${pg.url()}|${upload.text}`)
-        const chooser = pg.waitForEvent('filechooser', { timeout: 4000 }).catch(() => null)
-        await pg.locator(`[data-gf-btn="${upload.idx}"]`).click({ timeout: 5000 }).catch(() => {})
-        const fc = await chooser
-        if (fc) { await fc.setFiles(ctx.profile.cv.filePath).then(() => { filled.push('Resume upload'); resumeUploaded = true }).catch(() => {}) }
+      // 5. Stuck: let computer use try, else hand over.
+      const beforeVision = await bodyText(pg)
+      if (visionTries < 6 && await visionStep(pg, ctx, 'reach and complete the application form, then stop before any final submit you are unsure about')) {
+        beforeSubmit ??= beforeVision // computer use may have pressed Submit itself
+        visionTries++
+        continue
       }
-    }
-
-    // Custom dropdowns show their options only when opened: read them so answers can match
-    for (const f of unknown) {
-      if (f.kind === 'combo' && !f.options.length) {
-        f.options = await comboOptions(pg, f).catch(() => [])
-        await pg.keyboard.press('Escape').catch(() => {})
+      return outcome('needs_user', 'The form uses a layout GhostForge could not finish on its own. It is pre-filled; finish it in the browser.')
+    } catch (e) {
+      // Before Submit, an error is an ordinary failure (safe to try again later).
+      if (beforeSubmit === null) throw e
+      // After Submit, sites navigate, and a navigation destroys the page context
+      // mid-read. Look at the page again rather than failing: the form may
+      // already be sent, and a "failed" result would invite a second submission.
+      if (++errorsAfterSubmit > 3) {
+        return outcome('needs_user', `Submit was pressed, then the page changed unexpectedly (${String(e instanceof Error ? e.message : e).slice(0, 80)}). Check whether the application was sent before trying again.`)
       }
-    }
-
-    // 2. Ask the AI for the rest (grounded in the CV); never for sensitive questions.
-    const answerable = unknown.filter(f => !SENSITIVE.test(f.label) || /gender|race|ethnic|veteran|disabilit|sexual/i.test(f.label))
-    const ai = await aiAnswers(answerable, ctx)
-    for (const f of unknown) {
-      const v = ai.get(f.id)
-      if (v && await setField(pg, f, v)) { filled.push(f.label); aiUsed.push({ label: f.label, value: v }) }
-    }
-
-    // 3. Anything required still empty is a question for the user.
-    await pg.waitForTimeout(300)
-    const after = await scan(pg)
-    const missing = after.filter(f => (f.required || f.invalid) && f.empty && f.kind !== 'file')
-    const missingFile = after.filter(f => f.required && f.empty && f.kind === 'file')
-    if (missing.length || missingFile.length) {
-      const questions = missing.map(f => ({ label: normalizeLabel(f.label) || 'Unlabelled field', type: f.kind, options: f.options.slice(0, 20) }))
-      return outcome('needs_user', `${questions.length + missingFile.length} question(s) need your answer. Answer them once and they are reused on every later application.`, [...questions.map(q => q.label), ...missingFile.map(f => f.label || 'File upload')], questions)
-    }
-
-    // 4. Move on: Submit, or Next/Continue/Review.
-    const submit = btns.find(b => SUBMIT.test(b.text) || /submit application|send application/i.test(b.text) || (APPLY.test(b.text) && b.inForm))
-    const next = btns.find(b => NEXT.test(b.text))
-    if (submit) {
-      if (!ctx.allowSubmit) return outcome('needs_user', 'Everything is filled in and ready. Review it and press Submit.')
-      ctx.log?.(`Submitting (${submit.text})`)
-      const before = await bodyText(pg)
-      beforeSubmit = before
-      await pg.locator(`[data-gf-btn="${submit.idx}"]`).click({ timeout: 10_000 })
-      const ok = await pg.waitForFunction(([re, prev]) => {
-        const rx = new RegExp(re, 'gi')
-        const was: string[] = prev.match(rx) || []
-        const now = (document.body?.innerText || '').match(rx) || []
-        const seen = new Set(was)
-        return now.length > was.length || now.some(m => !seen.has(m))
-      }, [CONFIRMED.source, before] as const, { timeout: 25_000 }).then(() => true).catch(() => false)
-      if (ok) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
-      // Some sites show errors instead of confirming (or confirm on a new page): loop once more to read them
-      await pg.waitForTimeout(1000)
-      if (isNewConfirmation(before, await bodyText(current))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
-      stuckCount++
-      if (stuckCount > 2) return outcome('needs_user', 'Submit was pressed but no confirmation appeared. Check the application in the browser.')
+      await current.waitForLoadState('domcontentloaded').catch(() => {})
       continue
     }
-    if (next) {
-      const signature = `${pg.url()}|${after.map(f => f.label).join('|')}|${btns.map(b => b.text).join('|')}`
-      if (signature === lastSignature) stuckCount++
-      else { stuckCount = 0; lastSignature = signature }
-      if (stuckCount < 2) {
-        ctx.log?.(`Next page (${next.text})`)
-        await pg.locator(`[data-gf-btn="${next.idx}"]`).click({ timeout: 10_000 }).catch(() => {})
-        await pg.waitForTimeout(1500)
-        continue
-      }
-    }
-
-    // 5. Stuck: let computer use try, else hand over.
-    const beforeVision = await bodyText(pg)
-    if (visionTries < 6 && await visionStep(pg, ctx, 'reach and complete the application form, then stop before any final submit you are unsure about')) {
-      beforeSubmit ??= beforeVision // computer use may have pressed Submit itself
-      visionTries++
-      continue
-    }
-    return outcome('needs_user', 'The form uses a layout GhostForge could not finish on its own. It is pre-filled; finish it in the browser.')
   }
   return outcome('needs_user', 'The application has more steps than expected. It is pre-filled; finish it in the browser.')
 }

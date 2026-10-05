@@ -28,7 +28,7 @@ scraped, and LinkedIn is never scraped.
 | Remotive, RemoteOK, We Work Remotely, Himalayas, Jobicy | nothing | Remote jobs. Listings link back to the board. |
 | Hacker News "Who is hiring?" | nothing | The current month's thread, via the Algolia HN API. User-posted, so it ranks below the others. |
 | The Muse, Arbeitnow | nothing | On-site and hybrid jobs. Skipped when you want remote only. |
-| Company boards: Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee | the company's board name | Add them under **More filters → Company boards to watch**. A plain name such as `stripe` is tried on every ATS. Pin one ATS with `ashby:openai` or `workable:acme`. These come straight from the company, so they are the most trusted. |
+| Company boards: Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee | the company's board name | Add them under **More filters → Company boards to watch**. A plain name such as `stripe` is tried on every ATS, and matches are shown, but another company may use the same board name. Autopilot therefore applies only to **pinned** boards such as `ashby:openai` or `workable:acme`. The Sources card tells you which ATS matched, so you can pin it. Pinned boards are the most trusted. |
 | LinkedIn, Indeed, Glassdoor, ZipRecruiter (via JSearch) | `JSEARCH_API_KEY` (free RapidAPI key) | A licensed aggregator. |
 | Adzuna | `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` (free) | About 20 countries. The country comes from your locations, or set `ADZUNA_COUNTRY` (e.g. `de`). |
 | USAJobs | `USAJOBS_API_KEY` + `USAJOBS_EMAIL` (free) | US federal jobs. |
@@ -52,7 +52,9 @@ Every search result is screened before it is shown:
   own ATS copy wins. Company suffixes ("Inc", "GmbH"), "Sr."/"Senior" and
   remote spellings don't count as differences.
 - **Old postings.** Jobs older than **Hide jobs older than (days)** (default
-  30) are removed when the source gives a date.
+  30) are removed when the source gives a date. Jobs read from a company's
+  own ATS board are exempt: they are open by definition, and evergreen roles
+  stay listed.
 - **Broken links.** Jobs without a public http(s) apply link are removed.
 - **Scams.** Signals include asking you for fees, deposits or equipment
   purchases, Telegram/WhatsApp-only contact, pay in crypto or gift cards,
@@ -73,7 +75,11 @@ Each job carries a badge:
 | **Closed** | The posting returns 404/410 or says it no longer accepts applications. |
 
 The live check runs only for a job about to be prepared or applied to, one at
-a time, and at most once a day per job. It never runs over whole search results.
+a time, and at most once a day per job. A **Closed** reading is checked again
+after a day, because a page can read as closed by mistake or only for a while.
+Only a page's title, headings and first lines are read for "no longer
+accepting applications"-style wording. Greenhouse and Lever answers come
+from their APIs, and job descriptions are never searched for this wording. It never runs over whole search results.
 Greenhouse and Lever postings are checked through their public APIs. LinkedIn
 pages can't be fetched without signing in, so they are checked in your browser
 when the application opens. Set `JOB_HUNTER_VERIFY_LIVE=0` to turn live checks
@@ -150,7 +156,11 @@ What autopilot does on its own, and what it leaves to you:
 - **Prepares enough jobs.** It prepares up to the day's remaining limit,
   checking each posting is live first.
 - **Retries.** Jobs whose questions you answered go back in the queue. A failed
-  attempt (site error, timeout) is retried once.
+  attempt (site error, timeout) is retried once, **unless Submit had already
+  been pressed**. In that case the application may have gone through, so it is
+  handed to you to check and never submitted again automatically. Only one
+  autopilot pass runs per user at a time, and two approvals of the same job
+  can't both start.
 - **Interrupted applications** (GhostForge stopped mid-form) are handed to you
   after 30 minutes. They are not resubmitted, because the form may already
   have been sent.

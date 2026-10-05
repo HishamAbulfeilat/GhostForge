@@ -289,3 +289,48 @@ test('an application cut off by a restart is handed back to the user, not resubm
   assert.equal(after.status, 'needs_user')
   assert.match(after.log.at(-1).msg, /interrupted/)
 })
+
+test('regression: a failed run after Submit was pressed is handed to the user and never auto-retried', async () => {
+  // The outcome mapping used by approveJob
+  assert.deepEqual(jh.settleResult({ status: 'failed', message: 'x' }), { status: 'failed', message: 'x' })
+  const settled = jh.settleResult({ status: 'failed', message: 'Execution context was destroyed', submitPressed: true })
+  assert.equal(settled.status, 'needs_user')
+  assert.match(settled.message, /Submit was pressed/)
+  assert.equal(jh.settleResult({ status: 'submitted', message: 'ok', submitPressed: true }).status, 'submitted')
+
+  // Autopilot: a job whose Submit was pressed is not attempted again, even after a failure
+  const user = 'pressed'
+  await setupUser(user, { enabled: true, intervalHours: 1, dailyLimit: 5, minScore: 75 })
+  const calls = []
+  const approve = async (username, id) => {
+    calls.push(id)
+    const job = await jh.updateJob(username, id, { status: 'failed', attempts: 1, submitPressedAt: new Date().toISOString() }, 'test')
+    return { job, message: 'context destroyed', missing: [] }
+  }
+  await ap.runAutopilot(user, { generate: fakeAi, approve })
+  const first = calls.length
+  assert.ok(first > 0)
+  await ap.runAutopilot(user, { force: true, generate: fakeAi, approve })
+  assert.equal(calls.length, first, 'no second submission')
+})
+
+test('regression: one autopilot pass per user at a time, and the scheduler state is shared on globalThis', async () => {
+  const user = 'overlap'
+  await setupUser(user, { enabled: true, intervalHours: 1, dailyLimit: 5, minScore: 75 })
+  let release
+  const gate = new Promise(r => { release = r })
+  const approve = async (username, id) => {
+    await gate
+    const job = await jh.updateJob(username, id, { status: 'submitted' }, 'test')
+    return { job, message: 'ok', missing: [] }
+  }
+  const a = ap.runAutopilot(user, { generate: fakeAi, approve })
+  await new Promise(r => setTimeout(r, 200))
+  const b = await ap.runAutopilot(user, { force: true, generate: fakeAi, approve })
+  assert.equal(b.ran, false)
+  assert.match(b.reason, /already running/)
+  release()
+  assert.equal((await a).ran, true)
+  assert.ok(globalThis.__gfJobAutopilot && globalThis.__gfJobAutopilot.users instanceof Set)
+  assert.ok(globalThis.__gfJobLocks instanceof Map, 'store write locks are shared too')
+})

@@ -115,6 +115,9 @@ export async function runAutopilot(
   const approve = opts.approve ?? approveJob
   const remaining = Math.max(0, ap.dailyLimit - submittedToday(ap, now))
 
+  // One pass per user at a time, across every copy of this module ("Run now" and the scheduler)
+  if (sched.users.has(username)) return { ran: false, reason: 'Autopilot is already running' }
+  sched.users.add(username)
   try {
     return await runPass()
   } catch (e) {
@@ -125,6 +128,8 @@ export async function runAutopilot(
     void auditLog({ level: 'warn', event: 'job_autopilot_error', params: { username, error: reason } })
     void notifyUser(username, { title: 'Job Hunter autopilot failed', body: reason.slice(0, 140) })
     return { ran: false, reason }
+  } finally {
+    sched.users.delete(username)
   }
 
   async function runPass(): Promise<AutopilotReport> {
@@ -140,13 +145,18 @@ export async function runAutopilot(
   const canSubmit = (ats: string) => ats === 'linkedin' ? linkedinOn && ap.mode === 'full' : ap.mode === 'full' || AUTO_SUBMIT_ATS.has(ats)
   const eligible = (j: JobRecord) =>
     j.fit === 'High' && j.score >= ap.minScore && canSubmit(j.ats)
-    && j.verification?.status !== 'flagged' && j.verification?.status !== 'closed'
+    && j.verification?.status !== 'flagged'
+    // Submit was pressed before: it may have been sent, so it is the user's to check
+    && !j.submitPressedAt
+    // A plain company name matched on some ATS may be another company: only pinned boards are applied to
+    && !j.boardUnconfirmed
   let unverified = 0
   /** Live-check a job right before working on it; true when it is a verified, open posting */
   const verified = async (j: JobRecord) => {
+    // Closed postings are re-checked once a day (a "closed" reading can be wrong or temporary)
     const v = await ensureVerified(username, j.id, { fetcher: opts.fetcher, now }).catch(() => null)
     if (v?.verification?.status === 'verified') return true
-    unverified++
+    if (v?.verification?.status !== 'closed') unverified++
     return false
   }
 
@@ -227,8 +237,13 @@ async function notifyUser(username: string, payload: { title: string; body: stri
 
 // ── scheduler ───────────────────────────────────────────────────────────────
 
-let started = false
-let running = false
+/**
+ * Scheduler state lives on globalThis: Next.js may load this module more than
+ * once (instrumentation and each route bundle), and module-level flags would
+ * then start two schedulers whose runs overlap.
+ */
+const sched: { started: boolean; ticking: boolean; users: Set<string> } =
+  ((globalThis as { __gfJobAutopilot?: { started: boolean; ticking: boolean; users: Set<string> } }).__gfJobAutopilot ??= { started: false, ticking: false, users: new Set() })
 
 async function allowed(username: string): Promise<boolean> {
   const { getUserByUsername } = await import('../users')
@@ -239,8 +254,8 @@ async function allowed(username: string): Promise<boolean> {
 
 /** One scheduler pass: run every user whose autopilot is on and due */
 export async function autopilotTick(now = Date.now()): Promise<void> {
-  if (running) return
-  running = true
+  if (sched.ticking) return
+  sched.ticking = true
   try {
     for (const username of await listJobUsers()) {
       try {
@@ -254,7 +269,7 @@ export async function autopilotTick(now = Date.now()): Promise<void> {
       }
     }
   } finally {
-    running = false
+    sched.ticking = false
   }
 }
 
@@ -265,8 +280,8 @@ export async function autopilotTick(now = Date.now()): Promise<void> {
  * GF_JOB_AUTOPILOT=0 disables it.
  */
 export function startAutopilotScheduler(intervalMs = 10 * 60_000): void {
-  if (started || process.env.GF_JOB_AUTOPILOT === '0' || process.env.NODE_ENV === 'test') return
-  started = true
+  if (sched.started || process.env.GF_JOB_AUTOPILOT === '0' || process.env.NODE_ENV === 'test') return
+  sched.started = true
   setTimeout(() => void autopilotTick(), 60_000).unref?.()
   setInterval(() => void autopilotTick(), intervalMs).unref?.()
 }

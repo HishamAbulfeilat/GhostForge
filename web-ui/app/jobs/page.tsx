@@ -20,7 +20,7 @@ interface SearchResult {
   added: number
   prepared: number
   dropped?: { stale: number; invalid: number; scam: number; flagged: number }
-  report: Array<{ source: string; count: number; error?: string }>
+  report: Array<{ source: string; count: number; error?: string; note?: string }>
   linkedin: Array<{ term: string; location: string; url: string }>
 }
 
@@ -345,6 +345,9 @@ export default function JobsPage() {
               <span className="text-xs text-gf-muted">Old postings, broken links and likely scams are removed. Only verified postings are applied to by autopilot.</span>
               {lastSearch?.report.filter(r => r.error).map(r => (
                 <span key={r.source} className="text-xs text-red-300">{r.source}: {r.error}</span>
+              ))}
+              {lastSearch?.report.filter(r => r.note).map(r => (
+                <span key={`n:${r.source}`} className="text-xs text-gf-warn">{r.source} ({r.count}): {r.note}</span>
               ))}
               {linkedin && <a href={linkedin} target="_blank" rel="noreferrer" className="mt-1 text-sm text-sky-300 hover:text-sky-200">Open this search on LinkedIn ↗</a>}
             </section>

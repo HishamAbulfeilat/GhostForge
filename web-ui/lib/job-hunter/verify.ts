@@ -19,14 +19,14 @@
  * Lever postings are checked through their public APIs.
  */
 import { isSafeApplyUrl } from './apply'
-import { CLOSED_POSTING, detectAts, stripHtml, type RawJob } from './sources'
+import { CLOSED_POSTING, detectAts, pageHeadline, stripHtml, type RawJob } from './sources'
 import { getJob, updateJob, type JobRecord, type Verification } from './store'
 
 export const DEFAULT_MAX_AGE_DAYS = 30
 /** A live check is trusted for this long before it is repeated */
 export const VERIFIED_FOR_MS = 24 * 3_600_000
 
-type Listing = Pick<RawJob, 'title' | 'company' | 'description' | 'salary' | 'url' | 'applyUrl' | 'postedAt' | 'trust' | 'ats'>
+type Listing = Pick<RawJob, 'title' | 'company' | 'description' | 'salary' | 'url' | 'applyUrl' | 'postedAt' | 'trust' | 'ats'> & { fromBoardApi?: boolean; boardUnconfirmed?: boolean }
 
 const STRONG: Array<[RegExp, string]> = [
   [/\b(application|registration|training|processing|onboarding|placement|interview) (fee|deposit|charge)s?\b|\bupfront (payment|fee|cost)\b|\brefundable deposit\b|\bpay (a |the |for (your |the )?)?(fee|training|starter kit)\b|\b(purchase|buy) (your own )?(equipment|software|starter kit|checks?)\b[^.\n]{0,40}\b(reimburs|refund)|\b(send|wire|transfer) (us )?(money|payment|funds)\b/gi, 'asks the applicant for money (fees, deposits or equipment purchases)'],
@@ -52,7 +52,8 @@ const PERSONAL_EMAIL = /\b[a-z0-9._%+-]+@(gmail|googlemail|yahoo|hotmail|outlook
 const CHAT_LINK = /^(t\.me|telegram\.me|wa\.me|chat\.whatsapp\.com|api\.whatsapp\.com)$/
 const SHORT_OR_FORM = /^(bit\.ly|tinyurl\.com|goo\.gl|ow\.ly|is\.gd|cutt\.ly|rb\.gy|forms\.gle|shorturl\.at)$/
 /** Currencies whose normal yearly salaries run into the millions */
-const BIG_UNIT = /\b(jpy|inr|krw|idr|vnd|huf|clp|cop|ngn|pkr|lkr|irr|uzs|kzt|ugx|tzs)\b|[¥₹₩₫]/i
+/** Salaries in these units are judged against the $1M sanity line; other currencies are not (millions are normal in JPY, INR, KRW…) */
+const STRONG_CURRENCY = /[$€£]|\b(usd|eur|gbp|chf|cad|aud|nzd|sgd)\b/i
 
 const norm = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 const compact = (s: string) => norm(s).replace(/\b(inc|llc|ltd|limited|gmbh|ag|corp|corporation|co|company|group|labs?|technologies|hq|careers?|jobs?)\b/g, '').replace(/\s+/g, '')
@@ -83,8 +84,9 @@ export function boardMatchesCompany(slug: string, company: string): boolean {
   return words.some(w => s.includes(w)) || (s.length >= 3 && c.startsWith(s.slice(0, 4)))
 }
 
-function salaryTop(s: string): number | null {
-  const nums = [...String(s || '').toLowerCase().matchAll(/(\d[\d,.]*)\s*(k)?/g)]
+/** Highest amount in a salary string; "k" counts as thousands only as a standalone suffix (not "kr", "Kč", "KES") */
+export function salaryTop(s: string): number | null {
+  const nums = [...String(s || '').toLowerCase().matchAll(/(\d[\d,.]*)\s*(k(?!\p{L}))?/gu)]
     .map(m => parseFloat(m[1].replace(/,/g, '')) * (m[2] ? 1000 : 1)).filter(n => n >= 1000)
   return nums.length ? Math.max(...nums) : null
 }
@@ -96,7 +98,9 @@ export function scamSignals(job: Listing): Array<{ weight: number; reason: strin
   for (const [re, reason] of STRONG) if (hasUnnegated(re, text)) out.push({ weight: 2, reason })
 
   const top = salaryTop(job.salary)
-  if (top !== null && top > 1_000_000 && !BIG_UNIT.test(job.salary)) out.push({ weight: 2, reason: `unrealistic salary (${job.salary})` })
+  // Only when the currency is known to be a strong one, or no currency is named at all
+  const namedCurrency = /\p{L}{2,}|[¥₹₩₫]/u.test(job.salary.replace(/\b(k|per|year|yr|annual|annually|a|to|and|month|mo|hour|hr|week|day)\b/gi, ''))
+  if (top !== null && top > 1_000_000 && (STRONG_CURRENCY.test(job.salary) || !namedCurrency)) out.push({ weight: 2, reason: `unrealistic salary (${job.salary})` })
 
   let host = ''
   try { host = new URL(job.applyUrl || job.url).hostname.toLowerCase().replace(/^www\./, '') } catch { /* invalid: dropped elsewhere */ }
@@ -136,7 +140,8 @@ export function screenListing(job: Listing, opts: { now?: number; maxAgeDays?: n
     return { drop: 'invalid', verification: { status: 'unverified', flags: ['no usable public apply link'] } }
   }
   const age = postingAgeDays(job.postedAt, now)
-  if (age !== null && age > maxAge) {
+  // Postings read from a company's own ATS API are open by definition (evergreen roles stay listed)
+  if (age !== null && age > maxAge && job.trust !== 'official' && !job.fromBoardApi) {
     return { drop: 'stale', verification: { status: 'closed', flags: [`posted ${Math.round(age)} days ago`] } }
   }
   const signals = scamSignals(job)
@@ -147,6 +152,7 @@ export function screenListing(job: Listing, opts: { now?: number; maxAgeDays?: n
   if (job.trust === 'official') {
     return { drop: null, verification: { status: 'verified', flags: [...flags, 'read from the company\'s own job board API'], checkedAt: new Date(now).toISOString(), live: 'live' } }
   }
+  if (job.boardUnconfirmed) flags.push('found by company name on an ATS board: confirm it is the right company (enter it as "ats:name") before autopilot may apply')
   return { drop: null, verification: { status: 'unverified', flags } }
 }
 
@@ -197,14 +203,17 @@ export async function checkLive(job: Pick<JobRecord, 'url' | 'applyUrl' | 'ats'>
   if (job.ats === 'linkedin') return { live: 'unknown', note: 'LinkedIn pages are checked in your browser when applying' }
   if (!fetcher && liveChecksOff()) return { live: 'unknown', note: 'live checks are off' }
   const get: Fetcher = fetcher ?? (async url => (await import('./intake')).fetchPublic(url, 600_000))
-  const target = atsApiCheckUrl(job) || job.url || job.applyUrl
+  const api = atsApiCheckUrl(job)
+  const target = api || job.url || job.applyUrl
   try {
     const res = await get(target)
     if (res.status === 404 || res.status === 410) return { live: 'gone', note: `the posting returns ${res.status}` }
     if (res.status >= 200 && res.status < 300) {
+      // An ATS API answering for the posting is the structured answer: it exists.
+      // (Its description may well say "not available for sponsorship" — never parsed.)
+      if (api) return { live: 'live', note: 'the job board API lists the posting' }
       if (/[?&]error=true\b/.test(res.url)) return { live: 'gone', note: 'the job board says the posting no longer exists' }
-      const text = stripHtml(res.body.replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, ' ')).slice(0, 200_000)
-      if (CLOSED_POSTING.test(text)) return { live: 'gone', note: 'the page says the job is closed' }
+      if (CLOSED_POSTING.test(pageHeadline(res.body))) return { live: 'gone', note: 'the page says the job is closed' }
       return { live: 'live', note: 'the posting is online' }
     }
     return { live: 'unknown', note: `the site answered ${res.status}` }
@@ -242,7 +251,10 @@ export async function ensureVerified(username: string, id: string, opts: { fetch
   const job = await getJob(username, id)
   if (!job) return null
   const now = opts.now ?? Date.now()
-  if (job.verification?.status === 'closed' || isFreshlyVerified(job, now)) return job
+  // Verified and closed readings both hold for a day; a closed one is then checked again,
+  // since a page can read as closed by mistake or only for a while.
+  const v = job.verification
+  if ((v?.status === 'verified' || v?.status === 'closed') && v.checkedAt && now - Date.parse(v.checkedAt) < VERIFIED_FOR_MS) return job
   const verification = withLiveResult(job, await checkLive(job, opts.fetcher), now)
   const changed = verification.status !== job.verification?.status
   return updateJob(username, id, { verification }, changed ? `Verification: ${verification.status} (${verification.flags[verification.flags.length - 1]})` : undefined)
