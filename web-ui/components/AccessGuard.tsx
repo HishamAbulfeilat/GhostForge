@@ -27,7 +27,7 @@ export const useAccess = () => useContext(AccessContext)
 const OPEN_PATHS = ['/', '/login', '/setup']
 
 export function AccessProvider({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname()
+  const pathname = usePathname() ?? ''
   const router = useRouter()
   const [user, setUser] = useState<AccessUser | null>(null)
   const [loaded, setLoaded] = useState(false)

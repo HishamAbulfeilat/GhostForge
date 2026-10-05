@@ -282,7 +282,7 @@ var SLASH_COMMANDS = [
 var selectedProvider = "";
 var selectedModelId = "";
 var GF_API_BASE = "http://localhost:3001";
-var GF_COOKIE = "gf_token=2001";
+var GF_COOKIE = `gf_token=${process.env.GHOSTFORGE_TOKEN || ""}`;
 function getActiveFileContent() {
   const editor = vscode2.window.activeTextEditor;
   if (!editor) return null;

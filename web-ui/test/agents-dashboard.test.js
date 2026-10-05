@@ -72,7 +72,7 @@ test('agents dashboard retains authenticated snapshot loading and existing team 
   assert.match(page, /Phase/)
   assert.match(page, /<AgentKanbanBoard agents=\{snapshot\.boss \? \{ \.\.\.snapshot\.agents, boss: snapshot\.boss \} : snapshot\.agents\} tasks=\{snapshot\.tasks\} messages=\{displayMessages\}/)
   assert.match(accessGuard, /pathname !== '\/agents'/)
-  assert.match(loginPage, /searchParams\.get\('next'\) \?\? searchParams\.get\('from'\)/)
+  assert.match(loginPage, /searchParams\??\.get\('next'\) \?\? searchParams\??\.get\('from'\)/)
   assert.match(page, /role=\{notice\.error \? 'alert' : 'status'\}/)
   assert.match(page, /onClick=\{\(\) => void load\(\)\}/)
   assert.match(page, /Agent-team command completed\./)

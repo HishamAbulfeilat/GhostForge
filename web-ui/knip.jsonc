@@ -66,6 +66,10 @@
   // AppleScript). Adding it to dependencies would force every install —
   // including CI and Linux — to build native modules for a feature only
   // macOS uses. The module's own header documents the manual install.
+  // @nut-tree-fork/nut-js is the maintained build of the same package, tried
+  // first (also by lib/remote/desktop.ts for Remote → Control this computer);
+  // it stays install-on-demand for the same reason, and because its old jimp
+  // dependency would add audit findings to every install.
   //
   // eslint-config-next IS used — eslint.config.mjs loads it through
   // FlatCompat via `compat.extends('next/core-web-vitals', 'next/typescript')`,
@@ -74,5 +78,5 @@
   // @next/next/no-img-element), so dropping it would break `npm run lint`
   // and the CI lint step, not slim them. knip 6 has no separate
   // ignoreDevDependencies key, so both live in this one list.
-  "ignoreDependencies": ["@nut-tree/nut-js", "eslint-config-next"]
+  "ignoreDependencies": ["@nut-tree/nut-js", "@nut-tree-fork/nut-js", "eslint-config-next"]
 }

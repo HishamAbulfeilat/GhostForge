@@ -54,7 +54,7 @@ export default function FilesPage() {
 function FilesBrowser() {
   // /projects links here with ?path=<project>, so open that directory instead of
   // the default. A bad or unreadable path falls back to the default below.
-  const initialPath = useSearchParams().get('path')
+  const initialPath = useSearchParams()?.get('path')
   const [currentPath, setCurrentPath] = useState(initialPath || '~/GhostForge')
   const [dirData, setDirData] = useState<DirData | null>(null)
   const [openFile, setOpenFile] = useState<FileData | null>(null)

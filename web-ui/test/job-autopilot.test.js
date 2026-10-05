@@ -125,7 +125,7 @@ test('autopilot searches, prepares and submits only auto-submittable jobs, headl
   const r = await ap.runAutopilot(user, { generate: fakeAi, approve })
   assert.equal(r.ran, true)
   assert.equal(r.submitted, 2, 'both Lever jobs')
-  assert.deepEqual(calls.map(c => c.opts), [{ headless: true, by: 'autopilot' }, { headless: true, by: 'autopilot' }])
+  assert.deepEqual(calls.map(c => c.opts), [{ headless: true, by: 'autopilot', allowSubmit: true }, { headless: true, by: 'autopilot', allowSubmit: true }])
   const jobs = await jh.listJobs(user)
   const linkedin = jobs.find(j => j.ats === 'linkedin')
   assert.notEqual(linkedin.status, 'submitted', 'LinkedIn is never auto-submitted')
@@ -164,4 +164,55 @@ test('autopilot schedule: due only when enabled and the interval has passed', ()
   assert.equal(ap.isDue({ ...base, lastRunAt: '2026-09-28T06:00:00Z' }, now), false)
   assert.equal(ap.isDue({ ...base, lastRunAt: '2026-09-27T23:00:00Z' }, now), true)
   assert.equal(ap.isDue({ ...base, enabled: false }, now), false)
+})
+
+test('LinkedIn Easy Apply needs the opt-in, a connected sign-in and full mode, and has its own daily cap', async () => {
+  const base = { enabled: true, intervalHours: 1, dailyLimit: 5, minScore: 75 }
+
+  // Opted in but not signed in to LinkedIn: LinkedIn jobs are left alone
+  const notConnected = 'li-off'
+  await setupUser(notConnected, { ...base, mode: 'full', linkedinEasyApply: true, linkedinDailyLimit: 3 })
+  const a = recorder()
+  await ap.runAutopilot(notConnected, { generate: fakeAi, approve: a.approve, linkedinGapMs: 0 })
+  const ids = new Map((await jh.listJobs(notConnected)).map(j => [j.id, j.ats]))
+  assert.ok(a.calls.every(c => ids.get(c.id) !== 'linkedin'))
+
+  // Opted in and signed in: LinkedIn is applied to, within its own limit
+  const user = 'li-on'
+  await setupUser(user, { ...base, mode: 'full', linkedinEasyApply: true, linkedinDailyLimit: 1 })
+  await jh.saveProfile(user, { linkedin: { connectedAt: new Date().toISOString(), checkedAt: new Date().toISOString() } })
+  const b = recorder()
+  const r = await ap.runAutopilot(user, { generate: fakeAi, approve: b.approve, linkedinGapMs: 0 })
+  const atsById = new Map((await jh.listJobs(user)).map(j => [j.id, j.ats]))
+  assert.equal(b.calls.filter(c => atsById.get(c.id) === 'linkedin').length, 1)
+  assert.equal(r.submitted, 3, 'two Lever jobs and one LinkedIn job')
+  const p = await jh.getProfile(user)
+  assert.equal(Object.values(p.autopilot.linkedinByDay).reduce((x, y) => x + y, 0), 1)
+
+  // Safe mode never auto-submits LinkedIn, even when connected and opted in
+  const safe = 'li-safe'
+  await setupUser(safe, { ...base, mode: 'safe', linkedinEasyApply: true, linkedinDailyLimit: 3 })
+  await jh.saveProfile(safe, { linkedin: { connectedAt: new Date().toISOString(), checkedAt: new Date().toISOString() } })
+  const c = recorder()
+  await ap.runAutopilot(safe, { generate: fakeAi, approve: c.approve, linkedinGapMs: 0 })
+  const safeAts = new Map((await jh.listJobs(safe)).map(j => [j.id, j.ats]))
+  assert.ok(c.calls.every(call => safeAts.get(call.id) !== 'linkedin'))
+})
+
+test('answering a job\'s questions saves them for every later application and readies the job', async () => {
+  const user = 'answers'
+  await setupUser(user, { enabled: false, intervalHours: 12, dailyLimit: 5, minScore: 75 })
+  await jh.runSearch(user, { generate: fakeAi, autoPrepare: 0 })
+  const [job] = await jh.listJobs(user)
+  await jh.updateJob(user, job.id, { status: 'needs_user', questions: [{ label: 'Years with React *', type: 'number', options: [] }, { label: 'Notice period', type: 'text', options: [] }] }, 'test')
+
+  const partial = await jh.answerQuestions(user, job.id, { 'Years with React *': '5' })
+  assert.equal(partial.status, 'ready')
+  assert.deepEqual(partial.questions.map(q => q.label), ['Notice period'])
+  assert.equal((await jh.getProfile(user)).customAnswers['Years with React'], '5')
+
+  const done = await jh.answerQuestions(user, job.id, { 'Notice period': '1 month' })
+  assert.equal(done.questions, undefined)
+  await assert.rejects(jh.answerQuestions(user, job.id, { 'Notice period': '   ' }), /at least one/)
+  await assert.rejects(jh.answerQuestions(user, 'missing', { a: 'b' }), /not found/)
 })

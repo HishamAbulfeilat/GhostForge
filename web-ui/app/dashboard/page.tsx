@@ -521,7 +521,7 @@ function BridgeSetupPanel() {
         </div>
         <div className="space-y-1">
           {envVars.map(v => (
-            <div key={v.key} className="flex items-center gap-2 text-xs">
+            <div key={v.key} className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs">
               <span
                 className={`shrink-0 rounded px-1 text-[9px] font-medium ${
                   v.required ? 'bg-red-950 text-red-400' : 'bg-gray-800/80 text-gray-600'
@@ -623,12 +623,12 @@ function DoctorWidget() {
           ) : (
             issues.map((c) => (
               <div key={`${c.category}-${c.label}`} className="flex flex-col gap-0.5">
-                <div className="flex items-center gap-2 text-xs">
+                <div className="flex min-w-0 items-center gap-2 text-xs">
                   <span className={c.status === 'fail' ? 'text-red-400' : 'text-amber-400'}>
                     {c.status === 'fail' ? '✗' : '⚠'}
                   </span>
                   <span className="text-gray-300 font-medium">{c.label}</span>
-                  <span className="text-gray-600 truncate">{c.detail}</span>
+                  <span className="min-w-0 truncate text-gray-600">{c.detail}</span>
                 </div>
                 {c.fix && (
                   <p className="ps-4 text-[10px] text-gray-600 font-mono">→ {c.fix}</p>

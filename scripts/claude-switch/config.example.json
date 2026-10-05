@@ -13,6 +13,29 @@
     "llm7",
     "pollinations"
   ],
+  "tierChains": {
+    "deep": [
+      "gemini",
+      "openrouter",
+      "kilo",
+      "llm7",
+      "pollinations"
+    ],
+    "balanced": [
+      "kilo",
+      "gemini",
+      "openrouter",
+      "llm7",
+      "pollinations"
+    ],
+    "fast": [
+      "kilo",
+      "pollinations",
+      "llm7",
+      "openrouter",
+      "gemini"
+    ]
+  },
   "providers": {
     "gemini": {
       "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",

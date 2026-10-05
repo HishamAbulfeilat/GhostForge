@@ -578,7 +578,7 @@ function VoiceEnrollPanel({ mc }: { mc: { ring: string } }) {
                     type="text"
                     value={enrollDob}
                     onChange={e => setEnrollDob(e.target.value)}
-                    placeholder="March 2 2001"
+                    placeholder="e.g. 14 July 1990"
                     className="w-full rounded px-2 py-1 text-[10px] bg-black/40 border outline-none"
                     style={{ borderColor: `${mc.ring}44`, color: mc.ring }}
                   />
@@ -656,7 +656,7 @@ function VoiceEnrollPanel({ mc }: { mc: { ring: string } }) {
                 type="text"
                 value={verifyDob}
                 onChange={e => setVerifyDob(e.target.value)}
-                placeholder="March 2 2001"
+                placeholder="e.g. 14 July 1990"
                 className="w-full rounded px-2 py-1 text-[10px] bg-black/40 border outline-none"
                 style={{ borderColor: `${mc.ring}44`, color: mc.ring }}
               />
@@ -2556,7 +2556,7 @@ export default function JarvisPage() {
           style={{ background: 'linear-gradient(transparent 50%, rgba(26,111,255,0.03) 50%)', backgroundSize: '100% 4px' }} />
 
         {/* ── Top HUD bar ── */}
-        <div className="relative z-10 flex shrink-0 items-center justify-between border-b px-4 py-2"
+        <div className="relative z-10 flex shrink-0 flex-wrap items-center justify-between gap-y-2 border-b px-4 py-2"
           style={{ borderColor: `${mc.ring}33`, background: 'rgba(0,5,20,0.92)' }}>
           <div className="flex items-center gap-3">
             <Link href="/dashboard" className="text-xs font-mono text-blue-400/60 hover:text-blue-300 transition">← DASHBOARD</Link>
@@ -2573,7 +2573,8 @@ export default function JarvisPage() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          {/* On phones the controls scroll sideways instead of running off-screen */}
+          <div className="-mx-1 flex min-w-0 max-w-full items-center gap-3 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none] [&>*]:shrink-0">
             {currentUser ? (
               <span className="hidden sm:flex items-center gap-1.5 font-mono text-[10px]" style={{ color: currentUser.role === 'admin' ? '#fbbf24' : '#93c5fd' }}
                 title={`Signed in as ${currentUser.name}`}>
