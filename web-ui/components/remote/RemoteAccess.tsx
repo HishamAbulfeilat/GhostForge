@@ -21,6 +21,25 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   return await r.json() as T
 }
 
+/** Copy text on any browser: the Clipboard API exists only on https/localhost pages, so plain-http LAN addresses fall back to a hidden textarea. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return true }
+  } catch { /* fall back */ }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  ta.setSelectionRange(0, text.length) // iOS Safari ignores select() alone
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { ok = false }
+  ta.remove()
+  return ok
+}
+
 const card = 'rounded-2xl border border-gf-line bg-gf-surface p-4 sm:p-5'
 const btn = 'min-h-10 rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent disabled:opacity-50'
 
@@ -42,6 +61,8 @@ function PairDevice() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [left, setLeft] = useState(0)
+  const [copied, setCopied] = useState('')
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
   useEffect(() => {
     if (!pair) return
@@ -74,10 +95,20 @@ function PairDevice() {
               {pair.links.map(l => (
                 <li key={l} className="flex items-center gap-2">
                   <code className="min-w-0 flex-1 truncate rounded bg-gf-bar px-2 py-1 text-xs">{l.replace(/code=.*/, 'code=…')}</code>
-                  <button type="button" className="shrink-0 rounded border border-gf-line px-2 py-1 text-xs hover:border-gf-accent" onClick={() => void navigator.clipboard?.writeText(l)}>Copy</button>
+                  <button type="button" className="shrink-0 rounded border border-gf-line px-2 py-1 text-xs hover:border-gf-accent" onClick={async () => setCopied(await copyText(l) ? l : `!${l}`)}>
+                    {copied === l ? 'Copied' : 'Copy'}
+                  </button>
+                  {canShare && (
+                    <button type="button" className="shrink-0 rounded border border-gf-line px-2 py-1 text-xs hover:border-gf-accent" onClick={() => void navigator.share({ title: 'GhostForge pairing link', url: l }).catch(() => {})}>Share</button>
+                  )}
                 </li>
               ))}
             </ul>
+            {copied.startsWith('!') && (
+              <p className="mt-2 text-xs text-gf-warn">This browser blocked copying. Long-press or select the link below to copy it:
+                <input readOnly value={copied.slice(1)} onFocus={e => e.currentTarget.select()} aria-label="Pairing link" className="mt-1 block w-full rounded bg-gf-bar px-2 py-1 font-mono text-xs" />
+              </p>
+            )}
             <p className="mt-2 text-xs text-gf-muted">The phone may warn about the certificate on the local address the first time; that is the local HTTPS certificate GhostForge created.</p>
           </div>
         </div>
@@ -182,8 +213,12 @@ function RemoteDesktop() {
   const [password, setPassword] = useState('')
   const [text, setText] = useState('')
   const imgRef = useRef<HTMLImageElement>(null)
+  const screenRef = useRef<HTMLDivElement>(null)
   const pressTimer = useRef<ReturnType<typeof setTimeout>>()
+  const clickTimer = useRef<ReturnType<typeof setTimeout>>()
   const longPressed = useRef(false)
+  const down = useRef<{ x: number; y: number } | null>(null)
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null)
 
   const load = useCallback(async () => {
     try { setStatus(await call<DesktopStatus>('/api/remote/desktop')); setDenied('') } catch (e) { setDenied(e instanceof Error ? e.message : String(e)) }
@@ -232,8 +267,71 @@ function RemoteDesktop() {
 
   const pointAt = (clientX: number, clientY: number) => {
     const r = imgRef.current?.getBoundingClientRect()
-    if (!r) return null
+    if (!r || !r.width || !r.height) return null
     return { x: (clientX - r.left) / r.width, y: (clientY - r.top) / r.height }
+  }
+
+  // Mouse wheel / trackpad scroll over the screen scrolls the computer, not this page.
+  // A native non-passive listener is needed to preventDefault (React's onWheel is passive).
+  const sendRef = useRef(send)
+  sendRef.current = send
+  const hasFrame = Boolean(frame)
+  // Bring the screen to the middle of the viewport when it first appears (bottom bars and banners cover the edges on small phones).
+  useEffect(() => {
+    if (hasFrame) screenRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [hasFrame])
+  useEffect(() => {
+    const el = screenRef.current
+    if (!el || !hasFrame) return
+    let acc = 0
+    let last = 0
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      acc += e.deltaY
+      const now = Date.now()
+      if (Math.abs(acc) < 60 || now - last < 120) return
+      last = now
+      void sendRef.current({ type: 'scroll', direction: acc > 0 ? 'down' : 'up', amount: Math.min(10, Math.max(1, Math.round(Math.abs(acc) / 100))) })
+      acc = 0
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [hasFrame])
+
+  /** Tap/click with our own double-click detection (PointerEvent.detail is 0 in Chrome/Android). */
+  const tap = (p: { x: number; y: number }) => {
+    const now = Date.now()
+    const prev = lastTap.current
+    if (prev && now - prev.t < 350 && Math.abs(prev.x - p.x) < 0.03 && Math.abs(prev.y - p.y) < 0.03) {
+      clearTimeout(clickTimer.current)
+      lastTap.current = null
+      void send({ type: 'click', ...prev, double: true })
+      return
+    }
+    lastTap.current = { t: now, ...p }
+    clearTimeout(clickTimer.current)
+    clickTimer.current = setTimeout(() => { lastTap.current = null; void send({ type: 'click', ...p }) }, 350)
+  }
+
+  /** Keys typed while the screen has focus (desktop browsers, or a phone's hardware keyboard). */
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing) return
+    const named: Record<string, string> = {
+      Enter: 'enter', Backspace: 'backspace', Tab: 'tab', Escape: 'escape', Delete: 'delete', Home: 'home', End: 'end',
+      PageUp: 'pageup', PageDown: 'pagedown', ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', ' ': 'space',
+    }
+    const mods = [e.ctrlKey && 'ctrl', e.altKey && 'alt', e.metaKey && 'cmd', e.shiftKey && 'shift'].filter(Boolean) as string[]
+    let key = named[e.key] || (/^F([1-9]|1[0-2])$/.test(e.key) ? e.key.toLowerCase() : '')
+    if (!key && e.key.length === 1) {
+      // Plain characters (any language/layout) are typed as text; shortcuts are sent as key combos.
+      if (!e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); void send({ type: 'text', text: e.key }); return }
+      // Non-Latin layouts: ctrl+ф is still ctrl+a on the physical key
+      key = /^[a-z0-9]$/i.test(e.key) ? e.key.toLowerCase() : (e.code.match(/^(?:Key([A-Z])|Digit(\d))$/)?.slice(1).find(Boolean) || '').toLowerCase()
+    }
+    if (!key || ['Control', 'Alt', 'Meta', 'Shift'].includes(e.key)) return
+    e.preventDefault()
+    const combo = [...mods.filter(m => !(m === 'shift' && key === 'space' && mods.length === 1)), key].join('+')
+    void send({ type: 'key', key: combo })
   }
 
   if (denied) return null // non-admins don't see remote desktop at all
@@ -264,29 +362,54 @@ function RemoteDesktop() {
       {status?.enabled && live && (
         <div className="mt-3 grid gap-2">
           {frame ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              ref={imgRef}
-              src={frame}
-              alt="This computer's screen"
-              className="w-full touch-none select-none rounded-lg border border-gf-line"
-              draggable={false}
-              onPointerDown={e => {
-                longPressed.current = false
-                const p = pointAt(e.clientX, e.clientY)
-                pressTimer.current = setTimeout(() => { longPressed.current = true; if (p) void send({ type: 'click', ...p, button: 'right' }) }, 550)
-              }}
-              onPointerUp={e => {
-                clearTimeout(pressTimer.current)
-                if (longPressed.current) return
-                const p = pointAt(e.clientX, e.clientY)
-                if (p) void send({ type: 'click', ...p, double: e.detail === 2 })
-              }}
-              onPointerLeave={() => clearTimeout(pressTimer.current)}
-              onContextMenu={e => e.preventDefault()}
-            />
+            <div
+              ref={screenRef}
+              tabIndex={0}
+              role="application"
+              aria-label="Remote screen. Click or tap to click; type to send keys."
+              onKeyDown={onKeyDown}
+              className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-gf-accent"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                ref={imgRef}
+                src={frame}
+                alt="This computer's screen"
+                // touch-action: manipulation keeps page scrolling and pinch-zoom on phones but drops the tap delay
+                className="block w-full touch-manipulation select-none rounded-lg border border-gf-line"
+                style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }}
+                draggable={false}
+                onPointerDown={e => {
+                  screenRef.current?.focus({ preventScroll: true })
+                  down.current = { x: e.clientX, y: e.clientY }
+                  longPressed.current = false
+                  const p = pointAt(e.clientX, e.clientY)
+                  if (e.pointerType === 'mouse') {
+                    if (e.button === 2 && p) { longPressed.current = true; void send({ type: 'click', ...p, button: 'right' }) }
+                    return
+                  }
+                  pressTimer.current = setTimeout(() => { longPressed.current = true; if (p) void send({ type: 'click', ...p, button: 'right' }) }, 550)
+                }}
+                onPointerMove={e => {
+                  // A finger that moves is scrolling or zooming the page, not pressing
+                  const d = down.current
+                  if (d && e.pointerType !== 'mouse' && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) { clearTimeout(pressTimer.current); down.current = null }
+                }}
+                onPointerUp={e => {
+                  clearTimeout(pressTimer.current)
+                  const started = down.current
+                  down.current = null
+                  if (longPressed.current || !started || (e.pointerType === 'mouse' && e.button !== 0)) return
+                  const p = pointAt(e.clientX, e.clientY)
+                  if (p) tap(p)
+                }}
+                onPointerCancel={() => { clearTimeout(pressTimer.current); down.current = null }}
+                onPointerLeave={() => clearTimeout(pressTimer.current)}
+                onContextMenu={e => e.preventDefault()}
+              />
+            </div>
           ) : <p className="text-sm text-gf-muted">Connecting…</p>}
-          <p className="text-xs text-gf-muted">Tap to click · double-tap to double-click · press and hold to right-click.</p>
+          <p className="text-xs text-gf-muted">Phone: tap to click · double-tap to double-click · press and hold to right-click · pinch to zoom. Computer: click, right-click and scroll with the mouse, and type straight into the screen after clicking it.</p>
           <form className="flex gap-2" onSubmit={e => { e.preventDefault(); if (text) void send({ type: 'text', text }); setText('') }}>
             <input value={text} onChange={e => setText(e.target.value)} placeholder="Type on the computer…" aria-label="Text to type" className="min-h-10 min-w-0 flex-1 rounded-lg border border-gf-line bg-gf-bar px-3 text-sm" />
             <button type="submit" className={btn}>Type</button>
