@@ -20,8 +20,8 @@ sign-in lands in your real browser.
 The code works **once** and expires after **10 minutes**. Only its SHA-256
 hash is stored (`~/.ghostforge/remote.json`). Failed attempts are rate-limited
 per IP. Each paired device gets its own id inside its session token, so
-**Revoke** under *Paired devices* ends that device's session at once. The
-laptop's own session is not affected.
+**Revoke** under *Paired devices* ends that device's session at once, on
+every API. The laptop's own session is not affected.
 
 ## 2. Reach the laptop
 
@@ -47,7 +47,10 @@ press keys:
     and shortcuts such as ctrl+c or arrows go through as keys.
   - There is also a text box and key buttons for phones.
 - **Off by default.** Turning it on asks for your **password again**, so a lost
-  phone or a stolen session can't take over the computer silently.
+  phone or a stolen session can't take over the computer silently. After 5 wrong
+  passwords it locks for 15 minutes.
+- **Turns itself off** after 20 minutes without use, 4 hours after it was turned
+  on, and whenever GhostForge restarts.
 - Only allow-listed keys and combos (e.g. `ctrl+c`) are accepted.
 - Enabling, disabling and use are written to the audit log.
 - Needs two packages on the laptop:
@@ -71,8 +74,9 @@ this screen.
   `test/api-route-auth.test.js`:
   - `GET /api/remote/pair` only shows the confirm page;
   - `POST /api/remote/pair/redeem` uses the one-time code, which is the
-    credential. It accepts same-origin requests only and limits failed
-    attempts per IP.
+    credential. It accepts requests from GhostForge's own pairing page only
+    (`Sec-Fetch-Site` / `Origin`, and an opaque `null` origin is refused) and
+    limits failed attempts per IP.
 - Copy works on plain-http LAN addresses too. Browsers only offer the
   clipboard API on https pages, so GhostForge falls back to a manual copy.
 - Tunnel and remote-desktop controls are admin/owner only.
