@@ -17,6 +17,18 @@ nothing needs editing when the visibility changes.
    becomes visible, every old commit included, and that can't really be taken
    back. Run `gitleaks git .` (or the `security-scan` skill), and revoke any real
    key it finds; deleting the file is not enough.
+   A full-history scan (Oct 2026) found no real keys or tokens: every hit was
+   a test placeholder or a public npm test fixture. It did find **personal data
+   in old commits** that the current files no longer contain:
+   - the owner's date of birth: an early identity-check feature, and the old
+     `PIN: …` remote banner;
+   - the owner's personal email address in the author metadata of 15 early
+     commits.
+
+   Going public exposes these through history. To remove them, rewrite the
+   history with `git filter-repo` (replace the strings and fix the author email
+   with a mailmap) and force-push every branch. That rewrites every commit ID,
+   so close open PRs first and re-clone afterwards.
 2. **Settings → General → Danger Zone → Change visibility → Public.**
 3. That's it for CodeQL. The next run (the next PR or push, the weekly schedule,
    or **Actions → CodeQL → Run workflow**) sees the repo is public and uploads

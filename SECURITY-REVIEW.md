@@ -30,8 +30,8 @@ no exploitation attempted, own code only.
 ### 1. Hardcoded owner PII used as an "identity" factor (fixed)
 
 `api/jarvis/biometrics/route.ts`'s `identity-challenge` action compared the
-caller's answer against a literal name (`"Hisham Abulfeilat"`) and several
-date-of-birth phrasings of `2001-03-02`, committed directly in source. Two
+caller's answer against the owner's literal full name and several phrasings
+of their date of birth, committed directly in source (values redacted here). Two
 problems:
 
 - **Privacy**: a specific person's full name and date of birth were
