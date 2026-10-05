@@ -104,6 +104,19 @@ async function readUsers(): Promise<GhostUser[]> {
   }
 }
 
+/**
+ * Runs read-modify-write operations on the user store one at a time. Without
+ * it, the background touchLastSeen() that getCurrentUser() fires on every
+ * request could write a stale copy over a concurrent updateUser() (e.g. the
+ * setupComplete flag from POST /api/setup was lost, so setup never finished).
+ */
+let _writeQueue: Promise<unknown> = Promise.resolve()
+function withUsersLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = _writeQueue.then(fn, fn)
+  _writeQueue = run.catch(() => {})
+  return run
+}
+
 async function writeUsers(users: GhostUser[]): Promise<void> {
   await mkdir(join(homedir(), '.ghostforge'), { recursive: true })
   await writeFile(USERS_FILE, JSON.stringify({ users }, null, 2), 'utf8')
@@ -185,74 +198,83 @@ export async function createUser(input: {
   permissions?: string[]
   active?: boolean
 }): Promise<GhostUser> {
-  const users = await listUsers()
-  const username = input.username.trim().toLowerCase()
-  if (!username || !input.password) throw new Error('Username and password are required')
-  if (users.some(u => u.username === username)) throw new Error('Username already exists')
-  const user: GhostUser = {
-    id: userIdFor(username),
-    name: input.name.trim() || username,
-    username,
-    role: input.role === 'admin' ? 'admin' : 'user',
-    passwordHash: hashPassword(input.password),
-    permissions: input.role === 'admin' ? ['*'] : (input.permissions || []),
-    active: input.active !== false,
-    createdAt: new Date().toISOString(),
-  }
-  users.push(user)
-  await writeUsers(users)
-  return user
+  return withUsersLock(async () => {
+    const users = await listUsers()
+    const username = input.username.trim().toLowerCase()
+    if (!username || !input.password) throw new Error('Username and password are required')
+    if (users.some(u => u.username === username)) throw new Error('Username already exists')
+    const user: GhostUser = {
+      id: userIdFor(username),
+      name: input.name.trim() || username,
+      username,
+      role: input.role === 'admin' ? 'admin' : 'user',
+      passwordHash: hashPassword(input.password),
+      permissions: input.role === 'admin' ? ['*'] : (input.permissions || []),
+      active: input.active !== false,
+      createdAt: new Date().toISOString(),
+    }
+    users.push(user)
+    await writeUsers(users)
+    return user
+  })
 }
 
 export async function updateUser(
   id: string,
   patch: Partial<Pick<GhostUser, 'name' | 'role' | 'permissions' | 'active' | 'passwordHash' | 'jobTitle' | 'profileId' | 'setupComplete'>>,
 ): Promise<GhostUser | null> {
-  const users = await listUsers()
-  const idx = users.findIndex(u => u.id === id)
-  if (idx === -1) return null
-  const current = users[idx]
-  // The owner account is always an active admin
-  if (isOwner(current)) {
-    patch = { ...patch, role: 'admin', active: true, permissions: ['*'] }
-  }
-  const role: Role = patch.role === 'admin' || patch.role === 'user' ? patch.role : current.role
-  // Demoting an admin drops the '*' wildcard — fall back to the supplied set (or none)
-  const basePermissions = patch.permissions ?? current.permissions
-  const permissions = role === 'admin' ? ['*'] : basePermissions.filter(p => p !== '*')
-  const updated: GhostUser = { ...current, ...patch, role, permissions }
-  users[idx] = updated
-  await writeUsers(users)
-  return updated
+  return withUsersLock(async () => {
+    const users = await listUsers()
+    const idx = users.findIndex(u => u.id === id)
+    if (idx === -1) return null
+    const current = users[idx]
+    // The owner account is always an active admin
+    if (isOwner(current)) {
+      patch = { ...patch, role: 'admin', active: true, permissions: ['*'] }
+    }
+    const role: Role = patch.role === 'admin' || patch.role === 'user' ? patch.role : current.role
+    // Demoting an admin drops the '*' wildcard — fall back to the supplied set (or none)
+    const basePermissions = patch.permissions ?? current.permissions
+    const permissions = role === 'admin' ? ['*'] : basePermissions.filter(p => p !== '*')
+    const updated: GhostUser = { ...current, ...patch, role, permissions }
+    users[idx] = updated
+    await writeUsers(users)
+    return updated
+  })
 }
 
 export async function setUserPassword(id: string, newPassword: string): Promise<boolean> {
-  const users = await listUsers()
-  const idx = users.findIndex(u => u.id === id)
-  if (idx === -1) return false
-  users[idx].passwordHash = hashPassword(newPassword)
-  await writeUsers(users)
-  return true
+  return withUsersLock(async () => {
+    const users = await listUsers()
+    const idx = users.findIndex(u => u.id === id)
+    if (idx === -1) return false
+    users[idx].passwordHash = hashPassword(newPassword)
+    await writeUsers(users)
+    return true
+  })
 }
 
 export async function deleteUser(id: string): Promise<boolean> {
-  const users = await listUsers()
-  const target = users.find(u => u.id === id)
-  if (!target || isOwner(target)) return false
-  await writeUsers(users.filter(u => u.id !== id))
-  return true
+  return withUsersLock(async () => {
+    const users = await listUsers()
+    const target = users.find(u => u.id === id)
+    if (!target || isOwner(target)) return false
+    await writeUsers(users.filter(u => u.id !== id))
+    return true
+  })
 }
 
 export async function touchLastSeen(id: string): Promise<void> {
-  const users = await listUsers()
-  const idx = users.findIndex(u => u.id === id)
-  if (idx === -1) return
-  const now = new Date().toISOString()
-  if (users[idx].lastSeen === now) return
-  users[idx].lastSeen = now
-  users[idx].lastActive = now
-  _cache = null
-  await writeUsers(users)
+  return withUsersLock(async () => {
+    const users = await listUsers()
+    const idx = users.findIndex(u => u.id === id)
+    if (idx === -1) return
+    const now = new Date().toISOString()
+    if (users[idx].lastSeen === now) return
+    users[idx].lastSeen = now
+    users[idx].lastActive = now
+    await writeUsers(users)
+  })
 }
 
 export function toPublicUser(u: GhostUser): PublicUser {

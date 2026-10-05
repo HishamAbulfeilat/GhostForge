@@ -9,7 +9,10 @@ export type Health = 'ok' | 'stalled' | 'rate-limited' | 'erroring'
 export type Tokens = { input: number; output: number; cacheRead: number; cacheWrite: number; total: number }
 
 export type Session = {
+  /** Unique row id: the session id, plus ":<n>" for an older duplicate transcript. */
   id: string
+  /** The real Claude Code / Copilot session id. */
+  sessionId?: string
   provider: Provider
   name?: string
   projectSlug?: string
