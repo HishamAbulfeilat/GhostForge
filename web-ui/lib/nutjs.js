@@ -17,12 +17,17 @@ const execFileAsync = promisify(execFile)
 
 let nut = null
 let nutError = null
+// The maintained open-source build is @nut-tree-fork/nut-js; the original package is accepted too.
+// Each literal require() sits directly in a try so a missing package is a build warning, not an error.
+const loadError = e => (e && e.code === 'MODULE_NOT_FOUND' ? 'not-installed' : (e && e.message) || 'load-failed')
 try {
-  nut = require('@nut-tree/nut-js')
-} catch (e) {
-  nutError = e && e.code === 'MODULE_NOT_FOUND'
-    ? 'not-installed'
-    : (e && e.message) || 'load-failed'
+  nut = require('@nut-tree-fork/nut-js')
+} catch {
+  try {
+    nut = require('@nut-tree/nut-js')
+  } catch (e) {
+    nutError = loadError(e)
+  }
 }
 
 const darwin = process.platform === 'darwin'
@@ -134,10 +139,23 @@ function keyCodeFor(key) {
   return Object.prototype.hasOwnProperty.call(KEY_CODES, name) ? KEY_CODES[name] : null
 }
 
+// nut.js Key enum members are PascalCase (Enter, Escape, PageUp…). The old
+// lookup used key.toUpperCase() ("ENTER"), which never matched, so every key
+// was silently pressed as Space.
+const NUT_KEYS = {
+  enter: 'Enter', return: 'Enter', tab: 'Tab', escape: 'Escape', esc: 'Escape', space: 'Space',
+  up: 'Up', down: 'Down', left: 'Left', right: 'Right', pageup: 'PageUp', pagedown: 'PageDown',
+  backspace: 'Backspace', delete: 'Delete', home: 'Home', end: 'End',
+}
+
 async function pressKey(key) {
   if (nut) {
-    await nut.keyboard.pressKey(nut.Key[key.toUpperCase()] || nut.Key.Space)
-    await nut.keyboard.releaseKey(nut.Key[key.toUpperCase()] || nut.Key.Space)
+    const k = String(key ?? '').toLowerCase().replace(/[\s_-]/g, '')
+    const name = Object.hasOwn(NUT_KEYS, k) ? NUT_KEYS[k] : undefined
+    const nutKey = name ? nut.Key[name] : undefined
+    if (nutKey === undefined) return `Unsupported key. Use one of: ${Object.keys(NUT_KEYS).join(', ')}`
+    await nut.keyboard.pressKey(nutKey)
+    await nut.keyboard.releaseKey(nutKey)
     return `Pressed ${key} via nut.js`
   }
   if (darwin) {
