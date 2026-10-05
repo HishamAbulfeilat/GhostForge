@@ -36,6 +36,7 @@ const GUARDS = new Set([
 // "<route dir relative to app/api> <METHOD>" → why it is public.
 const PUBLIC_HANDLERS = {
   'auth POST': 'login endpoint — issues the session cookie; rate-limited per IP',
+  'remote/pair GET': 'device pairing redemption — the one-time 128-bit pairing code is the credential; IP failure-limited',
 }
 
 // Top-level app/ page sections that are intentionally reachable signed-out.

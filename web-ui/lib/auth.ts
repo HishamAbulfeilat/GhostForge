@@ -29,6 +29,8 @@ export interface SessionPayload {
   role: Role
   iat: number
   exp: number
+  /** Set on sessions created by pairing a phone/tablet; revoking the device ends the session. */
+  dev?: string
 }
 
 let devPin: string | undefined
@@ -61,7 +63,7 @@ function sign(payload: string): string {
 }
 
 /** Create a signed session token for a user (sync, Node runtime) */
-export function createSessionToken(user: Pick<GhostUser, 'id' | 'name' | 'username' | 'role'>): string {
+export function createSessionToken(user: Pick<GhostUser, 'id' | 'name' | 'username' | 'role'>, opts: { deviceId?: string } = {}): string {
   const now = Date.now()
   const payload: SessionPayload = {
     sub: user.id,
@@ -70,6 +72,7 @@ export function createSessionToken(user: Pick<GhostUser, 'id' | 'name' | 'userna
     role: user.role,
     iat: Math.floor(now / 1000),
     exp: Math.floor((now + SESSION_TTL_MS) / 1000),
+    ...(opts.deviceId ? { dev: opts.deviceId } : {}),
   }
   const body = b64url(JSON.stringify(payload))
   return `${body}.${sign(body)}`
@@ -142,8 +145,17 @@ export async function getCurrentUser(req: NextRequest): Promise<GhostUser | null
   const user = await getUserById(payload.sub)
   if (!user || !user.active) return null
   if (user.username !== payload.username) return null
+  if (payload.dev && !(await deviceSessionValid(payload.dev))) return null
   void touchLastSeen(user.id).catch(() => {})
   return user
+}
+
+/** A paired-device session is valid while its device is not revoked. */
+async function deviceSessionValid(deviceId: string): Promise<boolean> {
+  const { isDeviceRevoked, touchDevice } = await import('./remote/store')
+  if (await isDeviceRevoked(deviceId)) return false
+  void touchDevice(deviceId)
+  return true
 }
 
 /** Convenience: any valid session (kept for compatibility with older guards) */
@@ -162,6 +174,7 @@ export async function getSessionUser(): Promise<GhostUser | null> {
   if (!payload) return null
   const user = await getUserById(payload.sub)
   if (!user || !user.active) return null
+  if (payload.dev && !(await deviceSessionValid(payload.dev))) return null
   return user
 }
 

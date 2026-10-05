@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import RemoteAccess from '@/components/remote/RemoteAccess'
 
 type ShareMode = 'webrtc' | 'vnc'
 type Status = 'idle' | 'connecting' | 'connected' | 'error'
@@ -440,19 +441,23 @@ export default function RemotePage() {
 
   return (
     <div className="min-h-[100dvh] bg-[#050a18] font-mono text-white">
-      <div className="flex items-center justify-between border-b border-white/5 px-6 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-4 py-3 sm:px-6">
         <div className="flex items-center gap-4">
           <Link href="/dashboard" className="text-xs text-blue-400/50 transition hover:text-blue-300">← DASHBOARD</Link>
           <span className="text-[10px] text-blue-400/20">|</span>
           <span className="text-sm font-bold text-blue-300">🖥️ G.F.A.I. Remote Control</span>
         </div>
-        <span className="text-[10px] text-blue-400/30">Screen Share + Mac Control + noVNC</span>
+        <span className="text-[10px] text-blue-400/30">Pair devices · reach from anywhere · control this computer</span>
       </div>
 
-      <div className="mx-auto flex max-w-6xl flex-col gap-6 p-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 p-4 font-plex sm:p-6">
         <div className="rounded-lg border border-amber-500/20 bg-amber-900/10 p-4 text-xs text-amber-300/70">
-          <strong className="text-amber-400">🔒 Security:</strong> This remote session is PIN-protected. All actions are audit-logged. Unauthorized access attempts trigger automatic Mac lockdown.
+          <strong className="text-amber-400">🔒 Security:</strong> Every device signs in with your GhostForge account (or a one-time pairing code). Paired devices can be revoked below, screen control is off until you confirm it with your password, and remote actions are written to the audit log.
         </div>
+
+        <RemoteAccess />
+
+        <h2 className="mt-2 text-xs uppercase tracking-[0.3em] text-blue-400/50">macOS screen sharing &amp; JARVIS quick commands (Mac hosts)</h2>
 
         <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-lg border border-blue-500/20 bg-[#080d18] p-5">

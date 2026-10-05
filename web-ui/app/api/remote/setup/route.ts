@@ -3,6 +3,7 @@ import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import net from 'net'
 import { requirePermission } from '@/lib/access'
+import { listAddresses } from '@/lib/remote/network'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,12 +26,8 @@ function probePort(port: number, host = '127.0.0.1', timeout = 1000) {
 }
 
 async function getIpAddress() {
-  try {
-    const { stdout } = await execAsync('ipconfig getifaddr en0 || ipconfig getifaddr en1 || echo 127.0.0.1')
-    return stdout.trim() || '127.0.0.1'
-  } catch {
-    return '127.0.0.1'
-  }
+  // Works on Windows, macOS and Linux (the old `ipconfig getifaddr en0` was macOS-only)
+  return listAddresses()[0]?.address || '127.0.0.1'
 }
 
 async function getNoVncRoot() {
