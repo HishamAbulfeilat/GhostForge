@@ -184,11 +184,11 @@ export default function FeaturesPage() {
     <div className="min-h-[100dvh] bg-[#030712]" style={{ backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -10%, #1a0a2e40, transparent)' }}>
       {/* ── Header ── */}
       <header className="sticky top-0 z-10 border-b border-white/[0.06] bg-[#030712]/90 backdrop-blur">
-        <div className="flex items-center gap-2 px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
           <Link href="/dashboard" className="rounded p-1 text-gray-500 transition hover:text-white text-lg leading-none">‹</Link>
           <span className="text-sm font-bold tracking-tight text-white">👻 GhostForge</span>
           <span className="text-[10px] font-mono text-gray-600 hidden sm:block">FEATURES</span>
-          <div className="ms-auto flex items-center gap-2">
+          <div className="ms-auto flex flex-wrap items-center gap-2">
             <Link href="/api-docs" className="rounded border border-sky-800/50 bg-sky-950/30 px-2 py-1 text-xs text-sky-300 hover:bg-sky-900/40 transition">
               📖 Docs
             </Link>

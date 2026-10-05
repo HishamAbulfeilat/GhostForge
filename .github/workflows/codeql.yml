@@ -25,6 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
+      # actions: read is required for private repositories (CodeQL reads the
+      # workflow run when uploading results); without it the job fails with
+      # "Resource not accessible by integration".
+      actions: read
       contents: read
       security-events: write
     strategy:

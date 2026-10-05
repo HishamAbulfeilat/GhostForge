@@ -77,12 +77,18 @@ export async function PUT(req: NextRequest) {
       return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : dflt
     }
     const current = (await getProfile(user.username)).autopilot
+    // Only the changed settings: saveProfile merges them onto the fresh profile.
+    // Spreading `current` here would write a stale submittedByDay over a run
+    // that finished meanwhile (and let autopilot exceed the daily limit).
     patch.autopilot = {
-      ...current,
       ...(a.enabled !== undefined ? { enabled: a.enabled === true } : {}),
       ...(a.intervalHours !== undefined ? { intervalHours: clamp(a.intervalHours, 1, 168, current.intervalHours) } : {}),
       ...(a.dailyLimit !== undefined ? { dailyLimit: clamp(a.dailyLimit, 1, 25, current.dailyLimit) } : {}),
       ...(a.minScore !== undefined ? { minScore: clamp(a.minScore, 50, 100, current.minScore) } : {}),
+      ...(a.mode !== undefined ? { mode: a.mode === 'full' ? 'full' as const : 'safe' as const } : {}),
+      ...(a.linkedinEasyApply !== undefined ? { linkedinEasyApply: a.linkedinEasyApply === true } : {}),
+      ...(a.linkedinDailyLimit !== undefined ? { linkedinDailyLimit: clamp(a.linkedinDailyLimit, 1, 15, current.linkedinDailyLimit) } : {}),
+      ...(a.laptopControl !== undefined ? { laptopControl: a.laptopControl === true } : {}),
     }
   }
   const profile = await saveProfile(user.username, patch)

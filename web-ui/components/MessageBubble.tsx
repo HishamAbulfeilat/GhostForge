@@ -46,7 +46,8 @@ export function MessageBubble({
             ▶ Run on Mac
           </button>
         ) : null}
-        <p className="mt-2 text-[11px] opacity-50">{message.timestamp.toLocaleTimeString()}</p>
+        {/* The server and the browser format the time differently (time zone/locale) */}
+        <p className="mt-2 text-[11px] opacity-50" suppressHydrationWarning>{message.timestamp.toLocaleTimeString()}</p>
       </div>
     </div>
   )
