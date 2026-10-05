@@ -13,7 +13,9 @@
  * `needs_user`, with the open questions listed.
  */
 import { mkdir, writeFile } from 'fs/promises'
+import { isIP } from 'net'
 import { join } from 'path'
+import type { BrowserContext } from 'playwright-core'
 import type { JobProfile, JobRecord } from './store'
 import { userDir } from './store'
 import { runFormAgent, type AgentContext, type AgentOutcome } from './agent'
@@ -28,8 +30,9 @@ export interface ApplyResult {
 /** ATSes whose forms can be completed and submitted unattended */
 export const AUTO_SUBMIT_ATS = new Set(['lever', 'greenhouse', 'ashby'])
 
-// Browsers left open for the user to finish — keep a reference so they aren't collected
-const openBrowsers = new Set<{ close(): Promise<void> }>()
+// Visible browsers left open for the user to finish, one per user (also keeps them from being collected).
+// The profile directory can only be open once, so later runs share this window instead of failing to launch.
+const leftOpen = new Map<string, BrowserContext>()
 
 /**
  * Apply URLs come from third-party job boards. Only open public http(s)
@@ -46,6 +49,7 @@ export function isSafeApplyUrl(raw: string): boolean {
   // IPv6 literals only — the old check also rejected real hostnames such as
   // fcbarcelona.com, fdic.gov or fe80-careers.com because they start with fc/fd/fe80.
   if (host.includes(':') && (host === '::1' || host === '::' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host))) return false
+  if (isIP(host) && isPrivateAddress(host)) return false
   return true
 }
 
@@ -55,6 +59,12 @@ export function isPrivateAddress(ip: string): boolean {
   if (a.includes(':')) {
     const mapped = a.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
     if (mapped) return isPrivateAddress(mapped[1])
+    // The same mapped address as URL parsers write it: ::ffff:7f00:1 = 127.0.0.1
+    const hex = a.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+    if (hex) {
+      const [hi, lo] = [parseInt(hex[1], 16), parseInt(hex[2], 16)]
+      return isPrivateAddress(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`)
+    }
     return a === '::' || a === '::1' || a.startsWith('fc') || a.startsWith('fd') || /^fe[89ab]/.test(a)
   }
   const [p, q] = a.split('.').map(Number)
@@ -112,7 +122,9 @@ export function withProfile<T>(username: string, headless: boolean, fn: (context
  * The user's own persistent browser profile (~/.ghostforge/jobs/<user>/browser),
  * so sign-ins to LinkedIn, Workday or a career site survive between runs.
  */
-export async function launchProfile(username: string, headless: boolean) {
+export async function launchProfile(username: string, headless: boolean): Promise<BrowserContext> {
+  const open = leftOpen.get(username)
+  if (open) return shareOpenWindow(open)
   const { chromium } = await import('playwright-core')
   const dir = join(userDir(username), 'browser')
   await mkdir(dir, { recursive: true })
@@ -125,6 +137,30 @@ export async function launchProfile(username: string, headless: boolean) {
     }
   }
   throw new Error(`No Chrome or Edge found for applying (set JOB_HUNTER_BROWSER to a browser path). ${String(lastError).slice(0, 120)}`)
+}
+
+/**
+ * A view of the window the user is finishing: work happens in new tabs, and
+ * close() closes only those tabs, never the user's own.
+ */
+function shareOpenWindow(context: BrowserContext): BrowserContext {
+  const theirs = new Set(context.pages())
+  const ours = () => context.pages().filter(p => !theirs.has(p))
+  return new Proxy(context, {
+    get(target, prop) {
+      if (prop === 'close') return async () => { for (const p of ours()) await p.close().catch(() => {}) }
+      if (prop === 'pages') return ours
+      const value = Reflect.get(target, prop, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
+/** Keep a visible window open for the user to finish (one per user). */
+function keepOpen(username: string, context: BrowserContext) {
+  if (leftOpen.has(username)) return // a tab in the window already kept open: leave it there for the user
+  leftOpen.set(username, context)
+  context.on('close', () => { if (leftOpen.get(username) === context) leftOpen.delete(username) })
 }
 
 export interface ApplyOptions {
@@ -153,7 +189,7 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
     const page = context.pages()[0] || await context.newPage()
     const finish = (result: ApplyResult & { questions?: AgentOutcome['questions']; aiAnswers?: AgentOutcome['aiAnswers'] }) => {
       // Visible browser + something left for the user: leave it open for them.
-      if (!headless && result.status === 'needs_user') openBrowsers.add(context)
+      if (!headless && result.status === 'needs_user') keepOpen(username, context)
       else void context.close().catch(() => {})
       return result
     }
