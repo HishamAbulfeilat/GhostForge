@@ -23,6 +23,7 @@ import {
 } from './store'
 import { applyToJob } from './apply'
 import { buildAnswers, missingApplicantFields, normalizeLabel, tailorResume, writeCoverLetter } from './writer'
+import { ensureVerified, screenListings, type Fetcher, type ScreenReport } from './verify'
 
 export * from './store'
 export { linkedInSearchUrl } from './sources'
@@ -88,12 +89,14 @@ export interface SearchResult {
   added: number
   prepared: number
   report: SourceReport[]
+  /** Listings removed or flagged by the real-jobs screen (stale, no valid link, scam signals) */
+  dropped: ScreenReport
   linkedin: Array<{ term: string; location: string; url: string }>
 }
 
 export async function runSearch(
   username: string,
-  opts: { terms?: string[]; autoPrepare?: number; generate?: Generate | null; includeLinkedIn?: boolean } = {},
+  opts: { terms?: string[]; autoPrepare?: number; generate?: Generate | null; includeLinkedIn?: boolean; fetcher?: Fetcher } = {},
 ): Promise<SearchResult> {
   const profile = await getProfile(username)
   if (!profile.cv) throw new Error('Upload your CV first')
@@ -102,14 +105,19 @@ export async function runSearch(
   const generate = opts.generate === undefined ? generatorFor(profile.model) : opts.generate
 
   const { jobs: raw, report } = await searchSources(profile.preferences, terms)
+  // Real jobs only: drop stale postings, broken links and clear scams; flag the doubtful
+  const { kept, dropped } = screenListings(raw, { maxAgeDays: profile.preferences.maxAgeDays })
   const home = [profile.applicant.city, profile.applicant.country].filter(Boolean)
-  const inLocation = raw.filter(j => relevantTo(j, terms) && matchesLocation(j, profile.preferences, home))
+  const inLocation = kept.filter(j => relevantTo(j, terms) && matchesLocation(j, profile.preferences, home))
 
   // Score at most 60 listings per run to keep model usage bounded
   const candidates = inLocation.slice(0, 60)
   const scores = await scoreJobs(candidates, profile, generate)
   const scored = candidates.map((job, i) => {
     const blocked = dealbreaker(job, profile.preferences)
+    if (job.verification.status === 'flagged') {
+      return { ...job, fit: 'Skip' as const, score: 0, reasons: `Possible scam: ${job.verification.flags.join('; ')}` }
+    }
     return blocked
       ? { ...job, fit: 'Skip' as const, score: 0, reasons: blocked }
       : { ...job, ...scores[i] }
@@ -122,16 +130,17 @@ export async function runSearch(
   const limit = opts.autoPrepare ?? 3
   if (limit > 0 && generate) {
     const queue = (await listJobs(username))
-      .filter(j => j.status === 'found' && j.fit === 'High' && (opts.includeLinkedIn || j.ats !== 'linkedin'))
+      .filter(j => j.status === 'found' && j.fit === 'High' && (opts.includeLinkedIn || j.ats !== 'linkedin')
+        && j.verification?.status !== 'flagged' && j.verification?.status !== 'closed')
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
     for (const job of queue) {
-      try { await prepareJob(username, job.id, generate); prepared++ } catch { /* stays in "found" */ }
+      try { await prepareJob(username, job.id, generate, { fetcher: opts.fetcher }); prepared++ } catch { /* stays in "found" (or closed) */ }
     }
   }
 
   const places = profile.preferences.locations.length ? profile.preferences.locations : ['']
-  void auditLog({ level: 'info', event: 'job_search', params: { username, terms, found: raw.length, matched: inLocation.length, added, prepared } })
+  void auditLog({ level: 'info', event: 'job_search', params: { username, terms, found: raw.length, matched: inLocation.length, added, prepared, dropped } })
 
   return {
     terms,
@@ -140,16 +149,21 @@ export async function runSearch(
     added,
     prepared,
     report,
+    dropped,
     linkedin: terms.slice(0, 3).flatMap(term => places.slice(0, 2).map(location => ({ term, location, url: linkedInSearchUrl(term, location) }))),
   }
 }
 
 // ── prepare / approve ────────────────────────────────────────────────────────
 
-export async function prepareJob(username: string, id: string, generate?: Generate): Promise<JobRecord> {
+export async function prepareJob(username: string, id: string, generate?: Generate, opts: { fetcher?: Fetcher } = {}): Promise<JobRecord> {
   generate ??= await userGenerator(username)
-  const job = await getJob(username, id)
+  // Don't spend model calls on a posting that has been taken down
+  const job = await ensureVerified(username, id, opts)
   if (!job) throw new Error('Job not found')
+  if (job.verification?.status === 'closed' && ['found', 'ready', 'failed'].includes(job.status)) {
+    throw new Error(`This posting is no longer open (${job.verification.flags[job.verification.flags.length - 1] || 'closed'})`)
+  }
   // Never re-prepare a job that is mid-submit, already submitted, or dismissed —
   // that would flip it back to "ready" and allow a duplicate application.
   if (!['found', 'ready', 'failed', 'needs_user'].includes(job.status)) {
@@ -182,7 +196,7 @@ export async function approveJob(
 
   const by = opts.by || 'user'
   const ap = profile.autopilot
-  await updateJob(username, id, { status: 'submitting' }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
+  await updateJob(username, id, { status: 'submitting', attempts: (job.attempts || 0) + 1 }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
   void auditLog({ level: 'info', event: 'job_application_approved', params: { username, jobId: id, company: job.company, title: job.title, ats: job.ats, by } })
 
   // Laptop control on: a visible browser on this computer and screenshot-based
@@ -207,18 +221,23 @@ export async function approveJob(
     const msg = e instanceof Error ? e.message : String(e)
     const failed = await updateJob(username, id, { status: 'failed' }, `Application could not run: ${msg.slice(0, 200)}`)
     void auditLog({ level: 'warn', event: 'job_application_error', params: { username, jobId: id, error: msg.slice(0, 200), by } })
+    if (by === 'autopilot') void notify(username, { title: `Couldn't apply: ${job.title}`, body: msg.slice(0, 140) })
     return { job: failed!, message: msg, missing: [] }
   }
   const updated = await updateJob(username, id, {
     status: result.status,
     questions: result.questions?.length ? result.questions : undefined,
     aiAnswers: result.aiAnswers?.length ? result.aiAnswers : job.aiAnswers,
+    // The form agent found the posting closed: never retry it
+    ...(result.closed ? { verification: { status: 'closed' as const, flags: [...(job.verification?.flags || []), result.message], checkedAt: new Date().toISOString(), live: 'gone' as const } } : {}),
   }, result.message)
   void auditLog({ level: 'info', event: 'job_application_result', params: { username, jobId: id, status: result.status, filled: result.filled.length, missing: result.missing.length, by } })
-  if (by === 'autopilot' && result.status !== 'failed') {
+  if (by === 'autopilot') {
     void notify(username, result.status === 'submitted'
       ? { title: `Applied: ${job.title}`, body: `${job.company} — submitted by autopilot.` }
-      : { title: `Needs you: ${job.title}`, body: result.questions?.length ? `${result.questions.length} question(s) to answer once; autopilot continues on its next run.` : result.message.slice(0, 140) })
+      : result.status === 'failed'
+        ? { title: `Couldn't apply: ${job.title}`, body: result.message.slice(0, 140) }
+        : { title: `Needs you: ${job.title}`, body: result.questions?.length ? `${result.questions.length} question(s) to answer once; autopilot continues on its next run.` : result.message.slice(0, 140) })
   }
   return { job: updated!, message: result.message, missing: result.missing }
 }
@@ -256,6 +275,21 @@ export async function answerQuestions(username: string, id: string, answers: Rec
   const remaining = (job.questions || []).filter(q => !clean[normalizeLabel(q.label)])
   const status = job.status === 'submitted' || job.status === 'dismissed' ? job.status : 'ready'
   return (await updateJob(username, id, { questions: remaining.length ? remaining : undefined, status }, `You answered ${Object.keys(clean).length} question(s); saved for future applications`))!
+}
+
+/**
+ * A job left "submitting" by a crash or restart would block forever. After
+ * `staleMs` it is handed to the user — not retried automatically, because
+ * the form may already have been sent.
+ */
+export async function recoverInterrupted(username: string, now = Date.now(), staleMs = 30 * 60_000): Promise<number> {
+  let n = 0
+  for (const j of await listJobs(username)) {
+    if (j.status !== 'submitting' || now - Date.parse(j.updatedAt || '') < staleMs) continue
+    await updateJob(username, j.id, { status: 'needs_user' }, 'The application was interrupted (GhostForge stopped or restarted). Check your email or the site to see whether it was sent, then retry or dismiss it.')
+    n++
+  }
+  return n
 }
 
 export async function dismissJob(username: string, id: string): Promise<JobRecord | null> {
