@@ -578,7 +578,7 @@ function VoiceEnrollPanel({ mc }: { mc: { ring: string } }) {
                     type="text"
                     value={enrollDob}
                     onChange={e => setEnrollDob(e.target.value)}
-                    placeholder="March 2 2001"
+                    placeholder="e.g. 14 July 1990"
                     className="w-full rounded px-2 py-1 text-[10px] bg-black/40 border outline-none"
                     style={{ borderColor: `${mc.ring}44`, color: mc.ring }}
                   />
@@ -656,7 +656,7 @@ function VoiceEnrollPanel({ mc }: { mc: { ring: string } }) {
                 type="text"
                 value={verifyDob}
                 onChange={e => setVerifyDob(e.target.value)}
-                placeholder="March 2 2001"
+                placeholder="e.g. 14 July 1990"
                 className="w-full rounded px-2 py-1 text-[10px] bg-black/40 border outline-none"
                 style={{ borderColor: `${mc.ring}44`, color: mc.ring }}
               />
