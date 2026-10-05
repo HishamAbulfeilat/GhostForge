@@ -6,10 +6,13 @@
  *   2. prepares the best matches (tailored CV, cover letter, answers)
  *   3. submits eligible applications headlessly, up to the daily limit
  *
- * Eligible = High fit, score ≥ the user's minimum, and an ATS whose forms can
- * be completed unattended (Lever, Greenhouse, Ashby). LinkedIn, Workday and
- * unknown sites need a login, captcha or human, so those stay prepared in the
- * queue for the user. Nothing is submitted when required details are missing.
+ * Eligible = High fit, score ≥ the user's minimum, and a site the user's mode
+ * allows: "safe" = Lever, Greenhouse, Ashby; "full" = any site the form agent
+ * can complete, plus LinkedIn Easy Apply when the user switched it on and
+ * connected LinkedIn (its own, lower daily cap). Questions the agent can't
+ * answer truthfully stop that application and are sent to the user; once
+ * answered, the job is retried on the next run. Captchas and sign-in walls are
+ * never bypassed. Nothing is submitted when required details are missing.
  */
 import { auditLog } from '../audit'
 import { AUTO_SUBMIT_ATS } from './apply'
@@ -49,7 +52,7 @@ export function submittedToday(ap: AutopilotSettings, now = Date.now()): number 
   return ap.submittedByDay?.[dayKey(now)] ?? 0
 }
 
-async function record(username: string, now: number, result: string, submitted = 0) {
+async function record(username: string, now: number, result: string, submitted = 0, linkedin = 0) {
   const today = dayKey(now)
   // Re-read the CURRENT settings rather than an at-start snapshot, and patch only
   // the run-result fields. Otherwise a run that started minutes ago would write a
@@ -58,10 +61,12 @@ async function record(username: string, now: number, result: string, submitted =
   const current = await getProfile(username)
   const byDay = { ...(current.autopilot.submittedByDay || {}) }
   if (submitted) byDay[today] = (byDay[today] || 0) + submitted
+  const liDay = { ...(current.autopilot.linkedinByDay || {}) }
+  if (linkedin) liDay[today] = (liDay[today] || 0) + linkedin
   // Keep two weeks of history
-  const keep = Object.keys(byDay).sort().slice(-14)
+  const last14 = (m: Record<string, number>) => Object.fromEntries(Object.keys(m).sort().slice(-14).map(k => [k, m[k]]))
   await saveProfile(username, {
-    autopilot: { lastRunAt: new Date(now).toISOString(), lastResult: result, submittedByDay: Object.fromEntries(keep.map(k => [k, byDay[k]])) },
+    autopilot: { lastRunAt: new Date(now).toISOString(), lastResult: result, submittedByDay: last14(byDay), linkedinByDay: last14(liDay) },
   })
 }
 
@@ -71,7 +76,7 @@ async function record(username: string, now: number, result: string, submitted =
  */
 export async function runAutopilot(
   username: string,
-  opts: { force?: boolean; now?: number; generate?: Generate | null; approve?: Approve } = {},
+  opts: { force?: boolean; now?: number; generate?: Generate | null; approve?: Approve; linkedinGapMs?: number } = {},
 ): Promise<AutopilotReport> {
   const now = opts.now ?? Date.now()
   const profile = await getProfile(username)
@@ -108,10 +113,14 @@ export async function runAutopilot(
   }
 
   async function runPass(): Promise<AutopilotReport> {
-  const search = await runSearch(username, { autoPrepare: Math.min(5, remaining + 2), generate })
+  const linkedinOn = ap.linkedinEasyApply && Boolean(profile.linkedin?.connectedAt)
+  let linkedinLeft = linkedinOn ? Math.max(0, ap.linkedinDailyLimit - (ap.linkedinByDay?.[dayKey(now)] ?? 0)) : 0
+  const search = await runSearch(username, { autoPrepare: Math.min(5, remaining + 2), generate, includeLinkedIn: linkedinOn })
 
+  /** May autopilot press Submit on this site? */
+  const canSubmit = (ats: string) => ats === 'linkedin' ? linkedinOn && ap.mode === 'full' : ap.mode === 'full' || AUTO_SUBMIT_ATS.has(ats)
   const eligible = (j: { fit: string; score: number; ats: string }) =>
-    j.fit === 'High' && j.score >= ap.minScore && AUTO_SUBMIT_ATS.has(j.ats)
+    j.fit === 'High' && j.score >= ap.minScore && canSubmit(j.ats)
 
   // Prepare any remaining eligible matches the search didn't get to
   let prepared = search.prepared
@@ -126,19 +135,28 @@ export async function runAutopilot(
     }
   }
 
-  let submitted = 0, needsUser = 0, failed = 0
+  let submitted = 0, needsUser = 0, failed = 0, linkedinSent = 0
   let queueLen = 0
   if (remaining > 0) {
+    // "ready" includes jobs whose questions the user has since answered.
     const queue = (await listJobs(username))
       .filter(j => j.status === 'ready' && eligible(j))
       .sort((a, b) => b.score - a.score)
-      .slice(0, remaining)
     queueLen = queue.length
+    let budget = remaining
     for (const j of queue) {
+      if (budget <= 0) break
+      if (j.ats === 'linkedin') {
+        if (linkedinLeft <= 0) continue
+        // Space LinkedIn applications out instead of sending them back to back.
+        if (linkedinSent > 0) await pause(opts.linkedinGapMs ?? 30_000)
+      }
       try {
-        const r = await approve(username, j.id, { headless: true, by: 'autopilot' })
-        if (r.job.status === 'submitted') submitted++
-        else if (r.job.status === 'needs_user') needsUser++
+        const r = await approve(username, j.id, { headless: !ap.laptopControl, by: 'autopilot', allowSubmit: true })
+        if (r.job.status === 'submitted') {
+          submitted++; budget--
+          if (j.ats === 'linkedin') { linkedinSent++; linkedinLeft-- }
+        } else if (r.job.status === 'needs_user') needsUser++
         else failed++
       } catch {
         failed++
@@ -146,17 +164,17 @@ export async function runAutopilot(
     }
   }
 
-  // Explain the common "autopilot ran but applied to nothing" case: the no-key
-  // sources (Remotive/RemoteOK/etc.) aren't auto-submittable, so without company
-  // boards there is nothing eligible.
+  // Explain the common "autopilot ran but applied to nothing" case.
   const hint = remaining > 0 && queueLen === 0 && submitted === 0
-    ? ' No auto-submittable matches (Lever/Greenhouse/Ashby) — add company boards under Preferences → Companies to widen autopilot.'
+    ? ap.mode === 'safe'
+      ? ' No matches on Lever/Greenhouse/Ashby — switch Autopilot to "Any site" or add company boards under Preferences → Companies.'
+      : ' No new High-fit matches at your minimum score this time.'
     : ''
   const result = remaining === 0
     ? `Daily limit reached (${ap.dailyLimit}). Found ${search.found}, prepared ${prepared}.`
-    : `Found ${search.found}, ${search.matched} in your locations. Prepared ${prepared}, submitted ${submitted}${needsUser ? `, ${needsUser} need you` : ''}${failed ? `, ${failed} failed` : ''}.${hint}`
-  await record(username, now, result, submitted)
-  void auditLog({ level: 'info', event: 'job_autopilot_run', params: { username, found: search.found, matched: search.matched, prepared, submitted, needsUser, failed } })
+    : `Found ${search.found}, ${search.matched} in your locations. Prepared ${prepared}, submitted ${submitted}${linkedinSent ? ` (${linkedinSent} on LinkedIn)` : ''}${needsUser ? `, ${needsUser} need you` : ''}${failed ? `, ${failed} failed` : ''}.${hint}`
+  await record(username, now, result, submitted, linkedinSent)
+  void auditLog({ level: 'info', event: 'job_autopilot_run', params: { username, found: search.found, matched: search.matched, prepared, submitted, linkedin: linkedinSent, needsUser, failed, mode: ap.mode } })
 
   return {
     ran: true, found: search.found, matched: search.matched, prepared, submitted, needsUser, failed,
@@ -164,6 +182,8 @@ export async function runAutopilot(
   }
   }
 }
+
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
 // ── scheduler ───────────────────────────────────────────────────────────────
 

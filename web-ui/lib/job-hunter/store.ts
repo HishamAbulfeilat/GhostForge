@@ -75,13 +75,34 @@ export interface AutopilotSettings {
   dailyLimit: number
   /** Only jobs scored at least this high (and rated High fit) are submitted */
   minScore: number
+  /**
+   * "safe": submit only on Lever/Greenhouse/Ashby (single-page, predictable forms).
+   * "full": submit on any site the form agent can complete — company career
+   * sites, Workday (when already signed in), LinkedIn Easy Apply (if enabled).
+   */
+  mode: 'safe' | 'full'
+  /** Apply through LinkedIn Easy Apply with the user's own signed-in LinkedIn (opt-in) */
+  linkedinEasyApply: boolean
+  /** Separate, lower cap for LinkedIn */
+  linkedinDailyLimit: number
+  /**
+   * Allow GhostForge to use this computer when an application gets stuck:
+   * a visible browser on this computer plus screenshot-based "computer use".
+   * Off = everything runs in the background without a screen.
+   */
+  laptopControl: boolean
   lastRunAt?: string
   lastResult?: string
   /** Submissions per day, e.g. { "2026-09-28": 3 } (last 14 days kept) */
   submittedByDay?: Record<string, number>
+  /** LinkedIn submissions per day */
+  linkedinByDay?: Record<string, number>
 }
 
-export const DEFAULT_AUTOPILOT: AutopilotSettings = { enabled: false, intervalHours: 12, dailyLimit: 5, minScore: 75 }
+export const DEFAULT_AUTOPILOT: AutopilotSettings = {
+  enabled: false, intervalHours: 12, dailyLimit: 5, minScore: 75,
+  mode: 'safe', linkedinEasyApply: false, linkedinDailyLimit: 5, laptopControl: false,
+}
 
 export interface CvFile { text: string; fileName: string; filePath: string; uploadedAt: string }
 
@@ -131,6 +152,8 @@ export interface JobProfile {
   customAnswers: Record<string, string>
   model: ModelChoice | null
   autopilot: AutopilotSettings
+  /** Set once the user signed in to LinkedIn in the GhostForge browser */
+  linkedin?: { connectedAt?: string; checkedAt?: string } | null
   updatedAt: string
 }
 
@@ -158,6 +181,10 @@ export interface JobRecord {
   tailoredResume?: string
   coverLetter?: string
   answers?: FieldAnswer[]
+  /** Required questions the agent could not answer truthfully; the user answers them once */
+  questions?: Array<{ label: string; type: string; options: string[] }>
+  /** Answers the AI wrote on the last attempt (shown for transparency) */
+  aiAnswers?: FieldAnswer[]
   log: Array<{ at: string; msg: string }>
   createdAt: string
   updatedAt: string
@@ -228,6 +255,7 @@ export async function getProfile(username: string): Promise<JobProfile> {
     customAnswers: stored.customAnswers || {},
     model: stored.model?.provider && stored.model?.model ? stored.model : null,
     autopilot: { ...DEFAULT_AUTOPILOT, ...(stored.autopilot || {}) },
+    linkedin: stored.linkedin ?? null,
     updatedAt: stored.updatedAt || '',
   }
 }
