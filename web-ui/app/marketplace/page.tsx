@@ -103,7 +103,7 @@ export default function MarketplacePage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-0.5 px-4 pt-1">
+        <div className="flex gap-0.5 overflow-x-auto px-4 pt-1 [&>*]:shrink-0">
           {([
             { key: 'claude' as Tab, label: 'Claude Marketplace', icon: '🧩' },
             { key: 'commands' as Tab, label: 'Commands', icon: '⚡' },
@@ -228,14 +228,14 @@ function ClaudeTab() {
         ) : filtered.length === 0 ? (
           <p className="py-12 text-center text-sm text-gray-600">No entries match your search.</p>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.map(s => {
               const isInstalled = installed.has(s.id)
               const isBusy = actionId === s.id
               const cmd = s.install_claude_code || s.install_command || ''
               return (
                 <div key={s.id}
-                  className={`flex flex-col gap-2 rounded-lg border p-3 transition ${isInstalled ? 'border-emerald-800/40 bg-emerald-950/10' : 'border-white/[0.06] bg-[#080d18] hover:border-white/[0.12]'}`}>
+                  className={`flex min-w-0 flex-col gap-2 break-words rounded-lg border p-3 transition ${isInstalled ? 'border-emerald-800/40 bg-emerald-950/10' : 'border-white/[0.06] bg-[#080d18] hover:border-white/[0.12]'}`}>
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-semibold text-gray-100 leading-tight">{s.name}</p>
                     {isInstalled && <span className="shrink-0 text-[10px] text-emerald-500">✓ installed</span>}
