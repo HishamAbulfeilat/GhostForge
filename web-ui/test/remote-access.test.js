@@ -143,10 +143,60 @@ test('opening a pairing link does not use the code; only the same-origin "Sign i
   })
   // Another site cannot post the code (login CSRF)
   assert.equal((await redeemRoute.POST(form('https://evil.example'))).status, 403)
+  // An opaque origin (sandboxed frame / no-referrer page elsewhere) is refused too
+  assert.equal((await redeemRoute.POST(form('null'))).status, 403)
+  // Modern browsers: Sec-Fetch-Site decides, whatever the Host header says
+  const fetchSite = site => new NextRequest(`${base}/api/remote/pair/redeem`, {
+    method: 'POST', body: new URLSearchParams({ code }),
+    headers: { 'content-type': 'application/x-www-form-urlencoded', 'sec-fetch-site': site, 'x-real-ip': '203.0.113.8' },
+  })
+  assert.equal((await redeemRoute.POST(fetchSite('cross-site'))).status, 403)
+  assert.equal((await redeemRoute.POST(fetchSite('same-site'))).status, 403)
+  // Our own pairing page keeps a real Origin on its form post
+  assert.equal(page.headers.get('referrer-policy'), 'same-origin')
   // Our own page can, once
   const ok = await redeemRoute.POST(form(base))
   assert.equal(ok.status, 200)
   assert.match(ok.headers.get('set-cookie') || '', /HttpOnly/i)
   assert.match(ok.headers.get('set-cookie') || '', /SameSite=strict/i)
   assert.equal((await redeemRoute.POST(form(base))).status, 410)
+})
+
+test('revoking a device ends its session on every guard, including the synchronous ones', async () => {
+  process.env.AUTH_SECRET = process.env.AUTH_SECRET || 'remote-test-secret-0123456789abcdef'
+  const auth = require('../lib/auth.ts')
+  const user = { id: 'u9', username: 'frank', role: 'admin' }
+  const { code } = await store.createPairing('frank')
+  const device = await store.redeemPairing(code, 'Pixel · Chrome')
+  const token = auth.createSessionToken(user, { deviceId: device.id })
+  assert.equal(auth.isValidAuthToken(token), true)
+  const req = { cookies: { get: () => ({ value: token }) } }
+  assert.equal(auth.isAuthorizedRequest(req), true)
+  await store.revokeDevice(device.id, 'frank', false)
+  assert.equal(auth.isValidAuthToken(token), false, 'isValidAuthToken')
+  assert.equal(auth.isAuthorizedRequest(req), false, 'isAuthorizedRequest (used by ~30 API routes)')
+  assert.equal(auth.isValidAuthToken(auth.createSessionToken(user)), true, 'laptop sessions are unaffected')
+  assert.equal(auth.isValidAuthToken(auth.createSessionToken(user, { deviceId: 'never-paired' })), false)
+})
+
+test('remote desktop: wrong passwords are limited and control starts off after a restart', async () => {
+  process.env.AUTH_SECRET = process.env.AUTH_SECRET || 'remote-test-secret-0123456789abcdef'
+  const { NextRequest } = require('next/server')
+  const auth = require('../lib/auth.ts')
+  const users = require('../lib/users.ts')
+  const route = require('../app/api/remote/desktop/route.ts')
+  const admin = (await users.getUserByUsername('gina')) || await users.createUser({ name: 'Gina', username: 'gina', password: 'gina-password-123', role: 'admin' })
+  const cookie = `${auth.AUTH_COOKIE_NAME}=${auth.createSessionToken(admin)}`
+  const post = body => route.POST(new NextRequest('http://127.0.0.1:3001/api/remote/desktop', {
+    method: 'POST', body: JSON.stringify(body), headers: { cookie, 'content-type': 'application/json', 'x-real-ip': '198.51.100.4' },
+  }))
+
+  // Left "on" in the file by an earlier run: a fresh server treats it as off
+  await store.updateRemote(s => { s.desktopEnabled = true; s.desktopEnabledAt = new Date().toISOString() })
+  const status = await (await route.GET(new NextRequest('http://127.0.0.1:3001/api/remote/desktop', { headers: { cookie } }))).json()
+  assert.equal(status.enabled, false)
+  assert.equal((await post({ input: { type: 'key', key: 'enter' } })).status, 409)
+
+  for (let i = 0; i < 5; i++) assert.equal((await post({ action: 'enable', password: 'wrong' })).status, 403)
+  assert.equal((await post({ action: 'enable', password: 'gina-password-123' })).status, 429, 'locked out even with the right password')
 })

@@ -10,6 +10,7 @@
  * carried in its session token, so revoking the device ends that session.
  */
 import { createHash, randomBytes, timingSafeEqual } from 'crypto'
+import { readFileSync, statSync } from 'fs'
 import { mkdir, readFile, rename, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -57,6 +58,26 @@ async function writeRemote(state: RemoteState): Promise<void> {
   const tmp = `${FILE()}.${randomBytes(4).toString('hex')}.tmp`
   await writeFile(tmp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 })
   await rename(tmp, FILE())
+  activeCache = null
+}
+
+// Active (paired, not revoked) device ids, for the synchronous auth checks that
+// run on every request. Re-read only when remote.json changes on disk.
+let activeCache: { mtimeMs: number; ids: Set<string> } | null = null
+
+/** True when `deviceId` is a paired device that has not been revoked. Synchronous and cached. */
+export function isDeviceActive(deviceId: string): boolean {
+  let mtimeMs = 0
+  try { mtimeMs = statSync(FILE()).mtimeMs } catch { return false } // no file: no paired devices
+  if (!activeCache || activeCache.mtimeMs !== mtimeMs) {
+    let ids = new Set<string>()
+    try {
+      const parsed = JSON.parse(readFileSync(FILE(), 'utf8')) as Partial<RemoteState>
+      ids = new Set((Array.isArray(parsed.devices) ? parsed.devices : []).filter(d => d && !d.revoked).map(d => d.id))
+    } catch { /* unreadable: treat every device session as ended */ }
+    activeCache = { mtimeMs, ids }
+  }
+  return activeCache.ids.has(deviceId)
 }
 
 export function updateRemote(fn: (state: RemoteState) => RemoteState | void): Promise<RemoteState> {
@@ -121,9 +142,7 @@ export async function revokeDevice(id: string, username: string, isOwner: boolea
 
 /** True when a token's device id is unknown or revoked (tokens without a device id are not device sessions). */
 export async function isDeviceRevoked(deviceId: string): Promise<boolean> {
-  const { devices } = await readRemote()
-  const d = devices.find(x => x.id === deviceId)
-  return !d || d.revoked === true
+  return !isDeviceActive(deviceId)
 }
 
 let lastTouch = new Map<string, number>()

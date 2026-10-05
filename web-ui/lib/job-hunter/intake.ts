@@ -11,7 +11,7 @@
  * and meta description. Only the one page the user pasted is read.
  */
 import { auditLog } from '../audit'
-import { launchProfile, resolvesPublicly, withProfile, withProfileLock } from './apply'
+import { isPrivateAddress, isSafeApplyUrl, launchProfile, resolvesPublicly, withProfile, withProfileLock } from './apply'
 import { scoreJobs } from './match'
 import { detectAts, stripHtml, type RawJob } from './sources'
 import { getProfile, saveProfile, upsertJobs, listJobs, type JobRecord } from './store'
@@ -65,17 +65,67 @@ function splitTitle(p: Posting): Posting {
   return p
 }
 
+/**
+ * GET a public page. Every hop (redirects included) must be a public http(s)
+ * URL, and the address each connection is actually made to is checked at
+ * connect time, so a redirect or a DNS answer that changes between checks
+ * (rebinding) cannot reach this machine or the LAN.
+ */
+export async function fetchPublic(rawUrl: string, maxBytes = 2_000_000, hops = 5): Promise<{ status: number; body: string }> {
+  const [{ request: httpRequest }, { request: httpsRequest }, { lookup }] = await Promise.all([import('http'), import('https'), import('dns')])
+  const guardedLookup = (host: string, options: object, cb: (err: Error | null, address?: unknown, family?: number) => void) => {
+    lookup(host, { ...options, all: true }, (err, addresses) => {
+      if (err) return cb(err)
+      const list = addresses as unknown as Array<{ address: string; family: number }>
+      if (!list.length || list.some(a => isPrivateAddress(a.address))) return cb(new Error('Refusing a private network address'))
+      cb(null, (options as { all?: boolean }).all ? list : list[0].address, list[0].family)
+    })
+  }
+  let url = rawUrl
+  for (let hop = 0; hop <= hops; hop++) {
+    if (!isSafeApplyUrl(url)) throw new Error('That is not a public job link (http/https)')
+    const target = new URL(url)
+    const res = await new Promise<{ status: number; location?: string; body: string }>((resolve, reject) => {
+      const req = (target.protocol === 'https:' ? httpsRequest : httpRequest)(target, {
+        method: 'GET', lookup: guardedLookup as never, timeout: 15_000,
+        headers: { 'User-Agent': 'Mozilla/5.0 GhostForge-JobHunter', Accept: 'text/html', 'Accept-Encoding': 'identity' },
+      }, r => {
+        const status = r.statusCode || 0
+        if (status >= 300 && status < 400 && r.headers.location) { r.resume(); return resolve({ status, location: r.headers.location, body: '' }) }
+        const chunks: Buffer[] = []
+        let size = 0
+        r.on('data', (c: Buffer) => { size += c.length; if (size <= maxBytes) chunks.push(c); else r.destroy() })
+        r.on('end', () => resolve({ status, body: Buffer.concat(chunks).toString('utf8') }))
+        r.on('close', () => resolve({ status, body: Buffer.concat(chunks).toString('utf8') }))
+        r.on('error', reject)
+      })
+      req.on('timeout', () => req.destroy(new Error('Timed out')))
+      req.on('error', reject)
+      req.end()
+    })
+    if (!res.location) return { status: res.status, body: res.body }
+    url = new URL(res.location, url).toString()
+  }
+  throw new Error('Too many redirects')
+}
+
 async function fetchHtml(url: string, username: string): Promise<string> {
   // LinkedIn answers plain HTTP clients with status 999; read it in the user's browser profile instead.
   if (detectAts(url) !== 'linkedin') {
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 GhostForge-JobHunter', Accept: 'text/html' }, redirect: 'follow', signal: AbortSignal.timeout(15_000) })
-      if (res.ok) return (await res.text()).slice(0, 2_000_000)
-    } catch { /* fall back to the browser */ }
+      const res = await fetchPublic(url)
+      if (res.status >= 200 && res.status < 300) return res.body
+    } catch (e) {
+      if (/private network/i.test(String(e))) throw new Error('That link leads to a private network address, so it was not opened')
+      /* otherwise fall back to the browser */
+    }
   }
   return withProfile(username, true, async context => {
     const page = context.pages()[0] || await context.newPage()
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    const nav = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    // Same rebinding/redirect defence as applying: check where the browser really connected.
+    const ip = (await nav?.serverAddr())?.ipAddress
+    if ((ip && isPrivateAddress(ip)) || !isSafeApplyUrl(page.url())) throw new Error('That link leads to a private network address, so it was not opened')
     await page.waitForTimeout(1500)
     return page.content()
   })
