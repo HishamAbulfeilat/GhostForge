@@ -36,12 +36,14 @@ export function shortName(name: string, max = 13) {
 
 /**
  * The adapter's desks are 4 cells (64px) apart, narrower than the scene's
- * name tags. Re-seat everyone on every other desk (128px apart), skip desks
+ * name tags. Re-seat everyone on every other desk (128px apart, none against
+ * the west wall), skip desks
  * inside the pantry, apply desks the user dragged in layout-edit mode, and
  * drop desk labels (each agent already has a name tag).
  */
 export function seatAgents(model: OfficeModel, deskSlots: Cell[], moved: Record<string, Cell>) {
-  const desks = deskSlots.filter(s => ((s.x - 4) / 4) % 2 === 0 && !inPantry(s))
+  // x = 8, 16, 24, 32: 128px apart and clear of the west wall, so bubbles are not clipped.
+  const desks = deskSlots.filter(s => s.x % 8 === 0 && !inPantry(s))
   const agents: OfficeAgent[] = []
   const layout: LayoutItem[] = []
   const seats = new Map<string, Cell>()

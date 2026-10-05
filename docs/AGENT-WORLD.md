@@ -101,6 +101,14 @@ Features (both apps):
   to a break area. `prefers-reduced-motion` turns walking and animations off.
 - **Raw JSON** in the session drawer: the detail response as returned.
 
+Agent Town's renderer (`@pixi/react` 7, as upstream AI Town ships it) needs
+React 18, but the App Router always runs Next's bundled React 19. So the scene
+renders in `pages/agent-world/town-frame` (Pages Router, which uses the
+installed React 18), framed same-origin by the Agent World page. Characters
+arrive by `postMessage` and selections go back the same way; both sides check
+the origin and source window. That one route allows `X-Frame-Options:
+SAMEORIGIN`; every other page stays `DENY`.
+
 `GET /api/agents/cli-sessions?format=connector` returns the snapshot in the
 connector format below, trimmed to stay under the 65,536-byte connector limit
 (the external app serves the same at `http://127.0.0.1:3461/api/connector`, so

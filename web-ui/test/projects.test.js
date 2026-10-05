@@ -293,7 +293,7 @@ test('/projects is admin-only in the navbar and the command palette', () => {
 
 test('the Open link actually opens the project: the files page reads ?path=', () => {
   const files = fs.readFileSync(path.resolve(__dirname, '../app/files/page.tsx'), 'utf8')
-  assert.match(files, /useSearchParams\(\)\.get\('path'\)/, 'files page must read ?path=')
+  assert.match(files, /useSearchParams\(\)\??\.get\('path'\)/, 'files page must read ?path=')
   // The mount effect has to use it too, or the link silently opens ~/GhostForge.
   assert.match(files, /loadDir\(initialPath \|\| '~\/GhostForge'\)/)
   assert.doesNotMatch(files, /useEffect\(\(\) => \{ loadDir\('~\/GhostForge'\) \}, \[loadDir\]\)/)

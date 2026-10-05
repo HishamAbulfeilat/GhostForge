@@ -443,6 +443,17 @@ export async function buildSnapshot({ maxSessions = Number(env.MAX_SESSIONS || 3
     .sort((a, b) => b.base.lastMs - a.base.lastMs)
     .slice(0, maxSessions * 2)
 
+  // One Claude session id can have transcripts in two project folders (resumed
+  // from another folder). The newest keeps the id; older copies get "<id>:2",
+  // "<id>:3"… so rows, details and chat stay distinct. sessionId is the real id.
+  const seenIds = new Map()
+  for (const { base } of shaped) {
+    const n = (seenIds.get(base.id) ?? 0) + 1
+    seenIds.set(base.id, n)
+    base.sessionId = base.id
+    if (n > 1) base.id = `${base.id}:${n}`
+  }
+
   const details = new Map()
   const sessions = shaped.map(({ base, detail }) => {
     const status = statusOf(base.lastMs, now, base.working)
