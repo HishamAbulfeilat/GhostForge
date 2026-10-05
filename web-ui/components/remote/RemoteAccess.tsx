@@ -14,9 +14,11 @@ type Device = { id: string; username: string; name: string; pairedAt: string; la
 
 async function call<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, { cache: 'no-store', ...init, headers: { 'content-type': 'application/json', ...(init?.headers || {}) } })
-  const body = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error((body as { error?: string }).error || `Request failed (${r.status})`)
-  return body as T
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({})) as { error?: string }
+    throw new Error(err.error || `Request failed (${r.status})`)
+  }
+  return await r.json() as T
 }
 
 const card = 'rounded-2xl border border-gf-line bg-gf-surface p-4 sm:p-5'
