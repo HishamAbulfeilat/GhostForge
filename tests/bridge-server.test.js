@@ -18,7 +18,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('child_process');
-const { createServer } = require('net');
+const { createServer, connect } = require('net');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -96,6 +96,7 @@ async function startBridge() {
   return {
     post,
     get: url => fetchJson(url),
+    port,
     exited: () => exited,
     stderr: () => stderr.join(''),
     async stop() {
@@ -104,6 +105,95 @@ async function startBridge() {
       try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
     },
   };
+}
+
+/**
+ * T-232: drive one request over a raw socket instead of fetch, so the test can
+ * see the *connection's* fate and not only the status line.
+ *
+ * fetch/undici hides the distinction this regression lives in. `req.destroy()`
+ * with a body still in flight makes the kernel answer RST; the bytes the server
+ * already wrote may still be sitting in the socket buffer, so the client can
+ * read a valid "413 Payload Too Large" off a socket that was already torn down —
+ * and the request then fails on the *next* use, or as ECONNRESET. Asserting on
+ * `res.status` alone therefore passes on a server that is destroying the
+ * connection, which is exactly the bug.
+ *
+ * The body is also trickled rather than sent in one burst, so the server is
+ * still receiving when it crosses the cap. `reset` records that the socket was
+ * torn down (ECONNRESET / EPIPE / close-with-error) whether or not a status
+ * line was read.
+ */
+function rawOverCapRequest(port, { bodyBytes, auth = true, chunk = 16384, gapMs = 1, settleMs = 1200, hardMs = 20000 } = {}) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let statusLine = null;
+    let reset = false;
+    let sent = 0;
+    let hardTimer = null;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (hardTimer) clearTimeout(hardTimer);
+      try { socket.destroy(); } catch { /* best effort */ }
+      resolve({ statusLine, reset, bytesWritten: sent });
+    };
+
+    const socket = connect(port, '127.0.0.1', () => {
+      socket.write(
+        'POST /execute HTTP/1.1\r\n' +
+          'Host: 127.0.0.1\r\n' +
+          (auth ? `Authorization: Bearer ${TOKEN}\r\n` : '') +
+          'Content-Type: application/json\r\n' +
+          `Content-Length: ${bodyBytes}\r\n\r\n`
+      );
+
+      socket.on('data', chunk => {
+        if (statusLine) return;
+        const head = chunk.toString('utf8', 0, chunk.indexOf('\r\n') === -1 ? undefined : chunk.indexOf('\r\n'));
+        if (head) statusLine = head;
+      });
+      socket.on('error', err => {
+        if (err.code === 'ECONNRESET' || err.code === 'EPIPE') reset = true;
+        finish();
+      });
+      socket.on('close', hadError => {
+        if (hadError) reset = true;
+        finish();
+      });
+      hardTimer = setTimeout(finish, hardMs);
+
+      // Cross the cap without ever finishing the body, so the server is
+      // guaranteed to be mid-read when it decides what to do.
+      //
+      // With gapMs 0 the loop must use setImmediate rather than setTimeout:
+      // timers are clamped to the OS tick (~15.6ms on Windows), so a 64 MiB
+      // body in 64 KiB chunks would take ~16s instead of milliseconds and get
+      // cut off by hardMs — which reads as "the drain is bounded" whether or
+      // not it is. Measure the server, not our own timer resolution.
+      const block = 'x'.repeat(Math.min(chunk, bodyBytes));
+      const pump = () => {
+        if (settled) return;
+        if (sent < bodyBytes) {
+          const size = Math.min(block.length, bodyBytes - sent);
+          const writable = socket.write(block);
+          sent += size;
+          if (writable) {
+            if (gapMs) setTimeout(pump, gapMs);
+            else setImmediate(pump);
+          } else socket.once('drain', pump);
+          return;
+        }
+        // Body fully sent: give the response time to arrive and the socket to
+        // be torn down, then judge the outcome.
+        setTimeout(finish, settleMs);
+      };
+      if (gapMs) setTimeout(pump, 5);
+      else setImmediate(pump);
+    });
+    socket.on('error', () => { /* captured in the handler above */ });
+  });
 }
 
 /** Bodies that parse as valid JSON but are not the object the handlers read. */
@@ -269,4 +359,183 @@ test('a multi-byte body under the cap is still parsed, not rejected', async t =>
     'Invalid prompt',
     'expected the handler\'s prompt-length branch, not a JSON decode failure'
   );
+});
+
+/**
+ * T-232: the MAX_DRAIN_BYTES change that landed in T-230 (5d32cd6) had no test
+ * of its own. readJsonBody used to `req.destroy()` the moment the byte cap was
+ * crossed; it now keeps reading and discarding past the cap so the 413 can
+ * flush, bounded at MAX_DRAIN_BYTES so a peer that never stops sending cannot
+ * hold the process reading forever.
+ *
+ * The existing 413 test only reads the status line, and a socket that was
+ * destroyed with the body still in flight can still deliver that status line
+ * out of its receive buffer — so it passes on a server that destroys the
+ * connection. The tests below watch the connection's own fate instead.
+ */
+const MAX_DRAIN_BYTES = MAX_BODY_BYTES * 2;
+
+/**
+ * Two requests down one socket: an over-cap body, then a small valid one.
+ *
+ * This is the deterministic form of the same regression. Whether the client
+ * sees ECONNRESET instead of the 413 is a race (~2.5% per request here, which
+ * is why a loop of five attempts misses it more often than it hits it), but the
+ * consequence is not: a socket that was destroyed cannot carry a second
+ * request, and one that was drained can. Asserting on reusability turns a
+ * 12%-power flake into a pass/fail that does not depend on timing.
+ */
+function reuseConnectionAfter413(port, { bodyBytes }) {
+  return new Promise(resolve => {
+    let done = false;
+    let phase = 1;
+    let firstStatus = null;
+    let secondStatus = null;
+    let writeError = null;
+    let buffered = '';
+    let sent = 0;
+    let hardTimer = null;
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (hardTimer) clearTimeout(hardTimer);
+      try { socket.destroy(); } catch { /* best effort */ }
+      resolve({ firstStatus, secondStatus, writeError });
+    };
+
+    const socket = connect(port, '127.0.0.1', () => {
+      socket.write(
+        'POST /execute HTTP/1.1\r\n' +
+          'Host: 127.0.0.1\r\n' +
+          `Authorization: Bearer ${TOKEN}\r\n` +
+          'Content-Type: application/json\r\n' +
+          `Content-Length: ${bodyBytes}\r\n\r\n`
+      );
+      const pump = () => {
+        if (done || sent >= bodyBytes) return;
+        const writable = socket.write('x'.repeat(32768));
+        sent += 32768;
+        if (writable) setTimeout(pump, 0);
+        else socket.once('drain', pump);
+      };
+      pump();
+    });
+
+    socket.on('data', chunk => {
+      buffered += chunk.toString('utf8');
+      if (phase === 1 && /HTTP\/1\.1 413/.test(buffered)) {
+        firstStatus = '413';
+        phase = 2;
+        // The first body is done being written; give the drain a moment, then
+        // ask for /health on the very same socket.
+        setTimeout(() => {
+          try {
+            socket.write('GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: keep-alive\r\n\r\n');
+          } catch {
+            writeError = 'write-after-413 threw';
+            finish();
+          }
+        }, 250);
+      } else if (phase === 2 && /HTTP\/1\.1 200 OK/.test(buffered)) {
+        secondStatus = '200';
+        finish();
+      }
+    });
+    socket.on('error', () => finish());
+    socket.on('close', () => finish());
+    hardTimer = setTimeout(finish, 4000);
+  });
+}
+
+test('the connection survives a refused body and stays reusable', async t => {
+  const bridge = await startBridge();
+  t.after(() => bridge.stop());
+
+  // The point of draining instead of destroying: the caller gets its 413 and
+  // the connection is left intact. Over the cap, under the drain cap, so the
+  // bounded drain finishes rather than being cut short.
+  const { firstStatus, secondStatus } = await reuseConnectionAfter413(bridge.port, {
+    bodyBytes: Math.floor(MAX_BODY_BYTES * 1.5),
+  });
+
+  assert.equal(firstStatus, '413', 'the over-cap body should be refused with 413');
+  assert.equal(
+    secondStatus,
+    '200',
+    'the connection was destroyed by the refusal — the whole point of the drain is ' +
+      'that the socket survives and can carry another request'
+  );
+
+  assert.equal(bridge.exited(), null, 'bridge exited after a refused body');
+  const health = await bridge.get('/health');
+  assert.equal(health?.status, 200, 'bridge stopped serving after a refused body');
+});
+
+test('the drain is bounded: an endless body is cut off, and the bridge survives', async t => {
+  const bridge = await startBridge();
+  t.after(() => bridge.stop());
+
+  // The other half of the guarantee. An unbounded drain would only trade the
+  // unbounded buffer for an unbounded read, so a peer that never stops sending
+  // has to be cut off — and cutting it off must not take the process with it.
+  //
+  // The body is far larger than the drain limit on purpose. A body only just
+  // past the limit cannot tell a bounded drain from an unbounded one, because
+  // both finish reading it; the cut-off only shows up as a torn-down socket
+  // once the peer is still streaming well past the point the server gives up.
+  const { statusLine, bytesWritten } = await rawOverCapRequest(bridge.port, {
+    bodyBytes: 64 * 1024 * 1024,
+    chunk: 65536,
+    gapMs: 0,
+    settleMs: 400,
+    hardMs: 25000,
+  });
+
+  // The 413 is written the moment the body cap is crossed — far earlier than the
+  // drain limit — so it must reach the client even though the socket is then
+  // torn down underneath it.
+  assert.ok(
+    statusLine && /413/.test(statusLine),
+    `expected 413 before the drain limit, got ${statusLine ?? 'no response'}`
+  );
+
+  // The evidence that the drain is bounded is how much the server was willing to
+  // read, not how the socket reported its own death: whether a torn-down socket
+  // surfaces as ECONNRESET or as a clean close depends on write timing, so
+  // asserting on that flag is timing-dependent. How far the client got is not.
+  // A bounded drain gives up after ~1 MiB of discarded body; an unbounded one
+  // reads all 64 MiB, so the two are an order of magnitude apart.
+  assert.ok(
+    bytesWritten < 16 * 1024 * 1024,
+    `the server read ${Math.round(bytesWritten / 1048576)} MiB of a 64 MiB body — ` +
+      'the drain is not bounded, so a peer that never stops sending keeps this process reading'
+  );
+
+  assert.equal(bridge.exited(), null, 'bridge exited while cutting off an endless body');
+  const health = await bridge.get('/health');
+  assert.equal(health?.status, 200, 'bridge stopped serving after cutting off an endless body');
+  const res = await bridge.post('/execute', JSON.stringify({ command: 'rm -rf /' }));
+  assert.equal(res.status, 403, 'bridge stopped handling normal requests after a cut-off body');
+});
+
+test('an unauthorized oversized body is refused before it is ever buffered', async t => {
+  const bridge = await startBridge();
+  t.after(() => bridge.stop());
+
+  // The drain is reachable only from an authenticated request: /execute checks
+  // the token before calling readJsonBody, so a peer without it cannot make the
+  // bridge read a byte of its body. This is what keeps the drain from being a
+  // pre-auth read-and-discard amplifier.
+  const { statusLine, reset } = await rawOverCapRequest(bridge.port, {
+    bodyBytes: Math.floor(MAX_BODY_BYTES * 1.5),
+    auth: false,
+  });
+
+  assert.ok(
+    statusLine && /401/.test(statusLine),
+    `expected 401 for an unauthenticated request, got ${statusLine ?? 'no response'}`
+  );
+  assert.equal(reset, false, 'the bridge destroyed an unauthenticated connection instead of 401-ing it');
+  assert.equal(bridge.exited(), null);
 });

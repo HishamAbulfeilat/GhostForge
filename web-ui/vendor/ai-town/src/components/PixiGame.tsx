@@ -1,5 +1,5 @@
 import { useApp } from '@pixi/react'
-import { useRef } from 'react'
+import { useRef, type MutableRefObject } from 'react'
 import { Viewport } from 'pixi-viewport'
 import { Player } from './Player'
 import { PixiStaticMap } from './PixiStaticMap'
@@ -13,15 +13,18 @@ export const PixiGame = ({
   height,
   selectedId,
   onSelect,
+  viewportRef: hostViewportRef,
 }: {
   players: AgentTownCharacter[]
   width: number
   height: number
   selectedId?: string
   onSelect: SelectElement
+  viewportRef?: MutableRefObject<Viewport | undefined>
 }) => {
   const pixiApp = useApp()
-  const viewportRef = useRef<Viewport | undefined>()
+  const ownViewportRef = useRef<Viewport | undefined>()
+  const viewportRef = hostViewportRef ?? ownViewportRef
   const { tileDim } = worldMap
 
   return (

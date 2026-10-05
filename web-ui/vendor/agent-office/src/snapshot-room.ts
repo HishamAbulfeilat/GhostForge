@@ -128,6 +128,15 @@ export class SnapshotOffice {
         leave: () => {},
     };
 
+    /**
+     * Sends a room message to the scene, as the Colyseus server would:
+     * 'chat', 'highlight-event' (cinematic camera follow), 'scenario-event',
+     * 'relationship-update'. The host decides when; nothing is sent on its own.
+     */
+    send(type: 'chat' | 'highlight-event' | 'scenario-event' | 'relationship-update', message: unknown) {
+        if (!this.disposed) this.emit(type, message);
+    }
+
     private emit(type: string, message: unknown) {
         this.lastMessages.set(type, message);
         for (const handler of [...(this.handlers.get(type) ?? [])]) handler(message);
@@ -144,11 +153,8 @@ export class SnapshotOffice {
             if (!existing) {
                 this.state.agents.add(new SnapshotAgent(fields));
             } else if (!sameFields(existing, fields)) {
-                const taskChanged = existing.currentTask !== fields.currentTask;
                 Object.assign(existing, fields);
                 existing.notify();
-                // Camera follow ("cinematic mode") reacts to highlight events.
-                if (taskChanged && fields.currentTask) this.emit('highlight-event', { agentId: fields.id, type: 'task' });
             }
         }
         const nextLayoutKey = JSON.stringify(layout);

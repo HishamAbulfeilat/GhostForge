@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import * as Colyseus from '../snapshot-room'; // GhostForge: snapshot adapter replaces colyseus.js
 import { OfficeState, AgentState } from './schema';
 import { eventBus } from '../events';

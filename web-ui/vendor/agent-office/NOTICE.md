@@ -22,6 +22,7 @@ adapter that maps agents/tasks/boss to office state lives in
 
 Local deviations from upstream `Game.ts` (everything else is verbatim):
 - `import * as Colyseus from 'colyseus.js'` -> `'../snapshot-room'`.
+- `import Phaser from 'phaser'` -> `import * as Phaser from 'phaser'` (phaser has no default export; the default import broke the GhostForge build).
 - Sprite paths `/assets/characters/char_N.png` -> `/vendor/agent-office/characters/char_N.png`.
 - Status text no longer mentions Colyseus or a WebSocket endpoint.
 - The three hard-coded desk labels ("Alice's Desk", "Bob's Desk", "Vacant") read "Desk".
@@ -32,3 +33,10 @@ Local deviations from upstream `Game.ts` (everything else is verbatim):
   current task every 5s (`THOUGHT_REFRESH_MS`), so it now stays visible.
 
 See `/THIRD_PARTY_NOTICES.md` for the character sprite credits.
+
+Agent World additions to the GhostForge-owned `src/snapshot-room.ts` (no upstream
+file changed): `SnapshotOffice.send(type, message)` delivers the room messages the
+scene already handles (`chat`, `highlight-event`, `scenario-event`,
+`relationship-update`), as the Colyseus server would. The snapshot no longer
+emits `highlight-event` on every task change; the host sends it when a session
+newly needs the user, so cinematic camera follow is meaningful.
