@@ -4,6 +4,7 @@ import { generateText, type ModelMessage, type LanguageModel } from 'ai'
 import { totalmem } from 'os'
 import { buildLocalRuntimeOrder } from './local-runtime'
 import { isHostedMode } from './hosted'
+import { publicRequest } from './net-guard'
 import {
   FREE_CATALOG, PROVIDERS, currentAIUser, getCustomModel, getOmniRouteKey, getProviderKey, getSavedSelection, isProviderId, omniRouteBaseURL,
   runWithAIUser, type ProviderId,
@@ -177,6 +178,11 @@ export async function generateOpenAICompatible(
   const messages = toChatMessages(opts)
   if (messages.length === 0) messages.push({ role: 'user', content: 'Hello' })
 
+  // Hosted mode: user-typed endpoints may point anywhere. Public addresses
+  // only (checked at connect time, so DNS rebinding fails too), no redirects,
+  // and the upstream body is never echoed back to the caller.
+  if (isHostedMode()) return generateOpenAICompatibleHosted(label, baseURL, apiKey, modelId, messages, opts)
+
   let res: Response
   try {
     res = await fetch(`${baseURL.replace(/\/+$/, '')}/chat/completions`, {
@@ -200,6 +206,38 @@ export async function generateOpenAICompatible(
     error?: { message?: string }
   }
   if (data.error?.message) throw new Error(`${label} ${modelId}: ${data.error.message.slice(0, 160)}`)
+  const content = data.choices?.[0]?.message?.content
+  const text = (typeof content === 'string' ? content : content ? JSON.stringify(content) : '').trim()
+  if (!text) throw new Error(`${label} ${modelId} returned an empty response`)
+  return text
+}
+
+async function generateOpenAICompatibleHosted(
+  label: string,
+  baseURL: string,
+  apiKey: string | undefined,
+  modelId: string,
+  messages: Array<{ role: string; content: string }>,
+  opts: GenerateOpts,
+): Promise<string> {
+  let res: Awaited<ReturnType<typeof publicRequest>>
+  try {
+    res = await publicRequest(`${baseURL.replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+      body: JSON.stringify({ model: modelId, messages, stream: false, max_tokens: opts.maxTokens || 800 }),
+      timeoutMs: 120_000,
+    })
+  } catch (e) {
+    const status = (e as { status?: number }).status
+    const why = /private network|non-public/i.test(String(e)) ? 'refused: not a public address'
+      : status ? `refused a redirect (HTTP ${status})` : 'connection failed'
+    throw Object.assign(new Error(`${label} ${why}`), status ? { status: 502 } : {})
+  }
+  if (!res.ok) throw Object.assign(new Error(`${label} returned ${res.status}`), { status: res.status })
+  let data: { choices?: Array<{ message?: { content?: string | Array<unknown> } }>; error?: unknown }
+  try { data = JSON.parse(res.body) } catch { throw new Error(`${label} ${modelId} returned an invalid response`) }
+  if (data.error) throw new Error(`${label} ${modelId} returned an error`)
   const content = data.choices?.[0]?.message?.content
   const text = (typeof content === 'string' ? content : content ? JSON.stringify(content) : '').trim()
   if (!text) throw new Error(`${label} ${modelId} returned an empty response`)

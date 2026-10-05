@@ -18,7 +18,8 @@ import { AsyncLocalStorage } from 'async_hooks'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { isHostedMode, isPublicHttpsUrl } from './hosted'
+import { isHostedMode } from './hosted'
+import { isSafePublicUrl } from './net-guard'
 
 export type ProviderId =
   | 'pollinations' | 'omniroute' | 'openai' | 'anthropic' | 'google'
@@ -303,8 +304,9 @@ export function saveCustomModel(input: Omit<CustomModel, 'id'> & { id?: string }
     apiKey: input.apiKey || existing?.apiKey || undefined,
     free: input.free,
   }
-  // Hosted: no plain http, no loopback / private hosts (Ollama, the bridge, cloud metadata)
-  if (isHostedMode() && !isPublicHttpsUrl(entry.baseURL)) {
+  // Hosted: no plain http, no loopback / private hosts (Ollama, the bridge, cloud metadata).
+  // Literal check here; the route also checks DNS, and every request re-checks at connect time.
+  if (isHostedMode() && !isSafePublicUrl(entry.baseURL)) {
     throw new Error('On the hosted version a custom model needs a public https:// URL')
   }
   writeCustomModels([...list.filter(m => m.id !== id), entry])

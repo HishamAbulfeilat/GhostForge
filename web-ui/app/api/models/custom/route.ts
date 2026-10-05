@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser, isAdmin, isAuthorizedRequest } from '@/lib/auth'
 import { generateOpenAICompatible } from '@/lib/ai'
 import { deleteCustomModel, getCustomModel, listCustomModels, runWithAIUser, saveCustomModel } from '@/lib/providers'
-import { isHostedMode, isPublicHttpsUrl } from '@/lib/hosted'
+import { isHostedMode } from '@/lib/hosted'
+import { isPublicHttpsUrl } from '@/lib/net-guard'
 
 /** Hosted mode: any signed-in user manages their own custom models; otherwise admins only */
 async function customModelUser(req: NextRequest) {
@@ -74,7 +75,7 @@ async function saveOrTest(req: NextRequest) {
     return NextResponse.json({ error: 'Base URL must be an http(s) URL, e.g. http://localhost:1234/v1' }, { status: 400 })
   }
   if (/\s/.test(apiKey)) return NextResponse.json({ error: 'That does not look like an API key' }, { status: 400 })
-  if (isHostedMode() && !isPublicHttpsUrl(baseURL)) {
+  if (isHostedMode() && !(await isPublicHttpsUrl(baseURL))) {
     return NextResponse.json({ error: 'On the hosted version a custom model needs a public https:// URL' }, { status: 400 })
   }
 
