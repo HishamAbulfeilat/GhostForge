@@ -55,3 +55,17 @@ export function routeModel(provider, task = {}, overrides = {}) {
   const table = { ...(DEFAULT_TIER_MODELS[provider] ?? {}), ...(overrides[provider] ?? {}) }
   return { model: table[tier] ?? 'auto', tier, kind }
 }
+
+/**
+ * Keep Claude Pro for the boss: Claude workers ask the claude-switch proxy for
+ * free models by tier (deep/balanced/fast), sent as a request header.
+ * Deep-tier work (plan, review, security, merge, architecture) stays on Pro and
+ * is flagged so the boss can tell the user. team.json `workersOnFree: false`
+ * turns this off.
+ * @returns {{ env: Record<string,string>, needsPro: boolean }}
+ */
+export function workerRoute(provider, route, cfg = {}) {
+  if (provider !== 'claude' || cfg.workersOnFree === false) return { env: {}, needsPro: false }
+  if (route.tier === 'deep') return { env: {}, needsPro: true }
+  return { env: { ANTHROPIC_CUSTOM_HEADERS: `x-claude-switch-route: free:${route.tier}` }, needsPro: false }
+}
