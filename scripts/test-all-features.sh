@@ -5,7 +5,7 @@ ROOT="$HOME/GhostForge"
 WEB_UI="$ROOT/web-ui"
 TEST_DIR="${GF_TEST_DIR:-$ROOT/.gfai-test}"
 BASE_URL="http://localhost:3001"
-COOKIE="gf_token=2001"
+COOKIE="gf_token=${GHOSTFORGE_TOKEN:-}"  # a signed-in session token from the web UI
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -64,7 +64,7 @@ const request = http.request({
   path: route,
   method,
   headers: {
-    'Cookie': 'gf_token=2001',
+    'Cookie': `gf_token=${process.env.GHOSTFORGE_TOKEN || ''}`,
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(payload),
   },
@@ -109,7 +109,7 @@ const request = http.request({
   path: route,
   method: 'GET',
   headers: {
-    'Cookie': 'gf_token=2001',
+    'Cookie': `gf_token=${process.env.GHOSTFORGE_TOKEN || ''}`,
   },
 }, response => {
   let settled = false

@@ -2978,7 +2978,7 @@ async function screenMacCleanup() {
       const body = JSON.stringify({ message: 'clean up my mac, remove temp files, clear cache, free memory', platform: 'mac' });
       const req = http.request({
         hostname: 'localhost', port: 3001, path: '/api/jarvis',
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Cookie: 'gf_token=2001' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Cookie: `gf_token=${process.env.GHOSTFORGE_TOKEN || ''}` },
       }, (res) => {
         let d = '';
         res.on('data', c => d += c);
@@ -3019,7 +3019,7 @@ async function screenModelSelect() {
     const { default: http } = await import('http');
     availableModels = await new Promise((resolve) => {
       const req = http.get('http://localhost:3001/api/jarvis/models', {
-        headers: { Cookie: 'gf_token=2001' },
+        headers: { Cookie: `gf_token=${process.env.GHOSTFORGE_TOKEN || ''}` },
       }, (res) => {
         let data = '';
         res.on('data', c => data += c);

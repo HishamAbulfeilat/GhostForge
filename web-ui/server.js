@@ -339,7 +339,7 @@ app.prepare().then(() => {
       console.log(`  ➜ Local:    https://localhost:${PORT}`)
       console.log(`  ➜ Network:  https://${ip || '0.0.0.0'}:${PORT}`)
       console.log(`  ➜ Terminal: wss://${ip || '0.0.0.0'}:${PORT}/ws  (proxied → bridge:${PTY_PORT})`)
-      console.log(`  ➜ PIN:      2001\n`)
+      console.log(`  ➜ Sign in with your GhostForge account (ADMIN_PASSWORD / ACCESS_PIN)\n`)
     })
 
     // Redirect HTTP → HTTPS (default: port 3000 → 3001).
