@@ -6,7 +6,7 @@
  * verified in lib/auth.ts.
  */
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'crypto'
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
 import { isHostedMode } from './hosted'
@@ -87,6 +87,15 @@ export function ownerUsername(): string {
 
 export function isOwner(user?: Pick<GhostUser, 'username' | 'role'> | null): boolean {
   return Boolean(user && user.role === 'admin' && user.username.toLowerCase() === ownerUsername())
+}
+
+/**
+ * Id for a new account. Hosted mode uses a random id, so per-user data keyed
+ * by id (AI keys in hosted-ai/<id>.json) can never be inherited by a later
+ * account that reuses a deleted username.
+ */
+export function newUserId(username: string): string {
+  return isHostedMode() ? 'u_' + randomBytes(10).toString('hex') : userIdFor(username)
 }
 
 export function userIdFor(username: string): string {
@@ -187,6 +196,18 @@ export async function ensureUserStore(): Promise<GhostUser[]> {
  * added once per value of the variable; existing ones (and their changes) are left alone.
  */
 let _friendsSeededFrom: string | undefined
+const FRIENDS_STATE_FILE = join(homedir(), '.ghostforge', 'hosted-friends.json')
+
+/** Usernames already created from GHOSTFORGE_FRIENDS (kept in the data dir) */
+async function readSeededFriends(): Promise<string[]> {
+  try {
+    const parsed = JSON.parse(await readFile(FRIENDS_STATE_FILE, 'utf8')) as { seeded?: unknown }
+    return Array.isArray(parsed.seeded) ? parsed.seeded.filter((u): u is string => typeof u === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 export function parseHostedFriends(raw: string | undefined): Array<{ username: string; passwordHash: string }> {
   return String(raw || '')
     .split(/[,\n]/)
@@ -203,11 +224,20 @@ async function seedHostedFriends(users: GhostUser[]): Promise<GhostUser[]> {
   const raw = process.env.GHOSTFORGE_FRIENDS || ''
   if (!isHostedMode() || !raw || raw === _friendsSeededFrom) return users
   _friendsSeededFrom = raw
-  const missing = parseHostedFriends(raw).filter(f => !users.some(u => u.username === f.username))
-  if (!missing.length) return users
+  // A friend seeded once and now missing was deleted by the admin: don't bring
+  // them back. (On a host that wipes its disk this record is wiped too, so
+  // there the way to revoke someone is to remove them from GHOSTFORGE_FRIENDS.)
+  const seeded = new Set(await readSeededFriends())
+  const missing = parseHostedFriends(raw).filter(f => !seeded.has(f.username) && !users.some(u => u.username === f.username))
+  const listed = parseHostedFriends(raw).map(f => f.username).filter(u => users.some(x => x.username === u))
+  if (!missing.length) {
+    // Remember friends that already exist too, so deleting them later sticks
+    if (listed.some(u => !seeded.has(u))) await writeSeededFriends([...seeded, ...listed])
+    return users
+  }
   const now = new Date().toISOString()
   const next = [...users, ...missing.map(f => ({
-    id: userIdFor(f.username),
+    id: newUserId(f.username),
     name: f.username,
     username: f.username,
     role: 'user' as const,
@@ -217,7 +247,13 @@ async function seedHostedFriends(users: GhostUser[]): Promise<GhostUser[]> {
     createdAt: now,
   }))]
   await writeUsers(next)
+  await writeSeededFriends([...seeded, ...listed, ...missing.map(f => f.username)])
   return next
+}
+
+async function writeSeededFriends(usernames: string[]): Promise<void> {
+  await mkdir(join(homedir(), '.ghostforge'), { recursive: true })
+  await writeFile(FRIENDS_STATE_FILE, JSON.stringify({ seeded: [...new Set(usernames)].sort() }, null, 2), { mode: 0o600 })
 }
 
 // ── queries ────────────────────────────────────────────────────────────────
@@ -262,7 +298,7 @@ export async function createUser(input: {
     if (!username || !input.password) throw new Error('Username and password are required')
     if (users.some(u => u.username === username)) throw new Error('Username already exists')
     const user: GhostUser = {
-      id: userIdFor(username),
+      id: newUserId(username),
       name: input.name.trim() || username,
       username,
       role: input.role === 'admin' ? 'admin' : 'user',
@@ -318,6 +354,11 @@ export async function deleteUser(id: string): Promise<boolean> {
     const target = users.find(u => u.id === id)
     if (!target || isOwner(target)) return false
     await writeUsers(users.filter(u => u.id !== id))
+    // Per-user hosted AI settings (keys, model choice) go with the account.
+    // Path mirrors HOSTED_AI_DIR in lib/providers.ts.
+    if (/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
+      await rm(join(homedir(), '.ghostforge', 'hosted-ai', `${id}.json`), { force: true }).catch(() => {})
+    }
     return true
   })
 }
