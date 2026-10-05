@@ -63,7 +63,9 @@ interface Field {
 
 const CAPTCHA = 'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], iframe[title*="captcha" i], .g-recaptcha, .h-captcha, #captcha, [data-sitekey]'
 const CONFIRMED = /thank(s| you) for (applying|your application|your interest)|application (has been |was )?(received|submitted|sent|complete)|we('| ha)ve received your application|your application (was|has been) (sent|submitted)|successfully (applied|submitted)/i
-const SUBMIT = /^(submit( (my |your )?application)?|send( (my )?application)?|apply( now)?|finish( application)?|complete( application)?)$/i
+const SUBMIT = /^(submit( (my |your )?application)?|send( (my )?application)?|finish( application)?|complete( application)?)$/i
+/** "Apply" / "Apply now" submits only when it belongs to a form; on a job page it opens the form. */
+const APPLY = /^apply( now)?$/i
 const NEXT = /^(next|continue|review( (my |your )?application)?|proceed|save (and|&) continue|next step|continue to (next|application))\b/i
 const START = /^(easy apply|apply( (now|for this (job|position|role)|on company (site|website)))?|i'?m interested|start (my )?application)$/i
 const DECLINE = /decline|prefer not|don'?t wish|do not wish|choose not|not to (say|disclose|answer)|rather not/i
@@ -75,7 +77,16 @@ async function scan(page: Page): Promise<Field[]> {
     const visible = (el: Element) => {
       const r = (el as HTMLElement).getBoundingClientRect()
       const st = getComputedStyle(el as HTMLElement)
-      return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'
+      // Off-screen (left: -9999px) honeypots are not visible either
+      return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none' && r.right + scrollX > 0 && r.bottom + scrollY > 0
+    }
+    // Styled radios/checkboxes hide the input itself; they are shown when their label or group is.
+    // Inputs in a hidden step or section have no visible label or group either, so they are skipped.
+    const shown = (el: Element) => {
+      if (visible(el)) return true
+      const id = el.getAttribute('id')
+      const label = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`) : null
+      return [label, el.closest('label'), el.closest('fieldset, [role="radiogroup"], [role="group"]')].some(x => x && visible(x))
     }
     const dialogs = Array.from(document.querySelectorAll('[role="dialog"], dialog[open], [aria-modal="true"]')).filter(d => visible(d) && d.querySelector('input,select,textarea,button'))
     const root: ParentNode = dialogs[dialogs.length - 1] || document
@@ -101,7 +112,7 @@ async function scan(page: Page): Promise<Field[]> {
       const input = el as HTMLInputElement
       const type = (el.getAttribute('type') || el.tagName).toLowerCase()
       if (['hidden', 'submit', 'button', 'image', 'reset', 'search'].includes(type)) continue
-      if (type !== 'file' && !visible(el) && type !== 'radio' && type !== 'checkbox') continue
+      if (type !== 'file' && !(type === 'radio' || type === 'checkbox' ? shown(el) : visible(el))) continue
       if (input.disabled || input.readOnly) continue
       const i = idx++
       el.setAttribute('data-gf-idx', String(i))
@@ -140,7 +151,7 @@ async function scan(page: Page): Promise<Field[]> {
 }
 
 /** Visible buttons in the active dialog/page, with their text. */
-async function buttons(page: Page): Promise<Array<{ idx: number; text: string }>> {
+async function buttons(page: Page): Promise<Array<{ idx: number; text: string; inForm: boolean }>> {
   return page.evaluate(() => {
     const visible = (el: Element) => { const r = (el as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0 }
     const dialogs = Array.from(document.querySelectorAll('[role="dialog"], dialog[open], [aria-modal="true"]')).filter(d => visible(d) && d.querySelector('button'))
@@ -153,7 +164,9 @@ async function buttons(page: Page): Promise<Array<{ idx: number; text: string }>
       .map((el, i) => {
         el.setAttribute('data-gf-btn', String(i))
         const t = (el.getAttribute('aria-label') || (el as HTMLInputElement).value || el.textContent || '').replace(/\s+/g, ' ').trim()
-        return { idx: i, text: t.slice(0, 80) }
+        const form = el.closest('form, [role="dialog"], dialog')
+        const inForm = Boolean(form && form.querySelectorAll('input:not([type="hidden"]):not([type="search"]):not([type="submit"]):not([type="button"]), textarea, select').length >= 2)
+        return { idx: i, text: t.slice(0, 80), inForm }
       })
   })
 }
@@ -284,7 +297,19 @@ async function blocked(page: Page): Promise<string | null> {
   return null
 }
 
-const confirmed = async (page: Page) => CONFIRMED.test(await page.evaluate(() => document.body?.innerText || '').catch(() => ''))
+const bodyText = (page: Page) => page.evaluate(() => document.body?.innerText || '').catch(() => '')
+
+/**
+ * A confirmation that was not on the page before we pressed Submit. Job
+ * descriptions often say "Thank you for your interest in …", which must not
+ * count as a submitted application.
+ */
+export function isNewConfirmation(before: string, after: string): boolean {
+  const re = new RegExp(CONFIRMED.source, 'gi')
+  const was: string[] = before.match(re) || []
+  const now = after.match(re) || []
+  return now.length > was.length || now.some(m => !was.includes(m))
+}
 
 /**
  * Run the agent on an open page (already navigated to the job or its form).
@@ -298,6 +323,9 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
   let stuckCount = 0
   let resumeUploaded = false
   let visionTries = 0
+  // Page text just before we pressed Submit (or let computer use act); null until then
+  let beforeSubmit: string | null = null
+  const opened = new Set<string>()
   const outcome = (status: AgentOutcome['status'], message: string, missing: string[] = [], questions: PendingQuestion[] = []): AgentOutcome =>
     ({ status, message, filled, missing, questions, aiAnswers: aiUsed })
 
@@ -309,7 +337,7 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     const pg = current
     await pg.waitForLoadState('domcontentloaded').catch(() => {})
     await pg.waitForTimeout(800)
-    if (await confirmed(pg)) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
+    if (beforeSubmit !== null && isNewConfirmation(beforeSubmit, await bodyText(pg))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
     const wall = await blocked(pg)
     if (wall === 'captcha') return outcome('needs_user', 'This form has a captcha. Solve it and press Submit; everything else is filled in.')
     if (wall === 'login') return outcome('needs_user', `${new URL(pg.url()).hostname} wants you to sign in or create an account first. Sign in once in the GhostForge browser and the next attempt continues from there.`)
@@ -317,10 +345,13 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     const fields = await scan(pg)
     const btns = await buttons(pg)
 
-    // Landing page without a form: press the site's own Apply / Easy Apply button.
-    if (!fields.some(f => f.kind !== 'checkbox')) {
-      const start = btns.find(b => START.test(b.text))
-      if (start) {
+    // Job page, not the form yet (at most a search or newsletter box): press the
+    // site's own Apply / Easy Apply button, once per page.
+    if (!fields.some(f => f.kind === 'file' || (f.kind !== 'checkbox' && f.required))) {
+      const start = btns.find(b => START.test(b.text) && !b.inForm)
+      const key = start ? `${pg.url()}|${start.text}` : ''
+      if (start && !opened.has(key)) {
+        opened.add(key)
         ctx.log?.(`Opening the form (${start.text})`)
         await pg.locator(`[data-gf-btn="${start.idx}"]`).click({ timeout: 10_000 }).catch(() => {})
         await pg.waitForTimeout(2000)
@@ -374,17 +405,24 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     }
 
     // 4. Move on: Submit, or Next/Continue/Review.
-    const submit = btns.find(b => SUBMIT.test(b.text) || /submit application|send application/i.test(b.text))
+    const submit = btns.find(b => SUBMIT.test(b.text) || /submit application|send application/i.test(b.text) || (APPLY.test(b.text) && b.inForm))
     const next = btns.find(b => NEXT.test(b.text))
     if (submit) {
       if (!ctx.allowSubmit) return outcome('needs_user', 'Everything is filled in and ready. Review it and press Submit.')
       ctx.log?.(`Submitting (${submit.text})`)
+      const before = await bodyText(pg)
+      beforeSubmit = before
       await pg.locator(`[data-gf-btn="${submit.idx}"]`).click({ timeout: 10_000 })
-      const ok = await pg.waitForFunction(re => new RegExp(re, 'i').test(document.body?.innerText || ''), CONFIRMED.source, { timeout: 25_000 }).then(() => true).catch(() => false)
+      const ok = await pg.waitForFunction(([re, prev]) => {
+        const rx = new RegExp(re, 'gi')
+        const was: string[] = prev.match(rx) || []
+        const now = (document.body?.innerText || '').match(rx) || []
+        return now.length > was.length || now.some(m => !was.includes(m))
+      }, [CONFIRMED.source, before] as const, { timeout: 25_000 }).then(() => true).catch(() => false)
       if (ok) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
-      // Some sites show errors instead of confirming: loop once more to read them
+      // Some sites show errors instead of confirming (or confirm on a new page): loop once more to read them
       await pg.waitForTimeout(1000)
-      if (await confirmed(pg)) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
+      if (isNewConfirmation(before, await bodyText(current))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
       stuckCount++
       if (stuckCount > 2) return outcome('needs_user', 'Submit was pressed but no confirmation appeared. Check the application in the browser.')
       continue
@@ -402,7 +440,9 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     }
 
     // 5. Stuck: let computer use try, else hand over.
+    const beforeVision = await bodyText(pg)
     if (visionTries < 6 && await visionStep(pg, ctx, 'reach and complete the application form, then stop before any final submit you are unsure about')) {
+      beforeSubmit ??= beforeVision // computer use may have pressed Submit itself
       visionTries++
       continue
     }

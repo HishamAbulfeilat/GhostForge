@@ -171,3 +171,64 @@ test('parsePosting reads JobPosting JSON-LD, then falls back to meta tags', () =
   assert.equal(m.description, 'Analyse data')
   assert.equal(parsePosting('<html></html>', 'https://x.example/4'), null)
 })
+
+test('a job description saying "thank you for your interest" is not a submission', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const { isNewConfirmation } = require('../lib/job-hunter/agent.ts')
+  assert.equal(isNewConfirmation('Thank you for your interest in Acme.', 'Thank you for your interest in Acme. Fill in the form.'), false)
+  assert.equal(isNewConfirmation('Thank you for your interest in Acme.', 'Thank you for applying!'), true)
+  assert.equal(isNewConfirmation('', 'Your application has been submitted'), true)
+
+  const ctx = await context('agent-ty', { customAnswers: { 'How many years of experience do you have with Rust?': '4' } })
+  const page = await browser.newPage()
+  try {
+    await page.setContent(`<p>About Acme… Thank you for your interest in joining Acme!</p>${FORM}`)
+    const held = await runFormAgent(page, ctx) // not allowed to submit
+    assert.equal(held.status, 'needs_user')
+    assert.match(held.message, /ready/i)
+  } finally {
+    await page.close()
+  }
+})
+
+test('a job page\'s "Apply now" opens the form instead of being taken for Submit', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const ctx = await context('agent-landing', { customAnswers: { 'How many years of experience do you have with Rust?': '4' } })
+  const page = await browser.newPage()
+  try {
+    await page.setContent(`<header><input aria-label="Search jobs" type="text"></header>
+      <footer><form><input type="email" aria-label="Newsletter email"></form></footer>
+      <button type="button" onclick="document.getElementById('app').style.display='block';this.remove()">Apply now</button>
+      <div id="app" style="display:none">${FORM}</div>`)
+    // Not allowed to submit: it must still open and fill the form, not stop at "Apply now" claiming all is filled
+    const out = await runFormAgent(page, ctx)
+    assert.equal(out.status, 'needs_user')
+    assert.ok(out.filled.some(l => /First name/.test(l)), JSON.stringify(out))
+    assert.equal(await page.isVisible('#app'), true)
+  } finally {
+    await page.close()
+  }
+})
+
+test('hidden radios and off-screen honeypots are not treated as questions', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const ctx = await context('agent-hidden')
+  const page = await browser.newPage()
+  try {
+    await page.setContent(`<form>
+      <label for="fn">First name *</label><input id="fn" required>
+      <input type="checkbox" id="hp" name="agree_hp" style="position:absolute;left:-9999px" required><label for="hp" style="position:absolute;left:-9999px">I agree</label>
+      <fieldset style="display:none"><legend>Willing to relocate? *</legend>
+        <label><input type="radio" name="reloc" value="yes" required> Yes</label><label><input type="radio" name="reloc" value="no"> No</label></fieldset>
+      <fieldset><legend>Remote OK? *</legend>
+        <label><input type="radio" name="remote" value="yes" required style="opacity:0;width:0;height:0"> Yes</label>
+        <label><input type="radio" name="remote" value="no" style="opacity:0;width:0;height:0"> No</label></fieldset>
+      <button type="button">Submit application</button></form>`)
+    const out = await runFormAgent(page, { ...ctx, generate: async () => JSON.stringify([{ i: 0, value: 'ASK' }]) })
+    assert.equal(out.status, 'needs_user')
+    assert.deepEqual(out.questions.map(q => q.label), ['Remote OK?'], 'styled radio asked; hidden step not asked')
+    assert.equal(await page.isChecked('#hp'), false, 'off-screen honeypot left alone')
+  } finally {
+    await page.close()
+  }
+})
