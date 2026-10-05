@@ -16,6 +16,7 @@ import type { NextRequest } from 'next/server'
 import { getAuthSecret } from './auth-secret'
 import { AUTH_COOKIE, AUTH_COOKIE_NAME, type SessionRole } from './auth-edge'
 import { ensureUserStore, getUserById, type GhostUser, type Role, toPublicUser, touchLastSeen } from './users'
+import { isDeviceActive, touchDevice } from './remote/store'
 
 export { getAuthSecret, AUTH_COOKIE, AUTH_COOKIE_NAME }
 export type { SessionRole }
@@ -115,7 +116,10 @@ export function sessionTokenStatus(token?: string | null): 'missing' | 'forged' 
 }
 
 export function isValidAuthToken(token?: string | null) {
-  return Boolean(token && verifySessionToken(token))
+  const payload = token ? verifySessionToken(token) : null
+  if (!payload) return false
+  // A paired device's session ends the moment the device is revoked, on every guard.
+  return !payload.dev || isDeviceActive(payload.dev)
 }
 
 /**
@@ -152,8 +156,7 @@ export async function getCurrentUser(req: NextRequest): Promise<GhostUser | null
 
 /** A paired-device session is valid while its device is not revoked. */
 async function deviceSessionValid(deviceId: string): Promise<boolean> {
-  const { isDeviceRevoked, touchDevice } = await import('./remote/store')
-  if (await isDeviceRevoked(deviceId)) return false
+  if (!isDeviceActive(deviceId)) return false
   void touchDevice(deviceId)
   return true
 }

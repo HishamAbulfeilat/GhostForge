@@ -13,10 +13,18 @@ export const runtime = 'nodejs'
 // Failed redemptions per IP: codes are 128-bit, but there is no reason to allow guessing.
 const failures = new Map<string, { n: number; until: number }>()
 
-/** The form must come from our own pairing page (no cross-site "sign in as me" posts). */
+/**
+ * The form must come from our own pairing page, never from another site
+ * ("sign in as me" login CSRF). Modern browsers say so in Sec-Fetch-Site;
+ * otherwise the Origin (or Referer) must be this host. An opaque "null" origin
+ * (sandboxed frames, no-referrer pages) is refused.
+ */
 function sameOrigin(req: NextRequest): boolean {
+  const site = req.headers.get('sec-fetch-site')
+  if (site) return site === 'same-origin'
   const source = req.headers.get('origin') || req.headers.get('referer')
-  if (!source || source === 'null') return true // very old browsers send neither; the code is still required
+  if (!source) return true // very old browsers send none of these; the one-time code is still required
+  if (source === 'null') return false
   const tunnel = tunnelStatus().url
   const hosts = new Set([req.headers.get('x-forwarded-host'), req.headers.get('host'), req.nextUrl.host, tunnel ? new URL(tunnel).host : null].filter(Boolean))
   try { return hosts.has(new URL(source).host) } catch { return false }
