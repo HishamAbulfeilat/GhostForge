@@ -5,7 +5,7 @@ what is going on.** The top half is written by humans/lead agents; the
 `LIVE STATUS` block at the bottom is rewritten automatically by the boss every
 couple of minutes while the agent team runs.
 
-## ▶ START HERE — state at 2026-10-02 12:00 (Asia/Amman)
+## ▶ START HERE — state at 2026-10-06 (Asia/Amman) — main is at e1840a87, PRs #13–#19 merged, agent team stopped, Job Hunter free-model default landed (uncommitted)
 
 **Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
 (main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
@@ -175,52 +175,32 @@ Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). 
 ## LIVE STATUS
 
 <!-- LIVE-STATUS:START -->
-_Auto-updated by the boss (pid 26576) at 2026-10-04T13:03:03.063Z._
+_Handoff updated by interactive session at 2026-10-06._
 
-**Phase 1:** Make GhostForge fully working and polished: every feature in web-ui, TUI, Electron, the Python bridge, MCP server, marketplace and Job Hunter works end to end; every JARVIS tool works and is covered by tests; fix bugs, add missing tests, remove dead code, improve UX and accessibility.
+**State:** `main` = `e1840a87` (PR #12, merge 2026-10-05, all checks green).
+PR #13 **merged** 2026-10-05; PRs #15–#19 merged. **No open PRs.** The boss /
+watchdog agent team is **stopped** — `.agent-sync/state/boss.pid` is stale;
+restart with `node scripts/agents/team.mjs start` from GhostForge-public.
+`GhostForge-public` sits detached at `origin/main`. Worktree `gf-integration`
+is on `agent/integration` (one commit behind origin/main; bump it when resumed).
 
-**Health:** 100/100 · **merges this run:** 12 · **PR:** https://github.com/HishamAbulfeilat/GhostForge/pull/12 · **boss:** claude
+**This session (2026-10-06), Job Hunter model fix (uncommitted):**
+- `web-ui/lib/ai.ts`: new `ModelOverride.preferFree`; when set, `buildModelChain`
+  skips the paid model saved in Settings and starts at free providers →
+  OmniRoute → Pollinations (keyless) → local.
+- `web-ui/lib/job-hunter/index.ts`: `generatorFor(null)` now passes
+  `preferFree: true`, so Job Hunter defaults to best free models with **no API
+  key** instead of silently using the paid Settings model. Any explicit choice
+  (provider/model, custom, ollama) still leads the chain.
+- `web-ui/app/jobs/page.tsx`: the AI-model dropdown defaults to
+  "Free models (automatic — no API key needed)", lists **all** provider models
+  (the `available` filter that hid keyless free models is removed), and has an
+  inline "+ Add another model" form posting to `/api/models/custom`; new
+  models auto-select.
+- Verified: `node --test test/job-hunter.test.js test/job-autopilot.test.js
+  test/job-agent.test.js` → 35/35 pass; `tsc --noEmit` clean. Mirrored into
+  `gf-integration` (uncommitted there too).
 
-**Board:** todo 1 · in-progress 1 · review 2 · done 12 · blocked 2
-
-**Agents**
-- **claude** (claude): waiting-merge on T-012
-- **claude-2** (claude): working on T-017
-- **claude-3** (claude): waiting-merge on T-013
-
-**In progress / review**
-- T-017 [test] Tests: add a pytest suite for voice-pipeline (server contract, wake phrases, missing-engine degradation) — claude-2
-- T-012 [bugfix] Push notifications: store subscriptions and actually send via web-push (honest 'not configured' without VAPID keys) — claude
-- T-013 [test] Health score blind spots: run mcp, tui, electron-app tests and bridge pytest in scripts/agents/health.mjs — claude-3
-
-**Next up (todo)**
-- T-016 [bugfix] A11y: label unlabeled inputs and make clickable divs keyboard-accessible (jarvis, jobs, dashboard, Mark-LV, AI providers, terminal)
-
-**Blocked (needs a human or a fresh approach)**
-- T-014 [docs] Bridge: document every mark-l-bridge/server.py endpoint in README and test the table stays complete: …s only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- T-018 [docs] Docs: correct stale CHANGELOG claims (bridge endpoint count, partial features): …s only ~11622 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-
-**Recently done**
-- T-001 [feature] Deeper OpenJarvis bridge: expose /api/openjarvis/* endpoints in mark-l-bridge/server.py with a graceful stub when the package is not installed — claude-2
-- T-002 [bugfix] Marketplace: verify every catalog install_command works cross-platform (Windows/macOS/Linux); fix macOS-only ones — claude
-- T-003 [chore] Add a web-ui ESLint flat config (eslint.config.mjs) so `eslint .` and CI lint work — claude-3
-- T-004 [refactor] Knip: remove or wire up the unused files reported by `cd web-ui && npx knip` — claude
-- T-005 [test] JARVIS: add tests proving every tool in web-ui/lib/tool-permissions.ts is registered, permission-gated, and callable — claude-2
-- T-006 [test] Tests: add root unit tests under tests/*.test.js and run them from scripts/test.js — claude-2
-- T-007 [docs] Docs: refresh README.md feature list and bridge section to match the current code — claude-3
-- T-008 [docs] Add root LICENSE file or fix README license links — claude-3
-- T-009 [docs] extension/LICENSE is a truncated MIT missing the liability disclaimer — claude-3
-- T-010 [bug] api-route-auth test must ignore dot-directories in web-ui/app — claude-3
-- T-011 [bugfix] Fix failing health check: web-ui production build — claude
-- T-015 [bugfix] Electron: stop advertising Outlook OAuth/ops that throw 'not implemented' — claude-2
-
-**Latest messages**
-- 2026-10-04T12:22 boss → claude-3: … this conversation is only ~10995 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:22 boss → claude-3: … this conversation is only ~11622 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:23 boss → claude-3: … this conversation is only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:23 boss → claude-3: … this conversation is only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:23 boss → claude-3: … this conversation is only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:24 boss → claude-3: … this conversation is only ~11622 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:29 claude-2 → boss: …sh path, so any Outlook account persisted by an earlier build still refreshes and lists/sends mail. Outlook sign-in being offered is a separate feature (needs an MSAL/auth-URL step) if anyone wants it - I did not add it.
-- 2026-10-04T12:53 boss → all: …contacts-integration.ts, electron-app/src/main/email-integration.ts, electron-app/src/main/index.ts, electron-app/src/main/oauth-providers.ts, electron-app/src/preload/index.ts, electron-app/test/oauth-providers.test.mjs
+**Then the recurring items below still apply.** Restart command:
+`node C:\Users\User\Desktop\GhostForge\GhostForge-public\scripts\agents\team.mjs start`
 <!-- LIVE-STATUS:END -->

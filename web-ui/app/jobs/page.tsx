@@ -600,13 +600,15 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
   onRunNow: () => void
 }) {
   const [options, setOptions] = useState<ModelOption[]>([])
+  const [showAdd, setShowAdd] = useState(false)
+  const [customForm, setCustomForm] = useState({ name: '', baseURL: '', model: '', apiKey: '' })
+  const [customNotice, setCustomNotice] = useState<string | null>(null)
 
-  useEffect(() => {
+  const refreshOptions = useCallback(() => {
     fetch('/api/models').then(r => (r.ok ? r.json() : null)).then(data => {
       if (!data) return
       const opts: ModelOption[] = []
       for (const p of data.providers || []) {
-        if (!p.available) continue
         for (const m of p.models || []) opts.push({ value: `${p.id}|${m.id}`, label: `${m.label || m.id}${m.free ? ' (free)' : ''}`, group: p.name })
       }
       for (const c of data.custom || []) opts.push({ value: `custom|${c.id}`, label: c.name, group: 'Custom models' })
@@ -614,6 +616,27 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
       setOptions(opts)
     }).catch(() => {})
   }, [])
+
+  useEffect(() => { refreshOptions() }, [refreshOptions])
+
+  const addCustomModel = async () => {
+    setCustomNotice(null)
+    try {
+      const r = await fetch('/api/models/custom', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: customForm.name.trim(), baseURL: customForm.baseURL.trim(), model: customForm.model.trim(), apiKey: customForm.apiKey.trim() || undefined }),
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(data.error || `Failed (${r.status})`)
+      setCustomForm({ name: '', baseURL: '', model: '', apiKey: '' })
+      setShowAdd(false)
+      refreshOptions()
+      if (data.model?.id) onModel({ provider: 'custom', model: data.model.id })
+      setCustomNotice(`Added “${data.model?.name ?? 'model'}”.`)
+    } catch (e) {
+      setCustomNotice(e instanceof Error ? e.message : 'Could not add the model')
+    }
+  }
 
   const current = model ? `${model.provider}|${model.model}` : ''
   const groups = [...new Set(options.map(o => o.group))]
@@ -649,7 +672,7 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
             onModel({ provider: v.slice(0, i), model: v.slice(i + 1) })
           }}
           className="h-11 rounded-[10px] border border-gf-line bg-gf-bar px-3 text-sm">
-          <option value="">Default — the model selected in Settings</option>
+          <option value="">Free models (automatic — no API key needed)</option>
           {!known && model && <option value={current}>{model.model} ({model.provider})</option>}
           {groups.map(g => (
             <optgroup key={g} label={g}>
@@ -657,7 +680,24 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
             </optgroup>
           ))}
         </select>
-        <span className="text-xs text-gf-muted">Used for fit scoring, CV tailoring and cover letters. Add keys or custom models in Settings → AI Models.</span>
+        <span className="text-xs text-gf-muted">Used for fit scoring, CV tailoring and cover letters. Default runs free models that need no API key; pick any provider, local model, or add one below.</span>
+        <button type="button" onClick={() => setShowAdd(v => !v)} className="self-start text-xs text-gf-accent underline-offset-2 hover:underline">
+          {showAdd ? 'Cancel' : '+ Add another model (OpenAI-compatible)'}
+        </button>
+        {showAdd && (
+          <div className="flex flex-col gap-2 rounded-xl border border-gf-line p-3">
+            {([['name', 'Name (e.g. My gateway)'], ['baseURL', 'Base URL (e.g. http://localhost:1234/v1)'], ['model', 'Model id'], ['apiKey', 'API key (optional)']] as const).map(([k, ph]) => (
+              <input key={k} value={customForm[k]} onChange={e => setCustomForm(f => ({ ...f, [k]: e.target.value }))}
+                placeholder={ph} aria-label={ph} type={k === 'apiKey' ? 'password' : 'text'}
+                className="h-9 rounded-[8px] border border-gf-line bg-gf-bar px-2.5 text-sm" />
+            ))}
+            <button type="button" onClick={() => void addCustomModel()} disabled={!customForm.name.trim() || !customForm.baseURL.trim() || !customForm.model.trim()}
+              className="h-9 rounded-[8px] bg-gf-accent px-3 text-sm font-semibold text-gf-bg disabled:opacity-50">
+              Save model
+            </button>
+          </div>
+        )}
+        {customNotice && <span className="text-xs text-gf-muted">{customNotice}</span>}
       </div>
 
       <div className="grid grid-cols-3 gap-2">

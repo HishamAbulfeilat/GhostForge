@@ -21,6 +21,8 @@ export interface ModelOverride {
   activeProvider?: string
   offline?: boolean
   task?: string
+  /** Start the chain at free providers instead of the paid model selected in Settings */
+  preferFree?: boolean
 }
 
 /**
@@ -120,7 +122,20 @@ async function makeProviderEntry(provider: ProviderId, modelId: string): Promise
   if (provider === 'omniroute') return makeOmniRouteEntry(modelId)
   if (provider === 'pollinations') {
     const baseURL = PROVIDERS.pollinations.baseURL!
-    return { provider, modelId, generate: opts => generateOpenAICompatible('Pollinations', baseURL, undefined, modelId, opts) }
+    return {
+      provider, modelId,
+      generate: async opts => {
+        // Pollinations is the always-on free gateway and fails transiently
+        // (sporadic 500/429); one short retry makes the free default reliable.
+        try {
+          return await generateOpenAICompatible('Pollinations', baseURL, undefined, modelId, opts)
+        } catch (e) {
+          if (!isFallbackError(e)) throw e
+          await new Promise(r => setTimeout(r, 1500))
+          return generateOpenAICompatible('Pollinations', baseURL, undefined, modelId, opts)
+        }
+      },
+    }
   }
   const apiKey = getProviderKey(provider)
   if (!apiKey) return null
@@ -431,8 +446,8 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
   }
   const omniUp = await isOmniRouteUp()
 
-  // 1. Selected model (highest priority)
-  if (selection && !localSelected) {
+  // 1. Selected model (highest priority) — skipped when preferFree is set
+  if (selection && !localSelected && opts?.preferFree !== true) {
     if (selection.provider === 'omniroute') {
       if (omniUp) push(makeOmniRouteEntry(selection.model))
     } else if (selection.provider === 'custom') {

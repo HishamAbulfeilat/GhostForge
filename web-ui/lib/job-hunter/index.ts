@@ -32,17 +32,17 @@ type Generate = (opts: { system?: string; prompt?: string; maxTokens?: number })
 
 /**
  * GhostForge's model chain as a simple text generator. With a model choice it
- * leads the chain; otherwise the model selected in Settings does. Either way
- * the usual free fallbacks follow if the chosen model is unavailable.
+ * leads the chain; otherwise the chain starts at the free models (no API key
+ * needed) instead of the paid model selected in Settings.
  */
 export function generatorFor(model: ModelChoice | null): Generate {
   return async opts => (await generateWithFallback(
     { system: opts.system, prompt: opts.prompt, maxTokens: opts.maxTokens },
-    { task: 'tools', ...(model ? { activeProvider: model.provider, activeModel: model.model } : {}) },
+    { task: 'tools', preferFree: !model, ...(model ? { activeProvider: model.provider, activeModel: model.model } : {}) },
   )).text
 }
 
-/** Default generator (follows Settings) */
+/** Default generator (free models first — no API key required) */
 export const aiGenerate: Generate = generatorFor(null)
 
 /** The user's own model choice for Job Hunter */
