@@ -126,14 +126,18 @@ async function makeProviderEntry(provider: ProviderId, modelId: string): Promise
       provider, modelId,
       generate: async opts => {
         // Pollinations is the always-on free gateway and fails transiently
-        // (sporadic 500/429); one short retry makes the free default reliable.
-        try {
-          return await generateOpenAICompatible('Pollinations', baseURL, undefined, modelId, opts)
-        } catch (e) {
-          if (!isFallbackError(e)) throw e
-          await new Promise(r => setTimeout(r, 1500))
-          return generateOpenAICompatible('Pollinations', baseURL, undefined, modelId, opts)
+        // (sporadic 500/402/429); retry with backoff before giving up.
+        let last: unknown
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            return await generateOpenAICompatible('Pollinations', baseURL, undefined, modelId, opts)
+          } catch (e) {
+            if (!isFallbackError(e)) throw e
+            last = e
+            await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
+          }
         }
+        throw last
       },
     }
   }
