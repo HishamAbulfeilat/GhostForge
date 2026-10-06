@@ -1,0 +1,31 @@
+IMPORTANT — status (updated 2026-10-04, end of session)
+========================================================
+
+RESOLVED
+- API keys: you chose to keep them. Unchanged.
+- Pro for the boss, free models for workers: DONE and pushed.
+    * claude-switch: a request marked "free:<tier>" is served by free models,
+      ordered per tier in ~/.claude-switch/config.json "tierChains".
+      Tested live: free:fast -> kilo.
+    * boss (GhostForge branch feat/agent-boss, commit 728ff45): Claude workers
+      on feature/bugfix/test/refactor/docs/chore work use free models; plan,
+      review, security, merge and architecture work stays on Pro and the boss
+      writes a line HERE when that happens. Turn off with team.json
+      "workersOnFree": false.
+    * Takes effect the next time the boss starts (it was stopped tonight).
+- demo-project/: junk. Created today at 11:36 by a shell command that went
+  wrong — folders named "zod", "axios", "install", "pkg", "set",
+  "scripts.prepare=husky install" are words from an npm command line turned
+  into empty directories, plus copies of GhostForge's .github and agents.
+  Its .env.local only holds the example values. Safe to delete:
+      C:\Users\User\Desktop\GhostForge\gf-integration\demo-project
+
+NEEDS YOU
+1. API key review: one stored key returns 404 (wrong type). Update with the
+   correct provider key if needed.
+2. PR #13 (fix/pr12 -> agent/integration) still open:
+   https://github.com/HishamAbulfeilat/GhostForge/pull/13
+3. Agent World build: hand HANDOFF.md in
+   https://github.com/HishamAbulfeilat/agent-world-external to the cloud session.
+4. To restart the agent team later:
+       node C:\Users\User\Desktop\GhostForge\GhostForge-public\scripts\agents\team.mjs start

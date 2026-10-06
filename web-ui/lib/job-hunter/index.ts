@@ -9,7 +9,8 @@
  *   prepareJob  tailored CV + cover letter + form answers  (status: ready)
  *   approveJob  the user's one click → fill the form, submit where safe
  *
- * Nothing is ever submitted without the user approving that specific job.
+ * Submitting happens on the user's approval of a job, or by autopilot within
+ * the limits and sites the user switched on (see autopilot.ts).
  */
 import { generateWithFallback } from '../ai'
 import { auditLog } from '../audit'
@@ -21,7 +22,7 @@ import {
   type JobProfile, type JobRecord, type ModelChoice,
 } from './store'
 import { applyToJob } from './apply'
-import { buildAnswers, missingApplicantFields, tailorResume, writeCoverLetter } from './writer'
+import { buildAnswers, missingApplicantFields, normalizeLabel, tailorResume, writeCoverLetter } from './writer'
 
 export * from './store'
 export { linkedInSearchUrl } from './sources'
@@ -92,7 +93,7 @@ export interface SearchResult {
 
 export async function runSearch(
   username: string,
-  opts: { terms?: string[]; autoPrepare?: number; generate?: Generate | null } = {},
+  opts: { terms?: string[]; autoPrepare?: number; generate?: Generate | null; includeLinkedIn?: boolean } = {},
 ): Promise<SearchResult> {
   const profile = await getProfile(username)
   if (!profile.cv) throw new Error('Upload your CV first')
@@ -121,7 +122,7 @@ export async function runSearch(
   const limit = opts.autoPrepare ?? 3
   if (limit > 0 && generate) {
     const queue = (await listJobs(username))
-      .filter(j => j.status === 'found' && j.fit === 'High' && j.ats !== 'linkedin')
+      .filter(j => j.status === 'found' && j.fit === 'High' && (opts.includeLinkedIn || j.ats !== 'linkedin'))
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
     for (const job of queue) {
@@ -168,7 +169,7 @@ export async function prepareJob(username: string, id: string, generate?: Genera
 export async function approveJob(
   username: string,
   id: string,
-  opts: { headless?: boolean; by?: 'user' | 'autopilot' } = {},
+  opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean } = {},
 ): Promise<{ job: JobRecord; message: string; missing: string[] }> {
   const job = await getJob(username, id)
   if (!job) throw new Error('Job not found')
@@ -180,24 +181,81 @@ export async function approveJob(
   if (missing.length) throw new Error(`Fill in your ${missing.join(', ')} before applying`)
 
   const by = opts.by || 'user'
+  const ap = profile.autopilot
   await updateJob(username, id, { status: 'submitting' }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
   void auditLog({ level: 'info', event: 'job_application_approved', params: { username, jobId: id, company: job.company, title: job.title, ats: job.ats, by } })
+
+  // Laptop control on: a visible browser on this computer and screenshot-based
+  // computer use when the form agent gets stuck. Off: headless, no screen needed.
+  const generate = generatorFor(profile.model)
+  const vision = ap.laptopControl ? visionModel : null
+  const headless = opts.headless ?? (by === 'autopilot' ? !ap.laptopControl : undefined)
 
   // If applyToJob throws (e.g. no browser installed, or the process dies), the
   // job must not stay "submitting" forever — reset it to "failed" so it can be
   // retried by the user or autopilot.
   let result
   try {
-    result = await applyToJob(job, profile, username, { headless: opts.headless })
+    result = await applyToJob(job, profile, username, {
+      headless,
+      // The user's own approval is consent to submit; autopilot decides per site.
+      allowSubmit: opts.allowSubmit ?? by === 'user',
+      linkedin: by === 'user' || (ap.linkedinEasyApply && Boolean(profile.linkedin?.connectedAt)),
+      generate, vision,
+    })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     const failed = await updateJob(username, id, { status: 'failed' }, `Application could not run: ${msg.slice(0, 200)}`)
     void auditLog({ level: 'warn', event: 'job_application_error', params: { username, jobId: id, error: msg.slice(0, 200), by } })
     return { job: failed!, message: msg, missing: [] }
   }
-  const updated = await updateJob(username, id, { status: result.status }, result.message)
-  void auditLog({ level: 'info', event: 'job_application_result', params: { username, jobId: id, status: result.status, filled: result.filled.length, missing: result.missing.length } })
+  const updated = await updateJob(username, id, {
+    status: result.status,
+    questions: result.questions?.length ? result.questions : undefined,
+    aiAnswers: result.aiAnswers?.length ? result.aiAnswers : job.aiAnswers,
+  }, result.message)
+  void auditLog({ level: 'info', event: 'job_application_result', params: { username, jobId: id, status: result.status, filled: result.filled.length, missing: result.missing.length, by } })
+  if (by === 'autopilot' && result.status !== 'failed') {
+    void notify(username, result.status === 'submitted'
+      ? { title: `Applied: ${job.title}`, body: `${job.company} — submitted by autopilot.` }
+      : { title: `Needs you: ${job.title}`, body: result.questions?.length ? `${result.questions.length} question(s) to answer once; autopilot continues on its next run.` : result.message.slice(0, 140) })
+  }
   return { job: updated!, message: result.message, missing: result.missing }
+}
+
+/** Screenshot → action, via GhostForge's vision model chain (computer-use fallback). */
+async function visionModel(imageBase64: string, prompt: string): Promise<string> {
+  const { generateVision } = await import('../ai')
+  return (await generateVision({ imageBase64, prompt, maxTokens: 300 })).text
+}
+
+/** Push notification to the user's phone, when push is configured (never throws). */
+async function notify(username: string, payload: { title: string; body: string }) {
+  try {
+    const { sendToUser } = await import('../push')
+    await sendToUser(username, { ...payload, tag: 'job-hunter', url: '/jobs' })
+  } catch { /* push not configured */ }
+}
+
+/**
+ * The user answers the questions an application stopped on. Answers are saved
+ * to the profile (reused on every later form) and the job goes back to the
+ * queue so it is retried.
+ */
+export async function answerQuestions(username: string, id: string, answers: Record<string, string>): Promise<JobRecord> {
+  const job = await getJob(username, id)
+  if (!job) throw new Error('Job not found')
+  const clean: Record<string, string> = {}
+  for (const [label, value] of Object.entries(answers || {}).slice(0, 50)) {
+    const l = normalizeLabel(String(label)).slice(0, 200)
+    const v = String(value ?? '').trim().slice(0, 2000)
+    if (l && v) clean[l] = v
+  }
+  if (!Object.keys(clean).length) throw new Error('Answer at least one question')
+  await saveProfile(username, { customAnswers: clean })
+  const remaining = (job.questions || []).filter(q => !clean[normalizeLabel(q.label)])
+  const status = job.status === 'submitted' || job.status === 'dismissed' ? job.status : 'ready'
+  return (await updateJob(username, id, { questions: remaining.length ? remaining : undefined, status }, `You answered ${Object.keys(clean).length} question(s); saved for future applications`))!
 }
 
 export async function dismissJob(username: string, id: string): Promise<JobRecord | null> {

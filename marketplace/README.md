@@ -13,17 +13,34 @@ Use `/marketplace` in Copilot Chat or the GhostForge TUI to browse trusted exten
 - `sources.json` — trusted source registry
 - `catalog.json` — local catalog cache
 - `registry.json` — installed/custom item tracker
+- `install-commands.mjs` — shared platform resolver (see below)
 - `custom-agents/` — your custom agent definitions
 - `custom-models.json` — free and custom model providers
 
 ## Cross-platform install commands
 `catalog.json` items use `install_command` for macOS/Linux (usually
 `brew install X 2>/dev/null || sudo apt-get install -y X`, or a `go
-install`/`curl | sh` fallback). Add an optional `install_command_windows`
-(a `winget install --id ...` command) for items that have a verified WinGet
-package; the TUI (`tui/index.js`) picks it automatically on `win32`. Items
-without a Windows command still show the macOS/Linux one with a manual-install
-hint.
+install`/`pipx` fallback) and an optional `install_command_windows` for
+Windows. `install-commands.mjs` picks between them, and both the TUI
+(`tui/index.js`) and `scripts/marketplace.sh` call it so the two surfaces can
+never disagree.
+
+Rules to follow when adding an item:
+
+- **WinGet commands must be exact matches** — `winget install --id Publisher.Id -e`.
+  A bare `winget install nmap` can resolve to a different package.
+- **Only add a Windows command you have verified.** When upstream has no native
+  Windows build (LocalAI, OpenJarvis — which requires WSL2), leave
+  `install_command_windows` off; the resolver then shows the item's `url` and a
+  manual-install hint instead of running a POSIX one-liner.
+- **A Windows command must run under cmd.exe.** No `python3`/`pip3` (use
+  `python`/`pip` or `py -3`), no `&&`-chained post-install steps that depend on a
+  just-installed binary being on `PATH`, no `$env:` PowerShell syntax.
+- **Never end a command in `|| echo …`** — that exits 0 even when the install
+  failed, so the TUI marked the item installed without installing it.
+
+`tests/marketplace-install-commands.test.js` enforces all of the above and runs
+as part of `npm test`.
 
 ## Related commands
 - `/marketplace`

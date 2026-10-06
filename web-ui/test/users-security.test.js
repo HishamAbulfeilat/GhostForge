@@ -128,3 +128,20 @@ test('forged tokens only count as tampering with a stable auth secret', () => {
   else process.env.AUTH_SECRET = saved.s
   if (saved.e === undefined) delete process.env.GF_EPHEMERAL_AUTH_SECRET
 })
+
+test('a background touchLastSeen never overwrites a concurrent update (setup stays complete)', async () => {
+  await users.ensureUserStore()
+  const owner = await users.getUserByUsername('hisham')
+  await new Promise(resolve => setTimeout(resolve, 2100)) // expire the read cache so both calls read the file
+  // What POST /api/setup does: getCurrentUser() fires touchLastSeen() without
+  // awaiting it, then the handler calls updateUser().
+  const touch = users.touchLastSeen(owner.id)
+  const updated = await users.updateUser(owner.id, { jobTitle: 'Software Engineer', setupComplete: true })
+  await touch
+  assert.equal(updated.setupComplete, true)
+  await new Promise(resolve => setTimeout(resolve, 2100)) // past the read cache
+  const stored = JSON.parse(readFileSync(join(fakeHome, '.ghostforge', 'users.json'), 'utf8')).users.find(u => u.id === owner.id)
+  assert.equal(stored.setupComplete, true, 'setupComplete survives the concurrent last-seen write')
+  assert.equal(stored.jobTitle, 'Software Engineer')
+  assert.ok(stored.lastSeen)
+})

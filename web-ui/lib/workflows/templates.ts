@@ -15,6 +15,16 @@ export interface WorkflowTemplate {
 
 export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
   {
+    // Uses only steps the bridge runs today (read-only commands + manual), so ▶ Run works end to end.
+    name: 'Release readiness check',
+    goal: 'Bridge health → release status → human sign-off',
+    steps: [
+      { title: 'Check bridge health', kind: 'command', ref: 'bridge:health', deps: [] },
+      { title: 'Read release status', kind: 'command', ref: 'bridge:release-status', deps: [0] },
+      { title: 'Sign off the release', kind: 'manual', ref: 'Review the results and approve the release', deps: [1] },
+    ],
+  },
+  {
     name: 'Ship a feature',
     goal: 'Plan → build → test → review → deploy',
     steps: [

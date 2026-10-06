@@ -73,16 +73,19 @@ export default function JobsPage() {
   const [section, setSection] = useState<'jobs' | 'cv' | 'github'>('jobs')
   const [model, setModel] = useState<ModelChoice | null>(null)
   const [autopilot, setAutopilot] = useState<(AutopilotSettings & { submittedToday: number }) | null>(null)
+  const [linkedinStatus, setLinkedinStatus] = useState<{ connected: boolean; connectedAt: string | null }>({ connected: false, connectedAt: null })
+  const [jobUrl, setJobUrl] = useState('')
 
   const load = useCallback(async () => {
     const [j, p] = await Promise.all([
-      api<{ jobs: JobRecord[]; sources: { linkedInViaJSearch: boolean }; model: ModelChoice | null; autopilot: AutopilotSettings & { submittedToday: number } }>('/api/jobs'),
+      api<{ jobs: JobRecord[]; sources: { linkedInViaJSearch: boolean }; model: ModelChoice | null; autopilot: AutopilotSettings & { submittedToday: number }; linkedin?: { connected: boolean; connectedAt: string | null } }>('/api/jobs'),
       api<{ profile: ProfileView }>('/api/jobs/profile'),
     ])
     setJobs(j.jobs)
     setJsearch(j.sources.linkedInViaJSearch)
     setModel(j.model)
     setAutopilot(j.autopilot)
+    if (j.linkedin) setLinkedinStatus(j.linkedin)
     setProfile(p.profile)
     return p.profile
   }, [])
@@ -143,6 +146,31 @@ export default function JobsPage() {
     await load()
     if (action === 'dismiss') setSelected(null)
     if (r.message) setNotice({ tone: 'info', text: r.message })
+  })
+
+  const answer = (id: string, answers: Record<string, string>) => run(`answer:${id}`, async () => {
+    await api('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'answer', id, answers }) })
+    await load()
+    setNotice({ tone: 'info', text: 'Saved. These answers are reused on every later application; this job goes back in the queue.' })
+  })
+
+  const addByUrl = () => run('add-url', async () => {
+    const { job } = await api<{ job: JobRecord }>('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-url', url: jobUrl }) })
+    setJobUrl('')
+    await load()
+    setSelected(job.id)
+    setNotice({ tone: 'info', text: `Added ${job.title} at ${job.company} (${job.score} · ${job.fit} fit). Prepare it, then approve.` })
+  })
+
+  const linkedinAction = (action: 'linkedin-connect' | 'linkedin-disconnect') => run('linkedin', async () => {
+    const r = await api<{ status?: string }>('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) })
+    await load()
+    setNotice({
+      tone: 'info',
+      text: action === 'linkedin-disconnect' ? 'LinkedIn disconnected.'
+        : r.status === 'connected' ? 'LinkedIn is connected.'
+        : 'A LinkedIn sign-in window opened on this computer. Sign in there (or from your phone via Remote → Control this computer); GhostForge notices within a few seconds.',
+    })
   })
 
   const saveAutomation = (patch: { model?: ModelChoice | null; autopilot?: Partial<AutopilotSettings> }, message?: string) => run('automation', async () => {
@@ -210,7 +238,7 @@ export default function JobsPage() {
       ) : section === 'github' ? (
         <GithubProfileSetup />
       ) : job ? (
-        <Review job={job} busy={busy} onBack={() => setSelected(null)}
+        <Review job={job} busy={busy} onBack={() => setSelected(null)} onAnswer={answers => void answer(job.id, answers)}
           onApprove={() => void act('approve', job.id)} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)} />
       ) : (
         <div className="grid gap-6 px-4 py-6 lg:grid-cols-[400px_minmax(0,1fr)] lg:px-8 lg:py-7">
@@ -263,9 +291,21 @@ export default function JobsPage() {
                 {busy === 'search' ? 'Searching and scoring…' : 'Find matching jobs'}
               </button>
               <p className="text-xs leading-relaxed text-gf-muted">
-                Best matches are prepared automatically — tailored CV, cover letter and form answers — then wait for your approval. Nothing is sent without your click.
+                Best matches are prepared automatically — tailored CV, cover letter and form answers — then wait for your approval, unless autopilot is on.
               </p>
             </section>
+
+            <form className="flex flex-col gap-2.5 rounded-2xl border border-gf-line bg-gf-surface p-5" onSubmit={e => { e.preventDefault(); if (jobUrl.trim()) void addByUrl() }}>
+              <label htmlFor="jh-url" className="font-display text-sm font-semibold">Add a job by link</label>
+              <span className="text-xs text-gf-muted">Paste any job: LinkedIn, a company careers page, Workday, Greenhouse…</span>
+              <div className="flex gap-2">
+                <input id="jh-url" type="url" inputMode="url" value={jobUrl} onChange={e => setJobUrl(e.target.value)} placeholder="https://…"
+                  className="h-11 min-w-0 flex-1 rounded-[10px] border border-gf-line bg-gf-bar px-3 text-sm" />
+                <button type="submit" disabled={!jobUrl.trim() || busy === 'add-url'} className="min-h-11 shrink-0 rounded-[10px] border border-gf-line2 px-3 text-sm font-semibold disabled:opacity-60">
+                  {busy === 'add-url' ? 'Reading…' : 'Add'}
+                </button>
+              </div>
+            </form>
 
             <section className="flex flex-col gap-2.5 rounded-2xl border border-gf-line bg-gf-surface p-5">
               <h2 className="font-display text-sm font-semibold">Sources</h2>
@@ -280,7 +320,8 @@ export default function JobsPage() {
             </section>
 
             {autopilot && (
-              <AutomationCard model={model} autopilot={autopilot} busy={busy}
+              <AutomationCard model={model} autopilot={autopilot} busy={busy} linkedin={linkedinStatus}
+                onLinkedIn={a => void linkedinAction(a)}
                 onModel={m => void saveAutomation({ model: m }, m ? `Job Hunter now uses ${m.model}.` : 'Job Hunter follows the model selected in Settings.')}
                 onAutopilot={(a, msg) => void saveAutomation({ autopilot: a }, msg)}
                 onRunNow={() => void runAutopilotNow()} />
@@ -416,14 +457,15 @@ function SourceRow({ name, state, ok }: { name: string; state: string; ok: boole
   )
 }
 
-function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss }: {
+function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }: {
   job: JobRecord; busy: string; onBack: () => void; onApprove: () => void; onPrepare: () => void; onDismiss: () => void
+  onAnswer: (answers: Record<string, string>) => void
 }) {
   const sv = STATUS_VIEW[job.status] || STATUS_VIEW.found
   const prepared = Boolean(job.tailoredResume)
   const approving = busy === `approve:${job.id}`
   const canApprove = prepared && ['ready', 'needs_user', 'failed'].includes(job.status)
-  const autoSubmits = ['lever', 'greenhouse', 'ashby'].includes(job.ats)
+  const [draft, setDraft] = useState<Record<string, string>>({})
 
   return (
     <div className="flex flex-col gap-5 px-4 py-6 lg:px-8 lg:py-7">
@@ -443,7 +485,7 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss }: {
             {job.url && <a href={job.url} target="_blank" rel="noreferrer" className="text-sky-300 hover:text-sky-200">View posting ↗</a>}
           </div>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <button type="button" onClick={onDismiss} className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px]">Dismiss</button>
           {prepared ? (
             <button type="button" onClick={onApprove} disabled={!canApprove || approving}
@@ -463,13 +505,43 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss }: {
       <div className="flex items-start gap-3 rounded-xl border border-cyan-800 bg-gf-accent-soft px-4 py-3.5 text-sm text-sky-100">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7DD3FC" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-px shrink-0" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
         <span>
-          {job.ats === 'linkedin'
-            ? 'LinkedIn applications are finished by you. Approving opens the listing with your answers ready here.'
-            : autoSubmits
-              ? 'When you approve, GhostForge opens the form in your browser, fills every field below, uploads your CV and submits. If a captcha or an unanswered required question appears, it stops and leaves the form open for you.'
-              : 'When you approve, GhostForge opens and pre-fills the form. This site is not on the auto-submit list, so you press Submit yourself.'}
+          When you approve, GhostForge opens the application in its own browser, fills every step, uploads your CV and cover letter, answers questions only from your CV and profile, and submits.
+          {job.ats === 'linkedin' ? ' LinkedIn jobs use Easy Apply with your connected LinkedIn account.' : ''}
+          {' '}It stops for captchas, sign-ins and questions it can&apos;t answer truthfully, and lists those below for you.
         </span>
       </div>
+
+      {!!job.questions?.length && (
+        <form className="flex flex-col gap-3 rounded-2xl border border-amber-700/60 bg-amber-950/20 p-5"
+          onSubmit={e => { e.preventDefault(); onAnswer(draft) }}>
+          <h2 className="font-display text-base font-semibold">Questions for you ({job.questions.length})</h2>
+          <p className="text-sm text-gf-muted">The application needs these and your CV doesn&apos;t say. Answer once: GhostForge saves them and reuses them on every later form, then retries this job.</p>
+          <div className="grid gap-3 md:grid-cols-2">
+            {job.questions.map((q, i) => (
+              <label key={q.label + i} className="flex flex-col gap-1.5 text-sm">
+                <span>{q.label}</span>
+                {q.options.length ? (
+                  <select value={draft[q.label] ?? ''} onChange={e => setDraft({ ...draft, [q.label]: e.target.value })}
+                    className="h-11 rounded-[10px] border border-gf-line bg-gf-bar px-3">
+                    <option value="">Choose…</option>
+                    {q.options.map(o => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : q.type === 'textarea' ? (
+                  <textarea rows={3} value={draft[q.label] ?? ''} onChange={e => setDraft({ ...draft, [q.label]: e.target.value })}
+                    className="rounded-[10px] border border-gf-line bg-gf-bar px-3 py-2" />
+                ) : (
+                  <input value={draft[q.label] ?? ''} inputMode={q.type === 'number' ? 'numeric' : undefined} onChange={e => setDraft({ ...draft, [q.label]: e.target.value })}
+                    className="h-11 rounded-[10px] border border-gf-line bg-gf-bar px-3" />
+                )}
+              </label>
+            ))}
+          </div>
+          <button type="submit" disabled={!Object.values(draft).some(v => v.trim()) || busy === `answer:${job.id}`}
+            className="min-h-11 w-fit rounded-xl bg-gf-accent px-5 text-sm font-semibold text-gf-bg disabled:opacity-60">
+            {busy === `answer:${job.id}` ? 'Saving…' : 'Save answers'}
+          </button>
+        </form>
+      )}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_380px]">
         <Panel title="Tailored CV" note="Only facts from your CV — reordered for this role">
@@ -490,6 +562,12 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss }: {
               </div>
             ))}
             {!job.answers?.length && <p className="px-[18px] py-4 text-sm text-gf-muted">Answers appear once the application is prepared.</p>}
+            {(job.aiAnswers || []).map(a => (
+              <div key={`ai-${a.label}`} className="flex justify-between gap-3 border-b border-[#1C2130] px-[18px] py-[11px] text-sm">
+                <dt className="text-gf-muted">{a.label} <span className="rounded bg-gf-violet-soft px-1 text-[10px] text-gf-violet">AI, from your CV</span></dt>
+                <dd className="max-w-[60%] text-end font-mono text-xs">{a.value}</dd>
+              </div>
+            ))}
           </dl>
           <div className="flex flex-col gap-2 px-[18px] py-4">
             <span className="text-xs uppercase tracking-[0.06em] text-gf-muted">Activity</span>
@@ -511,7 +589,9 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss }: {
 interface ModelOption { value: string; label: string; group: string }
 
 /** Autopilot + AI model settings */
-function AutomationCard({ model, autopilot, busy, onModel, onAutopilot, onRunNow }: {
+function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel, onAutopilot, onRunNow }: {
+  linkedin: { connected: boolean; connectedAt: string | null }
+  onLinkedIn: (action: 'linkedin-connect' | 'linkedin-disconnect') => void
   model: ModelChoice | null
   autopilot: AutopilotSettings & { submittedToday: number }
   busy: string
@@ -543,7 +623,8 @@ function AutomationCard({ model, autopilot, busy, onModel, onAutopilot, onRunNow
     if (autopilot.enabled) { onAutopilot({ enabled: false }, 'Autopilot is off. Nothing will be submitted automatically.'); return }
     const ok = window.confirm(
       `Turn on autopilot?\n\nEvery ${autopilot.intervalHours} hours GhostForge will search, tailor your CV and cover letter, and SUBMIT up to ${autopilot.dailyLimit} applications a day ` +
-      `for High-fit jobs scoring ${autopilot.minScore}+ on Lever, Greenhouse and Ashby, using your CV and application details. Other sites stay in your queue.`)
+      `for High-fit jobs scoring ${autopilot.minScore}+ ${autopilot.mode === 'full' ? 'on any site it can complete' : 'on Lever, Greenhouse and Ashby'}${autopilot.linkedinEasyApply && linkedin.connected ? ', plus LinkedIn Easy Apply' : ''}, using your CV and application details. ` +
+      'It never invents answers: questions it can\'t answer from your CV come to you first.')
     if (ok) onAutopilot({ enabled: true }, 'Autopilot is on.')
   }
 
@@ -588,6 +669,61 @@ function AutomationCard({ model, autopilot, busy, onModel, onAutopilot, onRunNow
           onCommit={v => onAutopilot({ minScore: v })} />
       </div>
 
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-1.5 text-xs uppercase tracking-[0.06em] text-gf-muted">Where autopilot may submit</legend>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup">
+          {([['safe', 'Safe sites', 'Lever, Greenhouse, Ashby'], ['full', 'Any site', 'Career sites, Workday, LinkedIn'] ] as const).map(([v, label, hint]) => (
+            <button key={v} type="button" role="radio" aria-checked={autopilot.mode === v} disabled={busy === 'automation'}
+              onClick={() => onAutopilot({ mode: v }, v === 'full' ? 'Autopilot may now submit on any site the form agent can complete.' : 'Autopilot submits only on Lever, Greenhouse and Ashby.')}
+              className={`flex flex-col items-start rounded-xl border p-2.5 text-start text-sm ${autopilot.mode === v ? 'border-gf-accent bg-gf-accent-soft' : 'border-gf-line'}`}>
+              <span className="font-semibold">{label}</span>
+              <span className="text-xs text-gf-muted">{hint}</span>
+            </button>
+          ))}
+        </div>
+      </fieldset>
+
+      <div className="flex flex-col gap-2 rounded-xl border border-gf-line p-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-semibold">Apply on LinkedIn (Easy Apply)</span>
+          <button type="button" role="switch" aria-checked={autopilot.linkedinEasyApply} disabled={busy === 'automation'}
+            onClick={() => {
+              if (autopilot.linkedinEasyApply) return onAutopilot({ linkedinEasyApply: false }, 'LinkedIn Easy Apply is off.')
+              const ok = window.confirm('Apply through LinkedIn Easy Apply automatically?\n\nLinkedIn\'s terms do not allow automated tools, and LinkedIn may restrict accounts it believes are automated. GhostForge keeps it slow and capped, uses only your own signed-in account, and never solves captchas. Turn it on only if you accept that risk.')
+              if (ok) onAutopilot({ linkedinEasyApply: true, mode: 'full' }, 'LinkedIn Easy Apply is on (autopilot set to Any site).')
+            }}
+            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${autopilot.linkedinEasyApply ? 'bg-gf-accent' : 'bg-gf-line2'}`}>
+            <span className="sr-only">Apply on LinkedIn</span>
+            <span className={`absolute top-1 h-5 w-5 rounded-full bg-gf-bg transition-all ${autopilot.linkedinEasyApply ? 'start-6' : 'start-1'}`} />
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gf-muted">
+          {linkedin.connected ? <span className="text-gf-ok">LinkedIn connected</span> : <span>LinkedIn not connected</span>}
+          <button type="button" disabled={busy === 'linkedin'} onClick={() => onLinkedIn(linkedin.connected ? 'linkedin-disconnect' : 'linkedin-connect')}
+            className="min-h-9 rounded-lg border border-gf-line2 px-2.5 text-xs font-semibold disabled:opacity-60">
+            {busy === 'linkedin' ? 'Opening…' : linkedin.connected ? 'Disconnect' : 'Connect LinkedIn'}
+          </button>
+          <NumberSetting id="jh-li-limit" label="LinkedIn per day" value={autopilot.linkedinDailyLimit} min={1} max={15}
+            onCommit={v => onAutopilot({ linkedinDailyLimit: v })} />
+        </div>
+      </div>
+
+      <div className="flex items-start justify-between gap-3 rounded-xl border border-gf-line p-3">
+        <span className="flex flex-col gap-0.5">
+          <span className="text-sm font-semibold">Allow control of this computer when stuck</span>
+          <span className="text-xs text-gf-muted">
+            Off: everything runs in the background, no screen needed. On: when a form gets stuck, GhostForge opens a visible browser on this computer and uses
+            computer use (screenshots + clicks) to get past it. Never for captchas or passwords.
+          </span>
+        </span>
+        <button type="button" role="switch" aria-checked={autopilot.laptopControl} disabled={busy === 'automation'}
+          onClick={() => onAutopilot({ laptopControl: !autopilot.laptopControl }, autopilot.laptopControl ? 'Computer control is off: applications run in the background.' : 'GhostForge may now use this computer when an application gets stuck.')}
+          className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${autopilot.laptopControl ? 'bg-gf-accent' : 'bg-gf-line2'}`}>
+          <span className="sr-only">Allow control of this computer</span>
+          <span className={`absolute top-1 h-5 w-5 rounded-full bg-gf-bg transition-all ${autopilot.laptopControl ? 'start-6' : 'start-1'}`} />
+        </button>
+      </div>
+
       <div className="flex flex-col gap-1 rounded-xl border border-gf-line bg-gf-bar p-3 text-sm">
         <span className={autopilot.enabled ? 'text-gf-ok' : 'text-gf-muted'}>
           {autopilot.enabled ? `On — ${autopilot.submittedToday}/${autopilot.dailyLimit} submitted today` : 'Off — applications wait for your approval'}
@@ -602,7 +738,8 @@ function AutomationCard({ model, autopilot, busy, onModel, onAutopilot, onRunNow
         {busy === 'autopilot' ? 'Running autopilot…' : 'Run autopilot now'}
       </button>
       <p className="text-xs leading-relaxed text-gf-muted">
-        Autopilot submits only where forms can be completed unattended (Lever, Greenhouse, Ashby) and only for High-fit jobs at or above your minimum score. LinkedIn, Workday and other sites stay prepared in your queue.
+        Autopilot submits only High-fit jobs at or above your minimum score, within your daily limits. Answers come only from your CV and profile;
+        anything else becomes a question for you (with a phone notification when push is set up), and the job is retried once you answer.
       </p>
     </section>
   )

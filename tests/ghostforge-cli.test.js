@@ -3,8 +3,11 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { spawnSync } = require('node:child_process')
+const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
 
+const { findBash } = require('./bash-path.js')
 const { buildHelp, parseArgs, resolveCommand, main } = require('../cli/index.js')
 
 const ROOT = path.resolve(__dirname, '..')
@@ -33,8 +36,13 @@ test('parseArgs normalizes terminal aliases', () => {
 })
 
 test('main dispatches the agent-team status command', () => {
-  const exit = main(['team', 'status'], { env: process.env })
-  assert.equal(exit, 0)
+  const state = fs.mkdtempSync(path.join(os.tmpdir(), 'ghostforge-team-status-'))
+  try {
+    const exit = main(['team', 'status'], { env: { ...process.env, GF_AGENT_STATE: state } })
+    assert.equal(exit, 0)
+  } finally {
+    fs.rmSync(state, { recursive: true, force: true })
+  }
 })
 
 test('main dispatches the user help command and rejects unknown commands', () => {
@@ -50,8 +58,10 @@ test('main dispatches packaged-app dry runs through the bounded builder', () => 
   assert.equal(exit, 0)
 })
 
-test('ghostforge --help exits cleanly via the shell launcher', () => {
-  const result = spawnSync('bash', [path.join(ROOT, 'ghostforge'), '--help'], {
+const BASH = findBash()
+
+test('ghostforge --help exits cleanly via the shell launcher', { skip: BASH ? false : 'no usable bash (Git Bash) found' }, () => {
+  const result = spawnSync(BASH, [path.join(ROOT, 'ghostforge'), '--help'], {
     cwd: ROOT,
     encoding: 'utf8',
     env: process.env,

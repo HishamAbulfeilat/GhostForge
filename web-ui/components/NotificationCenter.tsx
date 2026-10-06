@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
-export type NotifType = 'info' | 'success' | 'warning' | 'error'
+type NotifType = 'info' | 'success' | 'warning' | 'error'
 
 export interface Notification {
   id: string

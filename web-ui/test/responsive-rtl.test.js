@@ -12,8 +12,7 @@ const { join, extname } = require('node:path')
  *   1. Statically audits app/**, components/** for physical-direction
  *      Tailwind classes that break RTL (AGENTS.md: use ms-/me-/ps-/pe-/
  *      text-start/text-end instead of ml-/mr-/pl-/pr-/text-left/text-right).
- *      A fixed allowlist of already-known violations keeps this test green
- *      while still failing on *new* regressions.
+ *      Any remaining physical-direction class fails the test.
  *   2. Verifies the root layout declares a direction-aware `dir` and a
  *      responsive viewport so mobile/tablet/desktop all get correct
  *      layout + text direction.
@@ -36,14 +35,6 @@ const { join, extname } = require('node:path')
 
 const APP_DIR = join(__dirname, '..', 'app')
 const COMPONENTS_DIR = join(__dirname, '..', 'components')
-
-// Known pre-existing physical-direction classes (flagged for the [design]
-// lane to convert to logical utilities; not touched here per T-08/T-12 scope
-// — QA doesn't own web-ui/app or web-ui/components).
-const KNOWN_VIOLATIONS = new Set([
-  'app/workflows/page.tsx::text-left',
-  'app/marketplace/page.tsx::text-left',
-])
 
 const PHYSICAL_CLASS_RE = /\b(?:ml|mr|pl|pr)-(?:\d|px|auto|\[)|\btext-(?:left|right)\b/g
 
@@ -77,10 +68,9 @@ function scanForPhysicalClasses() {
   return found
 }
 
-test('no *new* physical-direction Tailwind classes were introduced (RTL regression guard)', () => {
-  const found = new Set(scanForPhysicalClasses())
-  const unexpected = [...found].filter(f => !KNOWN_VIOLATIONS.has(f))
-  assert.deepEqual(unexpected, [], `New physical-direction class(es) found — use logical utilities (ms-/me-/ps-/pe-/text-start/text-end) instead:\n${unexpected.join('\n')}`)
+test('no physical-direction Tailwind classes remain (RTL regression guard)', () => {
+  const found = scanForPhysicalClasses()
+  assert.deepEqual(found, [], `Physical-direction class(es) found — use logical utilities (ms-/me-/ps-/pe-/text-start/text-end) instead:\n${found.join('\n')}`)
 })
 
 test('root layout is direction-aware (dir attribute) so RTL locales render correctly', () => {

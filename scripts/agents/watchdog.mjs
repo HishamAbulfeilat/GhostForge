@@ -28,8 +28,7 @@ function log(dir, msg) {
   fs.appendFileSync(path.join(dir, 'boss.log'), `[${new Date().toISOString()}] watchdog: ${msg}\n`)
 }
 
-export function check(root = ROOT) {
-  const dir = stateDir(root)
+export function check(root = ROOT, dir = stateDir(root)) {
   if (fs.existsSync(path.join(dir, 'STOP'))) return 'stopped-by-user'
   const pid = Number(fs.existsSync(path.join(dir, 'boss.pid')) && fs.readFileSync(path.join(dir, 'boss.pid'), 'utf8'))
   if (isAlive(pid)) return 'alive'
@@ -54,6 +53,14 @@ function install() {
   fs.writeFileSync(vbs, `CreateObject("WScript.Shell").Run "${q(process.execPath)} ${q(fileURLToPath(import.meta.url))}", 0, False\r\n`)
   const r = spawnSync('schtasks', ['/Create', '/F', '/TN', TASK_NAME, '/SC', 'MINUTE', '/MO', '5', '/TR', `wscript.exe //B "${vbs}"`], { encoding: 'utf8', windowsHide: true })
   console.log((r.stdout || r.stderr).trim())
+  // schtasks defaults to "don't start on batteries / stop on battery", which
+  // silently paused the team for 8h one night on a laptop. Allow battery runs
+  // and catch up after sleep.
+  const ps = `$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable; Set-ScheduledTask -TaskName '${TASK_NAME}' -Settings $s | Out-Null; 'battery runs allowed'`
+  const b = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { encoding: 'utf8', windowsHide: true })
+  const out = String(b.stdout || b.stderr || b.error?.message || '').trim()
+  if (b.status !== 0) console.warn(`warning: could not allow battery runs for the watchdog task: ${out}`)
+  else console.log(out)
 }
 
 function uninstall() {

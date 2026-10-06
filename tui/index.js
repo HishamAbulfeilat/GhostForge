@@ -20,9 +20,11 @@ import { fileURLToPath } from 'url';
 import { filterMenuChoices, groupCommandChoices } from './lib/menu-search.js';
 import { readRecentCommands, rememberCommand } from './lib/recent-commands.js';
 import { applyEffectiveMarketplaceState } from './lib/marketplace-state.js';
+import { resolveInstallCommand, explainMissingCommand } from '../marketplace/install-commands.mjs';
 import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP } from './lib/platform-utils.js';
 import { askGFAI } from './lib/gfai-client.js';
 import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
+import { escapeAppleScriptString } from './lib/applescript.js';
 import { runTeamCommand, startAgentTeam } from './lib/agent-team.js';
 import { parseArgs as parseUsersArgs, request as requestUsersApi } from '../scripts/users.mjs';
 
@@ -83,7 +85,7 @@ function safeCollabText(value) {
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
 }
 
-async function collabBridgeRequest(pathname, init = {}) {
+async function collabBridgeRequest(pathname, { timeoutMs = 8000, ...init } = {}) {
   const { baseUrl, token } = collabBridgeConfig();
   let response;
   try {
@@ -94,7 +96,7 @@ async function collabBridgeRequest(pathname, init = {}) {
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...init.headers,
       },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     if (error.name === 'TimeoutError') throw new Error('The collaboration bridge request timed out.');
@@ -110,7 +112,8 @@ async function collabBridgeRequest(pathname, init = {}) {
   }
   const body = parsedBody && typeof parsedBody === 'object' ? parsedBody : {};
   if (!response.ok) {
-    throw new Error(safeCollabText(body.detail || body.error || `Bridge request failed (${response.status}).`));
+    const detail = body.detail && typeof body.detail === 'object' ? body.detail.error : body.detail;
+    throw new Error(safeCollabText(detail || body.error || `Bridge request failed (${response.status}).`));
   }
   return body.data ?? body;
 }
@@ -737,10 +740,362 @@ async function screenWebhooks() {
   }
 }
 
+const MEMORY_USER_ID = 'default';
+const MEMORY_LIST_LIMIT = 20;
+
+function memoryErrorMessage(error) {
+  const message = safeCollabText(error?.message || 'Memory request failed.');
+  if (/^Could not reach the collaboration bridge|timed out/.test(message)) {
+    return 'Bridge offline: cannot reach the GhostForge bridge on :8765. Start it with mark-l-bridge/start.sh and retry.';
+  }
+  return message;
+}
+
+function printMemories(memories, limit = MEMORY_LIST_LIMIT) {
+  if (!memories.length) {
+    console.log(T.muted('\n  No memories found.'));
+    return;
+  }
+  console.log('');
+  for (const memory of memories.slice(0, limit)) {
+    const meta = memory?.metadata && typeof memory.metadata === 'object' ? memory.metadata : {};
+    const text = safeCollabText(memory?.memory ?? memory?.content ?? '').slice(0, 160);
+    const category = safeCollabText(meta.category || '');
+    console.log(`  ${T.accent(safeCollabText(memory?.id || '?'))}${category ? T.muted(` [${category}]`) : ''}`);
+    console.log(`    ${text}`);
+  }
+  if (memories.length > limit) console.log(T.muted(`\n  … ${memories.length - limit} more not shown`));
+}
+
+async function screenMemory() {
+  while (true) {
+    sectionHeader('🧠  Memory', 'List, search, add and delete JARVIS memories via the bridge');
+    const action = await select({
+      message: T.white('Memory action:'),
+      choices: [
+        { name: T.success('📋  List recent memories'), value: 'list' },
+        { name: T.accent('🔍  Semantic search'), value: 'search' },
+        { name: T.brand('➕  Add memory'), value: 'add' },
+        { name: T.danger('🗑️   Delete memory'), value: 'delete' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+
+    try {
+      if (action === 'list') {
+        const result = await collabBridgeRequest(`/api/mark-l/memory/list/${encodeURIComponent(MEMORY_USER_ID)}`);
+        const memories = Array.isArray(result) ? result : [];
+        const created = m => String(m?.metadata?.created_at || m?.created_at || '');
+        memories.sort((a, b) => created(b).localeCompare(created(a)));
+        printMemories(memories);
+      } else if (action === 'search') {
+        const query = (await input({ message: 'Search query:' })).trim();
+        if (!query) continue;
+        const result = await collabBridgeRequest('/api/mark-l/memory/search', {
+          method: 'POST',
+          body: JSON.stringify({ query, user_id: MEMORY_USER_ID, top_k: 5 }),
+        });
+        printMemories(Array.isArray(result) ? result : []);
+      } else if (action === 'add') {
+        const content = (await input({ message: 'Memory to store:' })).trim();
+        if (!content) continue;
+        const result = await collabBridgeRequest('/api/mark-l/memory/add', {
+          method: 'POST',
+          body: JSON.stringify({ content, user_id: MEMORY_USER_ID }),
+        });
+        console.log(T.success(`\n  ✔ Memory saved${result?.id ? ` (${safeCollabText(result.id)})` : ''}.`));
+      } else if (action === 'delete') {
+        const id = (await input({ message: 'Memory id to delete:' })).trim();
+        if (!id) continue;
+        const approved = await confirm({ message: `Delete memory ${safeCollabText(id)}?`, default: false });
+        if (!approved) continue;
+        await collabBridgeRequest(`/api/mark-l/memory/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        console.log(T.success('\n  ✔ Memory deleted.'));
+      }
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${memoryErrorMessage(error)}`));
+    }
+    await pressEnter();
+  }
+}
+
+const OPENJARVIS_OUTPUT_LIMIT = 4000;
+
+function openJarvisErrorMessage(error) {
+  const message = safeCollabText(error?.message || 'OpenJarvis request failed.');
+  if (/^Could not reach the collaboration bridge|timed out/.test(message) && !/openjarvis/i.test(message)) {
+    return 'Bridge offline: cannot reach the GhostForge bridge on :8765. Start it with mark-l-bridge/start.sh and retry.';
+  }
+  if (/not installed or available/i.test(message)) {
+    return 'OpenJarvis is not installed: the `jarvis` CLI is not on the bridge PATH. Install it from the Marketplace (openjarvis) and restart the bridge.';
+  }
+  return message;
+}
+
+// Multi-line output keeps newlines/tabs; every other control or ANSI sequence is stripped.
+function openJarvisText(value) {
+  return String(value ?? '')
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, ' ')
+    .slice(0, OPENJARVIS_OUTPUT_LIMIT)
+    .split('\n')
+    .map(line => `  ${line}`)
+    .join('\n');
+}
+
+async function screenOpenJarvis() {
+  while (true) {
+    sectionHeader('🤖  OpenJarvis', 'Health, doctor and ask for the local OpenJarvis agent via the bridge');
+    const action = await select({
+      message: T.white('OpenJarvis action:'),
+      choices: [
+        { name: T.success('💚  Health'), value: 'health' },
+        { name: T.cyan('🩺  Doctor'), value: 'doctor' },
+        { name: T.accent('💬  Ask'), value: 'ask' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+
+    try {
+      if (action === 'health') {
+        const result = await collabBridgeRequest('/api/openjarvis/health');
+        if (result?.installed) {
+          console.log(T.success('\n  ✔ OpenJarvis is installed.'));
+          if (result.binary) console.log(T.muted(`  Binary: ${safeCollabText(result.binary)}`));
+        } else {
+          console.log(T.warning('\n  ⚠ OpenJarvis is not installed (the `jarvis` CLI is not on the bridge PATH).'));
+          console.log(T.muted('  Install it from the Marketplace (openjarvis) and restart the bridge.'));
+        }
+      } else if (action === 'doctor') {
+        console.log(T.muted('\n  Running jarvis doctor…'));
+        const result = await collabBridgeRequest('/api/openjarvis/doctor', { timeoutMs: 40000 });
+        console.log(`\n${openJarvisText(typeof result === 'string' ? result : JSON.stringify(result, null, 2))}`);
+      } else if (action === 'ask') {
+        const prompt = (await input({ message: 'Ask OpenJarvis:' })).trim();
+        if (!prompt) continue;
+        if (prompt.length > 4000) {
+          console.log(T.warning('\n  ⚠ Prompt is too long (max 4000 characters).'));
+        } else {
+          console.log(T.muted('\n  Thinking…'));
+          const result = await collabBridgeRequest('/api/openjarvis/ask', {
+            method: 'POST',
+            body: JSON.stringify({ prompt, timeout_s: 60 }),
+            timeoutMs: 70000,
+          });
+          console.log(`\n${openJarvisText(result?.response ?? '(empty response)')}`);
+        }
+      }
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${openJarvisErrorMessage(error)}`));
+    }
+    await pressEnter();
+  }
+}
+
+const CHAIN_ACTIONS = ['code', 'research', 'browse', 'model', 'memory', 'general'];
+const CHAIN_MAX_STEPS = 5;
+const CHAIN_MESSAGE_LIMIT = 2000;
+
+function chainErrorMessage(error) {
+  const message = safeCollabText(error?.message || 'Chat chain request failed.');
+  if (/^Could not reach the collaboration bridge|timed out/.test(message)) {
+    return 'Bridge offline: cannot reach the GhostForge bridge on :8765. Start it with mark-l-bridge/start.sh and retry.';
+  }
+  if (/\b401\b|unauthori[sz]ed|invalid token|not authenticated/i.test(message)) {
+    return 'Bridge rejected the token (401). Check MARKL_BRIDGE_TOKEN or ~/.ghostforge/bridge/token.';
+  }
+  return message;
+}
+
+function chainStepText(result) {
+  const out = result?.response ?? result?.results ?? result;
+  return openJarvisText(typeof out === 'string' ? out : JSON.stringify(out ?? '(empty)', null, 2));
+}
+
+async function screenChatChain() {
+  while (true) {
+    sectionHeader('⛓️  Chat Chain', 'Run a multi-step, multi-model chain through the bridge; each step feeds the next');
+    const steps = [];
+    while (steps.length < CHAIN_MAX_STEPS) {
+      const action = await select({
+        message: T.white(`Step ${steps.length + 1} action:`),
+        choices: [
+          ...CHAIN_ACTIONS.map(value => ({ name: T.accent(value), value })),
+          ...(steps.length ? [{ name: T.success('▶  Run chain'), value: '__run__' }] : []),
+          { name: T.muted(steps.length ? '✖  Cancel chain' : '← Back'), value: '__back__' },
+        ],
+      });
+      if (action === '__back__') { steps.length = 0; break; }
+      if (action === '__run__') break;
+      const message = (await input({ message: `Step ${steps.length + 1} message:` })).trim();
+      if (!message) continue;
+      if (message.length > CHAIN_MESSAGE_LIMIT) {
+        console.log(T.warning(`\n  ⚠ Message is too long (max ${CHAIN_MESSAGE_LIMIT} characters).`));
+        continue;
+      }
+      steps.push({ action, message });
+    }
+    if (!steps.length) return;
+
+    try {
+      console.log(T.muted(`\n  Running ${steps.length}-step chain…`));
+      const result = await collabBridgeRequest('/api/mark-l/chat/chain', {
+        method: 'POST',
+        body: JSON.stringify({ steps }),
+        timeoutMs: 120000,
+      });
+      const results = Array.isArray(result?.results) ? result.results : [];
+      if (!results.length) console.log(T.muted('\n  (no results)'));
+      for (const item of results) {
+        console.log(`\n  ${T.accent(`Step ${Number(item?.step) + 1}`)} ${T.muted(`[${safeCollabText(item?.action)}]`)}`);
+        console.log(chainStepText(item?.result));
+      }
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${chainErrorMessage(error)}`));
+    }
+    await pressEnter();
+  }
+}
+
+const BRIEFING_PROACTIVE_SILENCE_MS =30 * 60 * 1000;
+
+function briefingWebOrigin() {
+  const base = process.env.GF_WEB_UI_URL?.trim() || 'http://127.0.0.1:3000';
+  let webUrl;
+  try {
+    webUrl = new URL(base);
+  } catch {
+    throw new Error('GF_WEB_UI_URL must be an absolute http(s) URL.');
+  }
+  if (!['http:', 'https:'].includes(webUrl.protocol) || webUrl.username || webUrl.password ||
+      !['', '/'].includes(webUrl.pathname) || webUrl.search || webUrl.hash) {
+    throw new Error('GF_WEB_UI_URL must contain only an http(s) scheme, host, and optional port.');
+  }
+  return webUrl.origin;
+}
+
+// Fetches a /api/jarvis/* route from the web UI (the same routes the web
+// briefing uses). The routes are cookie-authed; GF_WEB_UI_TOKEN is the gf_token
+// session value. It is sent only as a header and never printed.
+async function briefingWebRequest(pathname) {
+  const origin = briefingWebOrigin();
+  const token = process.env.GF_WEB_UI_TOKEN?.trim();
+  if (token && /[\r\n;]/.test(token)) throw new Error('GF_WEB_UI_TOKEN contains invalid characters.');
+  let response;
+  try {
+    response = await fetch(`${origin}${pathname}`, {
+      headers: token ? { Cookie: `gf_token=${token}` } : {},
+      signal: AbortSignal.timeout(15000),
+    });
+  } catch (error) {
+    const offline = new Error(error.name === 'TimeoutError'
+      ? 'The web UI request timed out.'
+      : `Web UI offline: cannot reach ${origin}. Start it with "cd web-ui && npm run dev" (or set GF_WEB_UI_URL).`);
+    offline.offline = true;
+    throw offline;
+  }
+  if (response.status === 401) {
+    throw new Error('Web UI rejected the request (401). Set GF_WEB_UI_TOKEN to your gf_token session cookie value and retry.');
+  }
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    body = {};
+  }
+  if (!response.ok) throw new Error(safeCollabText(body?.error || `Web UI request failed (${response.status}).`));
+  return body && typeof body === 'object' ? body : {};
+}
+
+async function screenBriefing() {
+  while (true) {
+    sectionHeader('☀️  Morning Briefing & Inbox', 'Greeting, weather, news and proactive check-in from JARVIS');
+    const action = await select({
+      message: T.white('Briefing action:'),
+      choices: [
+        { name: T.success('☀️   Show morning briefing'), value: 'morning' },
+        { name: T.accent('📥  Proactive inbox (check-in suggestion)'), value: 'proactive' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') return;
+
+    try {
+      if (action === 'morning') {
+        const data = await briefingWebRequest('/api/jarvis/morning');
+        console.log('');
+        console.log(`  ${T.brand(safeCollabText(data.greeting || 'Hello.'))}${data.time ? T.muted(`  (${safeCollabText(data.time)})`) : ''}`);
+        if (data.weather) console.log(`\n  ${T.accent('Weather')}  ${safeCollabText(data.weather)}`);
+        const news = Array.isArray(data.news) ? data.news : [];
+        if (news.length) {
+          console.log(`\n  ${T.accent('News')}`);
+          for (const item of news.slice(0, 5)) console.log(`    • ${safeCollabText(item).slice(0, 200)}`);
+        }
+        if (data.advice) console.log(`\n  ${T.accent('Advice')}  ${safeCollabText(data.advice)}`);
+      } else {
+        const lastTopic = (await input({ message: 'Last topic (optional):' })).trim().slice(0, 200);
+        const qs = new URLSearchParams({ silenceMs: String(BRIEFING_PROACTIVE_SILENCE_MS) });
+        if (lastTopic) qs.set('lastTopic', lastTopic);
+        const data = await briefingWebRequest(`/api/jarvis/proactive?${qs}`);
+        if (data.shouldPrompt && data.suggestion) {
+          console.log(`\n  ${T.accent('Inbox')}  ${safeCollabText(data.suggestion)}`);
+        } else {
+          console.log(T.muted('\n  Inbox empty: nothing to suggest right now.'));
+        }
+      }
+    } catch (error) {
+      console.log(T.warning(`\n  ⚠ ${safeCollabText(error?.message || 'Briefing request failed.')}`));
+    }
+    await pressEnter();
+  }
+}
+
 function safeUsersText(value) {
   return String(value ?? '')
     .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+}
+
+async function screenWorlds() {
+  while (true) {
+    sectionHeader('🌍  Agent Worlds', 'Manage the local AI Town and Agent Office world apps');
+    const world = await select({
+      message: T.white('World:'),
+      choices: [
+        { name: T.white('AI Town      (a16z-infra/ai-town)'), value: 'ai-town' },
+        { name: T.white('Agent Office (harishkotra/agent-office)'), value: 'agent-office' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (world === 'back') return;
+    const label = world === 'ai-town' ? 'AI Town' : 'Agent Office';
+    const action = await select({
+      message: T.white(`${label} action:`),
+      choices: [
+        { name: T.success(`▶  Start ${label}`), value: 'start' },
+        { name: T.warning(`■  Stop ${label}`), value: 'stop' },
+        { name: T.accent(`●  Check ${label} status`), value: 'status' },
+        { name: T.muted(`⚙  Set up ${label} (clone pinned commit + install)`), value: 'setup' },
+        { name: T.muted('← Back'), value: 'back' },
+      ],
+    });
+    if (action === 'back') continue;
+
+    const result = spawnSync(process.execPath, [resolve(ROOT, 'scripts/worlds.mjs'), action, world], {
+      cwd: ROOT,
+      stdio: 'inherit',
+      windowsHide: true,
+    });
+    if (result.error) {
+      console.log(T.danger(`\n  ✖  Could not run ${label} ${action}: ${result.error.message}`));
+    } else if (result.status !== 0) {
+      console.log(T.warning(`\n  ⚠  ${label} command did not complete successfully.`));
+    }
+    await pressEnter();
+  }
 }
 
 async function screenUsers() {
@@ -1379,6 +1734,11 @@ async function screenHome() {
       menuChoice(T.accent.bold,  '🤝  Collaboration & Sharing',   'create or join sessions · send messages · copy share links', 'collaboration'),
       menuChoice(T.accent.bold,  '👥  User Administration',       'list users · owner-only role, status, and permission controls', 'users'),
       menuChoice(T.accent.bold,  '🔁  Workflows',                  'review saved workflows · run bounded, allowlisted steps', 'workflows'),
+      menuChoice(T.accent.bold,  '🧠  Memory',                    'list · search · add · delete JARVIS memories via the bridge', 'memory'),
+      menuChoice(T.accent.bold,  '🤖  OpenJarvis',                'health · doctor · ask the local OpenJarvis agent via the bridge', 'openjarvis'),
+      menuChoice(T.accent.bold,  '⛓️  Chat Chain',                'multi-step, multi-model routing: chain code · research · model steps via the bridge', 'chatchain'),
+      menuChoice(T.accent.bold,  '☀️  Morning Briefing & Inbox', 'daily briefing · weather · news · proactive check-in', 'briefing'),
+      menuChoice(T.cyan.bold,    '🌍  Agent Worlds',             'start, stop, and check AI Town and Agent Office', 'worlds'),
       menuChoice(T.accent.bold,  '⚡  n8n Automation',             'list and safely trigger active workflow webhooks', 'n8n'),
       menuChoice(T.accent.bold,  '🪝  Webhooks',                   'inspect triggers · replace config · review logs', 'webhooks'),
       menuChoice(T.accent.bold,  '📱  AppMorphy',                 'convert website → Android APK (cloud build)', 'appmorphy'),
@@ -2501,7 +2861,7 @@ async function screenJarvis() {
   if (action === 'imessage') {
     const contact = await input({ message: 'Contact name:' });
     const msg     = await input({ message: 'Message:' });
-    const script = `tell application "Messages"\n  try\n    set s to 1st service whose service type = iMessage\n    send "${msg.replace(/"/g,'\\"')}" to buddy "${contact.replace(/"/g,'\\"')}" of s\n    return "sent"\n  on error e\n    return e\n  end try\nend tell`;
+    const script = `tell application "Messages"\n  try\n    set s to 1st service whose service type = iMessage\n    send "${escapeAppleScriptString(msg)}" to buddy "${escapeAppleScriptString(contact)}" of s\n    return "sent"\n  on error e\n    return e\n  end try\nend tell`;
     await runAppleScript(script); return;
   }
 }
@@ -2618,7 +2978,7 @@ async function screenMacCleanup() {
       const body = JSON.stringify({ message: 'clean up my mac, remove temp files, clear cache, free memory', platform: 'mac' });
       const req = http.request({
         hostname: 'localhost', port: 3001, path: '/api/jarvis',
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Cookie: 'gf_token=2001' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Cookie: `gf_token=${process.env.GHOSTFORGE_TOKEN || ''}` },
       }, (res) => {
         let d = '';
         res.on('data', c => d += c);
@@ -2659,7 +3019,7 @@ async function screenModelSelect() {
     const { default: http } = await import('http');
     availableModels = await new Promise((resolve) => {
       const req = http.get('http://localhost:3001/api/jarvis/models', {
-        headers: { Cookie: 'gf_token=2001' },
+        headers: { Cookie: `gf_token=${process.env.GHOSTFORGE_TOKEN || ''}` },
       }, (res) => {
         let data = '';
         res.on('data', c => data += c);
@@ -2905,7 +3265,7 @@ async function screenMacControl() {
   if (action === 'notify') {
     const title = await input({ message: 'Notification title:', default: 'GhostForge' });
     const msg   = await input({ message: 'Message:' });
-    await runAppleScript(`display notification "${msg.replace(/"/g, '\\"')}" with title "${title.replace(/"/g, '\\"')}"`);
+    await runAppleScript(`display notification "${escapeAppleScriptString(msg)}" with title "${escapeAppleScriptString(title)}"`);
     return;
   }
 
@@ -2915,9 +3275,9 @@ async function screenMacControl() {
     const script = `tell application "Messages"
   try
     set targetService to 1st service whose service type = iMessage
-    set targetBuddy to buddy "${contact.replace(/"/g, '\\"')}" of targetService
-    send "${msg.replace(/"/g, '\\"')}" to targetBuddy
-    display notification "Message sent to ${contact.replace(/"/g, '\\"')}" with title "GhostForge"
+    set targetBuddy to buddy "${escapeAppleScriptString(contact)}" of targetService
+    send "${escapeAppleScriptString(msg)}" to targetBuddy
+    display notification "Message sent to ${escapeAppleScriptString(contact)}" with title "GhostForge"
   on error errMsg
     display notification errMsg with title "GhostForge — iMessage Error"
   end try
@@ -2936,14 +3296,14 @@ tell application "System Events"
     try
       keystroke "k" using command down
       delay 0.8
-      keystroke "${contact.replace(/"/g, '\\"')}"
+      keystroke "${escapeAppleScriptString(contact)}"
       delay 1.5
       key code 36
       delay 0.8
-      keystroke "${msg.replace(/"/g, '\\"')}"
+      keystroke "${escapeAppleScriptString(msg)}"
       delay 0.3
       key code 36
-      display notification "Message sent to ${contact.replace(/"/g, '\\"')}" with title "GhostForge"
+      display notification "Message sent to ${escapeAppleScriptString(contact)}" with title "GhostForge"
     on error errMsg
       display notification errMsg with title "GhostForge — Teams Error"
     end try
@@ -2955,6 +3315,7 @@ end tell`;
 }
 
 async function runAppleScript(script) {
+  const { execFileSync } = await import('child_process');
   const { writeFileSync, unlinkSync } = await import('fs');
   const { tmpdir } = await import('os');
   const { join } = await import('path');
@@ -2962,7 +3323,9 @@ async function runAppleScript(script) {
   try {
     writeFileSync(tmpPath, script, 'utf8');
     console.log(T.muted('\n  Running AppleScript...\n'));
-    const result = execSync(`osascript "${tmpPath}" 2>&1`, { encoding: 'utf8', timeout: 20000 }).trim();
+    // execFileSync with an argv array: the path never reaches a shell parser,
+    // so a cwd or tmpdir containing shell metacharacters cannot be executed.
+    const result = execFileSync('osascript', [tmpPath], { encoding: 'utf8', timeout: 20000 }).trim();
     if (result) console.log(T.success(`  Result: ${result}\n`));
     else console.log(T.success('  ✓ Script ran successfully\n'));
   } catch (e) {
@@ -3601,9 +3964,10 @@ async function screenMarketplace() {
     if (item) {
       console.log();
       console.log(T.brand.bold(`  Installing: ${item.name}...`));
-      const platformInstallCommand = (process.platform === 'win32' && item.install_command_windows)
-        ? item.install_command_windows
-        : item.install_command;
+      // Never fall back to the POSIX command on Windows: execSync would hand a
+      // brew/apt one-liner to cmd.exe. No command for this platform means the
+      // item links out instead (see explainMissingCommand).
+      const platformInstallCommand = resolveInstallCommand(item);
       if (platformInstallCommand) {
         console.log(T.muted(`  Running: ${platformInstallCommand}`));
         try {
@@ -3657,21 +4021,24 @@ async function screenMarketplace() {
       console.log(T.dim(`  ${item.description}`));
       if (item.installed) {
         console.log(T.success('\n  ✅ Already installed.'));
-      } else if (item.install_command) {
+      } else {
         // Security tools: show the command for review rather than piping
         // catalog data straight into a shell. Copy/paste to run.
-        const platformInstallCommand = (process.platform === 'win32' && item.install_command_windows)
-          ? item.install_command_windows
-          : item.install_command;
-        console.log(T.yellow('\n  Install command (review, then run in your shell):'));
-        console.log(T.cyan(`    ${platformInstallCommand}`));
-        const mark = await confirm({ message: 'Mark as installed?', default: false });
-        if (mark) {
-          item.installed = true;
-          installedSet.add(item.id); removedSet.delete(item.id);
-          registry.installed = [...installedSet]; registry.removed = [...removedSet];
-          writeFileSync(registryPath, JSON.stringify(registry, null, 2));
-          console.log(T.success(`  ✅ Marked ${item.name} as installed.`));
+        const platformInstallCommand = resolveInstallCommand(item);
+        if (platformInstallCommand) {
+          console.log(T.yellow('\n  Install command (review, then run in your shell):'));
+          console.log(T.cyan(`    ${platformInstallCommand}`));
+          const mark = await confirm({ message: 'Mark as installed?', default: false });
+          if (mark) {
+            item.installed = true;
+            installedSet.add(item.id); removedSet.delete(item.id);
+            registry.installed = [...installedSet]; registry.removed = [...removedSet];
+            writeFileSync(registryPath, JSON.stringify(registry, null, 2));
+            console.log(T.success(`  ✅ Marked ${item.name} as installed.`));
+          }
+        } else {
+          const hint = explainMissingCommand(item);
+          if (hint) console.log(T.muted(`\n  ${hint}`));
         }
       }
       if (item.url) {
@@ -7218,9 +7585,14 @@ async function screenDesignResources() {
     if (site.trim()) {
       const spinner = ora(`Fetching ${site} DESIGN.md...`).start();
       try {
-        const { execSync } = require('child_process');
-        execSync(`curl -fsSL "https://raw.githubusercontent.com/VoltAgent/awesome-design-md/main/design-md/${site.trim().toLowerCase()}/DESIGN.md" -o "${process.cwd()}/DESIGN.md"`, { stdio: 'pipe' });
-        spinner.succeed(`DESIGN.md for ${site} saved to ${process.cwd()}/DESIGN.md`);
+        const { execFileSync } = await import('child_process');
+        // argv array, no shell: the site slug and the destination path are
+        // passed as separate arguments, so neither can inject a command.
+        const slug = site.trim().toLowerCase();
+        const dest = resolve(process.cwd(), 'DESIGN.md');
+        const url = `https://raw.githubusercontent.com/VoltAgent/awesome-design-md/main/design-md/${encodeURIComponent(slug)}/DESIGN.md`;
+        execFileSync('curl', ['-fsSL', url, '-o', dest], { stdio: 'pipe' });
+        spinner.succeed(`DESIGN.md for ${site} saved to ${dest}`);
         console.log(chalk.green('\n✓ AI agents in this project will now use this design system!'));
       } catch {
         spinner.fail(`Could not fetch DESIGN.md for "${site}". Check spelling.`);
@@ -7300,7 +7672,8 @@ async function screenVigolium() {
   // Check if installed
   let installed = false;
   try {
-    require('child_process').execSync('vigolium --version 2>/dev/null', { stdio: 'pipe' });
+    const { execFileSync } = await import('child_process');
+    execFileSync('vigolium', ['--version'], { stdio: 'pipe' });
     installed = true;
   } catch { /* not installed */ }
 
@@ -7341,7 +7714,11 @@ async function screenVigolium() {
   if (action === 'install') {
     const spinner = ora('Installing @vigolium/vigolium via npm...').start();
     try {
-      require('child_process').execSync('npm install -g @vigolium/vigolium', { stdio: 'pipe', timeout: 120000 });
+      const { execFileSync } = await import('child_process');
+      // npm is a .cmd shim on Windows: execFileSync('npm') is ENOENT and
+      // execFileSync('npm.cmd') is EINVAL (CVE-2024-27980 guard) without a
+      // shell. Every argument is a static literal, so a shell there is safe.
+      execFileSync('npm', ['install', '-g', '@vigolium/vigolium'], { stdio: 'pipe', timeout: 120000, shell: process.platform === 'win32' });
       spinner.succeed('Vigolium installed! Run: vigolium --help');
     } catch (e) {
       spinner.fail('npm install failed');
@@ -7381,8 +7758,9 @@ async function screenVigolium() {
       console.log(chalk.yellow('⚠ Vigolium not installed. Install first, then run:\n'));
       console.log(chalk.cyan(`  vigolium scan -t "${target}" --strategy ${strategy}`));
     } else {
-      const { exec } = require('child_process');
-      const child = exec(`vigolium scan -t "${target}" --strategy ${strategy}`, { timeout: 600000 });
+      const { spawn } = await import('child_process');
+      // argv array, no shell: `target` cannot break out of the command.
+      const child = spawn('vigolium', ['scan', '-t', target, '--strategy', strategy], { stdio: ['inherit', 'pipe', 'pipe'], timeout: 600000 });
       child.stdout.on('data', d => process.stdout.write(d));
       child.stderr.on('data', d => process.stderr.write(d));
       await new Promise(res => child.on('exit', res));
@@ -7557,6 +7935,11 @@ async function main() {
         case 'collaboration': await screenCollaboration(); break;
         case 'users':         await screenUsers(); break;
         case 'workflows':     await screenWorkflows(); break;
+        case 'worlds':        await screenWorlds(); break;
+        case 'memory':        await screenMemory(); break;
+        case 'openjarvis':    await screenOpenJarvis(); break;
+        case 'chatchain':     await screenChatChain(); break;
+        case 'briefing':      await screenBriefing(); break;
         case 'n8n':            await screenN8n(); break;
         case 'webhooks':      await screenWebhooks(); break;
         case 'freeapis':     await screenFreeAPIs(); break;

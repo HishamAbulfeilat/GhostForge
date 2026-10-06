@@ -54,3 +54,47 @@ There is no patched upstream release of the library available in the current
 project ecosystem, and a replacement would require a broader TUI dashboard
 rewrite outside the scope of this targeted security sweep.
 **Status**: Accepted
+
+## ADR-007: electron-app — override @electron/get to 5.x to clear the http-cache-semantics advisory
+**Date**: 2026-10-04
+**Decision**: Add an `overrides` entry pinning `@electron/get` to `^5.1.0` in
+`electron-app/package.json`, and do NOT apply the fix `npm audit` proposes.
+`mcp/` needed no change (0 vulnerabilities).
+**Reason**: All 8 high-severity findings in `electron-app` collapse to a single
+advisory, GHSA-ch52-4w7c-c8xp in `http-cache-semantics@4.2.0`, reached only
+through the build-time chain
+`electron-builder -> app-builder-lib -> @electron/get@3 -> got -> cacheable-request -> http-cache-semantics`.
+Two facts drove the decision:
+
+1. **No upstream fix exists.** The advisory reports
+   `vulnerable_version_range: "<= 4.2.0"` with `first_patched_version: null`,
+   and `http-cache-semantics@4.2.0` is the newest published version. npm's own
+   vulnerable range for the package is `*`. There is no version to upgrade to,
+   so the fix has to remove the package from the tree, not update it.
+2. **The fix npm suggests makes things worse.** `npm audit fix --force` offers
+   to install `electron-builder@26.5.0`, a *downgrade* from the pinned
+   `^26.15.3`. Measured on a clean lockfile, that resolves to 14 vulnerabilities
+   (13 high, **1 critical**) versus 8 high at the current version. Every newer
+   `app-builder-lib` (26.15.7, 26.16.1, 26.17.0) still depends on
+   `@electron/get@^3.0.0`, so no electron-builder upgrade escapes the chain.
+
+`@electron/get@5.x` dropped its `got` dependency entirely, which severs the
+chain at its only reachable source. The override removes `got`,
+`cacheable-request` and `http-cache-semantics` from the tree (618 lines of
+lockfile) and takes the audit to 0.
+
+**Why this is safe rather than just quiet:** `@electron/get` 3→5 is a major bump,
+so the override was checked against the one call site that consumes it.
+`app-builder-lib/out/binDownload.js` imports `downloadArtifact` and
+`ElectronDownloadCacheMode`; both exist in 5.1.0 with unchanged signatures
+(`downloadArtifact(details) => Promise<string>`). v5 is ESM-only while v3 is
+CJS, but app-builder-lib already reaches it through
+`helpers/dynamic-import.js`, a native `import()` helper added specifically so
+ESM-only packages do not get collapsed to `require()` by TypeScript's CommonJS
+transform — so the ESM switch is the path it was already built to handle. The
+override is verified by the electron-app suite, whose `headless-smoke` test
+launches the real Electron binary rather than mocking the download.
+**Reachability**: build-time only. `@electron/get` is a `devDependencies` path
+used when electron-builder downloads platform binaries for packaging; it is not
+in the shipped app bundle and no shipped code path reaches it.
+**Status**: Accepted

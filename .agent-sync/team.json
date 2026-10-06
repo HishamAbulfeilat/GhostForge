@@ -1,9 +1,13 @@
 {
   "$comment": "Agent team config — read by scripts/agents/boss.mjs. Paths are relative to the repo root. Models: a tier table per provider (deep/balanced/fast); 'auto' lets the provider choose. Task kind → tier lives in scripts/agents/lib/models.mjs.",
   "boss": {
-    "provider": "copilot",
-    "model": "auto",
-    "review": true
+    "provider": "claude",
+    "model": "opus",
+    "reviewModel": "sonnet",
+    "planModel": "opus",
+    "deepReviewOverLines": 600,
+    "review": true,
+    "fallback": null
   },
   "integration": {
     "branch": "agent/integration",
@@ -13,22 +17,29 @@
   "agents": {
     "claude": {
       "provider": "claude",
-      "enabled": false,
+      "enabled": true,
       "worktree": "../gf-claude",
       "branch": "agent/claude/work",
       "strengths": [
-        "plan",
-        "architecture",
         "security",
+        "architecture",
+        "plan",
         "review",
+        "bugfix",
         "refactor",
         "test",
-        "bugfix"
-      ]
+        "feature"
+      ],
+      "role": "lead engineer: security, architecture, hard bugs",
+      "models": {
+        "deep": "opus",
+        "balanced": "opus",
+        "fast": "sonnet"
+      }
     },
     "copilot-tui": {
       "provider": "copilot",
-      "enabled": true,
+      "enabled": false,
       "worktree": "../gf-boss-tui",
       "branch": "agent/copilot/boss-tui",
       "strengths": [
@@ -39,7 +50,7 @@
     },
     "copilot-desktop": {
       "provider": "copilot",
-      "enabled": true,
+      "enabled": false,
       "worktree": "../gf-boss-desktop",
       "branch": "agent/copilot/boss-desktop",
       "strengths": [
@@ -50,7 +61,7 @@
     },
     "copilot-web": {
       "provider": "copilot",
-      "enabled": true,
+      "enabled": false,
       "worktree": "../gf-boss-web",
       "branch": "agent/copilot/boss-web",
       "strengths": [
@@ -62,7 +73,7 @@
     },
     "copilot-integration": {
       "provider": "copilot",
-      "enabled": true,
+      "enabled": false,
       "worktree": "../gf-boss-integration",
       "branch": "agent/copilot/boss-integration",
       "strengths": [
@@ -73,7 +84,7 @@
     },
     "copilot-quality": {
       "provider": "copilot",
-      "enabled": true,
+      "enabled": false,
       "worktree": "../gf-boss-quality",
       "branch": "agent/copilot/boss-quality",
       "strengths": [
@@ -108,33 +119,44 @@
     },
     "claude-2": {
       "provider": "claude",
-      "enabled": false,
+      "enabled": true,
       "strengths": [
         "feature",
         "bugfix",
         "test",
-        "security",
         "refactor",
+        "security",
         "docs",
         "chore"
       ],
       "worktree": "../gf-claude-2",
-      "branch": "agent/claude/work-2"
+      "branch": "agent/claude/work-2",
+      "role": "feature engineer",
+      "models": {
+        "deep": "opus",
+        "balanced": "sonnet",
+        "fast": "sonnet"
+      }
     },
     "claude-3": {
       "provider": "claude",
-      "enabled": false,
+      "enabled": true,
       "strengths": [
-        "feature",
-        "bugfix",
-        "test",
-        "security",
-        "refactor",
         "docs",
-        "chore"
+        "chore",
+        "test",
+        "refactor",
+        "bugfix",
+        "feature"
       ],
       "worktree": "../gf-claude-3",
-      "branch": "agent/claude/work-3"
+      "branch": "agent/claude/work-3",
+      "role": "docs, chores and quick fixes",
+      "models": {
+        "deep": "opus",
+        "balanced": "sonnet",
+        "fast": "haiku"
+      }
     }
   },
   "models": {

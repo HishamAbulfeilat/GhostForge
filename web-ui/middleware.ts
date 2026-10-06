@@ -3,7 +3,10 @@ import { isValidAuthToken, AUTH_COOKIE } from '@/lib/auth-edge'
 
 const AUTH_COOKIE_NAME = AUTH_COOKIE
 
-// Routes that require authentication
+// Page routes that require authentication. Every top-level app/ section except
+// the public '/' and '/login' must be listed here (and in config.matcher below);
+// test/api-route-auth.test.js fails when a new section is left unprotected.
+// /api/* is NOT covered here — each API route handler guards itself in-route.
 const PROTECTED_PREFIXES = [
   '/chat',
   '/dashboard',
@@ -16,6 +19,32 @@ const PROTECTED_PREFIXES = [
   '/jarvis',
   '/users',
   '/workflows',
+  '/security',
+  '/testing',
+  '/code-health',
+  '/tickets',
+  '/api/tickets',
+  '/api/code-health',
+  '/agent-world',
+  '/agents',
+  '/api-docs',
+  '/api-types',
+  '/automation',
+  '/design-resources',
+  '/history',
+  '/jobs',
+  '/maintenance',
+  '/media-tools',
+  '/mock-api',
+  '/models',
+  '/notifications',
+  '/open-source-tools',
+  '/orchestrate',
+  '/remote',
+  '/setup',
+  '/snippets',
+  '/vigolium',
+  '/projects',
 ]
 
 export async function middleware(req: NextRequest) {
@@ -38,6 +67,7 @@ export async function middleware(req: NextRequest) {
   return NextResponse.next()
 }
 
+// Next.js requires a static literal here; keep it in sync with PROTECTED_PREFIXES.
 export const config = {
   matcher: [
     '/chat/:path*',
@@ -51,6 +81,32 @@ export const config = {
     '/jarvis/:path*',
     '/users/:path*',
     '/workflows/:path*',
+    '/security/:path*',
+    '/testing/:path*',
+    '/code-health/:path*',
+    '/tickets/:path*',
+    '/api/tickets/:path*',
+    '/api/code-health/:path*',
+    '/agent-world/:path*',
+    '/agents/:path*',
+    '/api-docs/:path*',
+    '/api-types/:path*',
+    '/automation/:path*',
+    '/design-resources/:path*',
+    '/history/:path*',
+    '/jobs/:path*',
+    '/maintenance/:path*',
+    '/media-tools/:path*',
+    '/mock-api/:path*',
+    '/models/:path*',
+    '/notifications/:path*',
+    '/open-source-tools/:path*',
+    '/orchestrate/:path*',
+    '/remote/:path*',
+    '/setup/:path*',
+    '/snippets/:path*',
+    '/vigolium/:path*',
+    '/projects/:path*',
   ],
 }
 

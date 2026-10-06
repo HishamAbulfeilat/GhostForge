@@ -3,6 +3,11 @@
   // Files knip flags as "unused" because they're referenced only via a
   // runtime string path (not a static import) or a bundler-specific
   // resolution order knip can't infer from the TypeScript project alone.
+  //
+  // Each entry below was confirmed by experiment, not assumed: moving the
+  // competing file aside and re-running knip changes the report. That
+  // distinction matters — the alternative reading ("this file is dead,
+  // delete it") would break working features.
   "ignore": [
     // Registered via `navigator.serviceWorker.register('/sw.js')` in
     // components/PWAInstallBanner.tsx — a string path, not an import.
@@ -14,6 +19,64 @@
     // `.ts` file for `@/lib/quick-actions` imports in the app (JARVIS
     // voice UI quick actions). Both are live, just for different
     // consumers/runtimes.
-    "lib/quick-actions.ts"
-  ]
+    "lib/quick-actions.ts",
+    // Same .js/.ts twin pattern as quick-actions, twice over: knip
+    // resolves `@/lib/agent-team-api` to the CommonJS `.js` twin, so it
+    // never sees the `.ts` twin's importers and reports the `.ts` as
+    // orphaned. Both twins are live and both are covered by tests —
+    //   .ts  → app/api/agents/route.ts, app/api/agents/templates/route.ts,
+    //          app/api/snippets/route.ts, app/agents/builder/**, and
+    //          test/agent-team-api.test.js (which requires the .js)
+    //   .js  → test/agent-team-api.test.js via require('../lib/agent-team-api.js')
+    // Verified: moving lib/agent-team-api.js aside makes this .ts drop
+    // off the report, which proves the mask rather than deadness.
+    "lib/agent-team-api.ts",
+    // Same twin pattern; `app/api/agents/templates/route.ts` imports the
+    // `.ts` through `@/lib/agent-workflow-templates`, while
+    // test/agent-workflow-templates{,-api}.test.js require the `.js`
+    // directly. Verified the same way.
+    "lib/agent-workflow-templates.ts",
+    // Loaded by test/command-palette-access.test.js, which passes the
+    // path as a *string* to the a11y harness (renderPage(FIXTURE, ...)).
+    // It is a real React page (wraps CommandPalette in AccessProvider),
+    // not a dead stub — the access-filtering tests render it.
+    "test/fixtures/command-palette-page.tsx",
+    // Unmodified upstream a16z ai-town source. vendor/ai-town/NOTICE.md
+    // pins the tree to a specific upstream commit so the local diff stays
+    // reviewable; deleting a file the upstream ships would be an
+    // undocumented vendor deviation. It is genuinely unreferenced by our
+    // scene code, which is the upstream's own dead surface, not ours.
+    "vendor/ai-town/src/components/PositionIndicator.tsx"
+  ],
+  // Unlisted binaries are all OS executables invoked via execFileSync /
+  // exec (ollama, websockify, wmic, pmset, screencapture, ipconfig), not
+  // npm packages. Listing them as deps would be wrong; knip cannot see a
+  // command name in a string and assume it is a bin.
+  "ignoreBinaries": [
+    "ollama",
+    "websockify",
+    "wmic",
+    "pmset",
+    "screencapture",
+    "ipconfig"
+  ],
+  // @nut-tree/nut-js is deliberately optional: lib/nutjs.js is CommonJS
+  // and lazily require()s it inside a try/catch so the app still runs when
+  // the native bindings are absent (macOS desktop automation falls back to
+  // AppleScript). Adding it to dependencies would force every install —
+  // including CI and Linux — to build native modules for a feature only
+  // macOS uses. The module's own header documents the manual install.
+  // @nut-tree-fork/nut-js is the maintained build of the same package, tried
+  // first (also by lib/remote/desktop.ts for Remote → Control this computer);
+  // it stays install-on-demand for the same reason, and because its old jimp
+  // dependency would add audit findings to every install.
+  //
+  // eslint-config-next IS used — eslint.config.mjs loads it through
+  // FlatCompat via `compat.extends('next/core-web-vitals', 'next/typescript')`,
+  // which is a runtime string, not an import knip can follow. Verified:
+  // `eslint --print-config` reports 21 active @next/* rules (e.g.
+  // @next/next/no-img-element), so dropping it would break `npm run lint`
+  // and the CI lint step, not slim them. knip 6 has no separate
+  // ignoreDevDependencies key, so both live in this one list.
+  "ignoreDependencies": ["@nut-tree/nut-js", "@nut-tree-fork/nut-js", "eslint-config-next"]
 }

@@ -30,7 +30,7 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # Mark-LIV (vendored JARVIS engine) provides the `actions`, `core` and `memory`
 # packages imported below. MARK_LIV_DIR overrides the vendored copy.
@@ -2591,6 +2591,233 @@ def remote_setup_post(req: RemoteSetupRequest):
 @app.get("/api/release", dependencies=[Depends(require_token)])
 def release_get():
     return _release_status()
+
+
+@app.get("/api/github/dashboard", dependencies=[Depends(require_token)])
+def github_dashboard_get():
+    """Read-only open issues, open PRs and recent workflow runs."""
+    import github_dashboard
+
+    return github_dashboard.dashboard()
+
+
+class SecurityScanRequest(BaseModel):
+    """Optional allowlisted scanner id; paths, args and env are never accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+    scanner: Optional[str] = None
+
+
+@app.get("/api/security-scan", dependencies=[Depends(require_token)])
+def security_scan_status():
+    """Which defensive scanners (gitleaks, osv-scanner, semgrep) are installed."""
+    import security_scan
+
+    return security_scan.status()
+
+
+@app.post("/api/security-scan", dependencies=[Depends(require_token)])
+def security_scan_run(req: Optional[SecurityScanRequest] = None):
+    """Run one allowlisted scanner (or all) against the repo root with a fixed argv."""
+    import security_scan
+
+    scanner = req.scanner if req else None
+    if scanner is not None and scanner not in security_scan.SCANNERS:
+        raise HTTPException(status_code=400, detail="Unknown scanner")
+    try:
+        return security_scan.run(scanner)
+    except security_scan.Busy:
+        raise HTTPException(status_code=409, detail="A security scan is already running") from None
+
+
+class CodeHealthRequest(BaseModel):
+    """Allowlisted script id only; paths, args and env are never accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+    script: str
+
+
+@app.get("/api/code-health", dependencies=[Depends(require_token)])
+def code_health_status():
+    """Which allowlisted code-health/coverage scripts can run."""
+    import code_health
+
+    return code_health.status()
+
+
+@app.post("/api/code-health", dependencies=[Depends(require_token)])
+def code_health_run(req: CodeHealthRequest):
+    """Run one allowlisted script (perf, bundle, unused, dep-health, coverage) with a fixed argv."""
+    import code_health
+
+    if req.script not in code_health.SCRIPTS:
+        raise HTTPException(status_code=400, detail="Unknown script")
+    try:
+        return code_health.run(req.script)
+    except code_health.Busy:
+        raise HTTPException(status_code=409, detail="A code-health run is already in progress") from None
+
+
+class TicketRunRequest(BaseModel):
+    """Allowlisted tool id plus its one argument; paths, args and env are never accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+    tool: str
+    action: str
+
+
+@app.get("/api/tickets", dependencies=[Depends(require_token)])
+def tickets_status():
+    """Which read-only ticket/Azure DevOps/estimate tools can run, and whether ado.sh is configured."""
+    import tickets
+
+    return tickets.status()
+
+
+@app.post("/api/tickets", dependencies=[Depends(require_token)])
+def tickets_run(req: TicketRunRequest):
+    """Run one allowlisted read-only tool (ticket, ado, estimate) with a fixed argv."""
+    import tickets
+
+    if req.tool not in tickets.TOOLS:
+        raise HTTPException(status_code=400, detail="Unknown tool")
+    try:
+        return tickets.run(req.tool, req.action)
+    except tickets.Busy:
+        raise HTTPException(status_code=409, detail="A ticket tool run is already in progress") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.get("/api/commands", dependencies=[Depends(require_token)])
+def commands_catalog():
+    """Read-only catalog of commands/ and scripts/ entries (name/description/kind)."""
+    import commands_catalog as cc
+
+    items = cc.list_commands()
+    return {"ok": True, "count": len(items), "commands": items}
+
+
+@app.get("/api/setup/status", dependencies=[Depends(require_token)])
+def setup_status_endpoint():
+    """Read-only setup/environment status: presence flags and versions, never values."""
+    import setup_status as ss
+
+    return ss.build_status(
+        version=app.version,
+        openjarvis_enabled=_HAS_OPENJARVIS,
+        token_configured=bool(_read_bridge_token()),
+    )
+
+
+@app.get("/api/free-apis", dependencies=[Depends(require_token)])
+def free_apis_catalog():
+    """Read-only free APIs/models catalog; reports only whether each key is set."""
+    import resource_catalogs as rc
+
+    return rc.build_free_catalog()
+
+
+@app.get("/api/design-resources", dependencies=[Depends(require_token)])
+def design_resources_catalog():
+    """Read-only design resources, Vigolium and open-source tools catalog."""
+    import resource_catalogs as rc
+
+    return rc.build_design_catalog()
+
+
+@app.get("/api/snippets", dependencies=[Depends(require_token)])
+def snippets_list():
+    """Read-only list of snippets/ files plus the readable root documents."""
+    import snippets_docs as sd
+
+    snippets = sd.list_snippets()
+    return {"ok": True, "count": len(snippets), "snippets": snippets, "docs": list(sd.DOCS)}
+
+
+@app.get("/api/snippets/{name}", dependencies=[Depends(require_token)])
+def snippet_read(name: str):
+    """Read one snippet file by name (strictly validated, no path traversal)."""
+    import snippets_docs as sd
+
+    content = sd.read_snippet(name)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Unknown snippet")
+    return {"ok": True, "name": name, "content": content}
+
+
+@app.get("/api/docs/{name}", dependencies=[Depends(require_token)])
+def doc_read(name: str):
+    """Read CHANGELOG.md or README.md from the repo root (fixed allowlist)."""
+    import snippets_docs as sd
+
+    content = sd.read_doc(name)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Unknown document")
+    return {"ok": True, "name": name, "content": content}
+
+
+_MARKETPLACE_DIR = Path(__file__).resolve().parent.parent / "marketplace"
+
+
+def _read_marketplace_json(name: str, required: bool) -> dict[str, Any]:
+    path = _MARKETPLACE_DIR / name
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        if required:
+            raise HTTPException(status_code=503, detail=f"marketplace/{name} not found") from None
+        return {}
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"marketplace/{name} unreadable: {exc}") from exc
+    try:
+        data = json.loads(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=f"marketplace/{name} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=503, detail=f"marketplace/{name} must be a JSON object")
+    return data
+
+
+def _marketplace_items() -> list[dict[str, Any]]:
+    """Catalog items with `installed` = (registry.installed ∪ catalog installed:true) − registry.removed."""
+    catalog = _read_marketplace_json("catalog.json", required=True)
+    registry = _read_marketplace_json("registry.json", required=False)
+    items = catalog.get("items")
+    if not isinstance(items, list):
+        raise HTTPException(status_code=503, detail="marketplace/catalog.json has no items array")
+    installed_ids = registry.get("installed") or []
+    removed_ids = registry.get("removed") or []
+    if not isinstance(installed_ids, list) or not isinstance(removed_ids, list):
+        raise HTTPException(
+            status_code=503, detail="marketplace/registry.json installed/removed must be arrays"
+        )
+    installed = {i for i in installed_ids if isinstance(i, str)}
+    removed = {i for i in removed_ids if isinstance(i, str)}
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            continue
+        effective = (item["id"] in installed or item.get("installed") is True) and item["id"] not in removed
+        out.append({**item, "installed": effective})
+    return out
+
+
+@app.get("/api/marketplace", dependencies=[Depends(require_token)])
+def marketplace_get(
+    type: Optional[str] = None,
+    category: Optional[str] = None,
+    installed: Optional[bool] = None,
+):
+    """Read-only catalog + effective install state; never writes or installs."""
+    items = _marketplace_items()
+    if type is not None:
+        items = [i for i in items if i.get("type") == type]
+    if category is not None:
+        items = [i for i in items if i.get("category") == category]
+    if installed is not None:
+        items = [i for i in items if i["installed"] is installed]
+    return {"items": items, "count": len(items)}
 
 
 @app.post("/api/release", dependencies=[Depends(require_token)])

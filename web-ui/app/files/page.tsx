@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false, loading: () => (
   <div className="flex h-full items-center justify-center text-sm text-white/30">Loading editor…</div>
@@ -37,7 +38,24 @@ const EXT_LANG: Record<string, string> = {
 }
 
 export default function FilesPage() {
-  const [currentPath, setCurrentPath] = useState('~/GhostForge')
+  // useSearchParams() opts the tree out of static prerendering, so Next.js
+  // refuses to export this page unless the reader sits under a Suspense
+  // boundary — "useSearchParams() should be wrapped in a suspense boundary"
+  // was failing `next build` at /files. Splitting the reader out is what the
+  // rule wants: the boundary can then stream this shell and resolve ?path
+  // on the client.
+  return (
+    <Suspense fallback={<div className="flex h-[100dvh] items-center justify-center bg-gray-950 text-sm text-white/30">Loading files…</div>}>
+      <FilesBrowser />
+    </Suspense>
+  )
+}
+
+function FilesBrowser() {
+  // /projects links here with ?path=<project>, so open that directory instead of
+  // the default. A bad or unreadable path falls back to the default below.
+  const initialPath = useSearchParams()?.get('path')
+  const [currentPath, setCurrentPath] = useState(initialPath || '~/GhostForge')
   const [dirData, setDirData] = useState<DirData | null>(null)
   const [openFile, setOpenFile] = useState<FileData | null>(null)
   const [editContent, setEditContent] = useState('')
@@ -100,7 +118,8 @@ export default function FilesPage() {
     loadDir(newHistory[newHistory.length - 1])
   }
 
-  useEffect(() => { loadDir('~/GhostForge') }, [loadDir])
+  // Re-runs when ?path changes, so a /projects → /files link opens that project.
+  useEffect(() => { loadDir(initialPath || '~/GhostForge') }, [loadDir, initialPath])
 
   // Keyboard save ⌘S
   useEffect(() => {

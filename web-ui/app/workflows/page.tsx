@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { WORKFLOW_TEMPLATES, type WorkflowTemplate, templateToWorkflow } from '@/lib/workflows/templates'
+import { SUGGESTED_COMMAND_REFS, type RunSummary, summarizeRun, unsupportedSteps } from './runnable'
 
 // ── types (mirror lib/workflows/store) ───────────────────────────────────────
 type StepKind = 'agent' | 'skill' | 'command' | 'manual'
@@ -26,6 +27,9 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 const json = (method: string, body: unknown) => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+const FOCUS = 'outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gf-accent'
+
+type RunResult = { id: string; summary: RunSummary | null; error?: string }
 
 const STEP_STATUS: Record<StepStatus, { label: string; pill: string; stroke: string; fill: string; dot: string }> = {
   pending: { label: 'Pending', pill: 'bg-[#1A1F2B] text-gf-muted', stroke: '#334155', fill: '#12151C', dot: 'bg-gf-muted' },
@@ -92,8 +96,11 @@ export default function WorkflowsPage() {
   const [notice, setNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [lastRun, setLastRun] = useState<RunResult | null>(null)
 
   const selected = workflows.find(w => w.id === selectedId) || null
+  const blockedSteps = useMemo(() => selected ? unsupportedSteps(selected.steps) : [], [selected])
 
   const loadList = useCallback(async () => {
     setLoading(true)
@@ -101,9 +108,10 @@ export default function WorkflowsPage() {
       const d = await api<{ workflows: Workflow[] }>('/api/workflows')
       setWorkflows(d.workflows)
       setSelectedId(prev => prev || d.workflows[0]?.id || '')
+      setLoadError('')
     } catch (e) {
       if (e instanceof Error && /401|Unauthorized/.test(e.message)) { router.push('/login'); return }
-      setNotice({ tone: 'error', text: e instanceof Error ? e.message : String(e) })
+      setLoadError(e instanceof Error ? e.message : String(e))
     }
     setLoading(false)
   }, [router])
@@ -112,8 +120,8 @@ export default function WorkflowsPage() {
 
   const refreshSelected = useCallback(async (id: string) => {
     try {
-      const d = await api<{ workflow: Workflow }>(`/api/workflows?id=${id}`)
-      setWorkflows(prev => prev.map(w => w.id === id ? d.workflow : w))
+      const d = await api<{ workflow: Workflow; progress?: Workflow['progress'] }>(`/api/workflows?id=${encodeURIComponent(id)}`)
+      setWorkflows(prev => prev.map(w => w.id === id ? { ...d.workflow, progress: d.progress } : w))
     } catch { /* ignore */ }
   }, [])
 
@@ -134,14 +142,14 @@ export default function WorkflowsPage() {
 
   const runSelected = async () => {
     if (!selected || running) return
-    setRunning(true)
+    setRunning(true); setLastRun(null); setNotice(null)
     try {
-      const d = await api<{ workflow: Workflow }>('/api/workflows', json('POST', { action: 'run', id: selected.id }))
-      await loadList(); setSelectedId(d.workflow.id)
-      setNotice({ tone: 'info', text: `Ran "${d.workflow.name}".` })
+      const d = await api<{ workflow: Workflow; progress?: Workflow['progress'] }>('/api/workflows', json('POST', { action: 'run', id: selected.id }))
+      setWorkflows(prev => prev.map(w => w.id === d.workflow.id ? { ...d.workflow, progress: d.progress } : w))
+      setLastRun({ id: d.workflow.id, summary: summarizeRun(d.workflow) })
     } catch (e) {
       if (e instanceof Error && /401|Unauthorized/.test(e.message)) { router.push('/login'); return }
-      setNotice({ tone: 'error', text: `Run failed: ${e instanceof Error ? e.message : String(e)}` })
+      setLastRun({ id: selected.id, summary: null, error: `Run failed: ${e instanceof Error ? e.message : String(e)}` })
       await refreshSelected(selected.id)
     } finally { setRunning(false) }
   }
@@ -178,7 +186,7 @@ export default function WorkflowsPage() {
   }
 
   return (
-    <div className="min-h-[calc(100dvh-64px)] bg-gf-bg font-plex text-gf-ink">
+    <main className="min-h-[calc(100dvh-64px)] bg-gf-bg font-plex text-gf-ink">
       <div className="flex flex-col gap-1 px-4 pt-5 lg:px-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -186,7 +194,7 @@ export default function WorkflowsPage() {
             <p className="font-mono text-xs text-gf-muted">Define multi-step plans (agents · skills · commands · manual) and track their progress.</p>
           </div>
           <button type="button" onClick={() => void createBlank()}
-            className="min-h-9 rounded-lg bg-gf-accent px-3 text-sm font-semibold text-gf-bg hover:brightness-110">+ New workflow</button>
+            className={`min-h-9 rounded-lg bg-gf-accent px-3 text-sm font-semibold text-gf-bg hover:brightness-110 ${FOCUS}`}>+ New workflow</button>
         </div>
       </div>
 
@@ -201,37 +209,55 @@ export default function WorkflowsPage() {
 
       <div className="grid gap-6 px-4 py-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:px-8">
         {/* ── list ── */}
-        <aside className="flex flex-col gap-3">
+        <aside className="flex flex-col gap-3" aria-label="Workflows" aria-busy={loading}>
           {loading ? (
-            <div className="rounded-2xl border border-gf-line bg-gf-surface p-5 text-sm text-gf-muted">Loading…</div>
+            <div role="status" className="rounded-2xl border border-gf-line bg-gf-surface p-5 text-sm text-gf-muted">Loading workflows…</div>
+          ) : loadError ? (
+            <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-red-900 bg-red-950/60 p-5 text-sm text-red-200">
+              <p>Could not load workflows: {loadError}</p>
+              <button type="button" onClick={() => void loadList()}
+                className={`min-h-9 self-start rounded-lg border border-red-800 px-3 text-sm ${FOCUS}`}>Retry</button>
+            </div>
           ) : workflows.length === 0 ? (
-            <div className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-5">
-              <p className="text-sm text-gf-muted">No workflows yet. Start from a template:</p>
+            <p className="rounded-2xl border border-gf-line bg-gf-surface p-5 text-sm text-gf-muted">No workflows yet. Start from a template below.</p>
+          ) : (
+            <ul className="flex flex-col gap-3">
+              {workflows.map(w => {
+                const pct = w.progress?.pct ?? 0
+                return (
+                  <li key={w.id}>
+                    <button type="button" aria-current={selectedId === w.id ? 'true' : undefined}
+                      onClick={() => { setSelectedId(w.id); setMode('view'); setSelectedStep('') }}
+                      className={`w-full rounded-xl border p-3 text-start transition ${FOCUS} ${selectedId === w.id ? 'border-gf-accent bg-gf-accent-soft/40' : 'border-gf-line bg-gf-surface hover:border-gf-line2'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-display text-sm font-semibold truncate">{w.name}</span>
+                        <span className="font-mono text-[11px] text-gf-muted shrink-0">{w.status} · {w.progress?.done ?? 0}/{w.progress?.total ?? 0}</span>
+                      </div>
+                      {w.goal && <p className="mt-0.5 line-clamp-2 text-xs text-gf-muted">{w.goal}</p>}
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gf-line" role="progressbar" aria-label={`${w.name} progress`}
+                        aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+                        <div className={`h-full ${w.status === 'running' ? 'bg-gf-accent' : w.status === 'failed' ? 'bg-red-400' : 'bg-gf-ok'} transition-[width]`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+          {!loading && !loadError && (
+            <div className="flex flex-col gap-2 rounded-2xl border border-gf-line bg-gf-surface p-4">
+              <h2 className="text-xs uppercase tracking-[0.06em] text-gf-muted">Templates</h2>
               {WORKFLOW_TEMPLATES.map(t => (
                 <button key={t.name} type="button" onClick={() => void createFromTemplate(t)}
-                  className="rounded-xl border border-gf-line2 bg-gf-bar p-3 text-start hover:border-gf-accent">
+                  className={`rounded-xl border border-gf-line2 bg-gf-bar p-3 text-start hover:border-gf-accent ${FOCUS}`}>
                   <div className="font-display text-sm font-semibold">{t.name}</div>
                   <div className="text-xs text-gf-muted">{t.goal}</div>
+                  {unsupportedSteps(templateToWorkflow(t).steps.map(s => ({ ...s, status: 'pending' }))).length === 0 && (
+                    <div className="mt-1 text-[11px] text-gf-ok">Runnable now</div>
+                  )}
                 </button>
               ))}
             </div>
-          ) : (
-            workflows.map(w => {
-              const pct = w.progress?.pct ?? 0
-              return (
-                <button key={w.id} type="button" onClick={() => { setSelectedId(w.id); setMode('view'); setSelectedStep('') }}
-                  className={`w-full rounded-xl border p-3 text-start transition ${selectedId === w.id ? 'border-gf-accent bg-gf-accent-soft/40' : 'border-gf-line bg-gf-surface hover:border-gf-line2'}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-display text-sm font-semibold truncate">{w.name}</span>
-                    <span className="font-mono text-[11px] text-gf-muted shrink-0">{w.progress?.done ?? 0}/{w.progress?.total ?? 0}</span>
-                  </div>
-                  {w.goal && <p className="mt-0.5 line-clamp-2 text-xs text-gf-muted">{w.goal}</p>}
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gf-line">
-                    <div className={`h-full ${w.status === 'running' ? 'bg-gf-accent' : 'bg-gf-ok'} transition-[width]`} style={{ width: `${pct}%` }} />
-                  </div>
-                </button>
-              )
-            })
           )}
         </aside>
 
@@ -252,15 +278,29 @@ export default function WorkflowsPage() {
                   <span className="font-mono text-xs text-gf-muted">{selected.progress?.pct ?? 0}%</span>
                   <button type="button" onClick={() => void runSelected()} disabled={running || selected.status === 'running' || selected.steps.length === 0}
                     title="Runs manual steps (skipped) and allow-listed bridge commands only"
-                    className="min-h-9 rounded-lg bg-gf-accent px-3 text-sm font-semibold text-gf-bg hover:brightness-110 disabled:opacity-50">{running ? 'Running…' : '▶ Run'}</button>
-                  <button type="button" onClick={() => setMode('edit')} className="min-h-9 rounded-lg border border-gf-line2 px-3 text-sm">Edit</button>
+                    aria-label={`Run workflow ${selected.name}`} aria-busy={running} aria-describedby="wf-run-hint"
+                    className={`min-h-9 rounded-lg bg-gf-accent px-3 text-sm font-semibold text-gf-bg hover:brightness-110 disabled:opacity-50 ${FOCUS}`}>{running ? 'Running…' : '▶ Run'}</button>
+                  <button type="button" onClick={() => setMode('edit')} className={`min-h-9 rounded-lg border border-gf-line2 px-3 text-sm ${FOCUS}`}>Edit</button>
                 </div>
+                <p id="wf-run-hint" className="basis-full text-xs text-gf-muted">
+                  Run executes up to 100 steps on the bridge: manual steps are skipped and only allow-listed <code className="font-mono">bridge:*</code> commands run.
+                </p>
               </div>
+
+              {blockedSteps.length > 0 && (
+                <div role="note" className="rounded-xl border border-gf-warn bg-gf-warn-soft px-4 py-3 text-sm text-gf-warn">
+                  The bridge will reject this run: {blockedSteps.length} step{blockedSteps.length === 1 ? '' : 's'} not on the run allowlist
+                  ({blockedSteps.slice(0, 3).map(s => `${s.title || s.id} (${s.kind}${s.ref ? `: ${s.ref}` : ''})`).join(', ')}{blockedSteps.length > 3 ? ', …' : ''}).
+                  Mark them done, change them to manual, or use a <code className="font-mono">bridge:health</code> / <code className="font-mono">bridge:release-status</code> command.
+                </div>
+              )}
+
+              {lastRun?.id === selected.id && <RunResultPanel result={lastRun} onDismiss={() => setLastRun(null)} />}
 
               <div role="tablist" className="flex gap-1 border-b border-gf-line">
                 {(['map', 'steps', 'log'] as const).map(t => (
                   <button key={t} role="tab" aria-selected={tab === t} type="button" onClick={() => setTab(t)}
-                    className={`-mb-px min-h-11 border-b-2 px-4 text-sm font-medium capitalize ${tab === t ? 'border-gf-accent text-gf-ink' : 'border-transparent text-gf-muted'}`}>{t}</button>
+                    className={`-mb-px min-h-11 border-b-2 px-4 text-sm font-medium capitalize ${FOCUS} ${tab === t ? 'border-gf-accent text-gf-ink' : 'border-transparent text-gf-muted'}`}>{t}</button>
                 ))}
               </div>
 
@@ -271,6 +311,33 @@ export default function WorkflowsPage() {
           )}
         </section>
       </div>
+    </main>
+  )
+}
+
+function RunResultPanel({ result, onDismiss }: { result: RunResult; onDismiss: () => void }) {
+  const s = result.summary
+  const ok = !!s?.ok
+  return (
+    <div role={ok ? 'status' : 'alert'}
+      className={`flex flex-col gap-2 rounded-2xl border p-4 text-sm ${ok ? 'border-gf-ok bg-gf-ok-soft text-gf-ink' : 'border-red-900 bg-red-950/60 text-red-200'}`}>
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="font-display font-semibold">
+          {s ? `Run ${ok ? 'finished' : s.status}: ${s.done} done · ${s.skipped} skipped · ${s.failed} failed of ${s.total}` : result.error}
+        </h3>
+        <button type="button" onClick={onDismiss} aria-label="Dismiss run result" className={`min-h-9 rounded-lg px-2 text-xs ${FOCUS}`}>✕</button>
+      </div>
+      {s && (
+        <ul className="flex flex-col gap-1 font-mono text-xs">
+          {s.steps.map(step => (
+            <li key={step.id} className="flex flex-wrap gap-2">
+              <span className="shrink-0">{STEP_STATUS[step.status as StepStatus]?.label ?? step.status}</span>
+              <span className="font-semibold">{step.title}</span>
+              {step.message && <span className="min-w-0 break-words text-gf-muted">{step.message}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -400,7 +467,8 @@ function WorkflowEditor({ workflow, onSave, onCancel, onDelete }: {
               </select>
             </div>
             <input value={s.ref} onChange={e => updateStepField(s.id, { ref: e.target.value })} aria-label="Step reference or instruction" className={inputCls}
-              placeholder={s.kind === 'agent' ? 'e.g. ecc:code-reviewer' : s.kind === 'skill' ? 'e.g. superpowers:brainstorming' : s.kind === 'command' ? 'e.g. npm test' : 'What must a human do?'} />
+              list={s.kind === 'command' ? 'wf-command-refs' : undefined}
+              placeholder={s.kind === 'agent' ? 'e.g. ecc:code-reviewer' : s.kind === 'skill' ? 'e.g. superpowers:brainstorming' : s.kind === 'command' ? 'e.g. bridge:health' : 'What must a human do?'} />
             {steps.length > 1 && (
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-[11px] text-gf-muted">Depends on:</span>
@@ -415,6 +483,10 @@ function WorkflowEditor({ workflow, onSave, onCancel, onDelete }: {
             )}
           </div>
         ))}
+        <datalist id="wf-command-refs">
+          {SUGGESTED_COMMAND_REFS.map(ref => <option key={ref} value={ref} />)}
+        </datalist>
+        <p className="text-[11px] text-gf-muted">Only manual steps and allow-listed <code className="font-mono">bridge:*</code> commands can be run; agent and skill steps are tracked by hand.</p>
         <button type="button" onClick={addStep} className="rounded-xl border border-dashed border-gf-line2 py-2 text-sm text-gf-muted hover:border-gf-accent hover:text-gf-ink">+ Add step</button>
       </div>
 

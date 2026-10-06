@@ -1,144 +1,47 @@
-# Multi-Agent Workflow — Claude Code ⇄ Copilot CLI
+# Multi-Agent Workflow
 
-How two autonomous coding agents work this repo **at the same time**, coordinate
-through git-tracked files, and drive the project to done without stepping on each
-other. No live socket is needed — the repo itself is the message bus.
+GhostForge's autonomous team is coordinated by `scripts/agents/boss.mjs`. The
+boss assigns tasks, reviews worker commits, and merges approved changes into
+`agent/integration`; workers work in their own worktrees and do not claim tasks,
+merge branches, or push to `main`. The boss updates the single PR to `main`.
 
-```
-        ┌─────────────┐        .agent-sync/BOARD.md         ┌──────────────┐
-        │ Claude Code │◀──────  (tasks + owners + status) ─▶│ Copilot CLI  │
-        │  agent A    │         .agent-sync/MESSAGES.md      │   agent B    │
-        └──────┬──────┘         (append-only chat log)       └──────┬───────┘
-               │                                                     │
-               └───────────────  git push / pull  ───────────────────┘
-                                (origin is the bus)
-```
+## Roles and models
 
-## Roles
+- **Claude is the boss**: Opus handles planning, security work, and high-risk
+  reviews; Sonnet handles routine reviews. If Claude is unavailable, the boss
+  falls back to Copilot automatically.
+- **Copilot workers** use model `auto`; the provider selects the model for each
+  task.
+- **Interactive Copilot is co-lead**, not a second boss. Follow
+  `prompts/copilot-colead.md` and coordinate work through
+  `scripts/agents/team.mjs`.
+- **Watchdog** (`scripts/agents/watchdog.mjs`) restarts a crashed boss; the
+  Windows scheduled task checks every five minutes. An explicit team stop is
+  respected.
 
-- **Claude Code** — planner + implementer. Good at cross-file refactors,
-  reasoning, tests, docs. Owns tasks tagged `[claude]`.
-- **Copilot CLI** — implementer + reviewer. Owns tasks tagged `[copilot]`.
-- Either may **review** the other's `review`-status tasks.
-- Unassigned tasks (`[ ]`) go to whichever agent claims first.
+## Working with the team
 
-## The coordination files (`.agent-sync/`)
+Workers follow the task assigned by the boss, stay within its file area, run
+relevant validation, commit with a conventional message that includes the task
+id, and report completion or blockers with `scripts/agents/team.mjs`. The boss
+performs review and integration. Do not start a second boss or bypass it by
+merging worker branches yourself.
 
-| File | Purpose | Who writes |
-|------|---------|-----------|
-| `BOARD.md` | The task list: id, title, area, owner, status, notes | both |
-| `MESSAGES.md` | Append-only chat between agents (dated, signed) | both |
-| `README.md` | This protocol in brief | humans |
+Use `npm run agents:status` to inspect the team. Use
+`node scripts/agents/team.mjs add "title" --area path/` to queue work and
+`node scripts/agents/team.mjs say boss "message"` to contact the boss. Start or
+resume the team through `npm run agents:watchdog`; stop it only when needed via
+the team stop command.
 
-### BOARD.md task states
-
-`todo → in-progress → review → done` (or `blocked`). One task per row.
-
-### Claiming a task (the "lock")
-
-1. `git pull --rebase origin <shared-branch>`.
-2. Read `BOARD.md` + `MESSAGES.md`.
-3. Pick an unclaimed `todo` (respect `[claude]`/`[copilot]` tags).
-4. Edit its row → set `owner: you`, `status: in-progress`.
-5. Commit **just that BOARD.md change** and push it **before** doing the work.
-6. If the push is rejected (someone else pushed first), `pull --rebase` and, if
-   the task is now taken, pick another. This makes the board a first-writer-wins
-   lock — no task is done twice.
-
-### Doing the work
-
-- Keep to the task's file area. Need a file the other agent is editing? Leave a
-  note in `MESSAGES.md` and pick a different task meanwhile.
-- Validate: `npm test` (root), plus `cd web-ui && npm ci && npm test` for web-ui,
-  `node --check tui/index.js` for the TUI.
-- Commit with a conventional message referencing the task id (e.g.
-  `feat(marketplace): … (board: T-07)`).
-- Update the task → `status: review` (hand to the other agent) or `done`.
-- Push. Then start the next cycle.
-
-### Talking
-
-Append to `MESSAGES.md`:
-
-```
-### 2026-09-30T15:40Z — claude → copilot
-T-07 pushed on agent/claude/marketplace. Needs your eyes on the web-ui route.
-Blocking on T-11 (you own tui/index.js) — ping when free.
-```
-
-Read the tail of `MESSAGES.md` every cycle and answer anything addressed to you.
-
-## Branch strategy
-
-- Shared coordination branch for the board: **`agent-sync`** (both push the
-  board + messages here; tiny, rarely conflicts).
-- Code goes on per-agent branches to avoid clobbering:
-  `agent/claude/<topic>` and `agent/copilot/<topic>`.
-- When a topic is green, open a PR to `main`, get the other agent's review
-  (board `review` → `done`), merge.
-- Never force-push a branch the other agent has checked out.
-
-> Prefer `git worktree` so each agent has its own working directory:
-> `git worktree add ../gf-copilot agent/copilot/main`.
-
-## The nonstop loop
-
-Each agent runs this until the board is clear or every remaining task is
-`blocked`:
-
-```
-loop:
-  git pull --rebase
-  read BOARD.md + MESSAGES.md
-  if a task addressed to me is in `review`: review it → done or comment
-  claim next todo (lock via board push)
-  implement → validate → commit → push
-  set task review/done, answer messages
-  repeat
-```
-
-- **Claude Code:** drive the loop with `/team start` or the `/loop` skill.
-- **Copilot CLI:** a shell wrapper, e.g.
-  `while :; do copilot -p "$(cat prompts/multi-agent-kickoff.md)"; sleep 5; done`.
+**`docs/SESSION-HANDOFF.md` is the single handoff** for current team state,
+history, and takeover instructions. Read it first when continuing work or
+acting as co-lead.
 
 ## ECC workflow context
 
-The boss uses the pinned `.agent-sync/ecc.json` configuration to cache the
-official `affaan-m/ECC` release under ignored runtime state and stage a small,
-task-specific context bundle for every worker, review, and planning pass. This
-gives Copilot and other providers ECC's relevant TDD, verification, security,
-frontend, backend, and E2E guidance without vendoring hundreds of files or
-pretending unsupported hooks are active.
-
-```bash
-npm run agents:setup
-GF_ECC_OFFLINE=1 npm run agents:setup  # use the existing cache only
-```
-
-The setup rejects non-official ECC repository URLs and verifies the configured
-release tag. Update ECC by changing the pinned semantic version in
-`.agent-sync/ecc.json`, reviewing upstream release notes, and rerunning setup
-and `npm run test:agents`.
-
-Claude Code users may instead install the native `ecc@ecc` plugin for their
-personal Claude harness. Do not combine that native plugin with a full manual
-Claude install. The GhostForge boss context is provider-neutral and may safely
-coexist because it is temporary per-task context rather than a second plugin
-installation.
-
-### Running with only one agent
-
-If one provider is unavailable — most commonly Claude Code hitting its
-usage/token limit — don't stop the team, run solo: `scripts/start-agents-interactive.sh`
-asks which agent(s) to start (`--mode both|claude|copilot` to skip the prompt).
-Solo mode uses `prompts/copilot-solo-kickoff.md` or `prompts/claude-solo-kickoff.md`,
-which let the lone agent claim tasks tagged for the missing one and note that in
-`MESSAGES.md` so the other agent doesn't redo them once it's back.
-
-## Guardrails
-
-- One agent, one task in-progress at a time (claim before work).
-- Green before push; a red push costs both agents a cycle.
-- If both must touch the same file, the board owner of that area wins; the other
-  hands off via `MESSAGES.md`.
-- Humans can drop tasks or notes into the board/messages at any time.
+The boss uses pinned ECC configuration in `.agent-sync/ecc.json` to stage
+task-specific guidance in `.agent-sync/state/ecc-context.md` for workers,
+reviews, and planning. ECC is supplementary to repository instructions.
+Configure or verify the cache with `npm run agents:setup`; run
+`npm run test:agents` after changing its pinned version. Claude Code users
+should not duplicate a native ECC plugin install with a manual Claude install.

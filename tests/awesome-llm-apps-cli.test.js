@@ -7,9 +7,13 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
+const { findBash } = require('./bash-path.js')
+
 const ROOT = path.resolve(__dirname, '..')
 const SHELL_SCRIPT = path.join(ROOT, 'scripts', 'awesome-llm-apps.sh')
 const NODE_SCRIPT = path.join(ROOT, 'scripts', 'awesome-llm-apps.mjs')
+const BASH = findBash()
+const needsBash = { skip: BASH ? false : 'no usable bash (Git Bash) found' }
 
 function makeFixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awesome-llm-apps-'))
@@ -21,42 +25,50 @@ function makeFixture() {
       { name: 'Browser Pilot', description: 'Controls a browser for routine tasks.', category: 'computer-use', url: 'https://example.com/browser-pilot' },
     ],
   }), 'utf8')
-  return fixture
+  return { dir, fixture }
 }
 
-test('shell help explains list and search usage', () => {
-  const result = spawnSync('bash', [SHELL_SCRIPT, '--help'], { cwd: ROOT, encoding: 'utf8' })
+test('shell help explains list and search usage', needsBash, () => {
+  const result = spawnSync(BASH, [SHELL_SCRIPT, '--help'], { cwd: ROOT, encoding: 'utf8' })
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /Usage:/)
   assert.match(result.stdout, /list/)
   assert.match(result.stdout, /search/)
 })
 
-test('list command can read a fixture without network access', () => {
-  const fixture = makeFixture()
-  const result = spawnSync('bash', [SHELL_SCRIPT, 'list', '--fixture', fixture, '--json'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: { ...process.env, GF_AWESOME_LLM_API_URL: 'https://example.invalid' },
-  })
+test('list command can read a fixture without network access', needsBash, () => {
+  const { dir, fixture } = makeFixture()
+  try {
+    const result = spawnSync(BASH, [SHELL_SCRIPT, 'list', '--fixture', fixture, '--json'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: { ...process.env, GF_AWESOME_LLM_API_URL: 'https://example.invalid' },
+    })
 
-  assert.equal(result.status, 0, result.stderr)
-  const apps = JSON.parse(result.stdout)
-  assert.equal(apps.length, 3)
-  assert.deepEqual(apps.map(app => app.name), ['Agent OS', 'Voice Notes', 'Browser Pilot'])
+    assert.equal(result.status, 0, result.stderr)
+    const apps = JSON.parse(result.stdout)
+    assert.equal(apps.length, 3)
+    assert.deepEqual(apps.map(app => app.name), ['Agent OS', 'Voice Notes', 'Browser Pilot'])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
-test('search command filters a fixture by app name and description', () => {
-  const fixture = makeFixture()
-  const result = spawnSync('bash', [SHELL_SCRIPT, 'search', 'voice', '--fixture', fixture], {
-    cwd: ROOT,
-    encoding: 'utf8',
-  })
+test('search command filters a fixture by app name and description', needsBash, () => {
+  const { dir, fixture } = makeFixture()
+  try {
+    const result = spawnSync(BASH, [SHELL_SCRIPT, 'search', 'voice', '--fixture', fixture], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    })
 
-  assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /Voice Notes/)
-  assert.doesNotMatch(result.stdout, /Agent OS/)
-  assert.doesNotMatch(result.stdout, /Browser Pilot/)
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /Voice Notes/)
+    assert.doesNotMatch(result.stdout, /Agent OS/)
+    assert.doesNotMatch(result.stdout, /Browser Pilot/)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test('fetch failures include a clear catalog error message', () => {

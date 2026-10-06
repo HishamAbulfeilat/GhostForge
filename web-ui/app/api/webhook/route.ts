@@ -131,11 +131,17 @@ export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const rawBody = await req.text().catch(() => '')
 
+  // GitHub deliveries must be HMAC-signed with WEBHOOK_SECRET. Any other
+  // delivery reaches JARVIS with server credentials, so it needs either a
+  // signed-in session or the same `x-hub-signature-256` HMAC signature.
   const ghEvent = req.headers.get('x-github-event')
-  if (ghEvent) {
+  const sessionAuthorized = !ghEvent && isAuthorizedRequest(req)
+  if (!sessionAuthorized) {
     const webhookSecret = process.env.WEBHOOK_SECRET
     if (!webhookSecret) {
-      return NextResponse.json({ error: 'WEBHOOK_SECRET not configured' }, { status: 503 })
+      return ghEvent
+        ? NextResponse.json({ error: 'WEBHOOK_SECRET not configured' }, { status: 503 })
+        : NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const signature = req.headers.get('x-hub-signature-256') || ''
     if (!verifySignature(rawBody, signature, webhookSecret)) {

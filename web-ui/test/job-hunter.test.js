@@ -263,15 +263,27 @@ test('application links must be public http(s) addresses', () => {
   const { isSafeApplyUrl } = require('../lib/job-hunter/apply.ts')
   assert.equal(isSafeApplyUrl('https://jobs.lever.co/acme/1/apply'), true)
   assert.equal(isSafeApplyUrl('http://careers.example.com/job'), true)
+  // Hostnames that merely start like an IPv6 prefix are ordinary public names
+  for (const ok of ['https://fcbarcelona.com/jobs/1', 'https://www.fdic.gov/careers', 'https://fe80jobs.example.com/'])
+    assert.equal(isSafeApplyUrl(ok), true, ok)
   for (const bad of ['http://localhost:3001/api/execute', 'http://127.0.0.1/', 'http://192.168.1.5/', 'http://10.0.0.1/', 'http://172.20.0.1/',
     'http://169.254.169.254/latest/meta-data', 'http://[::1]/', 'file:///etc/passwd', 'javascript:alert(1)', 'http://printer.local/', 'not a url']) {
     assert.equal(isSafeApplyUrl(bad), false, bad)
   }
 })
 
+test('job links: IPv4-mapped IPv6 literals and private literals are refused before any request', async () => {
+  const { isSafeApplyUrl } = require('../lib/job-hunter/apply.ts')
+  const { fetchPublic } = require('../lib/job-hunter/intake.ts')
+  for (const bad of ['http://[::ffff:127.0.0.1]/', 'http://[::ffff:7f00:1]:8765/', 'http://[::ffff:169.254.169.254]/latest'])
+    assert.equal(isSafeApplyUrl(bad), false, bad)
+  await assert.rejects(fetchPublic('http://127.0.0.1:8765/'), /not a public job link/)
+  await assert.rejects(fetchPublic('http://[::ffff:7f00:1]/'), /not a public job link/)
+})
+
 test('application links that resolve to private addresses are rejected (DNS rebinding-style names)', async () => {
   const { resolvesPublicly, isPrivateAddress } = require('../lib/job-hunter/apply.ts')
-  for (const ip of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.0.10', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:127.0.0.1']) {
+  for (const ip of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.0.10', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', 'fd00::1', 'fe80::1', '::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:a9fe:a9fe']) {
     assert.equal(isPrivateAddress(ip), true, ip)
   }
   for (const ip of ['8.8.8.8', '104.16.0.1', '2606:4700::1111']) assert.equal(isPrivateAddress(ip), false, ip)

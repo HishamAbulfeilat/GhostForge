@@ -1,7 +1,8 @@
 name: Security
 
-# Scanner evidence for every change: code scanning (SARIF), dependency and
-# secret scanning, an npm audit gate, security regression tests, and SBOMs.
+# Scanner evidence for every change: dependency and secret scanning, an npm
+# audit gate, security regression tests, and SBOMs. CodeQL code scanning
+# (JavaScript/TypeScript + Python) lives in codeql.yml.
 on:
   push:
     branches: [main]
@@ -15,29 +16,6 @@ permissions:
   contents: read
 
 jobs:
-  codeql:
-    name: CodeQL (SARIF → code scanning)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
-        with:
-          languages: javascript-typescript
-          queries: security-extended
-          config: |
-            paths-ignore:
-              - '**/node_modules/**'
-              - vendor/**
-              - electron-app/android/**
-              - electron-app/ios/**
-      - uses: github/codeql-action/analyze@v3
-        with:
-          category: /language:javascript-typescript
-
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'
@@ -63,7 +41,7 @@ jobs:
       - name: Audit every package
         run: |
           FAIL=0
-          for dir in . web-ui electron-app; do
+          for dir in . web-ui electron-app mcp tui extension; do
             [ -f "$dir/package-lock.json" ] || continue
             echo "::group::npm audit $dir"
             (cd "$dir" && npm audit --omit=dev --audit-level=high) || FAIL=1

@@ -21,6 +21,26 @@ const COMMAND_SPECS = {
     script: path.join(ROOT, 'scripts', 'workflows.mjs'),
     summary: 'Create, list, update, and run workflow definitions',
   },
+  worlds: {
+    kind: 'node',
+    script: path.join(ROOT, 'scripts', 'worlds.mjs'),
+    summary: 'Manage local GhostForge world applications',
+  },
+  files: {
+    kind: 'node',
+    script: path.join(ROOT, 'scripts', 'files.mjs'),
+    summary: 'List and read project files (read-only, scoped to a root)',
+  },
+  models: {
+    kind: 'node',
+    script: path.join(ROOT, 'scripts', 'hf-search.mjs'),
+    summary: 'Search Hugging Face models (read-only)',
+  },
+  jarvis: {
+    kind: 'node',
+    script: path.join(ROOT, 'scripts', 'jarvis.mjs'),
+    summary: 'Check or ask the JARVIS bridge (health, ask)',
+  },
   jobs: {
     kind: 'bash',
     script: path.join(ROOT, 'scripts', 'jobs.sh'),
@@ -70,6 +90,10 @@ function buildHelp() {
     '  agent-team         Agent-team status, tasks, and communication',
     '  agents             Alias for agent-team controls',
     '  workflows         Workflow list, create, update, run, and step controls',
+    '  worlds            Set up, start, stop, and check AI Town / Agent Office',
+    '  files              Read-only list/read of files under a project root (default: cwd)',
+    '  models             Search Hugging Face models: models search <query> [--limit N] [--json]',
+    '  jarvis             JARVIS bridge: jarvis health | jarvis ask <prompt> [--json]',
     '  jobs               Job Hunter: CV, search, prepare, and approval flows',
     '  users              List and update authenticated users and permissions',
     '  collab             Create, view, and post to collaboration sessions',
@@ -88,6 +112,13 @@ function buildHelp() {
     '  ghostforge marketplace list',
     '  ghostforge agent-team status',
     '  ghostforge workflows list',
+    '  ghostforge worlds status ai-town',
+    '  ghostforge worlds start agent-office',
+    '  ghostforge files list src',
+    '  ghostforge files read README.md --max-bytes 4096',
+    '  ghostforge models search llama --limit 5 --json',
+    '  ghostforge jarvis health --json',
+    '  ghostforge jarvis ask "what is on my schedule?"',
     '  ghostforge jobs search',
     '  ghostforge users list',
     '  ghostforge collab create',
@@ -137,7 +168,7 @@ function runCommand(spec, args, env = process.env) {
   const result = spawnSync(base[0], base[1], {
     cwd: ROOT,
     stdio: 'inherit',
-    env,
+    env: { ...env, GF_CALLER_CWD: process.cwd() }, // scripts run from ROOT; tell them where the user was
     shell: !isWindows && spec.kind === 'bash' ? false : false,
   })
 
