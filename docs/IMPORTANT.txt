@@ -18,6 +18,17 @@ RESOLVED
       web-ui/app/jobs/page.tsx â€” edited in GhostForge-public (live dev UI)
       and mirrored to gf-integration. Commit before the team restarts.
 - demo-project/: still junk, safe to delete:
+- 2026-10-06 (AI chain): web-ui/.env held PLACEHOLDER OpenRouter
+  (sk-or-...) and Google (AIza...) values, so every free-model
+  call first hit google/openrouter with garbage keys (400/401).
+  They are now commented out in web-ui/.env (NOT committed,
+  .env is gitignored). Pollinations free gateway is flaky
+  (sporadic 402/500/429) — the chain now retries 3x with
+  backoff; verified the free default answers with no keys.
+  Also cleared hisham's stale Job-Hunter model choice
+  (google/gemini-2.5-flash) from ~/.ghostforge/jobs/hisham/
+  profile.json — Job Hunter now runs its free default; the UI
+  dropdown lets you re-pick any model or add a custom one.
       C:\Users\User\Desktop\GhostForge\gf-integration\demo-project
 
 NEEDS YOU
