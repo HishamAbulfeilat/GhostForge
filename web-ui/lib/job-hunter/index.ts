@@ -159,8 +159,21 @@ export async function prepareJob(username: string, id: string, generate?: Genera
   if (!profile.cv) throw new Error('Upload your CV first')
 
   await updateJob(username, id, {}, 'Preparing tailored CV and cover letter')
-  const tailoredResume = await tailorResume(profile, job, generate)
-  const coverLetter = await writeCoverLetter(profile, job, tailoredResume, generate)
+  let tailoredResume = ''
+  let coverLetter = ''
+  try {
+    tailoredResume = await tailorResume(profile, job, generate)
+    coverLetter = await writeCoverLetter(profile, job, tailoredResume, generate)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    // The free anonymous gateway (Pollinations) rejects long CV/job payloads —
+    // say so plainly instead of the generic chain error so the fix is obvious.
+    throw new Error(
+      'Could not prepare this job: the free anonymous AI gateway rejected the long CV/job text. ' +
+      'Add a free key (Gemini, Groq, Cerebras or OpenRouter — all have free tiers) in Settings → AI Models, ' +
+      `or install/run Ollama locally. Details: ${msg.slice(0, 160)}`,
+    )
+  }
   const answers = buildAnswers(profile)
   const updated = await updateJob(username, id, { tailoredResume, coverLetter, answers, status: 'ready' }, 'Ready for your approval')
   return updated!

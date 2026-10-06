@@ -31,7 +31,7 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
-  pollinations: { id: 'pollinations', name: 'Pollinations (free, no key)', keyEnv: null, paid: false, defaultModel: 'openai', baseURL: 'https://text.pollinations.ai/openai' },
+  pollinations: { id: 'pollinations', name: 'Pollinations (free, no key)', keyEnv: null, paid: false, defaultModel: 'openai', baseURL: 'https://gen.pollinations.ai/v1' },
   omniroute:  { id: 'omniroute',  name: 'OmniRoute (optional)', keyEnv: null, paid: false, defaultModel: 'auto' },
   openai:     { id: 'openai',     name: 'OpenAI (ChatGPT)',  keyEnv: 'OPENAI_API_KEY', keyUrl: 'https://platform.openai.com/api-keys', paid: true, defaultModel: 'gpt-4o-mini', baseURL: 'https://api.openai.com/v1' },
   anthropic:  { id: 'anthropic',  name: 'Anthropic (Claude)', keyEnv: 'ANTHROPIC_API_KEY', keyUrl: 'https://console.anthropic.com/settings/keys', paid: true, defaultModel: 'claude-opus-5' },
