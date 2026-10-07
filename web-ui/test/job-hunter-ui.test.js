@@ -106,3 +106,70 @@ test('missing posting fields are labelled rather than invented', async () => {
     assert.match(page.document.body.textContent, /Not provided/)
   } finally { await page.unmount() }
 })
+
+function batchRoutes(state) {
+  const endpoints = routes({ job: baseJob, actions: [] })
+  endpoints['/api/jobs'] = async (_url, init) => {
+    if (init?.method === 'POST') {
+      const { action, id } = JSON.parse(init.body)
+      state.actions.push({ action, id })
+      state.active++
+      state.maxActive = Math.max(state.maxActive, state.active)
+      await new Promise(resolve => setTimeout(resolve, 5))
+      const job = state.jobs.find(item => item.id === id)
+      if (action === 'prepare') Object.assign(job, { status: 'ready', tailoredResume: 'Original CV', coverLetter: 'Basic letter', preparationWarning: 'AI writing was unavailable. Review the original CV.' })
+      if (action === 'approve') job.status = id === 'job2' ? 'failed' : 'submitted'
+      state.active--
+      return { job, message: action === 'approve' ? id === 'job2' ? 'Synthetic browser failure' : 'Confirmed submission' : undefined }
+    }
+    return { jobs: state.jobs, sources: { linkedInViaJSearch: false }, model: null, autopilot: { enabled: false }, linkedin: { connected: false } }
+  }
+  return endpoints
+}
+
+test('multiple applications require exact selection and review confirmation, run sequentially and show each result', async () => {
+  const state = { jobs: [1, 2, 3].map(n => ({ ...baseJob, id: `job${n}`, title: `Engineer ${n}`, status: 'ready', tailoredResume: `CV ${n}`, coverLetter: `Letter ${n}`, preparationWarning: n === 2 ? 'Original-CV draft requires review' : '' })), actions: [], active: 0, maxActive: 0 }
+  const page = await renderPage('jobs/page.tsx', batchRoutes(state))
+  try {
+    await page.click(el => el.getAttribute('aria-label') === 'Select Engineer 1 at Acme')
+    await page.click(el => el.getAttribute('aria-label') === 'Select Engineer 2 at Acme')
+    await page.click(el => text(el) === 'Review selected applications')
+    assert.deepEqual(state.actions, [], 'selection and review do not submit')
+    const review = page.document.querySelector('[aria-label="Confirm selected applications"]')
+    assert.match(review.textContent, /CV 1/)
+    assert.match(review.textContent, /Letter 2/)
+    assert.match(review.textContent, /Original-CV draft requires review/)
+    assert.equal(review.textContent.includes('Engineer 3'), false)
+    await page.click(el => text(el) === 'Cancel batch approval')
+    assert.deepEqual(state.actions, [])
+    await page.click(el => text(el) === 'Review selected applications')
+    await page.click(el => text(el) === 'Confirm & apply to 2 selected jobs')
+    for (let i = 0; i < 10 && state.actions.length < 2; i++) await page.settle()
+    await require('react').act(async () => { await new Promise(resolve => setTimeout(resolve, 40)) })
+    await page.settle()
+    assert.deepEqual(state.actions, [{ action: 'approve', id: 'job1' }, { action: 'approve', id: 'job2' }])
+    assert.equal(state.maxActive, 1)
+    const results = page.document.querySelector('[aria-label="Batch application results"]')
+    assert.match(results.textContent, /Confirmed submission/)
+    assert.match(results.textContent, /Synthetic browser failure/)
+    assert.match(page.document.querySelector('[role="alert"]').textContent, /1 submitted.*1 failed/)
+  } finally { await page.unmount() }
+})
+
+test('bulk preparation never approves and requires review of fallback drafts before applying', async () => {
+  const state = { jobs: [1, 2].map(n => ({ ...baseJob, id: `job${n}`, title: `Engineer ${n}` })), actions: [], active: 0, maxActive: 0 }
+  const page = await renderPage('jobs/page.tsx', batchRoutes(state))
+  try {
+    await page.click(el => text(el).startsWith('All matches'))
+    await page.click(el => el.getAttribute('aria-label') === 'Select Engineer 1 at Acme')
+    await page.click(el => el.getAttribute('aria-label') === 'Select Engineer 2 at Acme')
+    assert.equal([...page.document.querySelectorAll('button')].find(el => text(el) === 'Review selected applications').disabled, true)
+    await page.click(el => text(el) === 'Prepare / retry AI for selected')
+    await require('react').act(async () => { await new Promise(resolve => setTimeout(resolve, 40)) })
+    await page.settle()
+    assert.deepEqual(state.actions, [{ action: 'prepare', id: 'job1' }, { action: 'prepare', id: 'job2' }])
+    assert.equal(state.maxActive, 1)
+    assert.equal([...page.document.querySelectorAll('button')].find(el => text(el) === 'Review selected applications').disabled, false)
+    assert.equal(page.document.querySelector('[aria-label="Confirm selected applications"]'), null)
+  } finally { await page.unmount() }
+})

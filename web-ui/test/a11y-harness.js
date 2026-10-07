@@ -114,7 +114,7 @@ async function renderPage(pagePath, routes) {
     document: window.document,
     settle,
     async click(predicate) {
-      const el = [...window.document.querySelectorAll('button, [role="tab"]')].find(predicate)
+      const el = [...window.document.querySelectorAll('button, [role="tab"], input[type="checkbox"]')].find(predicate)
       if (!el) throw new Error('click target not found')
       await React.act(async () => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
       for (let i = 0; i < 5; i++) await settle()

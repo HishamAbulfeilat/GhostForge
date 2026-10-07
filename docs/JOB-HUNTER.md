@@ -56,8 +56,9 @@ start `ollama serve`, and select it in Job Hunter. No account/key is required,
 but the model must be downloaded and the runtime running.
 
 The anonymous service is best-effort: rate/length limits and outages can still
-produce a labelled original-CV draft. Preparation retries with a compact
-prompt; it never disguises a template as an AI answer or auto-submits the
+produce a labelled original-CV draft. Preparation retries with compact and then
+smaller CV/job prompts while retaining strict no-invention instructions.
+It never disguises a template as an AI answer or auto-submits the
 fallback. Existing provider keys remain optional alternatives, not required
 for the anonymous or local paths.
 
@@ -74,6 +75,15 @@ device. CV storage, model requests and browser automation run on that server,
 not inside the Android APK.
 
 ## Ways in
+
+**Multiple jobs:** use the checkboxes in a job list, then **Prepare / retry AI
+for selected**. This only prepares; it never submits. After preparation, choose
+**Review selected applications**, inspect every CV/letter/answer and any
+non-AI warnings, then **Confirm & apply** to authorize those exact jobs.
+Applications run sequentially with individual submitted/needs-you/failed
+results, and one failure does not hide the others. Keep the page open until
+the batch finishes; it is not a durable background queue. No jobs are selected
+or approved automatically.
 
 - **Search.** Uses your target roles, locations and work style. LinkedIn
   results are included when LinkedIn is connected.
@@ -125,3 +135,16 @@ answer questions or take over a stuck application.
 Browser data, including the LinkedIn and Workday sign-ins, lives per user in
 `~/.ghostforge/jobs/<user>/browser`. Set `JOB_HUNTER_BROWSER` to use a
 specific Chrome or Edge.
+
+If the browser reports **profile already open**, close the older **Job Hunter**
+window and retry; do not delete its profile or cookies. Run only one server per
+user profile. Browser shutdown completes before the next application launches,
+and windows retained for captchas/questions are reused in new tabs (including
+development reloads). A profile conflict is reported separately from a missing
+browser. With no installed browser, run `npx playwright install chromium` in
+`web-ui`, or set `JOB_HUNTER_BROWSER` to a Chrome/Edge executable.
+
+Approval opens the application URL (or original posting when it is missing).
+Lever/Ashby application paths preserve tracking queries and fragments, and
+job-board redirect URLs are not modified into invalid ATS paths. Navigation
+failures are reported, never left as a successful application on `about:blank`.

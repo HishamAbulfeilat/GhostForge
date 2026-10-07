@@ -60,7 +60,12 @@ export default function JobsPage() {
   const [notice, setNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
   const [lastSearch, setLastSearch] = useState<SearchResult | null>(null)
   const [showDetails, setShowDetails] = useState(false)
+  const [batchIds, setBatchIds] = useState<string[]>([])
+  const [batchReview, setBatchReview] = useState(false)
+  const [batchProgress, setBatchProgress] = useState('')
+  const [batchResults, setBatchResults] = useState<Array<{ id: string; title: string; status: string; message: string }>>([])
   const fileRef = useRef<HTMLInputElement>(null)
+  const operationRef = useRef(false)
 
   // Editable preference fields (comma-separated inputs)
   const [roles, setRoles] = useState('')
@@ -111,8 +116,17 @@ export default function JobsPage() {
   }, [load])
 
   const run = async (label: string, fn: () => Promise<void>) => {
+    if (operationRef.current) {
+      setNotice({ tone: 'error', text: 'Another operation is running. Wait for it to finish before starting another.' })
+      return
+    }
+    operationRef.current = true
     setBusy(label); setNotice(null)
-    try { await fn() } catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : String(e) }) } finally { setBusy('') }
+    try { await fn() } catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : String(e) }) } finally {
+      operationRef.current = false
+      setBusy('')
+      setBatchProgress('')
+    }
   }
 
   const savePreferences = () => api('/api/jobs/profile', {
@@ -160,6 +174,45 @@ export default function JobsPage() {
     }
     if (action === 'approve' && r.job?.status === 'submitted') setTab('applied')
     if (r.message) setNotice({ tone: r.job?.status === 'failed' ? 'error' : 'info', text: r.message })
+  })
+
+  const batchIdSet = useMemo(() => new Set(batchIds), [batchIds])
+  const batchJobs = jobs.filter(job => batchIdSet.has(job.id))
+  const batchCanApply = batchJobs.length > 0 && batchJobs.every(job =>
+    ['ready', 'needs_user', 'failed'].includes(job.status) && job.tailoredResume?.trim() && job.coverLetter?.trim())
+  const toggleBatch = (id: string) => {
+    setBatchReview(false)
+    setBatchIds(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id])
+  }
+  const runBatch = (action: 'prepare' | 'approve') => run(`batch:${action}`, async () => {
+    if (!batchJobs.length || (action === 'approve' && !batchCanApply)) throw new Error('Prepare all selected jobs before confirming applications.')
+    const queue = [...batchJobs]
+    setBatchReview(false)
+    setBatchResults([])
+    const results: Array<{ id: string; title: string; status: string; message: string }> = []
+    // One persistent browser profile and anonymous-model quota serve the whole batch.
+    for (const [index, job] of queue.entries()) {
+      setBatchProgress(`${action === 'prepare' ? 'Preparing' : 'Applying'} ${index + 1}/${queue.length}: ${job.title} at ${job.company}`)
+      try {
+        const result = await api<{ job: JobRecord; message?: string }>('/api/jobs', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id: job.id }),
+        })
+        results.push({ id: job.id, title: `${job.title} at ${job.company}`, status: result.job.status,
+          message: result.message || result.job.preparationWarning || 'Prepared for review; not submitted.' })
+      } catch (error) {
+        results.push({ id: job.id, title: `${job.title} at ${job.company}`, status: 'failed',
+          message: error instanceof Error ? error.message : String(error) })
+      }
+      setBatchResults([...results])
+    }
+    setBatchProgress('')
+    await load()
+    setBatchIds(action === 'prepare' ? queue.map(job => job.id) : [])
+    const failed = results.filter(result => result.status === 'failed').length
+    const submitted = results.filter(result => result.status === 'submitted').length
+    setNotice({ tone: failed ? 'error' : 'info', text: action === 'prepare'
+      ? `Preparation finished: ${results.length - failed} prepared, ${failed} failed. Review the materials before applying.`
+      : `Batch finished: ${submitted} submitted, ${results.filter(result => result.status === 'needs_user').length} need you, ${failed} failed. See each result below.` })
   })
 
   const answer = (id: string, answers: Record<string, string>) => run(`answer:${id}`, async () => {
@@ -373,6 +426,50 @@ export default function JobsPage() {
               ))}
             </div>
 
+            <section aria-label="Multiple job applications" className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-5">
+              <h2 className="font-display text-base font-semibold">Apply to multiple jobs</h2>
+              <p className="text-sm text-gf-muted">Select jobs below. Prepare selected jobs first, then review the exact applications and explicitly confirm. Jobs run one at a time. Keep this page open until the batch finishes.</p>
+              <div className="flex flex-wrap gap-3">
+                <span className="self-center text-sm">{batchJobs.length} selected</span>
+                <button type="button" disabled={Boolean(busy) || !batchJobs.length} onClick={() => void runBatch('prepare')}
+                  className="min-h-11 rounded-xl border border-gf-line2 px-4 text-sm disabled:opacity-60">Prepare / retry AI for selected</button>
+                <button type="button" disabled={Boolean(busy) || !batchCanApply} onClick={() => setBatchReview(true)}
+                  className="min-h-11 rounded-xl bg-gf-accent px-4 text-sm font-semibold text-gf-bg disabled:opacity-60">Review selected applications</button>
+                <button type="button" disabled={Boolean(busy) || !batchIds.length} onClick={() => { setBatchIds([]); setBatchReview(false) }}
+                  className="min-h-11 px-3 text-sm disabled:opacity-60">Clear selection</button>
+              </div>
+              {batchProgress && <p role="status" className="text-sm text-sky-200">{batchProgress}</p>}
+              {batchReview && (
+                <div role="region" aria-label="Confirm selected applications" className="flex flex-col gap-3 rounded-xl border border-amber-700 p-4">
+                  <h3 className="font-semibold">Review and approve these {batchJobs.length} applications</h3>
+                  <p className="text-sm">Confirmation authorizes submission for exactly the jobs listed below. Captchas, sign-ins and unknown answers still stop for you. Review each CV, letter and answers, including any non-AI draft warnings.</p>
+                  {batchJobs.map(job => (
+                    <details key={job.id} className="rounded-lg border border-gf-line p-3">
+                      <summary className="cursor-pointer text-sm font-semibold">{job.title} at {job.company} · {job.location || 'Location not provided'}{job.preparationWarning ? ' · Non-AI draft: review required' : ''}</summary>
+                      {job.preparationWarning && <p className="my-3 text-sm text-gf-warn">{job.preparationWarning}</p>}
+                      <p className="my-3 whitespace-pre-wrap break-words text-sm">{job.description || 'Description not provided'}</p>
+                      <h4 className="mt-3 font-semibold">{job.preparationWarning ? 'Original CV' : 'Tailored CV'}</h4>
+                      <pre className="whitespace-pre-wrap break-words text-sm">{job.tailoredResume}</pre>
+                      <h4 className="mt-3 font-semibold">Cover letter</h4>
+                      <pre className="whitespace-pre-wrap break-words text-sm">{job.coverLetter}</pre>
+                      <h4 className="mt-3 font-semibold">Form answers</h4>
+                      {(job.answers || []).map(answer => <p key={answer.label} className="text-sm">{answer.label}: {answer.value}</p>)}
+                    </details>
+                  ))}
+                  <div className="flex flex-wrap gap-3">
+                    <button type="button" disabled={Boolean(busy) || !batchCanApply} onClick={() => void runBatch('approve')}
+                      className="min-h-11 rounded-xl bg-gf-accent px-4 text-sm font-semibold text-gf-bg disabled:opacity-60">Confirm & apply to {batchJobs.length} selected jobs</button>
+                    <button type="button" onClick={() => setBatchReview(false)} className="min-h-11 px-3 text-sm">Cancel batch approval</button>
+                  </div>
+                </div>
+              )}
+              {batchResults.length > 0 && (
+                <ul aria-label="Batch application results" className="flex flex-col gap-2">
+                  {batchResults.map(result => <li key={result.id} className="text-sm"><strong>{result.title}</strong> · {STATUS_VIEW[result.status]?.label || result.status}: {result.message}</li>)}
+                </ul>
+              )}
+            </section>
+
             <section className="flex min-h-0 flex-col rounded-2xl border border-gf-line bg-gf-surface">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gf-line px-5 py-4">
                 <div role="tablist" aria-label="Job lists" className="flex flex-wrap gap-2">
@@ -397,6 +494,9 @@ export default function JobsPage() {
                     return (
                       <li key={j.id} className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-4 border-b border-[#1C2130] px-5 py-[18px] sm:grid-cols-[76px_minmax(0,1fr)_auto]">
                         <div className={`flex flex-col items-center gap-1 rounded-xl py-2 ${FIT_STYLE[j.fit] || FIT_STYLE.Low}`}>
+                          <input type="checkbox" aria-label={`Select ${j.title} at ${j.company}`} checked={batchIdSet.has(j.id)}
+                            disabled={Boolean(busy) || !['found', 'ready', 'needs_user', 'failed'].includes(j.status)}
+                            onChange={() => toggleBatch(j.id)} className="h-5 w-5 accent-sky-300" />
                           <span className="font-display text-xl font-bold">{j.score}</span>
                           <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">{j.fit}</span>
                         </div>
@@ -417,7 +517,7 @@ export default function JobsPage() {
                         </button>
                         <div className="col-span-2 flex items-center justify-between gap-2 sm:col-span-1 sm:flex-col sm:items-end">
                           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${sv.style}`}>{sv.label}</span>
-                          <button type="button" onClick={cta} disabled={busy.endsWith(j.id)}
+                          <button type="button" onClick={cta} disabled={Boolean(busy)}
                             className="inline-flex min-h-10 items-center rounded-[10px] bg-gf-ink px-4 text-sm font-semibold text-gf-bg disabled:opacity-60">
                             {busy === `prepare:${j.id}` ? 'Preparing…' : sv.cta}
                           </button>

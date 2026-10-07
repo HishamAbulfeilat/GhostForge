@@ -212,6 +212,16 @@ test('long CV/job prompts retry compactly and reject empty model replies', async
     assert.ok(prompts[1].prompt.length < 4200)
     assert.ok(prompts[1].prompt.length < prompts[0].prompt.length)
     assert.match(prompts[1].system, /Never invent/)
+    const smallPrompts = []
+    const recovered = await write(async opts => {
+      smallPrompts.push(opts)
+      if (smallPrompts.length < 3) throw new Error('anonymous prompt too long')
+      return 'Smaller factual draft'
+    })
+    assert.equal(recovered, 'Smaller factual draft')
+    assert.equal(smallPrompts.length, 3)
+    assert.ok(smallPrompts[2].prompt.length < 2600)
+    assert.match(smallPrompts[2].system, /Never invent/)
     await assert.rejects(write(async () => '  '), /empty response/)
   }
 })

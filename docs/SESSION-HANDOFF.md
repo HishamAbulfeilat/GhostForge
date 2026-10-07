@@ -37,6 +37,17 @@ are still necessary. These follow-up edits are not in the published v5.3.2
 installers. Full web regression: 524 passed, one Windows-only skip; typecheck
 and changed-file lint passed, React Doctor 81 with no changed findings.
 
+**Browser/batch follow-up:** application shutdown is now awaited inside the
+profile lock; retained windows/locks survive Next development module reloads.
+Profile-in-use errors no longer masquerade as missing Chrome/Edge. Lever/Ashby
+paths preserve query/hash, missing apply links fall back to the posting, and
+navigation failures are explicit. Real Chromium fixtures verified target
+navigation and retained-window reuse without real applications. The jobs page
+adds selected-job preparation and explicit batch review/confirmation followed
+by sequential single-job requests with per-job results. Keep the page open;
+this is not a durable queue. AI writing adds a third, smaller prompt attempt;
+unavailable models still generate labelled drafts, not false AI success.
+
 **Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
 (main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
 Copilot worktree under `GhostForge\copilot-worktrees\`). If the main repo is

@@ -28,7 +28,14 @@ async function compactRetry(
   } catch (error) {
     console.warn('[Job Hunter] Writing failed; retrying with a compact prompt:', error instanceof Error ? error.message : String(error))
   }
-  const text = (await generate(build(3000, 1000))).trim()
+  try {
+    const text = (await generate(build(3000, 1000))).trim()
+    if (!text) throw new Error('The AI model returned an empty response')
+    return text
+  } catch (error) {
+    console.warn('[Job Hunter] Compact writing failed; retrying with a smaller prompt:', error instanceof Error ? error.message : String(error))
+  }
+  const text = (await generate(build(1800, 600))).trim()
   if (!text) throw new Error('The AI model returned an empty response')
   return text
 }
