@@ -190,6 +190,25 @@ test('agent never sends login or verification fields to AI and never submits an 
   } finally { await page.close() }
 })
 
+test('application agent pauses for terms instead of checking consent or submitting', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const ctx = await context('agent-terms')
+  const page = await browser.newPage()
+  try {
+    for (const consent of [
+      '<label><input type="checkbox" required id="terms">I agree to terms</label>',
+      '<p>By submitting you agree to our terms of service</p>',
+    ]) {
+      await page.setContent(`<form onsubmit="event.preventDefault();window.termsSubmitted=true"><input aria-label="Email" required>${consent}<button>Submit application</button></form>`)
+      const result = await runFormAgent(page, { ...ctx, allowSubmit: true })
+      assert.equal(result.status, 'needs_user')
+      assert.match(result.message, /terms/i)
+      assert.equal(await page.evaluate(() => window.termsSubmitted || false), false)
+      if (await page.locator('#terms').count()) assert.equal(await page.locator('#terms').isChecked(), false)
+    }
+  } finally { await page.close() }
+})
+
 test('parsePosting reads JobPosting JSON-LD, then falls back to meta tags', () => {
   const ld = `<html><head><script type="application/ld+json">${JSON.stringify({
     '@context': 'https://schema.org', '@type': 'JobPosting', title: 'Platform Engineer', datePosted: '2026-09-30',

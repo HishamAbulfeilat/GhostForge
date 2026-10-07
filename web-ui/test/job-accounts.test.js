@@ -36,8 +36,10 @@ function load(file, dependencies) {
   }).outputText, filename)
   return loaded.exports
 }
+const notices = []
 const accounts = load('../lib/job-hunter/accounts.ts', {
   './live': live, './store': store,
+  './notifications': { notifyJob: async (username, id, payload) => { notices.push({ username, id, ...payload }); return 'unavailable' } },
   './apply': { withProfileLock: apply.withProfileLock, resolvesPublicly: async origin => origin === 'https://example.com' },
 })
 const password = 'Test-only-password!42'
@@ -91,7 +93,7 @@ test('approved sign-in clicks only the login form and never claims successful au
   try {
     const result = await accounts.assistAccount(username, id, request)
     assert.equal(await page.evaluate(() => window.submitted), 1)
-    assert.match(result.message, /not yet verified/)
+    assert.match(result.message, /verification/)
     assert.equal(result.job.status, 'needs_user')
     assert.equal(request.password, undefined)
     assert.ok((await page.context().cookies()).some(cookie => cookie.name === 'test_session' && cookie.value === '1'))
@@ -152,7 +154,6 @@ test('refuses changed origins, cross-site form targets, GET forms and captchas b
     [loginForm.replace('action="/session"', 'action="https://other.example/session"'), 'https://example.com', /cross-site/],
     [loginForm.replace('method="post"', 'method="get"'), 'https://example.com', /unsupported/],
     [loginForm.replace('<button>', '<button formaction="https://other.example/session">'), 'https://example.com', /another website/],
-    [loginForm + '<div id="captcha"></div>', 'https://example.com', /captcha/],
   ]) {
     const { username, id, page } = await fixture(html)
     try {
@@ -161,6 +162,92 @@ test('refuses changed origins, cross-site form targets, GET forms and captchas b
       assert.equal(await page.evaluate(() => window.submitted || 0), 0)
     } finally { await page.close() }
   }
+})
+
+const automaticSignup = signupForm
+  .replace('<label><input type="checkbox" name="terms">I accept terms</label>', '')
+  .replace('name="firstName"', 'name="firstName" required')
+  .replace('name="lastName"', 'name="lastName" required')
+  .replace("window.submitted=1", "window.submitted=(window.submitted||0)+1;document.body.innerHTML='<h1>Account successfully created</h1>'")
+
+test('automatic registration submits once, fills known names and confirms only a new account success message', async () => {
+  const { username, id, page } = await fixture(automaticSignup)
+  try {
+    const request = details('register')
+    const result = await accounts.assistAccount(username, id, request)
+    assert.equal(await page.evaluate(() => window.submitted), 1)
+    assert.equal(result.accountCreated, true)
+    assert.equal(result.job.status, 'needs_user', 'registering does not pretend the job application was submitted')
+    assert.match(result.message, /creation confirmed/)
+    assert.equal(request.password, undefined)
+    assert.equal(result.notification, 'unavailable', 'push is never falsely reported as delivered')
+    assert.equal(notices.at(-1).username, username)
+    assert.match(notices.at(-1).title, /Account created/)
+    assert.ok(!JSON.stringify(notices).includes(password))
+  } finally { await page.close() }
+})
+
+test('automatic registration stops and persists notifications for explicit/implicit terms, MFA and captcha', async () => {
+  for (const [html, phase] of [
+    [signupForm, 'terms'],
+    [automaticSignup + '<p>By registering you agree to our privacy policy</p>', 'terms'],
+    [automaticSignup + '<div id="captcha"></div>', 'captcha'],
+    [automaticSignup + '<input autocomplete="one-time-code">', 'login'],
+  ]) {
+    const { username, id, page } = await fixture(html)
+    try {
+      const result = await accounts.assistAccount(username, id, details('register'))
+      assert.equal(await page.evaluate(() => window.submitted || 0), 0)
+      assert.equal(result.accountCreated, false)
+      assert.equal(result.job.activity.phase, phase)
+      assert.equal(notices.at(-1).id, id)
+      assert.equal(await page.locator('input[type="password"]').first().inputValue(), '')
+    } finally { await page.close() }
+  }
+})
+
+test('registration checks required unknown fields and pauses on post-submit verification instead of reporting success', async () => {
+  const unknown = automaticSignup.replace('<button>', '<input aria-label="Unknown required field" required><button>')
+  const verification = automaticSignup.replace('Account successfully created', 'Verify your email')
+  for (const html of [unknown, verification]) {
+    const { username, id, page } = await fixture(html)
+    try {
+      const result = await accounts.assistAccount(username, id, details('register'))
+      assert.equal(result.accountCreated, false)
+      assert.match(result.message, /Required account fields|verification/)
+      assert.equal(await page.evaluate(() => window.submitted || 0), html === unknown ? 0 : 1)
+      assert.equal(result.job.status, 'needs_user')
+    } finally { await page.close() }
+  }
+})
+
+test('automatic registration can open the same-origin signup link and pause on its terms without submitting', async () => {
+  const { username, id, page } = await fixture()
+  try {
+    const result = await accounts.assistAccount(username, id, details('register'))
+    assert.equal(page.url(), 'https://example.com/signup')
+    assert.equal(result.job.activity.phase, 'terms')
+    assert.equal(await page.evaluate(() => window.submitted || 0), 0)
+  } finally { await page.close() }
+})
+
+test('notification helper reports actual delivery and never leaks push failures', async () => {
+  let outcome = { delivered: 1, failed: 0 }
+  let sent
+  const { notifyJob } = load('../lib/job-hunter/notifications.ts', {
+    '../push': { sendToUser: async (username, payload) => { sent = { username, ...payload }; if (outcome instanceof Error) throw outcome; return outcome } },
+  })
+  const payload = { title: 'Needs you', body: 'Review terms' }
+  assert.equal(await notifyJob('owner', 'job1', payload), 'sent')
+  assert.equal(sent.username, 'owner')
+  assert.equal(sent.tag, 'job-hunter:job1')
+  assert.equal(sent.url, '/jobs')
+  outcome = { delivered: 0, failed: 0 }
+  assert.equal(await notifyJob('owner', 'job1', payload), 'unavailable')
+  outcome = { delivered: 0, failed: 1 }
+  assert.equal(await notifyJob('owner', 'job1', payload), 'failed')
+  outcome = new Error('private push endpoint')
+  assert.equal(await notifyJob('owner', 'job1', payload), 'failed')
 })
 
 test('account assistance is owner scoped, refuses running applications and leaves LinkedIn manual', async () => {

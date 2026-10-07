@@ -115,7 +115,9 @@ test('account assistance requires origin consent, clears passwords and never app
   endpoints['/api/jobs/job1/live'] = { activity: state.job.activity, available: true, origin: 'https://example.com', image: null }
   endpoints['/api/jobs/job1/account'] = (_url, init) => {
     requests.push(JSON.parse(init.body))
-    return { message: 'Signup fields filled. Complete terms and verification in the browser.' }
+    return requests.length === 1
+      ? { message: 'Signup fields filled. Complete terms and verification in the browser.' }
+      : { message: 'Terms require your review; registration paused.', notification: 'unavailable' }
   }
   const page = await renderPage('jobs/page.tsx', endpoints)
   const change = async (input, value) => {
@@ -142,6 +144,19 @@ test('account assistance requires origin consent, clears passwords and never app
     assert.deepEqual(requests, [{ mode: 'fill-signup', origin: 'https://example.com', consent: true, email: 'jane@example.com', password: 'Test-only-secret!42' }])
     assert.equal(details.querySelector('input[type="password"]').value, '')
     assert.match(details.textContent, /Complete terms and verification/)
+    await change(details.querySelector('select'), 'register')
+    assert.equal(button.disabled, true, 'each registration requires fresh consent')
+    await change(details.querySelector('input[type="password"]'), 'Test-only-secret!42')
+    await page.click(el => el === details.querySelector('input[type="checkbox"]'))
+    assert.match(details.textContent, /including submitting registration once/)
+    assert.equal(button.textContent, 'Approve automatic registration')
+    await require('react').act(async () => details.querySelector('form').dispatchEvent(new page.window.Event('submit', { bubbles: true, cancelable: true })))
+    await page.settle()
+    assert.equal(requests[1].mode, 'register')
+    assert.match(details.querySelector('[role="alert"]').textContent, /Terms require your review/)
+    assert.match(details.textContent, /Phone push is not configured/)
+    assert.equal(button.disabled, true)
+    assert.equal(details.querySelector('input[type="password"]').value, '')
     assert.deepEqual(state.actions, [])
   } finally { await page.unmount() }
 })

@@ -23,6 +23,7 @@ import {
 } from './store'
 import { applyToJob } from './apply'
 import { updateApplicationActivity } from './live'
+import { notifyJob } from './notifications'
 import { buildAnswers, missingApplicantFields, normalizeLabel, tailorResume, templateCoverLetter, writeCoverLetter } from './writer'
 
 export * from './store'
@@ -241,6 +242,7 @@ async function applyApprovedJob(
     const msg = e instanceof Error ? e.message : String(e)
     const failed = await updateJob(username, id, { status: 'failed', activity: updateApplicationActivity(username, id, msg, 'failed') }, `Application could not run: ${msg.slice(0, 200)}`)
     void auditLog({ level: 'warn', event: 'job_application_error', params: { username, jobId: id, error: msg.slice(0, 200), by } })
+    void notifyJob(username, id, { title: `Application failed: ${job.title}`, body: 'Application automation stopped. Open Job Hunter for the error and retry instructions.' })
     return { job: failed!, message: msg, missing: [] }
   }
   const updated = await updateJob(username, id, {
@@ -250,10 +252,10 @@ async function applyApprovedJob(
     aiAnswers: result.aiAnswers?.length ? result.aiAnswers : job.aiAnswers,
   }, result.message)
   void auditLog({ level: 'info', event: 'job_application_result', params: { username, jobId: id, status: result.status, filled: result.filled.length, missing: result.missing.length, by } })
-  if (by === 'autopilot' && result.status !== 'failed') {
-    void notify(username, result.status === 'submitted'
+  if (result.status !== 'submitted' || by === 'autopilot') {
+    void notifyJob(username, id, result.status === 'submitted'
       ? { title: `Applied: ${job.title}`, body: `${job.company} — submitted by autopilot.` }
-      : { title: `Needs you: ${job.title}`, body: result.questions?.length ? `${result.questions.length} question(s) to answer once; autopilot continues on its next run.` : result.message.slice(0, 140) })
+      : { title: `Needs you: ${job.title}`, body: result.questions?.length ? `${result.questions.length} question(s) need your answers. Open Job Hunter to continue.` : result.message.slice(0, 140) })
   }
   return { job: updated!, message: result.message, missing: result.missing }
 }
@@ -262,14 +264,6 @@ async function applyApprovedJob(
 async function visionModel(imageBase64: string, prompt: string): Promise<string> {
   const { generateVision } = await import('../ai')
   return (await generateVision({ imageBase64, prompt, maxTokens: 300 })).text
-}
-
-/** Push notification to the user's phone, when push is configured (never throws). */
-async function notify(username: string, payload: { title: string; body: string }) {
-  try {
-    const { sendToUser } = await import('../push')
-    await sendToUser(username, { ...payload, tag: 'job-hunter', url: '/jobs' })
-  } catch { /* push not configured */ }
 }
 
 /**

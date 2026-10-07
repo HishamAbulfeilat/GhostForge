@@ -173,11 +173,27 @@ For a waiting application, **Account sign-in / signup assistance** can use
 your existing website email/password to fill and submit an ordinary login
 form. Approve the exact HTTPS website origin each time. Alternatively, open
 its same-origin signup link and fill name/email/password/confirmation fields
-from your confirmed profile and supplied credentials. **Signup is not
-submitted:** save your password in your password manager, review and accept
-terms, press Create account and finish verification yourself in the browser.
-LinkedIn accounts, SSO, embedded forms, email-first flows and unusual layouts
+from your confirmed profile and supplied credentials. **Fill signup details**
+does not submit. **Automatically create account** opens a same-origin signup
+link when needed, fills recognizable fields and submits registration **once**
+after your explicit website approval, only when there are no blockers.
+Save the chosen password in your own password manager before proceeding.
+LinkedIn/Workday registration, SSO, embedded forms, email-first flows and unusual layouts
 remain manual. Cross-site form targets and GET submissions are refused.
+
+Automatic registration stops for explicit or implicit terms/privacy consent,
+captcha, MFA/verification, unknown required fields, invalid passwords,
+disabled buttons and unsupported navigation/forms. It does not accept
+terms, read your mailbox or bypass verification. Review and complete these
+steps in the real browser. Account creation is confirmed only when a new
+website success message appears; a click alone is not success, and unknown
+outcomes must be checked before retrying to avoid duplicate registration.
+
+Blockers persist in job status and appear as in-app alerts. Phone push is
+attempted through your configured GhostForge push subscriptions; the account
+panel reports when delivery is unavailable or failed. Keep the app open when
+push is not configured. Application-form terms now also pause the form agent;
+GhostForge no longer automatically checks legal/consent checkboxes.
 
 Credentials are request-only: GhostForge never saves them, writes them to job
 logs, or sends them to AI. The app clears the password field when an action
@@ -189,7 +205,8 @@ Complete MFA/email verification/captcha yourself. Then use **Open & fill
 again**; the persistent browser profile reuses that session. A normal browser
 tab is a separate session. An attempted login is never reported as verified,
 and an account action never marks the job Applied or approves another job.
-GhostForge does not bypass authentication or perform unattended registration.
+GhostForge does not bypass authentication. Registration authorization is
+per-request and per-origin; it is not blanket signup permission for autopilot.
 
 Live preview is process-local and unavailable after the application browser
 closes or when requests are served by a different server process. Persisted

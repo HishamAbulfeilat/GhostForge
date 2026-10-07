@@ -360,6 +360,12 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     if (wall === 'login') return outcome('needs_user', `${new URL(pg.url()).hostname || 'This website'} requires sign-in, account creation or verification. Use account assistance for supported forms, or complete sign-in/registration/MFA yourself in the GhostForge browser, then use Open & fill again. The application has not been submitted.`)
 
     const fields = await scan(pg)
+    if (fields.some(f => f.kind === 'checkbox' && f.empty && /privacy|consent|agree|acknowledg|terms|certify|confirm (that )?(the )?information/i.test(f.label))) {
+      return outcome('needs_user', 'Terms, privacy consent or a certification require your review. Check the application browser and accept only if you agree, then retry. GhostForge did not accept terms or submit the application.')
+    }
+    if (/by (clicking|submitting|continuing).{0,120}(agree|accept|consent)|by (clicking|submitting|continuing).{0,120}terms/i.test(await bodyText(pg))) {
+      return outcome('needs_user', 'Submitting this form includes terms or privacy consent. Review and finish it yourself in the application browser. GhostForge did not accept terms or submit the application.')
+    }
     ctx.log?.(`Filling application step ${step + 1}: ${fields.length} fields detected`)
     const btns = await buttons(pg)
 
@@ -390,12 +396,7 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
         continue
       }
       if (!f.empty && !f.invalid) continue
-      if (f.kind === 'checkbox') {
-        if (/privacy|consent|agree|acknowledg|terms|certify|confirm (that )?(the )?information/i.test(f.label)) {
-          if (await setField(pg, f, 'yes')) filled.push(f.label)
-        }
-        continue
-      }
+      if (f.kind === 'checkbox') continue
       if (f.kind === 'textarea' && ctx.job.coverLetter && /cover letter|additional information|anything else|message to (the )?(hiring|recruit)/i.test(f.label)) {
         if (await setField(pg, f, ctx.job.coverLetter)) { filled.push(f.label || 'Cover letter'); continue }
       }

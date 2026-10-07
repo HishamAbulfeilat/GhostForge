@@ -975,6 +975,7 @@ function NumberSetting({ id, label, value, min, max, onCommit }: {
 const ACTIVITY_LABELS: Record<ApplicationActivity['phase'], string> = {
   opening: 'Opening application', filling: 'Filling form', waiting_ai: 'Waiting for AI answers', submitting: 'Submitting',
   login: 'Waiting for login / account verification', captcha: 'Waiting for captcha',
+  terms: 'Waiting for your terms / privacy review',
   questions: 'Waiting for your answers', blocked: 'Needs your attention',
   submitted: 'Submission confirmed', failed: 'Application failed',
 }
@@ -1024,7 +1025,7 @@ function ApplicationMonitor({ job, applying }: { job: JobRecord; applying: boole
         <strong>{activity ? ACTIVITY_LABELS[activity.phase] : active ? 'Starting application' : 'No active application'}</strong>
         <p className="mt-1 whitespace-pre-wrap">{activity?.message || 'Approve a prepared job to open its application in the server browser.'}</p>
       </div>
-      <p className="text-sm text-gf-muted">Use account assistance below for supported sign-in/signup forms, or complete them directly in the application browser. GhostForge reuses that browser&apos;s saved session on later attempts; it never stores your password. Complete signup submission, MFA, email verification and captchas yourself, then use Open &amp; fill again. A new tab in your regular browser has a separate session.</p>
+      <p className="text-sm text-gf-muted">Use account automation below for supported sign-in/signup forms, or complete them directly in the application browser. GhostForge reuses that browser&apos;s saved session on later attempts; it never stores your password. Automatic registration pauses for terms, MFA, email verification, captcha or unsupported fields. Finish those steps yourself, then use Open &amp; fill again. A new tab in your regular browser has a separate session.</p>
       {job.status === 'needs_user' && live?.available && live.origin &&
         <AccountAssistance key={`${job.id}:${live.origin}`} jobId={job.id} origin={live.origin} />}
       {previewEnabled && <p className="text-xs text-gf-muted">Read-only screenshot of the server browser, refreshed every three seconds. It may contain personal application data; only enable on a trusted screen. Input fields are masked, including passwords and verification codes. Nothing is recorded to disk.</p>}
@@ -1041,6 +1042,15 @@ function ApplicationMonitor({ job, applying }: { job: JobRecord; applying: boole
       )}
     </section>
   )
+}
+
+const ACCOUNT_ACTION_LABELS: Record<AccountMode, string> = {
+  login: 'Approve sign-in', 'open-signup': 'Open signup form', 'fill-signup': 'Fill signup form', register: 'Approve automatic registration',
+}
+const NOTIFICATION_MESSAGES = {
+  sent: '',
+  unavailable: ' Phone push is not configured; this alert and the job status remain in GhostForge.',
+  failed: ' Phone notification failed; check this alert and the job status.',
 }
 
 function AccountAssistance({ jobId, origin }: { jobId: string; origin: string }) {
@@ -1063,10 +1073,10 @@ function AccountAssistance({ jobId, origin }: { jobId: string; origin: string })
     const body = JSON.stringify({ mode, origin, consent, ...(mode === 'open-signup' ? {} : { email, password }) })
     setPassword('')
     try {
-      const result = await api<{ message: string }>(`/api/jobs/${encodeURIComponent(jobId)}/account`, {
+      const result = await api<{ message: string; notification?: 'sent' | 'unavailable' | 'failed' }>(`/api/jobs/${encodeURIComponent(jobId)}/account`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
       })
-      setMessage(result.message)
+      setMessage(`${result.message}${NOTIFICATION_MESSAGES[result.notification || 'sent']}`)
       setConsent(false)
       if (mode === 'open-signup') setMode('fill-signup')
     } catch (cause) {
@@ -1085,6 +1095,7 @@ function AccountAssistance({ jobId, origin }: { jobId: string; origin: string })
             <option value="login">Sign in with my existing account</option>
             <option value="open-signup">Open this website&apos;s signup form</option>
             <option value="fill-signup">Fill signup details (I finish account creation)</option>
+            <option value="register">Automatically create account (pause at blockers)</option>
           </select>
         </label>
         {mode !== 'open-signup' && <>
@@ -1100,12 +1111,12 @@ function AccountAssistance({ jobId, origin }: { jobId: string; origin: string })
         </>}
         <label className="flex min-h-11 items-center gap-3 text-sm">
           <input type="checkbox" checked={consent} required disabled={busy} onChange={event => setConsent(event.target.checked)} />
-          I trust this exact website and approve this account action. Signup terms, final registration, MFA and captcha remain manual.
+          I trust this exact website and approve this account action{mode === 'register' ? ', including submitting registration once when no blockers are present' : ''}. Terms, MFA and captcha require my attention.
         </label>
         <button type="submit" disabled={busy || !consent} className="min-h-11 rounded-lg bg-gf-ink px-4 text-sm font-semibold text-gf-bg disabled:opacity-60">
-          {busy ? 'Working on account…' : mode === 'login' ? 'Approve sign-in' : mode === 'open-signup' ? 'Open signup form' : 'Fill signup form'}
+          {busy ? 'Working on account…' : ACCOUNT_ACTION_LABELS[mode]}
         </button>
-        {message && <p role="status" className="text-sm text-sky-200">{message}</p>}
+        {message && <p role="alert" className="text-sm text-sky-200">{message}</p>}
         {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
       </form>
     </details>

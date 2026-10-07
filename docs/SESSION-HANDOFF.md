@@ -59,10 +59,17 @@ same-origin signup forms. Passwords are not persisted or sent to AI; HTTPS/
 localhost transport, owner checks, rate limits and credential-safe errors are
 enforced. Signup submission/terms/MFA/captcha and LinkedIn remain manual.
 Cookies persist for later attempts; use Open & fill again after authenticating.
-No password vault or unattended registration was added.
-Verification: root smoke passed; web 545 passed with one Windows-only skip;
+Automatic registration is now an explicit per-origin option: open/fill/submit
+once on supported standard forms, pause for terms (including implicit consent),
+captcha/MFA/verification, unknown fields and unsupported flows. LinkedIn and
+Workday signup remain manual. Durable blockers show in-app and trigger phone
+push when configured; unavailable/failed delivery is reported, not hidden.
+The application agent no longer accepts legal/consent checkboxes. Confirmed
+account creation never marks a job Applied. No password vault was added.
+Verification: root smoke passed; web 551 passed with one Windows-only skip;
 isolated production build, typecheck and changed-file lint passed. React Doctor
-82, with no introduced findings. Browser fixtures used fictional credentials;
+changed scope 81, with no introduced findings; same-tool full-snapshot
+baseline/current comparison showed no score regression. Browser fixtures used fictional credentials;
 no real website account was created and no real application was submitted.
 
 **Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`

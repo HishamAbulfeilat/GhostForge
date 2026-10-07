@@ -1,6 +1,6 @@
 import type { Page } from 'playwright-core'
 
-export type ApplicationPhase = 'opening' | 'filling' | 'waiting_ai' | 'submitting' | 'login' | 'captcha' | 'questions' | 'blocked' | 'submitted' | 'failed'
+export type ApplicationPhase = 'opening' | 'filling' | 'waiting_ai' | 'submitting' | 'login' | 'terms' | 'captcha' | 'questions' | 'blocked' | 'submitted' | 'failed'
 export interface ApplicationActivity {
   phase: ApplicationPhase
   message: string
@@ -20,6 +20,7 @@ export function applicationPhase(message: string, status?: string): ApplicationP
   if (status === 'submitted') return 'submitted'
   if (/waiting for AI/i.test(message)) return 'waiting_ai'
   if (/captcha/i.test(message)) return 'captcha'
+  if (/terms|privacy consent/i.test(message)) return 'terms'
   if (/sign.?in|log.?in|create an account|account creation|registration|authentication|verification|\bMFA\b/i.test(message)) return 'login'
   if (/question.+answer/i.test(message)) return 'questions'
   if (status === 'needs_user') return 'blocked'
