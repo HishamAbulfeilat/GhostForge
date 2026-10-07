@@ -16,6 +16,12 @@ same job, keeps partial answers in Needs you, and sends prompt-based CV/job
 requests correctly to Ollama. macOS test failures noted below are now fixed.
 Only `main` remains; do not recreate deleted agent branches without approval.
 See `CHANGELOG.md` and the GitHub release/build run for publication status.
+Local verification: root smoke passed, web 515 passed/one Windows-only skip,
+desktop 34 passed, MCP eight passed; React Doctor remains 81. Production
+high/critical audit gates passed (moderate mammoth-chain advisories remain).
+The first v5.3.2 build passed web production, macOS, Linux and Android; Windows
+revealed a lazy Electron-download assumption in its smoke test, now corrected
+by resolving the executable through Electron's own package API.
 
 **Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
 (main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
