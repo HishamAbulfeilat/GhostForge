@@ -22,6 +22,7 @@ import {
   type JobProfile, type JobRecord, type ModelChoice,
 } from './store'
 import { applyToJob } from './apply'
+import { updateApplicationActivity } from './live'
 import { buildAnswers, missingApplicantFields, normalizeLabel, tailorResume, templateCoverLetter, writeCoverLetter } from './writer'
 
 export * from './store'
@@ -210,7 +211,7 @@ async function applyApprovedJob(
 
   const by = opts.by || 'user'
   const ap = profile.autopilot
-  await updateJob(username, id, { status: 'submitting' }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
+  await updateJob(username, id, { status: 'submitting', activity: updateApplicationActivity(username, id, 'Opening the application browser') }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
   void auditLog({ level: 'info', event: 'job_application_approved', params: { username, jobId: id, company: job.company, title: job.title, ats: job.ats, by } })
 
   // Laptop control on: a visible browser on this computer and screenshot-based
@@ -231,19 +232,20 @@ async function applyApprovedJob(
       linkedin: by === 'user' || (ap.linkedinEasyApply && Boolean(profile.linkedin?.connectedAt)),
       generate, vision,
       log: message => {
-        void updateJob(username, id, {}, message).catch(error => {
+        void updateJob(username, id, { activity: updateApplicationActivity(username, id, message) }, message).catch(error => {
           void auditLog({ level: 'warn', event: 'job_application_log_error', params: { username, jobId: id, error: String(error).slice(0, 200) } })
         })
       },
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    const failed = await updateJob(username, id, { status: 'failed' }, `Application could not run: ${msg.slice(0, 200)}`)
+    const failed = await updateJob(username, id, { status: 'failed', activity: updateApplicationActivity(username, id, msg, 'failed') }, `Application could not run: ${msg.slice(0, 200)}`)
     void auditLog({ level: 'warn', event: 'job_application_error', params: { username, jobId: id, error: msg.slice(0, 200), by } })
     return { job: failed!, message: msg, missing: [] }
   }
   const updated = await updateJob(username, id, {
     status: result.status,
+    activity: updateApplicationActivity(username, id, result.message, result.status),
     questions: result.questions?.length ? result.questions : undefined,
     aiAnswers: result.aiAnswers?.length ? result.aiAnswers : job.aiAnswers,
   }, result.message)

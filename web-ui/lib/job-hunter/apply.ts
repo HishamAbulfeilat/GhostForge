@@ -21,6 +21,7 @@ import { userDir } from './store'
 import { runFormAgent, type AgentContext, type AgentOutcome } from './agent'
 import { markdownToDocx } from './improve'
 import { detectAts } from './sources'
+import { trackApplicationPage, updateApplicationActivity } from './live'
 
 export interface ApplyResult {
   status: 'submitted' | 'needs_user' | 'failed'
@@ -225,8 +226,10 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
   const headless = opts.headless ?? process.env.JOB_HUNTER_HEADLESS === '1'
 
   return withProfileLock(username, async () => {
+    updateApplicationActivity(username, job.id, 'Opening the application browser')
     const context = await launchProfile(username, headless)
     const finish = async (result: ApplyResult & { questions?: AgentOutcome['questions']; aiAnswers?: AgentOutcome['aiAnswers'] }) => {
+      updateApplicationActivity(username, job.id, result.message, result.status)
       // Visible browser + something left for the user: leave it open for them.
       if (!headless && result.status === 'needs_user') keepOpen(username, context)
       else await context.close().catch(error => {
@@ -236,6 +239,7 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
     }
     try {
       const page = context.pages().find(candidate => candidate.url() === 'about:blank') || await context.newPage()
+      trackApplicationPage(username, job.id, page)
       opts.log?.(`Opening application: ${target}`)
       if (!headless) await page.bringToFront()
       const nav = await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 45_000 })
@@ -261,7 +265,11 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
         generate: opts.generate ?? null,
         vision: opts.vision ?? null,
         allowSubmit: opts.allowSubmit ?? AUTO_SUBMIT_ATS.has(job.ats),
-        log: opts.log,
+        onPage: current => trackApplicationPage(username, job.id, current),
+        log: message => {
+          updateApplicationActivity(username, job.id, message)
+          opts.log?.(message)
+        },
       })
       return await finish({ status: out.status, message: out.message, filled: out.filled, missing: out.missing, questions: out.questions, aiAnswers: out.aiAnswers })
     } catch (e) {

@@ -188,6 +188,7 @@ export interface JobRecord {
   score: number
   reasons: string
   status: JobStatus
+  activity?: import('./live').ApplicationActivity
   tailoredResume?: string
   /** Non-AI drafts require the user's explicit approval, never autopilot. */
   preparationWarning?: string

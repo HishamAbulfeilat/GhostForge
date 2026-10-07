@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ApplicantData, AutopilotSettings, JobPreferences, JobRecord, ModelChoice } from '@/lib/job-hunter/store'
 import { CvImprover } from '@/components/career/CvImprover'
 import { GithubProfileSetup } from '@/components/career/GithubProfileSetup'
+import type { ApplicationActivity } from '@/lib/job-hunter/live'
 
 // Layout and tokens follow the "GhostForge Job Hunter & Setup" Claude Design canvas.
 
@@ -513,6 +514,7 @@ export default function JobsPage() {
                             <span className="font-mono capitalize">{j.ats}</span>
                           </span>
                           {j.reasons && <span className="text-sm text-slate-300">{j.reasons}</span>}
+                          {j.activity && <span className="text-sm text-sky-200">{j.activity.phase}: {j.activity.message}</span>}
                           {j.description && <span className="line-clamp-2 whitespace-pre-line text-sm text-gf-muted">{j.description}</span>}
                         </button>
                         <div className="col-span-2 flex items-center justify-between gap-2 sm:col-span-1 sm:flex-col sm:items-end">
@@ -670,6 +672,8 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
           {job.preparationWarning}
         </div>
       )}
+
+      <ApplicationMonitor key={job.id} job={job} applying={approving} />
 
       {!!job.questions?.length && (
         <form className="flex flex-col gap-3 rounded-2xl border border-amber-700/60 bg-amber-950/20 p-5"
@@ -964,6 +968,75 @@ function NumberSetting({ id, label, value, min, max, onCommit }: {
         onKeyDown={e => { if (e.key === 'Enter') commit() }}
         className="h-10 rounded-[10px] border border-gf-line bg-gf-bar px-3 text-sm" />
     </div>
+  )
+}
+
+const ACTIVITY_LABELS: Record<ApplicationActivity['phase'], string> = {
+  opening: 'Opening application', filling: 'Filling form', waiting_ai: 'Waiting for AI answers', submitting: 'Submitting',
+  login: 'Waiting for login / account verification', captcha: 'Waiting for captcha',
+  questions: 'Waiting for your answers', blocked: 'Needs your attention',
+  submitted: 'Submission confirmed', failed: 'Application failed',
+}
+
+function monitorActivity(job: JobRecord, active: boolean, live?: ApplicationActivity | null) {
+  if (active) return live || job.activity
+  return job.activity || live
+}
+
+function ApplicationMonitor({ job, applying }: { job: JobRecord; applying: boolean }) {
+  const [previewEnabled, setPreviewEnabled] = useState(false)
+  const [live, setLive] = useState<{ activity: ApplicationActivity | null; available: boolean; image: string | null; origin?: string } | null>(null)
+  const [error, setError] = useState('')
+  const active = applying || ['submitting', 'needs_user'].includes(job.status)
+  const refreshMonitor = useCallback(async (signal: AbortSignal) => {
+    try {
+      if (document.visibilityState === 'hidden') return
+      const result = await api<{ activity: ApplicationActivity | null; available: boolean; image: string | null; origin?: string }>(
+        `/api/jobs/${encodeURIComponent(job.id)}/live${previewEnabled ? '?preview=1' : ''}`, { signal })
+      if (!signal.aborted) { setLive(result); setError('') }
+    } catch (cause) {
+      if (!signal.aborted) setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }, [job.id, previewEnabled])
+  useEffect(() => {
+    if (!previewEnabled && !active) return
+    const controller = new AbortController()
+    let loading = false
+    const refresh = async () => {
+      if (loading) return
+      loading = true
+      try { await refreshMonitor(controller.signal) } finally { loading = false }
+    }
+    void refresh()
+    const timer = setInterval(() => void refresh(), 3000)
+    return () => { controller.abort(); clearInterval(timer) }
+  }, [active, previewEnabled, refreshMonitor])
+  const activity = monitorActivity(job, active, live?.activity)
+  return (
+    <section aria-label="Application monitor" className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-display text-lg font-semibold">Application monitor</h2>
+        <button type="button" aria-pressed={previewEnabled} onClick={() => { setPreviewEnabled(value => !value); setLive(null) }}
+          className="min-h-11 rounded-xl border border-gf-line2 px-4 text-sm">{previewEnabled ? 'Hide browser preview' : 'Show browser preview'}</button>
+      </div>
+      <div role="status" className="rounded-xl bg-gf-raised p-3 text-sm">
+        <strong>{activity ? ACTIVITY_LABELS[activity.phase] : active ? 'Starting application' : 'No active application'}</strong>
+        <p className="mt-1 whitespace-pre-wrap">{activity?.message || 'Approve a prepared job to open its application in the server browser.'}</p>
+      </div>
+      <p className="text-sm text-gf-muted">Sign in or create an account directly in the application browser. GhostForge reuses that browser&apos;s saved session on later attempts; it never stores your password. Complete MFA, email verification and captchas yourself, then use Open &amp; fill again. A new tab in your regular browser has a separate session.</p>
+      {previewEnabled && <p className="text-xs text-gf-muted">Read-only screenshot of the server browser, refreshed every three seconds. It may contain personal application data; only enable on a trusted screen. Input fields are masked, including passwords and verification codes. Nothing is recorded to disk.</p>}
+      {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+      {previewEnabled && (
+        <div className="overflow-hidden rounded-xl border border-gf-line bg-gf-bar p-3">
+          {live?.origin && <p className="mb-2 break-words text-xs text-gf-muted">{live.origin}</p>}
+          {live?.image
+            // A transient authenticated screenshot, not a public optimizable asset.
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={live.image} alt="Live read-only view of the application browser" className="h-auto w-full rounded-lg" />
+            : <p className="py-8 text-center text-sm text-gf-muted">{live?.available ? 'Loading browser preview…' : 'No browser preview available. The window may be closed or running in another server process.'}</p>}
+        </div>
+      )}
+    </section>
   )
 }
 

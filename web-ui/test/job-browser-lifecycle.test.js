@@ -23,6 +23,7 @@ const hooks = Module.registerHooks({
 })
 const apply = require('../lib/job-hunter/apply.ts')
 const store = require('../lib/job-hunter/store.ts')
+const live = require('../lib/job-hunter/live.ts')
 test.after(() => {
   hooks.deregister()
   rmSync(home, { recursive: true, force: true })
@@ -85,7 +86,11 @@ test('a real persistent browser reaches the application and reuses a retained wi
     browser = await launch(dir, { ...options, channel: undefined, executablePath: chromium.executablePath(), headless: true })
     await browser.route('https://example.com/**', route => route.fulfill({
       contentType: 'text/html',
-      body: '<h1>Application</h1><div id="captcha">Complete captcha to continue</div>',
+      body: route.request().url().includes('/popup')
+        ? '<h1>Job</h1><a target="_blank" href="https://example.com/login">Apply now</a>'
+        : route.request().url().includes('/login')
+        ? '<h1>Sign in</h1><input type="password" value="test-secret"><button>Sign in</button>'
+        : '<h1>Application</h1><div id="captcha">Complete captcha to continue</div>',
     }))
     // Restore extra tabs left by a previous browser session.
     await browser.newPage()
@@ -97,16 +102,60 @@ test('a real persistent browser reaches the application and reuses a retained wi
   try {
     const first = await apply.applyToJob(job, profile, 'retained', { headless: false, allowSubmit: false })
     assert.equal(first.status, 'needs_user')
+    const activity = await live.applicationPreview('retained', job.id, false)
+    assert.equal(activity.activity.phase, 'captcha')
+    assert.equal(activity.available, true)
+    assert.equal(activity.image, null, 'status-only requests do not capture screenshots')
+    assert.equal(activity.origin, 'https://example.com')
+    const preview = await live.applicationPreview('retained', job.id, true)
+    assert.match(preview.image, /^data:image\/jpeg;base64,/)
+    assert.equal((await live.applicationPreview('different-user', job.id, true)).available, false)
     assert.equal(browser.pages()[0].url(), job.applyUrl)
     assert.equal(browser.pages().length, 1, 'startup blank tabs are closed only after the application loads')
     const second = await apply.applyToJob({ ...job, applyUrl: 'https://example.com/application?job=2' }, profile, 'retained', { headless: false, allowSubmit: false })
     assert.equal(second.status, 'needs_user')
     assert.equal(launches, 1)
     assert.deepEqual(browser.pages().map(page => page.url()), [job.applyUrl, 'https://example.com/application?job=2'])
+    const loginJob = { ...job, id: 'login-job', applyUrl: 'https://example.com/popup' }
+    const login = await apply.applyToJob(loginJob, profile, 'retained', { headless: false, allowSubmit: false })
+    assert.equal(login.status, 'needs_user')
+    const loginPreview = await live.applicationPreview('retained', loginJob.id, false)
+    assert.equal(loginPreview.activity.phase, 'login')
+    assert.equal(browser.pages()[3].url(), 'https://example.com/login', 'application preview follows its login popup')
+    assert.equal(browser.pages()[2].listenerCount('popup'), 0, 'operation cleans up its popup listeners')
+    const capture = browser.pages()[3].screenshot.bind(browser.pages()[3])
+    let maskSelector = ''
+    t.mock.method(browser.pages()[3], 'screenshot', async options => {
+      maskSelector = options.mask[0].toString()
+      return capture(options)
+    })
+    await live.applicationPreview('retained', loginJob.id, true)
+    assert.match(maskSelector, /input, textarea/)
+    assert.match(maskSelector, /select/)
+    assert.match(maskSelector, /contenteditable.*false/)
     await apply.withProfile('retained', true, async context => {
       const page = await context.newPage()
       await page.goto('https://example.com/check')
     })
-    assert.equal(browser.pages().length, 2, 'temporary operations must not close retained application tabs')
+    assert.equal(browser.pages().length, 4, 'temporary operations must not close retained application tabs')
   } finally { await browser?.close() }
+  assert.equal((await live.applicationPreview('retained', job.id, true)).available, false)
+})
+
+test('live activity distinguishes login, questions, captcha and submission outcomes', () => {
+  assert.equal(live.applicationPhase('Waiting for AI to suggest answers'), 'waiting_ai')
+  assert.equal(live.applicationPhase('example.com wants you to sign in or create an account first.', 'needs_user'), 'login')
+  assert.equal(live.applicationPhase('3 question(s) need your answer.', 'needs_user'), 'questions')
+  assert.equal(live.applicationPhase('Captcha required', 'needs_user'), 'captcha')
+  assert.equal(live.applicationPhase('Submit pressed but confirmation missing', 'needs_user'), 'blocked')
+  assert.equal(live.applicationPhase('Submitted', 'submitted'), 'submitted')
+  assert.equal(live.applicationPhase('Opening browser failed', 'failed'), 'failed')
+})
+
+test('preview endpoint authorizes job ownership and disables caching', () => {
+  const source = require('node:fs').readFileSync(join(__dirname, '../app/api/jobs/[id]/live/route.ts'), 'utf8')
+  assert.ok(source.indexOf('requirePermission') < source.indexOf('applicationPreview(user.username'))
+  assert.match(source, /getJob\(user\.username, id\)/)
+  assert.match(source, /private, no-store/)
+  assert.match(source, /Vary.*Cookie/)
 })

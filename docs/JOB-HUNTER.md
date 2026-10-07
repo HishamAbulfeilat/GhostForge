@@ -151,3 +151,32 @@ failures are reported, never left as a successful application on `about:blank`.
 Visible application tabs are explicitly brought to the front before and after
 navigation. Extra startup blank tabs are closed after successful navigation;
 existing nonblank application tabs are preserved.
+
+## Live application monitor and sign-in
+
+Open a job's review to see **Application monitor**: opening, filling,
+waiting for AI answers, submitting, waiting for login/account verification, captcha, unanswered
+questions, other blockers, failure or confirmed submission. Status refreshes
+while the application is running and blockers persist with the job.
+
+**Show browser preview** enables a read-only screenshot of the actual server
+browser, refreshed every three seconds while visible. It follows application
+popups/new tabs; the real browser stays open separately when you need to act.
+This is not an iframe or interactive remote-control window. Third-party sites
+often prohibit embedding, so screenshots provide a reliable quick view.
+Inputs/textareas/editable fields are masked, but page text may still contain
+personal information. Enable only on a trusted screen. Screenshots are never
+saved to disk, are served without caching, and require the signed-in user's
+Job Hunter permission and ownership of the job.
+
+Sign in or create the account **yourself in the Job Hunter browser**, complete
+MFA/email verification/captcha and accept terms yourself. Then use **Open &
+fill again**; the persistent profile reuses that session. A normal browser tab
+is a separate session. GhostForge does not store website passwords, create
+accounts automatically or bypass authentication. A credential vault with
+origin-specific consent would be required before adding password autofill.
+
+Live preview is process-local and unavailable after the application browser
+closes or when requests are served by a different server process. Persisted
+status still appears. Headless autopilot blockers may require retrying visibly
+from the review to complete sign-in.

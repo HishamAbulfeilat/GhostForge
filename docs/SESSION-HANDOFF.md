@@ -48,6 +48,15 @@ by sequential single-job requests with per-job results. Keep the page open;
 this is not a durable queue. AI writing adds a third, smaller prompt attempt;
 unavailable models still generate labelled drafts, not false AI success.
 
+**Application monitor:** jobs now persist structured opening/filling/AI wait/
+submitting/login/captcha/question/blocker/result states. Review includes an
+opt-in, read-only three-second screenshot preview of the actual Playwright
+page, following popups. Preview is authenticated, owner-scoped, masked on input/
+editable fields and no-store; it is not saved to disk or interactive remote
+control. Sessions are process-local. Login/account creation remain manual in
+the application window; cookies persist for later attempts. Password storage/
+automatic signup were not added without a vault and origin-specific consent.
+
 **Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
 (main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
 Copilot worktree under `GhostForge\copilot-worktrees\`). If the main repo is

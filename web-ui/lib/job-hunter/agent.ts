@@ -40,6 +40,7 @@ export interface AgentContext {
   /** Screenshot model for the computer-use fallback (only when the user allowed it) */
   vision?: Vision | null
   log?: (msg: string) => void
+  onPage?: (page: Page) => void
   maxSteps?: number
 }
 
@@ -334,18 +335,30 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
 
   // A site may open the form in a new tab; follow it.
   let current = page
-  page.context().on('page', p => { current = p })
+  const followed = new Set<Page>([page])
+  const followPage = (p: Page) => {
+    current = p
+    ctx.onPage?.(p)
+    if (!followed.has(p)) {
+      followed.add(p)
+      p.on('popup', followPage)
+    }
+  }
+  page.on('popup', followPage)
 
+  try {
   for (let step = 0; step < maxSteps; step++) {
     const pg = current
+    ctx.onPage?.(pg)
     await pg.waitForLoadState('domcontentloaded').catch(() => {})
     await pg.waitForTimeout(800)
     if (beforeSubmit !== null && isNewConfirmation(beforeSubmit, await bodyText(pg))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
     const wall = await blocked(pg)
-    if (wall === 'captcha') return outcome('needs_user', 'This form has a captcha. Solve it and press Submit; everything else is filled in.')
+    if (wall === 'captcha') return outcome('needs_user', 'This form has a captcha. Solve it in the application browser, then retry. Filling stopped before the captcha; the application has not been submitted.')
     if (wall === 'login') return outcome('needs_user', `${new URL(pg.url()).hostname} wants you to sign in or create an account first. Sign in once in the GhostForge browser and the next attempt continues from there.`)
 
     const fields = await scan(pg)
+    ctx.log?.(`Filling application step ${step + 1}: ${fields.length} fields detected`)
     const btns = await buttons(pg)
 
     // Job page, not the form yet (at most a search or newsletter box): press the
@@ -391,7 +404,9 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
 
     // 2. Ask the AI for the rest (grounded in the CV); never for sensitive questions.
     const answerable = unknown.filter(f => !SENSITIVE.test(f.label) || /gender|race|ethnic|veteran|disabilit|sexual/i.test(f.label))
+    if (answerable.length && ctx.generate) ctx.log?.(`Waiting for AI to suggest CV-grounded answers for ${answerable.length} fields`)
     const ai = await aiAnswers(answerable, ctx)
+    ctx.log?.(`Filling application step ${step + 1}: checking required answers and uploads`)
     for (const f of unknown) {
       const v = ai.get(f.id)
       if (v && await setField(pg, f, v)) { filled.push(f.label); aiUsed.push({ label: f.label, value: v }) }
@@ -453,4 +468,7 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     return outcome('needs_user', 'The form uses a layout GhostForge could not finish on its own. It is pre-filled; finish it in the browser.')
   }
   return outcome('needs_user', 'The application has more steps than expected. It is pre-filled; finish it in the browser.')
+  } finally {
+    for (const tracked of followed) tracked.off('popup', followPage)
+  }
 }

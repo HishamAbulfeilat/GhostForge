@@ -13,6 +13,7 @@ const text = el => el.textContent.trim()
 
 function routes(state, approveStatus = 'submitted') {
   return {
+    '/api/jobs/job1/live': { activity: null, available: false, image: null },
     '/api/jobs/profile': { profile },
     '/api/models': { providers: [], local: {}, customModels: [] },
     '/api/jobs': (_url, init) => {
@@ -22,7 +23,7 @@ function routes(state, approveStatus = 'submitted') {
         if (body.action === 'prepare') {
           state.job = { ...state.job, status: 'ready', tailoredResume: 'Jane Example original CV', coverLetter: 'Dear Hiring Manager,', answers: [{ label: 'Email', value: 'jane@example.com' }], preparationWarning: 'AI writing was unavailable. This draft uses your original CV and a basic cover letter. Review it before approving.' }
         } else if (body.action === 'approve') {
-          state.job = { ...state.job, status: approveStatus }
+          state.job = { ...state.job, status: approveStatus, activity: { phase: approveStatus === 'submitted' ? 'submitted' : approveStatus === 'failed' ? 'failed' : 'captcha', message: 'Application result', updatedAt: '' } }
         }
         return { job: state.job, ...(body.action === 'approve' ? { message: approveStatus === 'submitted' ? 'Submitted to Acme' : approveStatus === 'failed' ? 'No Chrome or Edge found' : 'A captcha needs your attention' } : {}) }
       }
@@ -33,7 +34,9 @@ function routes(state, approveStatus = 'submitted') {
 
 test('Prepare opens the honest draft review; approval moves a confirmed job to Applied', async () => {
   const state = { job: { ...baseJob }, actions: [] }
-  const page = await renderPage('jobs/page.tsx', routes(state))
+  const endpoints = routes(state)
+  endpoints['/api/jobs/job1/live'] = { activity: { phase: 'filling', message: 'Filling earlier step', updatedAt: '' }, available: false, image: null }
+  const page = await renderPage('jobs/page.tsx', endpoints)
   try {
     await page.click(el => text(el).startsWith('All matches'))
     await page.click(el => text(el) === 'Prepare')
@@ -46,12 +49,62 @@ test('Prepare opens the honest draft review; approval moves a confirmed job to A
     const waiting = page.document.querySelector('[role="tab"][aria-selected="true"]')
     assert.match(waiting.textContent, /Waiting for you.*1/)
     await page.click(el => text(el) === 'Review & approve')
+    await page.click(el => text(el) === 'Show browser preview')
+    assert.match(page.document.querySelector('[aria-label="Application monitor"]').textContent, /Filling earlier step/)
     await page.click(el => text(el) === 'Approve & apply')
     assert.deepEqual(state.actions, ['prepare', 'approve'])
     assert.match(page.document.body.textContent, /Submitted to Acme/)
+    assert.match(page.document.querySelector('[aria-label="Application monitor"]').textContent, /Submission confirmed/)
     await page.click(el => text(el) === '\u2190 Back to jobs')
     const applied = page.document.querySelector('[role="tab"][aria-selected="true"]')
     assert.match(applied.textContent, /Applied.*1/)
+  } finally { await page.unmount() }
+})
+
+test('application monitor shows login blockers and requires opt-in before loading screenshots', async () => {
+  const state = { job: { ...baseJob, status: 'needs_user', tailoredResume: 'CV', coverLetter: 'Letter', activity: { phase: 'login', message: 'Sign in to continue', updatedAt: '' } }, actions: [] }
+  const endpoints = routes(state)
+  endpoints['/api/jobs/job1/live'] = url => ({
+    activity: state.job.activity, available: true,
+    image: String(url).includes('preview=1') ? 'data:image/jpeg;base64,test' : null, origin: 'https://example.com',
+  })
+  const page = await renderPage('jobs/page.tsx', endpoints)
+  try {
+    await page.click(el => text(el) === 'Finish application')
+    const monitor = page.document.querySelector('[aria-label="Application monitor"]')
+    assert.match(monitor.textContent, /Waiting for login/)
+    assert.match(monitor.textContent, /never stores your password/)
+    assert.equal(monitor.querySelector('img'), null)
+    await page.click(el => text(el) === 'Show browser preview')
+    assert.ok(monitor.querySelector('img'))
+    await page.click(el => text(el) === 'Hide browser preview')
+    assert.equal(monitor.querySelector('img'), null)
+    assert.deepEqual(state.actions, [], 'preview does not authorize applying or login')
+  } finally { await page.unmount() }
+})
+
+test('monitor polls progress immediately while approval is still running', async () => {
+  const state = { job: { ...baseJob, status: 'ready', tailoredResume: 'CV', coverLetter: 'Letter' }, actions: [] }
+  const endpoints = routes(state)
+  const jobsHandler = endpoints['/api/jobs']
+  let finish
+  endpoints['/api/jobs'] = (url, init) => {
+    if (init?.method === 'POST' && JSON.parse(init.body).action === 'approve') {
+      return new Promise(resolve => { finish = () => resolve(jobsHandler(url, init)) })
+    }
+    return jobsHandler(url, init)
+  }
+  endpoints['/api/jobs/job1/live'] = { activity: { phase: 'waiting_ai', message: 'Waiting for AI answers', updatedAt: '' }, available: true, image: null }
+  const page = await renderPage('jobs/page.tsx', endpoints)
+  try {
+    await page.click(el => text(el) === 'Review & approve')
+    await page.click(el => text(el) === 'Approve & apply')
+    const monitor = page.document.querySelector('[aria-label="Application monitor"]')
+    assert.match(monitor.textContent, /Waiting for AI answers/)
+    assert.equal(monitor.querySelector('img'), null)
+    await require('react').act(async () => { finish(); await new Promise(resolve => setTimeout(resolve, 0)) })
+    await page.settle()
+    assert.match(monitor.textContent, /Submission confirmed/)
   } finally { await page.unmount() }
 })
 
