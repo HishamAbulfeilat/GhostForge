@@ -54,6 +54,7 @@ test('approve navigation uses the job URL and waits for profile shutdown before 
     assert.equal(closing, false, 'a new launch must not race the old profile shutdown')
     return {
       pages: () => [{
+        url: () => 'about:blank',
         goto: async url => { visited.push(url); throw new Error('Synthetic navigation failure') },
       }],
       close: async () => {
@@ -86,6 +87,9 @@ test('a real persistent browser reaches the application and reuses a retained wi
       contentType: 'text/html',
       body: '<h1>Application</h1><div id="captcha">Complete captcha to continue</div>',
     }))
+    // Restore extra tabs left by a previous browser session.
+    await browser.newPage()
+    await browser.newPage()
     return browser
   })
   const profile = await store.getProfile('retained')
@@ -94,6 +98,7 @@ test('a real persistent browser reaches the application and reuses a retained wi
     const first = await apply.applyToJob(job, profile, 'retained', { headless: false, allowSubmit: false })
     assert.equal(first.status, 'needs_user')
     assert.equal(browser.pages()[0].url(), job.applyUrl)
+    assert.equal(browser.pages().length, 1, 'startup blank tabs are closed only after the application loads')
     const second = await apply.applyToJob({ ...job, applyUrl: 'https://example.com/application?job=2' }, profile, 'retained', { headless: false, allowSubmit: false })
     assert.equal(second.status, 'needs_user')
     assert.equal(launches, 1)

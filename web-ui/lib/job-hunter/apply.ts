@@ -148,7 +148,7 @@ export async function launchProfile(username: string, headless: boolean): Promis
   let lastError: unknown
   for (const choice of await browserChoices()) {
     try {
-      return await chromium.launchPersistentContext(dir, { ...choice, headless, viewport: { width: 1280, height: 900 } })
+      return await chromium.launchPersistentContext(dir, { ...choice, headless, timeout: 20_000, viewport: { width: 1280, height: 900 } })
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       if (/opening in existing browser session|processsingleton|singletonlock|profile.*(in use|locked)|user data directory.*in use/i.test(message)) {
@@ -235,8 +235,9 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
       return result
     }
     try {
-      const page = context.pages()[0] || await context.newPage()
+      const page = context.pages().find(candidate => candidate.url() === 'about:blank') || await context.newPage()
       opts.log?.(`Opening application: ${target}`)
+      if (!headless) await page.bringToFront()
       const nav = await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 45_000 })
       if (!isSafeApplyUrl(page.url()) || (nav && !nav.ok())) {
         return await finish({ status: 'failed', message: `The application page could not be opened${nav ? ` (HTTP ${nav.status()})` : ''}. Check the original posting and application link.`, filled: [], missing: [] })
@@ -247,6 +248,10 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
       const serverIp = (await nav?.serverAddr())?.ipAddress
       if (serverIp && isPrivateAddress(serverIp)) {
         return await finish({ status: 'failed', message: 'This listing\'s application link resolved to a private address, so it was not used.', filled: [], missing: [] })
+      }
+      if (!headless) await page.bringToFront()
+      for (const blank of context.pages().filter(candidate => candidate !== page && candidate.url() === 'about:blank')) {
+        await blank.close()
       }
 
       const { resumePath, coverPath } = await prepareApplicationFiles(job, profile, username)

@@ -148,3 +148,6 @@ Approval opens the application URL (or original posting when it is missing).
 Lever/Ashby application paths preserve tracking queries and fragments, and
 job-board redirect URLs are not modified into invalid ATS paths. Navigation
 failures are reported, never left as a successful application on `about:blank`.
+Visible application tabs are explicitly brought to the front before and after
+navigation. Extra startup blank tabs are closed after successful navigation;
+existing nonblank application tabs are preserved.
