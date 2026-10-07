@@ -73,3 +73,36 @@ test('approval reports failures and human blockers, never as Applied', async () 
     } finally { await page.unmount() }
   }
 })
+
+test('job cards and review expose source details before preparing an application', async () => {
+  const description = 'Responsibilities:\nBuild accessible React interfaces.\n\nRequirements:\nTypeScript and component testing.\n<script>malicious()</script>'
+  const state = { job: { ...baseJob, location: 'Berlin, Germany', salary: 'EUR 70,000-90,000/year', postedAt: '2026-10-01T12:00:00Z', description }, actions: [] }
+  const page = await renderPage('jobs/page.tsx', routes(state))
+  try {
+    await page.click(el => text(el).startsWith('All matches'))
+    assert.match(page.document.body.textContent, /EUR 70,000-90,000\/year/)
+    assert.match(page.document.body.textContent, /Posted 2026-10-01/)
+    await page.click(el => text(el).includes('Engineer') && text(el).includes('Acme'))
+    const details = [...page.document.querySelectorAll('section')].find(el => el.querySelector('h2')?.textContent === 'Job details')
+    assert.ok(details)
+    for (const expected of ['Berlin, Germany', 'EUR 70,000-90,000/year', '2026-10-01', 'Responsibilities:', 'Requirements:', 'TypeScript and component testing.']) {
+      assert.ok(details.textContent.includes(expected), expected)
+    }
+    assert.equal(details.querySelector('script'), null, 'description is escaped text, not executable HTML')
+    assert.equal([...details.querySelectorAll('a')].find(a => a.textContent.includes('Original posting')).href, baseJob.url)
+    assert.equal([...details.querySelectorAll('a')].find(a => a.textContent.includes('Application page')).href, baseJob.applyUrl)
+    assert.deepEqual(state.actions, [], 'reading details does not prepare or apply')
+  } finally { await page.unmount() }
+})
+
+test('missing posting fields are labelled rather than invented', async () => {
+  const state = { job: { ...baseJob, location: '', remote: false, salary: '', postedAt: '', description: '' }, actions: [] }
+  const page = await renderPage('jobs/page.tsx', routes(state))
+  try {
+    await page.click(el => text(el).startsWith('All matches'))
+    await page.click(el => text(el).includes('Engineer') && text(el).includes('Acme'))
+    assert.match(page.document.body.textContent, /Not marked remote by source/)
+    assert.match(page.document.body.textContent, /The source did not provide a description/)
+    assert.match(page.document.body.textContent, /Not provided/)
+  } finally { await page.unmount() }
+})

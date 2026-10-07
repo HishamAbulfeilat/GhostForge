@@ -23,6 +23,20 @@ The first v5.3.2 build passed web production, macOS, Linux and Android; Windows
 revealed a lazy Electron-download assumption in its smoke test, now corrected
 by resolving the executable through Electron's own package API.
 
+**Follow-up Job Hunter fixes (on main, after v5.3.2):** job review now
+shows description, salary, dates, location, source, match reasons and posting/
+application links; source descriptions no longer truncate at 8,000 characters,
+and Lever's requirements lists are retained. Pollinations was incorrectly using
+the key-required `gen` gateway twice; it now uses the verified anonymous
+`text.pollinations.ai/openai` endpoint with private POSTs and 15-second pacing.
+Configured/local models remain available; local models precede anonymous
+fallback. Synthetic live CV and cover-letter writing both succeeded without
+an account/key; no real CV was sent and no application was submitted. Anonymous
+availability/length limits remain, so honest manually-approved fallback drafts
+are still necessary. These follow-up edits are not in the published v5.3.2
+installers. Full web regression: 524 passed, one Windows-only skip; typecheck
+and changed-file lint passed, React Doctor 81 with no changed findings.
+
 **Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
 (main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
 Copilot worktree under `GhostForge\copilot-worktrees\`). If the main repo is

@@ -11,6 +11,15 @@ Upload your CV and GhostForge does the rest:
 
 ## Prepare, approve and track
 
+Click a job's title to read **Job details** before preparing it: company,
+location/remote restrictions, salary, posting date, source, application system,
+match assessment, original/application links and the source's full description.
+Cards show a description preview, salary and date. Missing fields are labelled
+**Not provided** rather than guessed. Lever's requirement/responsibility lists
+are included; descriptions from sources and pasted JobPosting links are no
+longer cut off at 8,000 characters. Existing saved jobs gain fuller source text
+after another search.
+
 Click **Prepare** on a match to open its application review in **Waiting for
 approval**. Review the CV, cover letter and form answers, then click
 **Approve & apply**. A confirmed submission appears in **Applied**; captchas,
@@ -23,9 +32,34 @@ and job text. If no model answers, preparation still creates a clearly
 labelled draft using your **unchanged original CV** and a neutral, basic
 cover letter. It does not infer qualifications from your search preferences.
 These drafts require manual approval and are never auto-submitted by
-Job Hunter autopilot. Add a provider key in **Settings → AI Models** or run
-Ollama, then use **Retry AI tailoring** to replace the basic draft.
+Job Hunter autopilot. Use **Retry AI tailoring** to replace the basic draft
+when a model becomes available.
 AI-tailored CVs are uploaded as DOCX; basic drafts upload the original CV file.
+
+### AI without an account or API key
+
+Automatic mode keeps configured free-tier providers and gateways, then tries
+installed Ollama/llama.cpp models and Pollinations' anonymous
+`https://text.pollinations.ai/openai` POST endpoint. The separate
+`gen.pollinations.ai` gateway requires a key and is not used for anonymous
+writing. Pollinations' GPT-OSS aliases remain selectable; all existing keyed,
+custom and local models remain available, with an explicitly selected model
+tried first. Paid models are never silently selected in automatic free mode.
+
+Anonymous calls use POST with `private: true`, not prompts in URLs, but CV
+text still goes to the provider. Requests are spaced at least 15 seconds apart
+per server process to respect the anonymous tier's limit, including CV and
+cover-letter calls. Rate-limit failures get one paced retry. Select a local
+model to keep it on your server:
+install Ollama, run `ollama pull qwen2.5:7b` (or a model your machine supports),
+start `ollama serve`, and select it in Job Hunter. No account/key is required,
+but the model must be downloaded and the runtime running.
+
+The anonymous service is best-effort: rate/length limits and outages can still
+produce a labelled original-CV draft. Preparation retries with a compact
+prompt; it never disguises a template as an AI answer or auto-submits the
+fallback. Existing provider keys remain optional alternatives, not required
+for the anonymous or local paths.
 
 The page refreshes application status and progress every ten seconds while
 visible, including work running on the server from another device. A single

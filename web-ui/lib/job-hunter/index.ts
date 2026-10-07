@@ -175,7 +175,7 @@ async function prepareJobMaterials(username: string, id: string, generate?: Gene
     const msg = e instanceof Error ? e.message : String(e)
     tailoredResume = profile.cv.text
     coverLetter = templateCoverLetter(profile, job)
-    preparationWarning = 'AI writing was unavailable. This draft uses your original CV and a basic cover letter, not AI-tailored materials. Review it before approving; autopilot will not submit it. Add a model key in Settings or run Ollama to retry AI tailoring.'
+    preparationWarning = 'AI writing was unavailable. This draft uses your original CV and a basic cover letter, not AI-tailored materials. Review it before approving; autopilot will not submit it. Retry AI tailoring when the anonymous service is available, or use a local Ollama/llama.cpp model (no account or key required). Your configured models remain available.'
     await updateJob(username, id, {}, `${preparationWarning} AI error: ${msg.slice(0, 200)}`)
     void auditLog({ level: 'warn', event: 'job_prepare_fallback', params: { username, jobId: id, error: msg.slice(0, 200) } })
   }

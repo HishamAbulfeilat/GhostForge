@@ -336,7 +336,7 @@ export default function JobsPage() {
             {autopilot && (
               <AutomationCard model={model} autopilot={autopilot} busy={busy} linkedin={linkedinStatus}
                 onLinkedIn={a => void linkedinAction(a)}
-                onModel={m => void saveAutomation({ model: m }, m ? `Job Hunter now uses ${m.model}.` : 'Job Hunter follows the model selected in Settings.')}
+                onModel={m => void saveAutomation({ model: m }, m ? `Job Hunter now uses ${m.model}.` : 'Job Hunter now uses automatic free models, including local and anonymous models.')}
                 onAutopilot={(a, msg) => void saveAutomation({ autopilot: a }, msg)}
                 onRunNow={() => void runAutopilotNow()} />
             )}
@@ -407,10 +407,13 @@ export default function JobsPage() {
                           </span>
                           <span className="flex flex-wrap gap-x-3.5 text-sm text-gf-muted">
                             <span>{j.location || '—'}{j.remote ? ' · Remote' : ''}</span>
+                            {j.salary && <span>{j.salary}</span>}
+                            {j.postedAt && <span>Posted {postingDate(j.postedAt)}</span>}
                             <span className="font-mono">{j.source}</span>
                             <span className="font-mono capitalize">{j.ats}</span>
                           </span>
                           {j.reasons && <span className="text-sm text-slate-300">{j.reasons}</span>}
+                          {j.description && <span className="line-clamp-2 whitespace-pre-line text-sm text-gf-muted">{j.description}</span>}
                         </button>
                         <div className="col-span-2 flex items-center justify-between gap-2 sm:col-span-1 sm:flex-col sm:items-end">
                           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${sv.style}`}>{sv.label}</span>
@@ -471,6 +474,11 @@ function SourceRow({ name, state, ok }: { name: string; state: string; ok: boole
   )
 }
 
+function postingDate(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 10)
+}
+
 function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }: {
   job: JobRecord; busy: string; onBack: () => void; onApprove: () => void; onPrepare: () => void; onDismiss: () => void
   onAnswer: (answers: Record<string, string>) => void
@@ -521,6 +529,32 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
           )}
         </div>
       </div>
+
+      <Panel title="Job details" note="As provided by the source; missing information is not inferred">
+        <dl className="grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-3">
+          {([
+            ['Company', job.company || 'Not provided'],
+            ['Location', job.location || 'Not provided'],
+            ['Remote work', job.remote ? 'Yes (check location restrictions below)' : 'Not marked remote by source'],
+            ['Salary', job.salary || 'Not provided'],
+            ['Posted', job.postedAt ? postingDate(job.postedAt) : 'Not provided'],
+            ['Source', job.source],
+            ['Application system', job.ats],
+            ['Match assessment', job.reasons || 'Not provided'],
+          ]).map(([label, value]) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-gf-muted">{label}</dt>
+              <dd className="whitespace-pre-wrap break-words text-slate-200">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="mt-4 flex flex-wrap gap-4 text-sm">
+          {job.url && <a href={job.url} target="_blank" rel="noreferrer" className="text-sky-300">Original posting ↗</a>}
+          {job.applyUrl && <a href={job.applyUrl} target="_blank" rel="noreferrer" className="text-sky-300">Application page ↗</a>}
+        </div>
+        <h3 className="mb-2 mt-5 font-display text-base font-semibold">Job description</h3>
+        <p className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-300">{job.description || 'The source did not provide a description. Open the original posting for requirements and responsibilities.'}</p>
+      </Panel>
 
       <div className="flex items-start gap-3 rounded-xl border border-cyan-800 bg-gf-accent-soft px-4 py-3.5 text-sm text-sky-100">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7DD3FC" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-px shrink-0" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
@@ -706,7 +740,7 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
             </optgroup>
           ))}
         </select>
-        <span className="text-xs text-gf-muted">Used for fit scoring, CV tailoring and cover letters. Default runs free models that need no API key; pick any provider, local model, or add one below.</span>
+        <span className="text-xs text-gf-muted">Used for fit scoring, CV tailoring and cover letters. Automatic mode tries configured free-tier models, installed local models (no account/key), then anonymous Pollinations (no signup/key, availability and length limits apply). Existing provider and custom models remain selectable. Anonymous requests use private mode; choose a local model to keep CV text on this server.</span>
         <button type="button" onClick={() => setShowAdd(v => !v)} className="self-start text-xs text-gf-accent underline-offset-2 hover:underline">
           {showAdd ? 'Cancel' : '+ Add another model (OpenAI-compatible)'}
         </button>

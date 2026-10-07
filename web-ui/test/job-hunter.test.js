@@ -299,6 +299,30 @@ test('partial question answers stay in Needs you until all are answered', async 
 
 // ── pipeline (network and AI mocked) ─────────────────────────────────────────
 
+test('source details preserve long descriptions and Lever requirement lists', async t => {
+  const longDescription = `${'Detailed responsibilities. '.repeat(400)}Final requirement: TypeScript.`
+  t.mock.method(globalThis, 'fetch', async url => {
+    const host = new URL(String(url)).hostname
+    if (host === 'api.lever.co') return Response.json([{
+      text: 'Frontend Engineer', categories: { location: 'Berlin' }, hostedUrl: 'https://jobs.lever.co/example/1',
+      descriptionPlain: longDescription, lists: [{ text: 'Requirements', content: '<ul><li>React</li><li>Accessibility</li></ul>' }],
+      additionalPlain: 'Benefits: paid leave.',
+    }])
+    if (host === 'boards-api.greenhouse.io') return Response.json({ jobs: [] })
+    return new Response('', { status: 404 })
+  })
+  const result = await sources.searchSources({ ...profile.preferences, companies: ['example'] }, [])
+  assert.equal(result.jobs.length, 1)
+  assert.ok(result.jobs[0].description.length > 8000)
+  assert.match(result.jobs[0].description, /Final requirement: TypeScript/)
+  assert.match(result.jobs[0].description, /Requirements\s+React\s+Accessibility/)
+  assert.match(result.jobs[0].description, /Benefits: paid leave/)
+  assert.equal(result.jobs[0].location, 'Berlin')
+  const intake = require('../lib/job-hunter/intake.ts')
+  const posting = intake.parsePosting(`<script type="application/ld+json">${JSON.stringify({ '@type': 'JobPosting', title: 'Frontend Engineer', description: longDescription })}</script>`, 'https://example.com/job')
+  assert.equal(posting.description, longDescription)
+})
+
 test('search → prepare → approve guards, end to end with mocked sources', async () => {
   const realFetch = globalThis.fetch
   globalThis.fetch = async url => {
