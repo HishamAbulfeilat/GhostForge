@@ -294,7 +294,9 @@ Use "stop" for captchas, sign-in or account-creation pages, anything needing a p
 async function blocked(page: Page): Promise<string | null> {
   if (await page.locator(CAPTCHA).count().catch(() => 0)) return 'captcha'
   const url = page.url()
-  if (/\/(login|signin|sign-in|authwall|checkpoint|uas\/login)\b/i.test(url)) return 'login'
+  if (/\/(login|signin|sign-in|signup|sign-up|register|verify-email|verification|two-factor|mfa|authwall|checkpoint|uas\/login)\b/i.test(url)) return 'login'
+  if (await page.locator('input[autocomplete="one-time-code"]:visible').count()) return 'login'
+  if (await page.getByLabel(/verification code|one.?time (code|password)|authentication code|security code/i).filter({ visible: true }).count()) return 'login'
   const password = await page.locator('input[type="password"]:visible').count().catch(() => 0)
   if (password) return 'login'
   return null
@@ -355,7 +357,7 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     if (beforeSubmit !== null && isNewConfirmation(beforeSubmit, await bodyText(pg))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
     const wall = await blocked(pg)
     if (wall === 'captcha') return outcome('needs_user', 'This form has a captcha. Solve it in the application browser, then retry. Filling stopped before the captcha; the application has not been submitted.')
-    if (wall === 'login') return outcome('needs_user', `${new URL(pg.url()).hostname} wants you to sign in or create an account first. Sign in once in the GhostForge browser and the next attempt continues from there.`)
+    if (wall === 'login') return outcome('needs_user', `${new URL(pg.url()).hostname || 'This website'} requires sign-in, account creation or verification. Use account assistance for supported forms, or complete sign-in/registration/MFA yourself in the GhostForge browser, then use Open & fill again. The application has not been submitted.`)
 
     const fields = await scan(pg)
     ctx.log?.(`Filling application step ${step + 1}: ${fields.length} fields detected`)

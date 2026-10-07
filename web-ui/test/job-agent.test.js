@@ -168,6 +168,28 @@ test('agent never answers sensitive questions from the AI and stops at captchas'
   }
 })
 
+test('agent never sends login or verification fields to AI and never submits an MFA form', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const ctx = await context('agent-auth')
+  let aiCalls = 0
+  ctx.generate = async () => { aiCalls++; return '[]' }
+  const page = await browser.newPage()
+  try {
+    for (const input of [
+      '<input type="password" aria-label="Password">',
+      '<input autocomplete="one-time-code" aria-label="Code">',
+      '<input aria-label="Verification code">',
+    ]) {
+      await page.setContent(`<form onsubmit="event.preventDefault();window.authSubmitted=true">${input}<button>Submit</button></form>`)
+      const result = await runFormAgent(page, { ...ctx, allowSubmit: true })
+      assert.equal(result.status, 'needs_user')
+      assert.match(result.message, /verification/)
+      assert.equal(aiCalls, 0)
+      assert.equal(await page.evaluate(() => window.authSubmitted || false), false)
+    }
+  } finally { await page.close() }
+})
+
 test('parsePosting reads JobPosting JSON-LD, then falls back to meta tags', () => {
   const ld = `<html><head><script type="application/ld+json">${JSON.stringify({
     '@context': 'https://schema.org', '@type': 'JobPosting', title: 'Platform Engineer', datePosted: '2026-09-30',

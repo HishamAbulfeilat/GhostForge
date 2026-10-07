@@ -5,6 +5,7 @@ const { mkdtempSync, rmSync } = require('node:fs')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 const { chromium } = require('playwright-core')
+const { EventEmitter } = require('node:events')
 
 const home = mkdtempSync(join(tmpdir(), 'gf-job-browser-'))
 process.env.HOME = home
@@ -54,10 +55,10 @@ test('approve navigation uses the job URL and waits for profile shutdown before 
   t.mock.method(chromium, 'launchPersistentContext', async () => {
     assert.equal(closing, false, 'a new launch must not race the old profile shutdown')
     return {
-      pages: () => [{
+      pages: () => [Object.assign(new EventEmitter(), {
         url: () => 'about:blank',
         goto: async url => { visited.push(url); throw new Error('Synthetic navigation failure') },
-      }],
+      })],
       close: async () => {
         closing = true
         await new Promise(resolve => setTimeout(resolve, 100))

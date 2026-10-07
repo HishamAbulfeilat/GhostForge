@@ -8,6 +8,8 @@ export interface ApplicationActivity {
 }
 interface LiveApplication extends ApplicationActivity {
   page?: Page
+  followPopup?: (page: Page) => void
+  onClose?: () => void
 }
 const runtime = globalThis as typeof globalThis & { ghostforgeJobLive?: Map<string, LiveApplication> }
 const sessions = runtime.ghostforgeJobLive ??= new Map<string, LiveApplication>()
@@ -18,7 +20,7 @@ export function applicationPhase(message: string, status?: string): ApplicationP
   if (status === 'submitted') return 'submitted'
   if (/waiting for AI/i.test(message)) return 'waiting_ai'
   if (/captcha/i.test(message)) return 'captcha'
-  if (/sign in|log.?in|create an account|authentication/i.test(message)) return 'login'
+  if (/sign.?in|log.?in|create an account|account creation|registration|authentication|verification|\bMFA\b/i.test(message)) return 'login'
   if (/question.+answer/i.test(message)) return 'questions'
   if (status === 'needs_user') return 'blocked'
   if (/submitting/i.test(message)) return 'submitting'
@@ -33,13 +35,32 @@ export function updateApplicationActivity(username: string, id: string, message:
   }
   const previous = sessions.get(key(username, id))
   const activity = { phase: applicationPhase(message, status), message, updatedAt: new Date().toISOString() }
-  sessions.set(key(username, id), { ...previous, ...activity })
+  if (previous) Object.assign(previous, activity)
+  else sessions.set(key(username, id), activity)
   return activity
 }
 
 export function trackApplicationPage(username: string, id: string, page: Page): void {
   const entry = sessions.get(key(username, id))
-  if (entry) entry.page = page
+  if (!entry || (entry.page === page && entry.followPopup)) return
+  if (entry.page && entry.followPopup) entry.page.off('popup', entry.followPopup)
+  if (entry.page && entry.onClose) entry.page.off('close', entry.onClose)
+  entry.page = page
+  const followPopup = (popup: Page) => trackApplicationPage(username, id, popup)
+  entry.followPopup = followPopup
+  entry.onClose = () => {
+    page.off('popup', followPopup)
+    entry.page = undefined
+    entry.followPopup = undefined
+    entry.onClose = undefined
+  }
+  page.on('popup', entry.followPopup)
+  page.once('close', entry.onClose)
+}
+
+export function applicationPage(username: string, id: string): Page | undefined {
+  const page = sessions.get(key(username, id))?.page
+  return page && !page.isClosed() ? page : undefined
 }
 
 export async function applicationPreview(username: string, id: string, screenshot: boolean) {

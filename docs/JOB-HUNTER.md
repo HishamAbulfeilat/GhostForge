@@ -169,12 +169,27 @@ personal information. Enable only on a trusted screen. Screenshots are never
 saved to disk, are served without caching, and require the signed-in user's
 Job Hunter permission and ownership of the job.
 
-Sign in or create the account **yourself in the Job Hunter browser**, complete
-MFA/email verification/captcha and accept terms yourself. Then use **Open &
-fill again**; the persistent profile reuses that session. A normal browser tab
-is a separate session. GhostForge does not store website passwords, create
-accounts automatically or bypass authentication. A credential vault with
-origin-specific consent would be required before adding password autofill.
+For a waiting application, **Account sign-in / signup assistance** can use
+your existing website email/password to fill and submit an ordinary login
+form. Approve the exact HTTPS website origin each time. Alternatively, open
+its same-origin signup link and fill name/email/password/confirmation fields
+from your confirmed profile and supplied credentials. **Signup is not
+submitted:** save your password in your password manager, review and accept
+terms, press Create account and finish verification yourself in the browser.
+LinkedIn accounts, SSO, embedded forms, email-first flows and unusual layouts
+remain manual. Cross-site form targets and GET submissions are refused.
+
+Credentials are request-only: GhostForge never saves them, writes them to job
+logs, or sends them to AI. The app clears the password field when an action
+starts. Use an HTTPS connection to GhostForge (or this computer's localhost);
+account assistance rejects plain HTTP on LAN/public addresses. This is not a
+password vault; a website's own scripts still handle its login form.
+
+Complete MFA/email verification/captcha yourself. Then use **Open & fill
+again**; the persistent browser profile reuses that session. A normal browser
+tab is a separate session. An attempted login is never reported as verified,
+and an account action never marks the job Applied or approves another job.
+GhostForge does not bypass authentication or perform unattended registration.
 
 Live preview is process-local and unavailable after the application browser
 closes or when requests are served by a different server process. Persisted

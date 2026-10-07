@@ -53,9 +53,17 @@ submitting/login/captcha/question/blocker/result states. Review includes an
 opt-in, read-only three-second screenshot preview of the actual Playwright
 page, following popups. Preview is authenticated, owner-scoped, masked on input/
 editable fields and no-store; it is not saved to disk or interactive remote
-control. Sessions are process-local. Login/account creation remain manual in
-the application window; cookies persist for later attempts. Password storage/
-automatic signup were not added without a vault and origin-specific consent.
+control. Sessions are process-local. Request-only account assistance now
+supports explicitly approved, origin-bound login forms and opening/filling
+same-origin signup forms. Passwords are not persisted or sent to AI; HTTPS/
+localhost transport, owner checks, rate limits and credential-safe errors are
+enforced. Signup submission/terms/MFA/captcha and LinkedIn remain manual.
+Cookies persist for later attempts; use Open & fill again after authenticating.
+No password vault or unattended registration was added.
+Verification: root smoke passed; web 545 passed with one Windows-only skip;
+isolated production build, typecheck and changed-file lint passed. React Doctor
+82, with no introduced findings. Browser fixtures used fictional credentials;
+no real website account was created and no real application was submitted.
 
 **Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
 (main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
