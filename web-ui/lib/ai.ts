@@ -21,6 +21,8 @@ export interface ModelOverride {
   activeProvider?: string
   offline?: boolean
   task?: string
+  /** Start the chain at free providers instead of the paid model selected in Settings */
+  preferFree?: boolean
 }
 
 /**
@@ -120,7 +122,47 @@ async function makeProviderEntry(provider: ProviderId, modelId: string): Promise
   if (provider === 'omniroute') return makeOmniRouteEntry(modelId)
   if (provider === 'pollinations') {
     const baseURL = PROVIDERS.pollinations.baseURL!
-    return { provider, modelId, generate: opts => generateOpenAICompatible('Pollinations', baseURL, undefined, modelId, opts) }
+    return {
+      provider, modelId,
+      generate: async opts => {
+        // Pollinations is the always-on free gateway and fails transiently
+        // (sporadic 500/402/429); retry with backoff, across both gateways.
+        // gen.pollinations.ai rejects requests that include max_tokens (401),
+        // and Pollinations' anonymous tier rejects `system` messages (401),
+        // so its entries omit max_tokens and flatten system into the prompt.
+        const { maxTokens, ...rest } = opts
+        const sys = (rest.system ?? '').trim()
+        let pollinationsOpts = rest
+        if (sys) {
+          if (Array.isArray(rest.messages) && rest.messages.length) {
+            const msgs = [...rest.messages]
+            const firstUser = msgs.findIndex(m => m.role === 'user')
+            if (firstUser >= 0) {
+              const cm = msgs[firstUser] as { role: string; content: unknown }
+              const content = typeof cm.content === 'string' ? cm.content : JSON.stringify(cm.content)
+              msgs[firstUser] = { ...(cm as object), content: `${sys}\n\n${content}` } as typeof msgs[number]
+            } else {
+              msgs.unshift({ role: 'user' as const, content: sys } as unknown as typeof msgs[number])
+            }
+            pollinationsOpts = { ...rest, system: undefined, messages: msgs }
+          } else {
+            pollinationsOpts = { ...rest, system: undefined, prompt: `${sys}\n\n${rest.prompt ?? ''}` }
+          }
+        }
+        const baseURLs = ['https://gen.pollinations.ai/v1', baseURL]
+        let last: unknown
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            return await generateOpenAICompatible('Pollinations', baseURLs[attempt % baseURLs.length], undefined, modelId, pollinationsOpts)
+          } catch (e) {
+            if (!isFallbackError(e)) throw e
+            last = e
+            await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
+          }
+        }
+        throw last
+      },
+    }
   }
   const apiKey = getProviderKey(provider)
   if (!apiKey) return null
@@ -177,7 +219,7 @@ export async function generateOpenAICompatible(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
       signal: AbortSignal.timeout(120_000),
-      body: JSON.stringify({ model: modelId, messages, stream: false, max_tokens: opts.maxTokens || 800 }),
+      body: JSON.stringify({ model: modelId, messages, stream: false, ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}) }),
     })
   } catch (e) {
     throw new Error(`${label} connection failed: ${String(e).slice(0, 120)}`)
@@ -431,8 +473,8 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
   }
   const omniUp = await isOmniRouteUp()
 
-  // 1. Selected model (highest priority)
-  if (selection && !localSelected) {
+  // 1. Selected model (highest priority) — skipped when preferFree is set
+  if (selection && !localSelected && opts?.preferFree !== true) {
     if (selection.provider === 'omniroute') {
       if (omniUp) push(makeOmniRouteEntry(selection.model))
     } else if (selection.provider === 'custom') {
