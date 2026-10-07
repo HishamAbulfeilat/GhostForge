@@ -353,18 +353,7 @@ async function appendLocalModels(chain: ModelEntry[], push: (entry: ModelEntry) 
         modelId: entry.model,
         model: client.chat(entry.model),
         generate: async (opts) => {
-          const messages: Array<{ role: string; content: string }> = []
-          if (typeof opts.system === 'string' && opts.system.trim()) {
-            messages.push({ role: 'system', content: opts.system })
-          }
-          if (Array.isArray(opts.messages)) {
-            for (const message of opts.messages) {
-              messages.push({
-                role: message.role,
-                content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
-              })
-            }
-          }
+          const messages = toChatMessages(opts)
 
           const response = await fetch(`${local.ollamaUrl}/api/chat`, {
             method: 'POST',

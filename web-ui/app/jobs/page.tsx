@@ -102,6 +102,14 @@ export default function JobsPage() {
     }).catch(e => setNotice({ tone: 'error', text: e.message }))
   }, [load])
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'hidden') return
+      void load().catch(e => setNotice({ tone: 'error', text: `Could not refresh applications: ${e instanceof Error ? e.message : String(e)}` }))
+    }, 10_000)
+    return () => clearInterval(timer)
+  }, [load])
+
   const run = async (label: string, fn: () => Promise<void>) => {
     setBusy(label); setNotice(null)
     try { await fn() } catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : String(e) }) } finally { setBusy('') }
@@ -157,7 +165,7 @@ export default function JobsPage() {
   const answer = (id: string, answers: Record<string, string>) => run(`answer:${id}`, async () => {
     await api('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'answer', id, answers }) })
     await load()
-    setNotice({ tone: 'info', text: 'Saved. These answers are reused on every later application; this job goes back in the queue.' })
+    setNotice({ tone: 'info', text: 'Saved. These answers are reused on future applications. Answer every remaining question to return this job to the approval queue.' })
   })
 
   const addByUrl = () => run('add-url', async () => {
@@ -492,7 +500,7 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
           </div>
         </div>
         <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={onDismiss} className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px]">Dismiss</button>
+          <button type="button" onClick={onDismiss} disabled={Boolean(busy) || job.status === 'submitting'} className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px] disabled:opacity-60">Dismiss</button>
           {prepared && job.preparationWarning && canApprove && (
             <button type="button" onClick={onPrepare} disabled={Boolean(busy)}
               className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px] disabled:opacity-60">

@@ -226,12 +226,13 @@ test('answering a job\'s questions saves them for every later application and re
   await jh.updateJob(user, job.id, { status: 'needs_user', questions: [{ label: 'Years with React *', type: 'number', options: [] }, { label: 'Notice period', type: 'text', options: [] }] }, 'test')
 
   const partial = await jh.answerQuestions(user, job.id, { 'Years with React *': '5' })
-  assert.equal(partial.status, 'ready')
+  assert.equal(partial.status, 'needs_user')
   assert.deepEqual(partial.questions.map(q => q.label), ['Notice period'])
   assert.equal((await jh.getProfile(user)).customAnswers['Years with React'], '5')
 
   const done = await jh.answerQuestions(user, job.id, { 'Notice period': '1 month' })
   assert.equal(done.questions, undefined)
+  assert.equal(done.status, 'ready')
   await assert.rejects(jh.answerQuestions(user, job.id, { 'Notice period': '   ' }), /at least one/)
   await assert.rejects(jh.answerQuestions(user, 'missing', { a: 'b' }), /not found/)
 })

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en" dir="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GhostForge Studio connection</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0b0d12; color: #e2e8f0; font: 16px/1.6 system-ui, sans-serif; }
+    main { max-width: 760px; margin: auto; padding: 32px 20px; }
+    h1 { line-height: 1.2; } p { color: #b8c4d5; }
+    input, button, a { font: inherit; }
+    input { width: 100%; min-height: 48px; padding: 10px; background: #171d29; color: inherit; border: 1px solid #64748b; border-radius: 8px; }
+    button, .link { display: inline-block; min-height: 48px; padding: 10px 16px; margin-block: 8px; border: 1px solid #64748b; border-radius: 8px; background: #171d29; color: #e2e8f0; text-decoration: none; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    .primary { background: #7dd3fc; color: #0b0d12; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    :focus-visible { outline: 3px solid #7dd3fc; outline-offset: 3px; }
+    #status { min-height: 26px; color: #fbbf24; }
+    code { overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>GhostForge Studio</h1>
+  <p>Connect to your GhostForge web server for the full studio: Job Hunter, CV improvement, agents, workflows, marketplace, chat, files and settings.</p>
+  <form id="connectForm">
+    <label for="serverUrl">Your GhostForge web server URL</label>
+    <input id="serverUrl" type="url" required placeholder="https://your-ghostforge-server.example" autocomplete="url" spellcheck="false">
+    <p>Desktop on the server machine: <code>http://localhost:3001</code>. On Android or another computer, use the server's LAN address or HTTPS remote address, not localhost. Sign in or pair the device on the server.</p>
+    <div class="actions">
+      <button class="primary" type="submit" data-path="/dashboard">Open studio</button>
+      <button type="submit" data-path="/jobs">Job Hunter</button>
+      <button type="submit" data-path="/agents">Agents</button>
+      <button type="submit" data-path="/marketplace">Marketplace</button>
+      <button type="submit" data-path="/settings">Settings</button>
+    </div>
+  </form>
+  <p id="status" role="status" aria-live="polite"></p>
+  <h2>Server setup</h2>
+  <p>Install the GhostForge checkout on your Mac, Windows or Linux server, then run <code>cd web-ui</code>, <code>npm ci</code> and <code>npm run dev</code>. For production use the documented HTTPS setup. The server must remain running.</p>
+  <p>Job Hunter fills application forms on the server's browser, not on your phone. Review each draft and approve before applying. Captchas and sign-ins still need you.</p>
+  <p>Only connect to a server you own and trust. HTTP connections are unencrypted; use HTTPS for remote access. Your server address is saved locally, never your password.</p>
+  <a class="link" href="index.html">JARVIS local interface</a>
+</main>
+<script src="studio.js"></script>
+</body>
+</html>

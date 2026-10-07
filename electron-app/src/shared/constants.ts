@@ -1,5 +1,5 @@
 export const APP_NAME = 'GhostForge JARVIS';
-export const APP_VERSION = '5.2.0';
+export const APP_VERSION = '5.3.2';
 
 export const DEFAULT_CONFIG = {
   ollamaUrl: 'http://localhost:11434',

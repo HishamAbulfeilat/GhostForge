@@ -18,7 +18,7 @@ import { analyzeCv, extractCvText } from './cv'
 import { dealbreaker, matchesLocation, relevantTo, scoreJobs } from './match'
 import { linkedInSearchUrl, searchSources, type SourceReport } from './sources'
 import {
-  getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs,
+  getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs, withJobOperation,
   type JobProfile, type JobRecord, type ModelChoice,
 } from './store'
 import { applyToJob } from './apply'
@@ -148,7 +148,11 @@ export async function runSearch(
 
 // ── prepare / approve ────────────────────────────────────────────────────────
 
-export async function prepareJob(username: string, id: string, generate?: Generate): Promise<JobRecord> {
+export function prepareJob(username: string, id: string, generate?: Generate): Promise<JobRecord> {
+  return withJobOperation(username, id, () => prepareJobMaterials(username, id, generate))
+}
+
+async function prepareJobMaterials(username: string, id: string, generate?: Generate): Promise<JobRecord> {
   generate ??= await userGenerator(username)
   const job = await getJob(username, id)
   if (!job) throw new Error('Job not found')
@@ -180,7 +184,15 @@ export async function prepareJob(username: string, id: string, generate?: Genera
   return updated!
 }
 
-export async function approveJob(
+export function approveJob(
+  username: string,
+  id: string,
+  opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean } = {},
+): Promise<{ job: JobRecord; message: string; missing: string[] }> {
+  return withJobOperation(username, id, () => applyApprovedJob(username, id, opts))
+}
+
+async function applyApprovedJob(
   username: string,
   id: string,
   opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean } = {},
@@ -218,6 +230,11 @@ export async function approveJob(
       allowSubmit: opts.allowSubmit ?? by === 'user',
       linkedin: by === 'user' || (ap.linkedinEasyApply && Boolean(profile.linkedin?.connectedAt)),
       generate, vision,
+      log: message => {
+        void updateJob(username, id, {}, message).catch(error => {
+          void auditLog({ level: 'warn', event: 'job_application_log_error', params: { username, jobId: id, error: String(error).slice(0, 200) } })
+        })
+      },
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -258,7 +275,11 @@ async function notify(username: string, payload: { title: string; body: string }
  * to the profile (reused on every later form) and the job goes back to the
  * queue so it is retried.
  */
-export async function answerQuestions(username: string, id: string, answers: Record<string, string>): Promise<JobRecord> {
+export function answerQuestions(username: string, id: string, answers: Record<string, string>): Promise<JobRecord> {
+  return withJobOperation(username, id, () => saveQuestionAnswers(username, id, answers))
+}
+
+async function saveQuestionAnswers(username: string, id: string, answers: Record<string, string>): Promise<JobRecord> {
   const job = await getJob(username, id)
   if (!job) throw new Error('Job not found')
   const clean: Record<string, string> = {}
@@ -270,10 +291,10 @@ export async function answerQuestions(username: string, id: string, answers: Rec
   if (!Object.keys(clean).length) throw new Error('Answer at least one question')
   await saveProfile(username, { customAnswers: clean })
   const remaining = (job.questions || []).filter(q => !clean[normalizeLabel(q.label)])
-  const status = job.status === 'submitted' || job.status === 'dismissed' ? job.status : 'ready'
+  const status = job.status === 'submitted' || job.status === 'dismissed' ? job.status : remaining.length ? 'needs_user' : 'ready'
   return (await updateJob(username, id, { questions: remaining.length ? remaining : undefined, status }, `You answered ${Object.keys(clean).length} question(s); saved for future applications`))!
 }
 
-export async function dismissJob(username: string, id: string): Promise<JobRecord | null> {
-  return updateJob(username, id, { status: 'dismissed' }, 'Dismissed')
+export function dismissJob(username: string, id: string): Promise<JobRecord | null> {
+  return withJobOperation(username, id, () => updateJob(username, id, { status: 'dismissed' }, 'Dismissed'))
 }

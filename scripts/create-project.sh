@@ -66,7 +66,7 @@ prompt_yn() {
   read -rp "  → " answer \
     || error "No input available (stdin is closed)."
   answer="${answer:-$default}"
-  [[ "${answer,,}" == "y" ]]
+  [[ "$answer" == "y" || "$answer" == "Y" ]]
 }
 
 # ── Step 1: AI Conversation Mode ─────────────────────────────
@@ -108,7 +108,7 @@ if [[ "$MODE_CHOICE" == "1" ]]; then
   sleep 1
 
   # Parse keywords from description for smart defaults
-  DESC_LOWER="${PROJECT_DESC,,}"
+  DESC_LOWER="$(printf '%s' "$PROJECT_DESC" | tr '[:upper:]' '[:lower:]')"
 
   # Platform detection
   if echo "$DESC_LOWER" | grep -qE "mobile|app|ios|android|react native|expo"; then

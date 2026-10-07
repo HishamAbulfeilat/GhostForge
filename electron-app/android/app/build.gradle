@@ -7,9 +7,11 @@ android {
         applicationId "com.ghostforge.jarvis"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // CI passes the release version and run number; local builds keep 1 / "1.0"
-        versionCode((System.getenv("GF_ANDROID_VERSION_CODE") ?: "1") as Integer)
-        versionName(System.getenv("GF_ANDROID_VERSION_NAME") ?: "1.0")
+        def appVersion = new groovy.json.JsonSlurper().parse(file('../../package.json')).version
+        def parts = appVersion.tokenize('.').collect { it as Integer }
+        def appVersionCode = parts[0] * 10000 + parts[1] * 100 + parts[2]
+        versionCode((System.getenv("GF_ANDROID_VERSION_CODE") ?: appVersionCode.toString()) as Integer)
+        versionName(System.getenv("GF_ANDROID_VERSION_NAME") ?: appVersion)
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

@@ -23,6 +23,16 @@ function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return next
 }
 
+const activeOperations = new Set<string>()
+
+/** Prevent Prepare/Approve/Answer/Dismiss from racing on the same application. */
+export async function withJobOperation<T>(username: string, id: string, run: () => Promise<T>): Promise<T> {
+  const key = `${userDir(username)}/${id}`
+  if (activeOperations.has(key)) throw new Error('An operation on this application is already running. Wait for it to finish before retrying.')
+  activeOperations.add(key)
+  try { return await run() } finally { activeOperations.delete(key) }
+}
+
 export type RemotePreference = 'remote' | 'hybrid' | 'onsite' | 'any'
 export type Fit = 'High' | 'Medium' | 'Low' | 'Skip'
 export type JobStatus =

@@ -27,6 +27,18 @@ Job Hunter autopilot. Add a provider key in **Settings → AI Models** or run
 Ollama, then use **Retry AI tailoring** to replace the basic draft.
 AI-tailored CVs are uploaded as DOCX; basic drafts upload the original CV file.
 
+The page refreshes application status and progress every ten seconds while
+visible, including work running on the server from another device. A single
+server process rejects overlapping prepare/apply/answer/dismiss operations
+on the same job, preventing duplicate clicks from launching two submissions.
+Answering only some questions keeps the job in **Needs you** until all
+remaining questions are answered; it does not prematurely return to approval.
+
+Desktop and Android clients can open **Job Hunter** from the Studio connection
+screen. Connect to your running GhostForge server and sign in or pair the
+device. CV storage, model requests and browser automation run on that server,
+not inside the Android APK.
+
 ## Ways in
 
 - **Search.** Uses your target roles, locations and work style. LinkedIn

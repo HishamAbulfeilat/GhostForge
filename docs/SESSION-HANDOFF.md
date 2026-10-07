@@ -7,6 +7,16 @@ couple of minutes while the agent team runs.
 
 ## ▶ START HERE — state at 2026-10-07 (Asia/Amman) — main includes PRs #13–#20, agent team stopped, Job Hunter preparation/approval repaired
 
+**Current release work:** v5.3.2 adds a shared desktop/Android Studio
+connection screen, cross-platform startup/script fixes and stronger release
+validation. Full studio features require a running authenticated server;
+Android opens its browser and application automation runs on the server.
+Job Hunter refreshes status/progress, rejects overlapping operations on the
+same job, keeps partial answers in Needs you, and sends prompt-based CV/job
+requests correctly to Ollama. macOS test failures noted below are now fixed.
+Only `main` remains; do not recreate deleted agent branches without approval.
+See `CHANGELOG.md` and the GitHub release/build run for publication status.
+
 **Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
 (main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
 Copilot worktree under `GhostForge\copilot-worktrees\`). If the main repo is

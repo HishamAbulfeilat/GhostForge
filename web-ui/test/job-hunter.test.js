@@ -269,6 +269,34 @@ test('cover-letter failure and blank AI output still yield labelled approval dra
   await assert.rejects(jh.prepareJob('fallback', job.id, async () => ''), /can't be prepared/)
 })
 
+test('concurrent application operations are rejected and locks release after errors', async () => {
+  const jh = require('../lib/job-hunter/index.ts')
+  let release
+  const waiting = new Promise(resolve => { release = resolve })
+  const operation = jh.withJobOperation('racer', 'j1', () => waiting)
+  await assert.rejects(jh.prepareJob('racer', 'j1', async () => ''), /already running/)
+  await assert.rejects(jh.approveJob('racer', 'j1'), /already running/)
+  await assert.rejects(jh.dismissJob('racer', 'j1'), /already running/)
+  await assert.rejects(jh.answerQuestions('racer', 'j1', { Question: 'Answer' }), /already running/)
+  assert.equal(await jh.withJobOperation('racer', 'j2', async () => 'independent'), 'independent')
+  release()
+  await operation
+  await assert.rejects(jh.withJobOperation('racer', 'j1', async () => { throw new Error('failed operation') }), /failed operation/)
+  assert.equal(await jh.withJobOperation('racer', 'j1', async () => 'retry'), 'retry')
+})
+
+test('partial question answers stay in Needs you until all are answered', async () => {
+  const jh = require('../lib/job-hunter/index.ts')
+  const [existing] = await jh.listJobs('fallback')
+  await jh.updateJob('fallback', existing.id, { status: 'needs_user', questions: [{ label: 'Notice period', type: 'text', options: [] }, { label: 'Start date', type: 'text', options: [] }] })
+  const partial = await jh.answerQuestions('fallback', existing.id, { 'Notice period': 'One month' })
+  assert.equal(partial.status, 'needs_user')
+  assert.equal(partial.questions.length, 1)
+  const complete = await jh.answerQuestions('fallback', existing.id, { 'Start date': '2026-11-01' })
+  assert.equal(complete.status, 'ready')
+  assert.equal(complete.questions, undefined)
+})
+
 // ── pipeline (network and AI mocked) ─────────────────────────────────────────
 
 test('search → prepare → approve guards, end to end with mocked sources', async () => {
