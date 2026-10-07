@@ -19,6 +19,7 @@ import type { BrowserContext } from 'playwright-core'
 import type { JobProfile, JobRecord } from './store'
 import { userDir } from './store'
 import { runFormAgent, type AgentContext, type AgentOutcome } from './agent'
+import { markdownToDocx } from './improve'
 
 export interface ApplyResult {
   status: 'submitted' | 'needs_user' | 'failed'
@@ -163,6 +164,22 @@ function keepOpen(username: string, context: BrowserContext) {
   context.on('close', () => { if (leftOpen.get(username) === context) leftOpen.delete(username) })
 }
 
+export async function prepareApplicationFiles(job: JobRecord, profile: JobProfile, username: string): Promise<{ resumePath: string; coverPath: string }> {
+  const docsDir = join(userDir(username), 'applications', job.id)
+  await mkdir(docsDir, { recursive: true })
+  let resumePath = profile.cv?.filePath || ''
+  if (job.tailoredResume && !job.preparationWarning) {
+    resumePath = join(docsDir, 'tailored-cv.docx')
+    await writeFile(resumePath, await markdownToDocx(job.tailoredResume))
+  }
+  let coverPath = ''
+  if (job.coverLetter) {
+    coverPath = join(docsDir, 'cover-letter.txt')
+    await writeFile(coverPath, job.coverLetter, 'utf8')
+  }
+  return { resumePath, coverPath }
+}
+
 export interface ApplyOptions {
   headless?: boolean
   /** Press the final Submit when the form is complete */
@@ -203,16 +220,10 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
         return finish({ status: 'failed', message: 'This listing\'s application link resolved to a private address, so it was not used.', filled: [], missing: [] })
       }
 
-      const docsDir = join(userDir(username), 'applications', job.id)
-      await mkdir(docsDir, { recursive: true })
-      let coverPath = ''
-      if (job.coverLetter) {
-        coverPath = join(docsDir, 'cover-letter.txt')
-        await writeFile(coverPath, job.coverLetter, 'utf8')
-      }
+      const { resumePath, coverPath } = await prepareApplicationFiles(job, profile, username)
 
       const out = await runFormAgent(page, {
-        profile, job, coverPath,
+        profile, job, resumePath, coverPath,
         generate: opts.generate ?? null,
         vision: opts.vision ?? null,
         allowSubmit: opts.allowSubmit ?? AUTO_SUBMIT_ATS.has(job.ats),

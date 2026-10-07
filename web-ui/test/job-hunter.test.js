@@ -194,6 +194,81 @@ test('CV extraction rejects unsupported formats', async () => {
   await assert.rejects(cv.extractCvText('cv.txt', Buffer.from('too short')), /Could not read/)
 })
 
+test('long CV/job prompts retry compactly and reject empty model replies', async () => {
+  const longProfile = { ...profile, cv: { ...profile.cv, text: 'CV fact\n'.repeat(2000) } }
+  const longJob = { ...job, description: 'Job requirement\n'.repeat(1000) }
+  for (const write of [
+    ai => writer.tailorResume(longProfile, longJob, ai),
+    ai => writer.writeCoverLetter(longProfile, longJob, longProfile.cv.text, ai),
+  ]) {
+    const prompts = []
+    const output = await write(async opts => {
+      prompts.push(opts)
+      if (prompts.length === 1) throw new Error('gateway rejected long text')
+      return 'Prepared text'
+    })
+    assert.equal(output, 'Prepared text')
+    assert.equal(prompts.length, 2)
+    assert.ok(prompts[1].prompt.length < 4200)
+    assert.ok(prompts[1].prompt.length < prompts[0].prompt.length)
+    assert.match(prompts[1].system, /Never invent/)
+    await assert.rejects(write(async () => '  '), /empty response/)
+  }
+})
+
+test('AI outage produces a persisted honest approval draft, then AI retry clears the warning', async () => {
+  const jh = require('../lib/job-hunter/index.ts')
+  const { prepareApplicationFiles } = require('../lib/job-hunter/apply.ts')
+  const { readFile } = require('node:fs/promises')
+  const user = 'fallback'
+  await jh.importCv(user, 'cv.txt', Buffer.from(profile.cv.text), null)
+  await jh.saveProfile(user, { applicant: profile.applicant, preferences: { ...profile.preferences, mustHaves: ['ImaginarySkill'] } })
+  await jh.upsertJobs(user, [{ ...job, key: 'fallback', source: 'test', location: 'Worldwide', remote: true, salary: '', url: '', applyUrl: 'http://127.0.0.1/', ats: 'lever', postedAt: '', fit: 'High', score: 90, reasons: '' }])
+  const [found] = await jh.listJobs(user)
+  const prepared = await jh.prepareJob(user, found.id, async () => { throw new Error('No AI model answered') })
+  assert.equal(prepared.status, 'ready')
+  assert.equal(prepared.tailoredResume, profile.cv.text)
+  assert.match(prepared.preparationWarning, /original CV/)
+  assert.ok(!prepared.coverLetter.includes('ImaginarySkill'), 'preferences are not evidence of qualifications')
+  assert.ok(prepared.answers.some(a => a.value === 'jane@example.com'))
+  assert.deepEqual(await jh.getJob(user, found.id), prepared)
+  await assert.rejects(jh.approveJob(user, found.id, { by: 'autopilot' }), /needs your review/)
+  const current = await jh.getProfile(user)
+  const originalFiles = await prepareApplicationFiles(prepared, current, user)
+  assert.equal(originalFiles.resumePath, current.cv.filePath)
+  assert.equal(await readFile(originalFiles.coverPath, 'utf8'), prepared.coverLetter)
+  // Explicit user approval can proceed, but an unsafe URL must never be opened.
+  const result = await jh.approveJob(user, found.id, { by: 'user', headless: true })
+  assert.equal(result.job.status, 'failed')
+  assert.match(result.message, /not a public web address/)
+  const aiPrepared = await jh.prepareJob(user, found.id, async ({ system }) => /cover letters/.test(system) ? 'Dear Hiring Manager,\nRegards, Jane' : '# Jane Example\nTailored experience')
+  assert.equal(aiPrepared.preparationWarning, '')
+  const files = await prepareApplicationFiles(aiPrepared, current, user)
+  assert.ok(files.resumePath.endsWith('tailored-cv.docx'))
+  assert.notEqual(files.resumePath, current.cv.filePath)
+  const mammoth = require('mammoth')
+  const extracted = await mammoth.extractRawText({ path: files.resumePath })
+  assert.match(extracted.value, /Tailored experience/)
+  assert.equal(await readFile(files.coverPath, 'utf8'), aiPrepared.coverLetter)
+})
+
+test('cover-letter failure and blank AI output still yield labelled approval drafts', async () => {
+  const jh = require('../lib/job-hunter/index.ts')
+  const [job] = await jh.listJobs('fallback')
+  for (const generate of [
+    async ({ system }) => { if (/cover letters/.test(system)) throw new Error('model offline'); return 'Tailored CV' },
+    async () => '',
+  ]) {
+    const draft = await jh.prepareJob('fallback', job.id, generate)
+    assert.equal(draft.status, 'ready')
+    assert.equal(draft.tailoredResume, profile.cv.text)
+    assert.ok(draft.coverLetter.trim())
+    assert.ok(draft.preparationWarning)
+  }
+  await jh.updateJob('fallback', job.id, { status: 'submitted' })
+  await assert.rejects(jh.prepareJob('fallback', job.id, async () => ''), /can't be prepared/)
+})
+
 // ── pipeline (network and AI mocked) ─────────────────────────────────────────
 
 test('search → prepare → approve guards, end to end with mocked sources', async () => {

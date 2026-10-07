@@ -179,6 +179,8 @@ export interface JobRecord {
   reasons: string
   status: JobStatus
   tailoredResume?: string
+  /** Non-AI drafts require the user's explicit approval, never autopilot. */
+  preparationWarning?: string
   coverLetter?: string
   answers?: FieldAnswer[]
   /** Required questions the agent could not answer truthfully; the user answers them once */

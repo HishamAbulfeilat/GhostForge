@@ -30,6 +30,8 @@ export interface PendingQuestion { label: string; type: string; options: string[
 export interface AgentContext {
   profile: JobProfile
   job: JobRecord
+  /** Prepared CV file; falls back to the original upload when absent. */
+  resumePath?: string
   /** Cover letter as a file, for upload fields ('' when there is none) */
   coverPath: string
   generate: Generate | null
@@ -366,7 +368,7 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
       if (f.kind === 'file') {
         if (!f.empty) { if (/resume|cv/i.test(f.label)) resumeUploaded = true; continue }
         const wantsCover = /cover/i.test(f.label)
-        const path = wantsCover ? ctx.coverPath : (/resume|cv|curriculum/i.test(f.label) || (!resumeUploaded && (f.required || fields.filter(x => x.kind === 'file').length === 1))) ? ctx.profile.cv?.filePath : ''
+        const path = wantsCover ? ctx.coverPath : (/resume|cv|curriculum/i.test(f.label) || (!resumeUploaded && (f.required || fields.filter(x => x.kind === 'file').length === 1))) ? (ctx.resumePath || ctx.profile.cv?.filePath) : ''
         if (path) {
           try { await loc(pg, f).setInputFiles(path); filled.push(wantsCover ? 'Cover letter upload' : 'Resume upload'); if (!wantsCover) resumeUploaded = true } catch { /* custom uploader */ }
         }

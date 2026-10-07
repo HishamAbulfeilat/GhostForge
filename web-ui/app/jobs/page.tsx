@@ -140,12 +140,18 @@ export default function JobsPage() {
   })
 
   const act = (action: 'prepare' | 'approve' | 'dismiss', id: string) => run(`${action}:${id}`, async () => {
-    const r = await api<{ message?: string }>('/api/jobs', {
+    const r = await api<{ job?: JobRecord; message?: string }>('/api/jobs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }),
     })
     await load()
     if (action === 'dismiss') setSelected(null)
-    if (r.message) setNotice({ tone: 'info', text: r.message })
+    if (action === 'prepare') {
+      setTab('waiting')
+      setSelected(id)
+      setNotice({ tone: 'info', text: r.job?.preparationWarning || 'Application prepared. Review the CV, cover letter and answers, then approve to apply.' })
+    }
+    if (action === 'approve' && r.job?.status === 'submitted') setTab('applied')
+    if (r.message) setNotice({ tone: r.job?.status === 'failed' ? 'error' : 'info', text: r.message })
   })
 
   const answer = (id: string, answers: Record<string, string>) => run(`answer:${id}`, async () => {
@@ -487,8 +493,14 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
         </div>
         <div className="flex flex-wrap gap-3">
           <button type="button" onClick={onDismiss} className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px]">Dismiss</button>
+          {prepared && job.preparationWarning && canApprove && (
+            <button type="button" onClick={onPrepare} disabled={Boolean(busy)}
+              className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px] disabled:opacity-60">
+              {busy === `prepare:${job.id}` ? 'Preparing…' : 'Retry AI tailoring'}
+            </button>
+          )}
           {prepared ? (
-            <button type="button" onClick={onApprove} disabled={!canApprove || approving}
+            <button type="button" onClick={onApprove} disabled={!canApprove || Boolean(busy)}
               className="flex min-h-12 items-center gap-2 rounded-xl bg-gf-accent px-6 text-[15px] font-semibold text-gf-bg disabled:opacity-60">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0B0D12" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 6 9 17l-5-5" /></svg>
               {approving ? 'Filling the form…' : job.status === 'needs_user' ? 'Open & fill again' : 'Approve & apply'}
@@ -510,6 +522,12 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
           {' '}It stops for captchas, sign-ins and questions it can&apos;t answer truthfully, and lists those below for you.
         </span>
       </div>
+
+      {job.preparationWarning && (
+        <div role="status" className="rounded-xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-gf-warn">
+          {job.preparationWarning}
+        </div>
+      )}
 
       {!!job.questions?.length && (
         <form className="flex flex-col gap-3 rounded-2xl border border-amber-700/60 bg-amber-950/20 p-5"
@@ -544,7 +562,7 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
       )}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_380px]">
-        <Panel title="Tailored CV" note="Only facts from your CV — reordered for this role">
+        <Panel title={job.preparationWarning ? 'Original CV' : 'Tailored CV'} note={job.preparationWarning ? 'Unchanged, not AI-tailored' : 'Only facts from your CV — reordered for this role'}>
           <pre className="whitespace-pre-wrap font-plex text-sm leading-relaxed text-slate-300">{job.tailoredResume || 'Not prepared yet.'}</pre>
         </Panel>
         <Panel title="Cover letter">

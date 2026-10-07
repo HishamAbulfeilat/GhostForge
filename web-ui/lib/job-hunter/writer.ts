@@ -16,8 +16,25 @@ const ACCURACY_RULES = `STRICT ACCURACY (non-negotiable):
 - If something is ambiguous, understate or omit it.
 STYLE: natural human language, varied sentence structure, no em dashes (use commas, periods or hyphens), no clichés like "results-driven" or "I am excited about the opportunity".`
 
+async function compactRetry(
+  generate: Generate,
+  build: (cvLimit: number, jobLimit: number) => { system: string; prompt: string; maxTokens: number },
+  limits: [number, number],
+): Promise<string> {
+  try {
+    const text = (await generate(build(...limits))).trim()
+    if (!text) throw new Error('The AI model returned an empty response')
+    return text
+  } catch (error) {
+    console.warn('[Job Hunter] Writing failed; retrying with a compact prompt:', error instanceof Error ? error.message : String(error))
+  }
+  const text = (await generate(build(3000, 1000))).trim()
+  if (!text) throw new Error('The AI model returned an empty response')
+  return text
+}
+
 export async function tailorResume(profile: JobProfile, job: JobRecord, generate: Generate): Promise<string> {
-  return (await generate({
+  return (await compactRetry(generate, (cvLimit, jobLimit) => ({
     system: `You are an expert resume writer. Tailor the candidate's CV to the job so a hiring manager sees the fit in 7 seconds.
 - Summary: 2-3 sentences naming the role type, leading with the most relevant credential, with 2-3 posting keywords used naturally.
 - Experience: per role, put the 2 most relevant bullets first; bullet formula = action verb + what + scale + measurable result (only real metrics). Drop irrelevant bullets.
@@ -25,21 +42,37 @@ export async function tailorResume(profile: JobProfile, job: JobRecord, generate
 - Calibrate to level: executives show strategy and business impact; managers show ownership and team building; ICs show hands-on depth.
 ${ACCURACY_RULES}
 Output the full tailored CV in clean Markdown, nothing else.`,
-    prompt: `ORIGINAL CV:\n${profile.cv?.text.slice(0, 12000)}\n\nJOB: ${job.title} at ${job.company} (${job.location})\n${job.description.slice(0, 5000)}`,
+    prompt: `ORIGINAL CV:\n${profile.cv?.text.slice(0, cvLimit)}\n\nJOB: ${job.title} at ${job.company} (${job.location})\n${job.description.slice(0, jobLimit)}`,
     maxTokens: 2500,
-  })).replace(/—/g, ', ').trim()
+  }), [12000, 5000])).replace(/—/g, ', ').trim()
 }
 
 export async function writeCoverLetter(profile: JobProfile, job: JobRecord, tailored: string | undefined, generate: Generate): Promise<string> {
   const name = `${profile.applicant.firstName} ${profile.applicant.lastName}`.trim() || 'the candidate'
-  return (await generate({
+  return (await compactRetry(generate, (cvLimit, jobLimit) => ({
     system: `You write personalized cover letters that read like a real professional wrote them.
 Structure: start with "Dear Hiring Manager,", then one or two opening sentences tying specific experience to their specific need, two short evidence paragraphs with 2-3 concrete achievements from the CV, and a 2-3 sentence close. End with "Regards,\\n${name}". 250-350 words. No headers.
 ${ACCURACY_RULES}
 Output only the letter.`,
-    prompt: `CV:\n${(tailored || profile.cv?.text || '').slice(0, 10000)}\n\nJOB: ${job.title} at ${job.company}\n${job.description.slice(0, 4000)}`,
+    prompt: `CV:\n${(tailored || profile.cv?.text || '').slice(0, cvLimit)}\n\nJOB: ${job.title} at ${job.company}\n${job.description.slice(0, jobLimit)}`,
     maxTokens: 900,
-  })).replace(/—/g, ' - ').trim()
+  }), [10000, 4000])).replace(/—/g, ' - ').trim()
+}
+
+/** A neutral draft, with no inferred qualifications or claims of fit. */
+export function templateCoverLetter(profile: JobProfile, job: JobRecord): string {
+  const name = `${profile.applicant.firstName} ${profile.applicant.lastName}`.trim()
+  return [
+    'Dear Hiring Manager,',
+    '',
+    `Please consider my application for the ${job.title} position at ${job.company}.`,
+    'My attached CV provides my experience and qualifications for your review.',
+    '',
+    'Thank you for considering my application. I would welcome the opportunity to discuss the position.',
+    '',
+    'Regards,',
+    name,
+  ].join('\n')
 }
 
 // ── form answers ─────────────────────────────────────────────────────────────

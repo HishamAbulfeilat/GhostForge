@@ -87,6 +87,25 @@ async function setupUser(user, autopilot) {
   })
 }
 
+test('AI writing outage leaves drafts ready for manual approval, never auto-submitted', async () => {
+  const user = 'ai-outage'
+  await setupUser(user, { enabled: true, dailyLimit: 5, mode: 'full', minScore: 75 })
+  const { calls, approve } = recorder()
+  const generate = async opts => {
+    if (/job evaluation/i.test(opts.system || '')) return fakeAi(opts)
+    throw new Error('No AI model answered')
+  }
+  const report = await ap.runAutopilot(user, { force: true, generate, approve })
+  assert.equal(report.ran, true)
+  assert.equal(report.prepared, 2)
+  assert.equal(report.submitted, 0)
+  assert.equal(calls.length, 0)
+  const drafts = (await jh.listJobs(user)).filter(j => j.status === 'ready')
+  assert.equal(drafts.length, 2)
+  assert.ok(drafts.every(j => j.preparationWarning && j.tailoredResume && j.coverLetter))
+  assert.match((await jh.getProfile(user)).autopilot.lastResult, /draft\(s\) need your approval/)
+})
+
 test('the per-user model choice is saved, and null follows Settings', async () => {
   const user = 'modeluser'
   assert.equal((await jh.getProfile(user)).model, null)

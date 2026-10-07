@@ -9,6 +9,24 @@ Upload your CV and GhostForge does the rest:
 3. It fills in the application and submits it, or sends it to you for one
    approval.
 
+## Prepare, approve and track
+
+Click **Prepare** on a match to open its application review in **Waiting for
+approval**. Review the CV, cover letter and form answers, then click
+**Approve & apply**. A confirmed submission appears in **Applied**; captchas,
+logins and unanswered questions appear in **Needs you**. Browser errors are
+shown as failures, not successful applications. GhostForge needs Chrome,
+Edge or Playwright Chromium on the server machine to fill forms.
+
+AI writing retries with a shorter prompt if a provider rejects the full CV
+and job text. If no model answers, preparation still creates a clearly
+labelled draft using your **unchanged original CV** and a neutral, basic
+cover letter. It does not infer qualifications from your search preferences.
+These drafts require manual approval and are never auto-submitted by
+Job Hunter autopilot. Add a provider key in **Settings → AI Models** or run
+Ollama, then use **Retry AI tailoring** to replace the basic draft.
+AI-tailored CVs are uploaded as DOCX; basic drafts upload the original CV file.
+
 ## Ways in
 
 - **Search.** Uses your target roles, locations and work style. LinkedIn

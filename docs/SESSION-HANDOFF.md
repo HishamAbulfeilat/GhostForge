@@ -5,7 +5,7 @@ what is going on.** The top half is written by humans/lead agents; the
 `LIVE STATUS` block at the bottom is rewritten automatically by the boss every
 couple of minutes while the agent team runs.
 
-## ▶ START HERE — state at 2026-10-06 (Asia/Amman) — main is at e1840a87, PRs #13–#19 merged, agent team stopped, Job Hunter free-model default landed (uncommitted)
+## ▶ START HERE — state at 2026-10-07 (Asia/Amman) — main includes PRs #13–#20, agent team stopped, Job Hunter preparation/approval repaired
 
 **Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
 (main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
@@ -124,12 +124,24 @@ Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). 
 
 ## Branches
 
-- `main` — protected; changes arrive only via the agent-team PR.
-- `feat/agent-boss` — this checkout; agent framework + everything integrated so far.
-- `agent/integration` — the boss's merge branch (worktree `../gf-integration`), PR → `main`.
-- `agent/<provider>/…` — per-worker branches, reset onto integration before each task.
+- `main` — the only current local and remote branch, per the user's request.
+- `agent/integration` and `fix/job-hunter-free-models` were deleted on
+  2026-10-07 after verifying both were ancestors of `main` (no unmerged commits).
+- The team is stopped. Restarting its workflow can recreate integration and
+  worker branches; the historical workflow instructions above describe that setup.
 
 ## History
+
+- **2026-10-07** — Verified `main` contains both remaining branch tips, deleted
+  the merged remote branches at the user's request, and repaired Job Hunter:
+  compact AI-writing retry, clearly labelled original-CV/basic-letter drafts
+  when AI is unavailable (manual approval only), automatic review opening,
+  accurate application-result notices, and prepared-CV DOCX uploads. Added
+  outage, approval-queue, UI, and real-browser upload/submission regressions.
+  The full web suite has three pre-existing macOS failures (temporary-path
+  canonicalization in agent/bridge tests and Bash 3.2 in the project wizard);
+  Job Hunter regressions, root smoke, typecheck and changed-file lint pass.
+  React Doctor changed-scope score is 81 with no new findings. — copilot
 
 - **2026-09-30** — PRs #6–#10 merged (marketplace source of truth, Mark-LV +
   OpenJarvis bridge, Job Hunter autopilot, workflows engine). Built the

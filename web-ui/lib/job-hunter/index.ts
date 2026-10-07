@@ -22,7 +22,7 @@ import {
   type JobProfile, type JobRecord, type ModelChoice,
 } from './store'
 import { applyToJob } from './apply'
-import { buildAnswers, missingApplicantFields, normalizeLabel, tailorResume, writeCoverLetter } from './writer'
+import { buildAnswers, missingApplicantFields, normalizeLabel, tailorResume, templateCoverLetter, writeCoverLetter } from './writer'
 
 export * from './store'
 export { linkedInSearchUrl } from './sources'
@@ -126,7 +126,9 @@ export async function runSearch(
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
     for (const job of queue) {
-      try { await prepareJob(username, job.id, generate); prepared++ } catch { /* stays in "found" */ }
+      try { await prepareJob(username, job.id, generate); prepared++ } catch (e) {
+        void auditLog({ level: 'warn', event: 'job_prepare_error', params: { username, jobId: job.id, error: String(e).slice(0, 200) } })
+      }
     }
   }
 
@@ -156,26 +158,25 @@ export async function prepareJob(username: string, id: string, generate?: Genera
     throw new Error(`This job is "${job.status}" — it can't be prepared`)
   }
   const profile = await getProfile(username)
-  if (!profile.cv) throw new Error('Upload your CV first')
+  if (!profile.cv?.text.trim()) throw new Error('Upload a CV with readable text first')
 
   await updateJob(username, id, {}, 'Preparing tailored CV and cover letter')
   let tailoredResume = ''
   let coverLetter = ''
+  let preparationWarning = ''
   try {
     tailoredResume = await tailorResume(profile, job, generate)
     coverLetter = await writeCoverLetter(profile, job, tailoredResume, generate)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    // The free anonymous gateway (Pollinations) rejects long CV/job payloads —
-    // say so plainly instead of the generic chain error so the fix is obvious.
-    throw new Error(
-      'Could not prepare this job: the free anonymous AI gateway rejected the long CV/job text. ' +
-      'Add a free key (Gemini, Groq, Cerebras or OpenRouter — all have free tiers) in Settings → AI Models, ' +
-      `or install/run Ollama locally. Details: ${msg.slice(0, 160)}`,
-    )
+    tailoredResume = profile.cv.text
+    coverLetter = templateCoverLetter(profile, job)
+    preparationWarning = 'AI writing was unavailable. This draft uses your original CV and a basic cover letter, not AI-tailored materials. Review it before approving; autopilot will not submit it. Add a model key in Settings or run Ollama to retry AI tailoring.'
+    await updateJob(username, id, {}, `${preparationWarning} AI error: ${msg.slice(0, 200)}`)
+    void auditLog({ level: 'warn', event: 'job_prepare_fallback', params: { username, jobId: id, error: msg.slice(0, 200) } })
   }
   const answers = buildAnswers(profile)
-  const updated = await updateJob(username, id, { tailoredResume, coverLetter, answers, status: 'ready' }, 'Ready for your approval')
+  const updated = await updateJob(username, id, { tailoredResume, coverLetter, answers, preparationWarning, status: 'ready' }, 'Ready for your approval')
   return updated!
 }
 
@@ -189,6 +190,8 @@ export async function approveJob(
   if (job.status !== 'ready' && job.status !== 'needs_user' && job.status !== 'failed') {
     throw new Error(`This job is "${job.status}" — prepare it before approving`)
   }
+  if (!job.tailoredResume?.trim() || !job.coverLetter?.trim()) throw new Error('Prepare the application materials before approving')
+  if (opts.by === 'autopilot' && job.preparationWarning) throw new Error('This draft needs your review and approval because AI writing was unavailable')
   const profile: JobProfile = await getProfile(username)
   const missing = missingApplicantFields(profile)
   if (missing.length) throw new Error(`Fill in your ${missing.join(', ')} before applying`)
