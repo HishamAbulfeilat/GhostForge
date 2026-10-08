@@ -8,13 +8,15 @@ import { collectRecognitionTranscript, findWakePhrase } from '@/lib/voice-runtim
 import { JARVIS_QUICK_ACTIONS } from '@/lib/quick-actions'
 import {
   getSR, GREETINGS, MODE_COLORS, PERSONA_OPTIONS,
-  type Any, type ClipboardPanelState, type Emotion, type HistoryPayloadSession, type HostCapabilities,
+  type Any, type Emotion, type HistoryPayloadSession, type HostCapabilities,
   type Memory, type Message, type Mode, type ModelInfo, type MorningBriefingResponse, type Toast, type TtsInfo, type VoiceEngine,
 } from './_components/types'
-import OrbSVG from './_components/OrbSVG'
-import ToastContainer from './_components/ToastContainer'
+import LiveOrb from './_components/LiveOrb'
+import ToastHost from './_components/ToastHost'
+import ClipboardWatcher from './_components/ClipboardWatcher'
+import InboxWatcher, { type InboxMessage } from './_components/InboxWatcher'
+import { createStore } from './_components/store'
 import AuditPanel from './_components/AuditPanel'
-import ClipboardPanel from './_components/ClipboardPanel'
 import HardwareMetrics from './_components/HardwareMetrics'
 import TopBar from './_components/TopBar'
 import CopilotBanner from './_components/CopilotBanner'
@@ -64,13 +66,12 @@ export default function JarvisPage() {
   })
   const [lastToolUsed, setLastToolUsed]     = useState<string | null>(null)
   const [liveModel, setLiveModel]           = useState<{ provider: string; model: string } | null>(null)
-  const [toasts, setToasts]                 = useState<Toast[]>([])
+  const [toasts] = useState(() => createStore<Toast[]>([]))
   const [copilotMode, setCopilotMode]       = useState(false)
   const [copilotThinking, setCopilotThinking] = useState(false)
   const [pendingRiskMsg, setPendingRiskMsg] = useState<{ message: string; tool: string } | null>(null)
   const [speechLang, setSpeechLang]         = useState('en-US')
   const [detectedLang, setDetectedLang]     = useState('en')
-  const [clipboardPanel, setClipboardPanel] = useState<ClipboardPanelState>({ text: '', visible: false })
   const [interruptFlash, setInterruptFlash] = useState(false)
   // ── Clicky state ──────────────────────────────────────────────────────────────
   const [clickyPoint, setClickyPoint] = useState<{ x: number; y: number; label?: string | null } | null>(null)
@@ -81,7 +82,7 @@ export default function JarvisPage() {
   const [visionPending, setVisionPending] = useState(false)
   const pushToTalkRef = useRef(false)
   const [liveTranscript, setLiveTranscript] = useState('')
-  const [audioLevel, setAudioLevel] = useState(0)
+  const [audioLevel] = useState(() => createStore(0))
   const [showMarkL, setShowMarkL] = useState(false)
   const [bridgeStatus, setBridgeStatus] = useState<string>('stopped')
   // ── n8n workflow state ───────────────────────────────────────────────────────
@@ -130,10 +131,6 @@ export default function JarvisPage() {
   if (lastActivityRef.current === null) lastActivityRef.current = Date.now()
   const proactiveTriggeredRef = useRef(false)
   const proactiveTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null)
-  const clipboardWatchRef  = useRef<ReturnType<typeof setInterval> | null>(null)
-  const clipboardDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const clipboardPrimedRef = useRef(false)
-  const lastClipboardRef   = useRef('')
   const sessionIdRef       = useRef<string | null>(null)
   if (sessionIdRef.current === null) sessionIdRef.current = `jarvis-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   const sessionStartedAtRef = useRef<string | null>(null)
@@ -200,11 +197,9 @@ export default function JarvisPage() {
 
   const toast = useCallback((type: Toast['type'], msg: string, duration = 4000) => {
     const id = `${Date.now()}-${Math.random()}`
-    setToasts(prev => [...prev, { id, type, msg }])
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration)
-  }, [])
-
-  const removeToast = useCallback((id: string) => setToasts(prev => prev.filter(t => t.id !== id)), [])
+    toasts.set(prev => [...prev, { id, type, msg }])
+    setTimeout(() => toasts.set(prev => prev.filter(t => t.id !== id)), duration)
+  }, [toasts])
 
   const markActivity = useCallback(() => {
     lastActivityRef.current = Date.now()
@@ -307,14 +302,14 @@ export default function JarvisPage() {
         let sum = 0
         const bins = Math.min(16, dataArray.length)
         for (let i = 0; i < bins; i++) sum += dataArray[i]
-        setAudioLevel(sum / bins / 255) // 0..1
+        audioLevel.set(sum / bins / 255) // 0..1
         audioAnimFrameRef.current = requestAnimationFrame(tick)
       }
       audioAnimFrameRef.current = requestAnimationFrame(tick)
     } catch {
       // Mic access denied — no visual feedback, but still works
     }
-  }, [])
+  }, [audioLevel])
 
   const stopAudioAnalyser = useCallback(() => {
     if (audioAnimFrameRef.current) {
@@ -326,8 +321,8 @@ export default function JarvisPage() {
       audioContextRef.current = null
     }
     audioAnalyserRef.current = null
-    setAudioLevel(0)
-  }, [])
+    audioLevel.set(0)
+  }, [audioLevel])
 
   // ── Mic pause/resume — stop listening while JARVIS thinks/speaks (prevents echo) ──
 
@@ -486,38 +481,6 @@ export default function JarvisPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Inbox polling — surface messages from other GhostForge users ─────────
-  useEffect(() => {
-    let cancelled = false
-    const seen = new Set<string>()
-
-    const checkInbox = async () => {
-      try {
-        const res = await fetch('/api/jarvis/inbox')
-        if (!res.ok) return
-        const data = await res.json() as { messages: Array<{ id: string; from: string; text: string; ts: string }>; unread: number }
-        if (cancelled) return
-        for (const m of data.messages) {
-          if (seen.has(m.id)) continue
-          seen.add(m.id)
-          const who = m.from ? ` from ${m.from}` : ''
-          toast('info', `📨 Message${who}: ${m.text}`, 8000)
-          addAIMessage(`📨 New message${who}: ${m.text}`, 'happy', null, null)
-        }
-        void fetch('/api/jarvis/inbox', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
-        }).catch(() => {})
-      } catch {
-        /* server unreachable — retry next tick */
-      }
-    }
-
-    void checkInbox()
-    const timer = window.setInterval(checkInbox, 20000)
-    return () => { cancelled = true; window.clearInterval(timer) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const api = (window as any).electron?.bridgeManager
@@ -584,50 +547,6 @@ export default function JarvisPage() {
     }
   }, [])
 
-  useEffect(() => {
-    if (platform.isMobile || typeof navigator === 'undefined' || !navigator.clipboard?.readText) return
-
-    let active = true
-    let dismissTimer: ReturnType<typeof setTimeout> | null = null
-
-    const dismissPanel = () => {
-      if (dismissTimer) clearTimeout(dismissTimer)
-      dismissTimer = setTimeout(() => {
-        if (!active) return
-        setClipboardPanel(prev => ({ ...prev, visible: false }))
-      }, 10_000)
-      clipboardDismissRef.current = dismissTimer
-    }
-
-    const pollClipboard = async () => {
-      if (document.hidden) return
-      try {
-        const nextValue = (await navigator.clipboard.readText()).trim()
-        if (!active) return
-        if (!clipboardPrimedRef.current) {
-          clipboardPrimedRef.current = true
-          lastClipboardRef.current = nextValue
-          return
-        }
-        if (nextValue.length < 15 || nextValue === lastClipboardRef.current) return
-        lastClipboardRef.current = nextValue
-        setClipboardPanel({ text: nextValue, visible: true })
-        dismissPanel()
-      } catch {
-        // Clipboard access can be denied by the browser; stay silent.
-      }
-    }
-
-    void pollClipboard()
-    clipboardWatchRef.current = setInterval(() => { void pollClipboard() }, 3000)
-
-    return () => {
-      active = false
-      if (clipboardWatchRef.current) clearInterval(clipboardWatchRef.current)
-      if (dismissTimer) clearTimeout(dismissTimer)
-    }
-  }, [platform.isMobile])
-
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   const addAIMessage = useCallback((text: string, emotion: Emotion, tool: string | null, toolResult: string | null, usedModel?: string, domain?: string, confidence?: number, risk?: Message['risk'], requiresConfirmation?: boolean) => {
@@ -637,6 +556,12 @@ export default function JarvisPage() {
   const addUserMessage = useCallback((text: string) => {
     setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', text, ts: Date.now() }])
   }, [])
+
+  const handleInboxMessage = useCallback((m: InboxMessage) => {
+    const who = m.from ? ` from ${m.from}` : ''
+    toast('info', `📨 Message${who}: ${m.text}`, 8000)
+    addAIMessage(`📨 New message${who}: ${m.text}`, 'happy', null, null)
+  }, [toast, addAIMessage])
 
   // ── External TTS (Fish Audio / ElevenLabs) with auto-fallback chain ───────
 
@@ -1632,21 +1557,13 @@ export default function JarvisPage() {
     setInput('')
   }
 
-  const sendClipboardAction = (action: 'EXPLAIN' | 'SUMMARISE' | 'TRANSLATE' | 'FIX') => {
-    const text = clipboardPanel.text.trim()
-    if (!text) return
+  const sendToJarvisRef = useRef(sendToJarvis)
+  useEffect(() => { sendToJarvisRef.current = sendToJarvis }, [sendToJarvis])
+  const handleClipboardPrompt = useCallback((prompt: string) => {
     markActivity()
-    setClipboardPanel(prev => ({ ...prev, visible: false }))
-    if (clipboardDismissRef.current) clearTimeout(clipboardDismissRef.current)
-    const prompts: Record<'EXPLAIN' | 'SUMMARISE' | 'TRANSLATE' | 'FIX', string> = {
-      EXPLAIN: `Explain this: ${text}`,
-      SUMMARISE: `Summarise this: ${text}`,
-      TRANSLATE: `Translate this: ${text}`,
-      FIX: `Fix this: ${text}`,
-    }
     setInput('')
-    void sendToJarvis(prompts[action])
-  }
+    void sendToJarvisRef.current(prompt)
+  }, [markActivity])
 
   const stopSpeaking = useCallback(() => {
     stopCurrentAudio()
@@ -1783,7 +1700,7 @@ export default function JarvisPage() {
                   mode === 'speaking' ? 'Click to stop speaking' : 'Processing…'
                 }
               >
-                <OrbSVG mode={mode} audioLevel={audioLevel} />
+                <LiveOrb mode={mode} audioLevel={audioLevel} />
               </button>
 
               <HardwareMetrics isMobile={platform.isMobile} />
@@ -1858,14 +1775,9 @@ export default function JarvisPage() {
         />
 
         {/* Toast container */}
-        <ToastContainer toasts={toasts} onRemove={removeToast} />
-        {clipboardPanel.visible && (
-          <ClipboardPanel
-            text={clipboardPanel.text}
-            onAction={sendClipboardAction}
-            onClose={() => setClipboardPanel(prev => ({ ...prev, visible: false }))}
-          />
-        )}
+        <ToastHost toasts={toasts} />
+        <ClipboardWatcher enabled={!platform.isMobile} onPrompt={handleClipboardPrompt} />
+        <InboxWatcher onMessage={handleInboxMessage} />
         {/* Clicky blue cursor overlay */}
         <ClickyOverlay
           point={clickyPoint}

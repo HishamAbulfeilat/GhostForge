@@ -13,6 +13,8 @@ Module._resolveFilename = function (request, ...rest) {
   return resolve.call(this, request, ...rest)
 }
 
+let clipboardText = ''
+
 // Browser APIs the page touches that jsdom lacks. The harness destructures
 // JSDOM when it loads, so patch it first.
 const jsdom = require('jsdom')
@@ -23,7 +25,7 @@ jsdom.JSDOM = class extends BaseJSDOM {
     const w = this.window
     w.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} })
     w.HTMLElement.prototype.scrollIntoView = function () {}
-    Object.defineProperty(w.navigator, 'clipboard', { value: { readText: async () => '', writeText: async () => {} }, configurable: true })
+    Object.defineProperty(w.navigator, 'clipboard', { value: { readText: async () => clipboardText, writeText: async () => {} }, configurable: true })
     globalThis.localStorage = w.localStorage
     globalThis.location = w.location
     globalThis.SpeechSynthesisUtterance = class { constructor(text) { this.text = text } }
@@ -87,6 +89,43 @@ test('JARVIS page renders its HUD, chat and every panel', async () => {
 
     const violations = (await page.violations()).filter(v => !LAYOUT_RULES.has(v.id))
     assert.equal(violations.length, 0, formatViolations(violations))
+  } finally {
+    await page.unmount()
+  }
+})
+
+test('toasts, inbox messages and clipboard actions still reach the page', async () => {
+  const sent = []
+  const routes = {
+    ...ROUTES,
+    '/api/jarvis/inbox': (url, init) => (init?.method === 'POST' ? {} : { messages: [{ id: 'm1', from: 'sam', text: 'build is green', ts: '' }], unread: 1 }),
+    '/api/jarvis': (url, init) => { sent.push(JSON.parse(init.body).message); return {} },
+  }
+  clipboardText = ''
+  const page = await renderPage('jarvis/page.tsx', routes)
+  const text = () => page.document.getElementById('root').textContent
+  try {
+    // Inbox poll: one toast and one chat message for the new message.
+    assert.ok(text().includes('📨 Message from sam: build is green'), 'inbox toast missing')
+    assert.ok(text().includes('📨 New message from sam: build is green'), 'inbox chat message missing')
+
+    // Toasts render from their own store and can be dismissed.
+    await page.click(el => el.textContent.trim() === '🤖 COPILOT')
+    assert.ok(text().includes('Copilot CLI mode ON'), 'toast did not appear')
+    const dismissButtons = () => [...page.document.querySelectorAll('button[aria-label="Dismiss notification"]')]
+    const before = dismissButtons().length
+    await page.click(el => el === dismissButtons().at(-1))
+    assert.equal(dismissButtons().length, before - 1, 'toast was not dismissed')
+    await page.click(el => el.textContent.includes('EXIT'))
+
+    // Clipboard watcher: new text (15+ chars) shows the panel; EXPLAIN sends it to JARVIS.
+    clipboardText = 'const answer = computeTheThing()'
+    await new Promise(resolve => setTimeout(resolve, 3200))
+    for (let i = 0; i < 5; i++) await page.settle()
+    assert.ok(text().includes('CLIPBOARD INTELLIGENCE'), 'clipboard panel did not open')
+    await page.click(el => el.textContent.includes('EXPLAIN'))
+    assert.deepEqual(sent, ['Explain this: const answer = computeTheThing()'])
+    assert.ok(!text().includes('CLIPBOARD INTELLIGENCE'), 'clipboard panel did not close')
   } finally {
     await page.unmount()
   }
