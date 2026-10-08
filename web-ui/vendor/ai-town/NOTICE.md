@@ -26,3 +26,7 @@ Agent World additions (minimal, recorded here as upstream deviations):
   sheet per (texture, frame data), reference counted, textures destroyed a
   second after the last character using it unmounts (upstream never destroys
   them). The rendering itself is unchanged.
+- `src/components/Game.tsx` accepts an optional `paused` and passes it to
+  `@pixi/react`'s own `Stage` props (`raf={!paused}`,
+  `renderOnComponentChange={!paused}`), so the host can stop the ticker while
+  the scene is scrolled off screen. Without it, behaviour is upstream's.

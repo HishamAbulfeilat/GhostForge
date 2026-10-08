@@ -96,7 +96,6 @@ function parseClaudeReply(text, code) {
 
 /** Copilot's silent output is the reply as plain text (colour codes stripped). */
 function parseCopilotReply(text, code) {
-  // eslint-disable-next-line no-control-regex
   const reply = text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').trim().slice(0, REPLY_MAX_CHARS)
   if (!reply) return null
   return { reply, isError: code !== 0 }

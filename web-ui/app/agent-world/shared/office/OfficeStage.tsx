@@ -5,7 +5,7 @@ import { eventBus } from '../../../../vendor/agent-office/src/events'
 import type { AgentFields, LayoutItem, SnapshotOffice } from '../../../../vendor/agent-office/src/snapshot-room'
 import Ambience, { AmbienceToggle } from '../Ambience'
 import type { ChatTraffic } from '../ChatBox'
-import { bubbleAt, useReducedMotion, useRotation, useStoredFlag } from '../hooks'
+import { bubbleAt, useOnScreen, useReducedMotion, useRotation, useStoredFlag } from '../hooks'
 import Minimap, { type MinimapState } from '../Minimap'
 import { clipWords } from '../status'
 import type { WorldAgent } from '../world-model'
@@ -101,8 +101,16 @@ export default function OfficeStage({
     }
   }, [seated, byId, ambience, reduced])
 
+  // Off screen (scrolled to the columns or the log): the Phaser loop sleeps
+  // and the walkers and minimap stop.
+  const viewRef = useRef<HTMLDivElement>(null)
+  const onScreen = useOnScreen(viewRef)
+  const onScreenRef = useRef(onScreen)
+  onScreenRef.current = onScreen
+
   useEffect(() => {
     const t = setInterval(() => {
+      if (!onScreenRef.current) return
       let changed = false
       for (const w of walkers.current.values()) {
         const next = w.path.shift()
@@ -138,7 +146,7 @@ export default function OfficeStage({
   })
 
   const officeRef = useRef<SnapshotOffice | null>(null)
-  const gameRef = useRef<{ scene: { getScene(key: string): unknown } } | null>(null)
+  const gameRef = useRef<{ scene: { getScene(key: string): unknown }; loop: { sleep(): void; wake(): void } } | null>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef({ agents: sceneAgents, layout: seated.layout })
   sceneRef.current = { agents: sceneAgents, layout: seated.layout }
@@ -214,6 +222,7 @@ export default function OfficeStage({
           input: { keyboard: { capture: [] } },
         })
         gameRef.current = game
+        if (!onScreenRef.current) game.loop.sleep()
         return () => {
           gameRef.current = null
           // Stop first so the scene removes its window key handlers.
@@ -234,6 +243,12 @@ export default function OfficeStage({
       session.stop()
     }
   }, [])
+
+  useEffect(() => {
+    const loop = gameRef.current?.loop
+    if (onScreen) loop?.wake()
+    else loop?.sleep()
+  }, [onScreen])
 
   useEffect(() => {
     eventBus.dispatchEvent(new CustomEvent('cinematic-toggle', { detail: { enabled: cinematic } }))
@@ -336,7 +351,7 @@ export default function OfficeStage({
           )}
         </div>
         {sceneError && <p role="alert" className="mb-2 rounded-lg border border-gf-danger p-3 text-sm">{sceneError}</p>}
-        <div className="relative">
+        <div ref={viewRef} className="relative">
           <div
             ref={hostRef}
             role="img"
@@ -344,7 +359,7 @@ export default function OfficeStage({
             className="h-[min(70dvh,680px)] min-h-80 w-full touch-none overflow-hidden rounded-xl border border-gf-line bg-gf-bar"
           />
           <Ambience enabled={ambience} />
-          <Minimap read={readMinimap} onPan={pan} label="Agent Office minimap" />
+          <Minimap read={readMinimap} onPan={pan} label="Agent Office minimap" paused={!onScreen} />
         </div>
         {seated.hidden > 0 && (
           <p role="status" className="mt-2 text-xs text-gf-muted">

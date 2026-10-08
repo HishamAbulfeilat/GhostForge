@@ -22,12 +22,14 @@ const TONE: Record<MinimapDot['tone'], string> = {
  * snapshot); clicking or dragging pans the scene there.
  */
 export default function Minimap({
-  read, onPan, width = 168, label,
+  read, onPan, width = 168, label, paused = false,
 }: {
   read: () => MinimapState | null
   onPan: (x: number, y: number) => void
   width?: number
   label: string
+  /** Stop redrawing (the scene is off screen). */
+  paused?: boolean
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const sizeRef = useRef({ width: 1, height: 1 })
@@ -35,6 +37,7 @@ export default function Minimap({
   readRef.current = read
 
   useEffect(() => {
+    if (paused) return
     let frame = 0
     let last = 0
     const draw = (t: number) => {
@@ -67,7 +70,7 @@ export default function Minimap({
     }
     frame = requestAnimationFrame(draw)
     return () => cancelAnimationFrame(frame)
-  }, [width])
+  }, [width, paused])
 
   const pan = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()

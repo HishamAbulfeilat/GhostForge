@@ -113,6 +113,10 @@ Features (both apps):
 - **Touch** in Agent Office: drag with one finger to pan, pinch to zoom (1×–3×,
   the scene's wheel range). Panning stops any camera follow, like the arrow
   keys. A short tap still selects an agent.
+- **Off-screen pause**: while a scene is scrolled out of view (status
+  columns, activity log, drawer below it) its Pixi ticker or Phaser loop, the
+  walkers, the bubble layout and the minimap stop, and resume when it scrolls
+  back.
 - **Ambience**: day/night tint from local time; sessions idle 3+ minutes walk
   to a break area. `prefers-reduced-motion` turns walking and animations off.
 - **Raw JSON** in the session drawer: the detail response as returned.
