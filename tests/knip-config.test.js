@@ -10,7 +10,7 @@
  *
  *   1. every suppressed file still EXISTS (a suppression can't hide a deletion)
  *   2. every suppressed file still has the live reference that justifies it
- *   3. the three .js/.ts twins still both exist and both still have importers
+ *   3. the old lib .js/.ts twins stay deleted (tests load the .ts)
  *   4. the removed deps are really gone, and the kept one is really loaded
  *
  * knip itself is not run here (it needs a network install); these assertions
@@ -66,37 +66,19 @@ test('the string-path fixture is still rendered by the a11y tests', () => {
   assert.match(harness, /renderPage\(FIXTURE/, 'it must still be passed to the render harness');
 });
 
-test('both halves of each .js/.ts twin exist and both have importers', () => {
-  // knip resolves `@/lib/<name>` to the CommonJS `.js`, so it never sees the
-  // `.ts` twin's importers and reports the `.ts` as orphaned. Verified by
-  // experiment (moving the `.js` aside makes the `.ts` stop being reported).
-  // The suppression is only correct while BOTH files are live.
-  const twins = ['agent-team-api', 'agent-workflow-templates'];
-  for (const name of twins) {
-    for (const ext of ['js', 'ts']) {
-      assert.ok(
-        exists('lib', `${name}.${ext}`),
-        `lib/${name}.${ext} must exist — the twin pattern assumes both halves`
-      );
-    }
-    const ts = read('lib', `${name}.ts`);
-    const js = read('lib', `${name}.js`);
-    assert.match(ts, /@\/lib\/|export/, `${name}.ts must be a real module, not a stub`);
-    assert.match(js, /module\.exports|exports\./, `${name}.js must be CommonJS for the test runner`);
+test('the former lib .js/.ts twins are gone; only the TypeScript module remains', () => {
+  // lib/agent-team-api and lib/agent-workflow-templates used to be
+  // hand-maintained .js/.ts pairs (the .js only so node:test could require
+  // them). They drifted, so the .js halves were deleted and the tests now
+  // compile the .ts (web-ui/test/load-ts.js). A re-added .js twin would make
+  // `@/lib/<name>` ambiguous again and hide the .ts from knip.
+  for (const name of ['agent-team-api', 'agent-workflow-templates']) {
+    assert.ok(exists('lib', `${name}.ts`), `lib/${name}.ts must exist`);
+    assert.ok(!exists('lib', `${name}.js`), `lib/${name}.js must not come back — load the .ts in tests`);
+    assert.ok(!ignoredFiles().includes(`lib/${name}.ts`), `lib/${name}.ts no longer needs a knip suppression`);
   }
-
-  // The .ts half is reached through the `@/` alias from the app; the .js half
-  // through a plain relative require from node:test.
-  assert.match(
-    read('app', 'api', 'agents', 'templates', 'route.ts'),
-    /@\/lib\/agent-workflow-templates/,
-    'the .ts twin must still be imported by an app route'
-  );
-  assert.match(
-    read('app', 'api', 'snippets', 'route.ts'),
-    /@\/lib\/agent-team-api/,
-    'agent-team-api.ts must still be imported by an app route'
-  );
+  assert.match(read('app', 'api', 'agents', 'templates', 'route.ts'), /@\/lib\/agent-workflow-templates/);
+  assert.match(read('app', 'api', 'snippets', 'route.ts'), /@\/lib\/agent-team-api/);
 });
 
 test('the ignored vendor file is still unmodified upstream', () => {

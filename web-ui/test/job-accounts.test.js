@@ -273,7 +273,7 @@ const route = load('../app/api/jobs/[id]/account/route.ts', {
   '@/lib/access': { requirePermission: async () => state.allowed ? { username: 'owner' } : new Response({ error: 'Unauthorized' }, { status: 401 }) },
   '@/lib/job-hunter/store': { getJob: async (username, id) => { assert.equal(username, 'owner'); assert.equal(id, 'j1'); return state.owns ? { id } : null } },
   '@/lib/ratelimit': { checkRateLimit: () => ({ allowed: state.rate }) },
-  '@/lib/agent-team-api': require('../lib/agent-team-api.ts'),
+  '@/lib/agent-team-api': require('./load-ts').loadTs('lib/agent-team-api.ts'),
   '@/lib/job-hunter/accounts': {
     AccountAssistanceError: accounts.AccountAssistanceError, accountRequest: accounts.accountRequest,
     assistAccount: async (_username, _id, input) => {

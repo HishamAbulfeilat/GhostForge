@@ -10,7 +10,7 @@ const {
   getAgentWorkflowTemplate,
   listAgentWorkflowTemplates,
   saveAgentWorkflowTemplate,
-} = require('../lib/agent-workflow-templates.js')
+} = require('./load-ts').loadTs('lib/agent-workflow-templates.ts')
 
 function validTemplate(overrides = {}) {
   return {
