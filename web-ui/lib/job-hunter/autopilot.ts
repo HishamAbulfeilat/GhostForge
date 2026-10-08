@@ -27,6 +27,7 @@ import {
 } from './index'
 import { listJobUsers, type AutopilotSettings, type JobRecord } from './store'
 import { ensureVerified, type Fetcher } from './verify'
+import { isDigestDue, runDigest } from './digest'
 
 type Generate = (opts: { system?: string; prompt?: string; maxTokens?: number }) => Promise<string>
 type Approve = typeof approveJob
@@ -255,18 +256,22 @@ async function allowed(username: string): Promise<boolean> {
   return user.role === 'admin' || user.permissions.includes('job_hunter')
 }
 
-/** One scheduler pass: run every user whose autopilot is on and due */
+/** One scheduler pass: run every user whose autopilot or digest is on and due */
 export async function autopilotTick(now = Date.now()): Promise<void> {
   if (sched.ticking) return
   sched.ticking = true
   try {
     for (const username of await listJobUsers()) {
       try {
-        const { autopilot } = await getProfile(username)
+        const { autopilot, digest } = await getProfile(username)
         // Applications cut off by a restart are handed back even when no run is due
         await recoverInterrupted(username, now)
-        if (!isDue(autopilot, now) || !(await allowed(username))) continue
-        await runAutopilot(username, { now })
+        const autopilotDue = isDue(autopilot, now)
+        // The new-jobs digest runs on its own schedule, with autopilot on or off
+        const digestDue = isDigestDue(digest, now)
+        if ((!autopilotDue && !digestDue) || !(await allowed(username))) continue
+        if (autopilotDue) await runAutopilot(username, { now })
+        if (digestDue) await runDigest(username, { now })
       } catch (e) {
         void auditLog({ level: 'warn', event: 'job_autopilot_error', params: { username, error: String(e).slice(0, 200) } })
       }

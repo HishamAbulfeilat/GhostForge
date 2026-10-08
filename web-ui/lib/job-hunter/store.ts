@@ -150,6 +150,42 @@ export const DEFAULT_AUTOPILOT: AutopilotSettings = {
   mode: 'safe', linkedinEasyApply: false, linkedinDailyLimit: 5, laptopControl: false,
 }
 
+/**
+ * A saved search: one role/location combination checked on a schedule for the
+ * digest. Only the search fields are kept; the CV, must-haves, dealbreakers and
+ * salary floor still come from the main preferences.
+ */
+export interface SavedSearch {
+  id: string
+  name: string
+  titles: string[]
+  locations: string[]
+  remote: RemotePreference
+  companies: string[]
+  enabled: boolean
+}
+
+/**
+ * A digest of new High-fit jobs from the saved searches, sent as one push
+ * notification and shown in the app. It only searches and scores: nothing is
+ * prepared or submitted (that is autopilot's job).
+ */
+export interface DigestSettings {
+  enabled: boolean
+  /** Hours between digests */
+  intervalHours: number
+  /** Only High-fit jobs scoring at least this much are included */
+  minScore: number
+  lastRunAt?: string
+  lastResult?: string
+  /** The latest digest that had new jobs, shown on /jobs */
+  lastDigest?: { at: string; jobs: Array<{ id: string; title: string; company: string; score: number; search: string }> }
+  /** Job keys already sent in a digest, so each job is announced once (bounded) */
+  sentKeys?: string[]
+}
+
+export const DEFAULT_DIGEST: DigestSettings = { enabled: false, intervalHours: 24, minScore: 70 }
+
 export interface CvFile { text: string; fileName: string; filePath: string; uploadedAt: string }
 
 export interface CvReview {
@@ -198,6 +234,9 @@ export interface JobProfile {
   customAnswers: Record<string, string>
   model: ModelChoice | null
   autopilot: AutopilotSettings
+  /** Searches checked for the digest (up to 10) */
+  savedSearches?: SavedSearch[]
+  digest?: DigestSettings
   /** Set once the user signed in to LinkedIn in the GhostForge browser */
   linkedin?: { connectedAt?: string; checkedAt?: string } | null
   updatedAt: string
@@ -315,13 +354,15 @@ export async function getProfile(username: string): Promise<JobProfile> {
     model: stored.model?.provider && stored.model?.model ? stored.model : null,
     autopilot: { ...DEFAULT_AUTOPILOT, ...(stored.autopilot || {}) },
     linkedin: stored.linkedin ?? null,
+    savedSearches: Array.isArray(stored.savedSearches) ? stored.savedSearches : [],
+    digest: { ...DEFAULT_DIGEST, ...(stored.digest || {}) },
     updatedAt: stored.updatedAt || '',
   }
 }
 
 export function saveProfile(
   username: string,
-  patch: Partial<Omit<JobProfile, 'updatedAt' | 'autopilot'>> & { autopilot?: Partial<AutopilotSettings> },
+  patch: Partial<Omit<JobProfile, 'updatedAt' | 'autopilot' | 'digest'>> & { autopilot?: Partial<AutopilotSettings>; digest?: Partial<DigestSettings> },
 ): Promise<JobProfile> {
   return withLock(userDir(username), async () => {
   const current = await getProfile(username)
@@ -333,6 +374,7 @@ export function saveProfile(
     customAnswers: { ...current.customAnswers, ...(patch.customAnswers || {}) },
     model: patch.model !== undefined ? patch.model : current.model,
     autopilot: { ...current.autopilot, ...(patch.autopilot || {}) },
+    digest: { ...DEFAULT_DIGEST, ...current.digest, ...(patch.digest || {}) },
     updatedAt: new Date().toISOString(),
   }
   await writeJson(join(userDir(username), 'profile.json'), next)

@@ -4,6 +4,7 @@ import { answerQuestions, approveJob, dismissJob, generatorFor, getProfile, list
 import { addJobByUrl, connectLinkedIn, disconnectLinkedIn } from '@/lib/job-hunter/intake'
 import { keyedSources } from '@/lib/job-hunter/sources'
 import { runAutopilot, startAutopilotScheduler, submittedToday } from '@/lib/job-hunter/autopilot'
+import { runDigest } from '@/lib/job-hunter/digest'
 import { hostedUnavailableResponse, isHostedMode } from '@/lib/hosted'
 import { runWithAIUser } from '@/lib/providers'
 
@@ -39,6 +40,7 @@ export async function GET(req: NextRequest) {
  *   dismiss  hide a job
  *   answer   { id, answers: { label: value } } — answer the questions an application stopped on
  *   add-url  { url } — add any job by link (LinkedIn, careers page, ATS)
+ *   digest   run the saved searches now and announce new High-fit jobs (never prepares or submits)
  *   linkedin-connect / linkedin-disconnect — sign in to LinkedIn once in the GhostForge browser
  */
 export async function POST(req: NextRequest) {
@@ -75,6 +77,8 @@ async function runAction(username: string, body: { action?: string; id?: string;
       case 'autopilot':
         // "Run now": one full autopilot pass, even if not due (or switched off)
         return NextResponse.json({ report: await runAutopilot(user.username, { force: true }) })
+      case 'digest':
+        return NextResponse.json({ report: await runDigest(user.username, { force: true }) })
       case 'answer':
         if (!body.id || !body.answers || typeof body.answers !== 'object') return NextResponse.json({ error: 'Job id and answers required' }, { status: 400 })
         return NextResponse.json({ job: await answerQuestions(user.username, body.id, body.answers) })

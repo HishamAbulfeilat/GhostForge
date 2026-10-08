@@ -92,6 +92,27 @@ or approved automatically.
   Workday, Greenhouse and so on. The page's own `JobPosting` data is read,
   scored and queued.
 
+## Saved searches and the digest
+
+Under **Saved searches & digest** on `/jobs`, **Save current search** keeps the
+roles, locations, work style and company boards from **What to look for** (up
+to 10 searches). **Use** loads one back into the form; **In digest** includes
+or skips it.
+
+Turn on **Digest of new High-fit jobs** to have GhostForge check every saved
+search on a schedule (every 24 hours by default; 1 to 168) and announce the
+new High-fit jobs at or above the digest's minimum score (default 70) once:
+one phone notification per digest when push is set up on a device, and the
+**Latest digest** list on `/jobs`, where each job opens its review. With no
+saved search, your main search is checked. **Check saved searches now** runs
+it at once.
+
+A digest only searches and scores, so it works with autopilot off. It never
+prepares, approves or submits anything. Possible scams, closed postings and
+jobs you dismissed or already applied to are never announced. The CV,
+must-haves, dealbreakers and salary floor from your main preferences apply to
+every saved search. No email is sent: GhostForge has no email channel.
+
 ## Where jobs come from
 
 Only official public APIs and feeds are used. Nothing behind a login is

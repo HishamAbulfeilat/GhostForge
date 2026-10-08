@@ -20,7 +20,7 @@ import { dealbreaker, heuristicScore, matchesLocation, relevantTo, scoreJobs } f
 import { linkedInSearchUrl, searchSources, type SourceReport } from './sources'
 import {
   claimJob, getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs, withJobOperation,
-  type JobProfile, type JobRecord, type ModelChoice,
+  type JobPreferences, type JobProfile, type JobRecord, type ModelChoice,
 } from './store'
 import { applyToJob } from './apply'
 import { updateApplicationActivity } from './live'
@@ -95,6 +95,8 @@ export interface SearchResult {
   /** Listings removed or flagged by the real-jobs screen (stale, no valid link, scam signals) */
   dropped: ScreenReport
   linkedin: Array<{ term: string; location: string; url: string }>
+  /** Identity keys of the listings this search kept and scored (used by the digest) */
+  keys: string[]
 }
 
 /** What an AI fit score depends on besides the listing: the CV, the preferences and the model */
@@ -109,10 +111,16 @@ function scoreSignature(basis: string, job: { title: string; company: string; lo
 
 export async function runSearch(
   username: string,
-  opts: { terms?: string[]; autoPrepare?: number; generate?: Generate | null; includeLinkedIn?: boolean; fetcher?: Fetcher } = {},
+  opts: {
+    terms?: string[]; autoPrepare?: number; generate?: Generate | null; includeLinkedIn?: boolean; fetcher?: Fetcher
+    /** A saved search's own locations, work style and company boards (the rest of the preferences still apply) */
+    preferences?: Partial<Pick<JobPreferences, 'locations' | 'remote' | 'companies' | 'titles'>>
+  } = {},
 ): Promise<SearchResult> {
-  const profile = await getProfile(username)
-  if (!profile.cv) throw new Error('Upload your CV first')
+  const stored = await getProfile(username)
+  if (!stored.cv) throw new Error('Upload your CV first')
+  // A saved search overrides only its own fields; the profile seen by scoring uses them too
+  const profile: JobProfile = opts.preferences ? { ...stored, preferences: { ...stored.preferences, ...opts.preferences } } : stored
   const terms = (opts.terms?.length ? opts.terms : profile.preferences.titles).map(t => t.trim()).filter(Boolean)
   if (!terms.length) throw new Error('Add at least one target job title to search for')
   const generate = opts.generate === undefined ? generatorFor(profile.model) : opts.generate
@@ -186,6 +194,7 @@ export async function runSearch(
     report,
     dropped,
     linkedin: terms.slice(0, 3).flatMap(term => places.slice(0, 2).map(location => ({ term, location, url: linkedInSearchUrl(term, location) }))),
+    keys: scored.map(j => j.key),
   }
 }
 

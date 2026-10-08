@@ -297,3 +297,46 @@ test('bulk preparation never approves and requires review of fallback drafts bef
     assert.equal(page.document.querySelector('[aria-label="Confirm selected applications"]'), null)
   } finally { await page.unmount() }
 })
+
+test('saved searches and the digest: save, check now and open a digest job, never preparing or applying', async () => {
+  const state = { job: { ...baseJob }, actions: [], puts: [] }
+  const endpoints = routes(state)
+  const view = { ...profile, savedSearches: [], digest: { enabled: false, intervalHours: 24, minScore: 70 } }
+  endpoints['/api/jobs/profile'] = (_url, init) => {
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(init.body)
+      state.puts.push(body)
+      if (body.savedSearches) view.savedSearches = body.savedSearches.map((s, i) => ({ ...s, id: s.id || `s${i}` }))
+      if (body.digest) view.digest = { ...view.digest, ...body.digest }
+      return { ok: true }
+    }
+    return { profile: view }
+  }
+  const jobsRoute = endpoints['/api/jobs']
+  endpoints['/api/jobs'] = (url, init) => {
+    if (init?.method === 'POST' && JSON.parse(init.body).action === 'digest') {
+      state.actions.push('digest')
+      view.digest = { ...view.digest, lastRunAt: '2026-10-08T08:00:00Z', lastResult: '1 search checked: 1 new High-fit job.', lastDigest: { at: '2026-10-08T08:00:00Z', jobs: [{ id: 'job1', title: 'Engineer', company: 'Acme', score: 90, search: 'Engineer · Remote' }] } }
+      return { report: { ran: true, searches: 1, newJobs: [{}] } }
+    }
+    return jobsRoute(url, init)
+  }
+  const page = await renderPage('jobs/page.tsx', endpoints)
+  try {
+    const card = () => page.document.querySelector('[aria-label="Saved searches and digest"]')
+    assert.ok(card())
+    await page.click(el => text(el) === 'Save current search')
+    assert.deepEqual(state.puts[0].savedSearches.map(s => [s.titles, s.locations, s.remote, s.enabled]), [[['Engineer'], ['Remote'], 'remote', true]])
+    assert.match(card().textContent, /Engineer · Remote · remote/)
+    await page.click(el => el.getAttribute('role') === 'switch' && /Digest/.test(text(el)))
+    assert.deepEqual(state.puts[1], { digest: { enabled: true } })
+    await page.click(el => text(el) === 'Check saved searches now')
+    assert.deepEqual(state.actions, ['digest'])
+    assert.match(page.document.body.textContent, /Nothing was prepared or submitted/)
+    const digest = page.document.querySelector('[aria-label="Latest digest"]')
+    assert.match(digest.textContent, /Engineer at Acme · 90/)
+    await page.click(el => el.closest('[aria-label="Latest digest"]') && text(el) === 'Engineer at Acme')
+    assert.ok([...page.document.querySelectorAll('h1')].some(h => text(h) === 'Engineer'), 'opens the job review')
+    assert.deepEqual(state.actions, ['digest'], 'no prepare or approve from the digest')
+  } finally { await page.unmount() }
+})
