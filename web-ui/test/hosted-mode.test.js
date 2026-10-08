@@ -108,6 +108,9 @@ test('hosted mode allows only the allowlisted API routes (fail closed)', () => {
     ['/api/webhook', 'POST'],
     ['/api/security-scan', 'POST'],
     ['/api/marketplace', 'POST'],
+    ['/api/marketplace/queue', 'GET'], // consented installer queue runs host commands
+    ['/api/marketplace/queue', 'POST'],
+    ['/api/health', 'GET'], // reveals what runs on the host
     ['/api/a-route-added-next-year', 'GET'], // unknown routes are off until allowed
     ['/api/%65xecute', 'POST'],
     ['/api//execute', 'POST'],

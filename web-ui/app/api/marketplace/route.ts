@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { hostedGuard } from '@/lib/hosted'
 import fs from 'fs'
 import path from 'path'
-import os from 'os'
 import { isAuthorizedRequest } from '@/lib/auth'
+import { CATALOG_PATH, REGISTRY_PATH, SOURCES_PATH } from '@/lib/marketplace-paths'
 
 function readJSON<T>(filePath: string, fallback: T): T {
   try {
@@ -12,32 +12,6 @@ function readJSON<T>(filePath: string, fallback: T): T {
     return fallback
   }
 }
-
-/**
- * Locate the repository's marketplace directory (catalog.json + sources.json).
- * The web app is served from web-ui/, so walk up toward the repo root; fall back
- * to ~/GhostForge/marketplace for installed deployments.
- */
-function marketplaceDir(): string {
-  let probe = process.cwd()
-  for (let i = 0; i < 6; i++) {
-    const candidate = path.join(probe, 'marketplace')
-    if (fs.existsSync(path.join(candidate, 'catalog.json')) || fs.existsSync(path.join(candidate, 'sources.json'))) {
-      return candidate
-    }
-    const parent = path.dirname(probe)
-    if (parent === probe) break
-    probe = parent
-  }
-  return path.join(os.homedir(), 'GhostForge', 'marketplace')
-}
-
-// registry.json sits beside catalog.json — the same file the TUI reads
-// (ROOT/marketplace/registry.json), so both surfaces share install state (ADR-004).
-const MARKETPLACE_DIR = marketplaceDir()
-const CATALOG_PATH = path.join(MARKETPLACE_DIR, 'catalog.json')
-const SOURCES_PATH = path.join(MARKETPLACE_DIR, 'sources.json')
-const REGISTRY_PATH = path.join(MARKETPLACE_DIR, 'registry.json')
 
 interface CatalogItem {
   id: string; name: string; type: string; category: string; description: string

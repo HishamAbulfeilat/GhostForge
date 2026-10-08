@@ -9,7 +9,7 @@
 import { execSync, spawn, spawnSync } from 'child_process';
 import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname, join } from 'path';
-import { homedir } from 'os';
+import { homedir, userInfo } from 'os';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { escapeAppleScriptString } from './lib/applescript.js';
@@ -3865,6 +3865,62 @@ async function screenVersion() {
 }
 
 // ─── Marketplace Screen ─────────────────────────────────────────────────────
+/** OS user name for audit records (never throws). */
+function userInfoName() {
+  try { return userInfo().username || 'unknown'; } catch { return 'unknown'; }
+}
+
+/**
+ * Show one queued install (exact command + source) and run it only after the
+ * user approves this specific item. Shared rules: marketplace/install-queue.mjs.
+ */
+async function reviewQueuedInstall(queue, ctx, entry) {
+  if (!entry) return;
+  console.log();
+  console.log(boxen(
+    T.white.bold(`${entry.name}\n\n`) +
+    T.muted('Source:  ') + T.white(entry.source) + (entry.url ? T.muted(`  (${entry.url})`) : '') + '\n' +
+    T.muted('Command: ') + T.cyan(entry.command) +
+    (entry.authorizedUseOnly ? '\n\n' + T.yellow('Dual-use tool: AUTHORIZED testing on systems you own or may assess only.') : '') +
+    (entry.lastError ? '\n\n' + T.danger(`Last attempt failed: ${entry.lastError.slice(-160)}`) : ''),
+    { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
+  ));
+  if (entry.stale) {
+    console.log(T.warning(`  ⚠ ${entry.reason}`));
+    if (await confirm({ message: 'Remove it from the queue?', default: true })) queue.dequeue(ctx, entry.id);
+    return;
+  }
+  const choice = await select({
+    message: T.white('What now?'),
+    choices: [
+      { name: T.success('▶  Approve and run this exact command'), value: 'run' },
+      { name: T.muted('⏸  Keep it queued'), value: 'keep' },
+      { name: T.danger('✖  Remove from queue'), value: 'remove' },
+    ],
+  });
+  if (choice === 'remove') { queue.dequeue(ctx, entry.id); console.log(T.muted('  Removed.')); return; }
+  if (choice !== 'run') return;
+  let authorized = false;
+  if (entry.authorizedUseOnly) {
+    authorized = await confirm({ message: 'I will only use this on systems I own or have written permission to test.', default: false });
+    if (!authorized) { console.log(T.muted('  Not installed. It stays in the queue.')); return; }
+  }
+  let command;
+  try {
+    command = queue.consentToInstall(ctx, entry.id, { approved: true, command: entry.command, authorized });
+  } catch (error) {
+    console.log(T.warning(`  ⚠ ${error.message}`));
+    return;
+  }
+  console.log(T.muted(`\n  Running: ${command}\n`));
+  // The command is the exact catalog string the user just approved; it uses
+  // shell syntax (a || b), and inherits the terminal so sudo prompts work.
+  const result = spawnSync(command, { shell: true, stdio: 'inherit', cwd: ROOT });
+  const ok = result.status === 0 && !result.error;
+  queue.recordInstallResult(ctx, entry.id, { ok, detail: ok ? '' : (result.error?.message || `exit code ${result.status}`) });
+  console.log(ok ? T.success(`\n  ✅ ${entry.name} installed.`) : T.danger(`\n  ✖ Install failed; it stays in the queue. Try manually: ${command}`));
+}
+
 async function screenMarketplace() {
   sectionHeader('🏪  Marketplace', 'Browse and install agents, commands, skills, plugins');
 
@@ -3877,6 +3933,8 @@ async function screenMarketplace() {
   // check-then-use (TOCTOU) race an existsSync guard would introduce.
   try { catalog = JSON.parse(readFileSync(catalogPath, 'utf8')); } catch {}
   try { registry = JSON.parse(readFileSync(registryPath, 'utf8')); } catch {}
+  // Unmodified catalog for the install queue (it applies the effective-set rule itself).
+  const queueCtx = { catalog: { items: [...(catalog.items || [])] }, registryFile: registryPath, actor: `tui:${userInfoName()}`, surface: 'tui' };
 
   // registry.json is the single source of truth for install state (shared with
   // the web UI). Seed it from any catalog items shipped as installed, minus any
@@ -3890,7 +3948,8 @@ async function screenMarketplace() {
     choices: [
       { name: T.accent.bold('📋  Browse All Items')    + T.muted(' — view full catalog by category'), value: 'browse' },
       { name: T.success.bold('🔍  Search Items')        + T.muted(' — search by name, tag, or category'), value: 'search' },
-      { name: T.brand.bold('⬇️   Install Item')         + T.muted(' — install from catalog or URL'), value: 'install' },
+      { name: T.brand.bold('⬇️   Install Item')         + T.muted(' — queue a tool, review its command, approve it'), value: 'install' },
+      { name: T.warning.bold('🧾  Install Queue')         + T.muted(' — review, approve or remove queued installs'), value: 'install-queue' },
       { name: T.warning.bold('🌐  Browse aitmpl.com')     + T.muted(' — open AI templates site'), value: 'aitmpl' },
       { name: T.cyan.bold('🔍  Open Source Discovery')   + T.muted(' — hidden gems & trending repos (opensourceprojects.dev)'), value: 'osp-dev' },
       { name: T.accent.bold('🧠  Hermes Agent')            + T.muted(' — self-improving AI agent by Nous Research'), value: 'hermes-agent' },
@@ -4031,27 +4090,25 @@ async function screenMarketplace() {
     if (itemChoice === '__cancel__') return;
     const item = catalog.items.find(i => i.id === itemChoice);
     if (item) {
+      const queue = await import('../marketplace/install-queue.mjs');
+      const plan = queue.planInstall(item);
       console.log();
-      console.log(T.brand.bold(`  Installing: ${item.name}...`));
-      // Never fall back to the POSIX command on Windows: execSync would hand a
-      // brew/apt one-liner to cmd.exe. No command for this platform means the
-      // item links out instead (see explainMissingCommand).
-      const platformInstallCommand = resolveInstallCommand(item);
-      if (platformInstallCommand) {
-        console.log(T.muted(`  Running: ${platformInstallCommand}`));
+      if (plan.reviewFirst) {
+        // CLAUDE.md security tooling policy: offensive suites are pointers only.
+        console.log(T.warning(`  ⚠ ${plan.reason}`));
+        if (item.url) console.log(T.accent(`  Upstream (review it yourself): ${item.url}`));
+        try { queue.enqueue(queueCtx, item.id); } catch { /* refused + audited */ }
+      } else if (plan.queueable) {
         try {
-          execSync(platformInstallCommand, { stdio: 'inherit', cwd: ROOT });
-          console.log(T.success(`\n  ✅ ${item.name} installed successfully!`));
-          item.installed = true;
-          // Persist to registry.json (source of truth shared with the web UI).
-          installedSet.add(item.id);
-          removedSet.delete(item.id);
-          registry.installed = [...installedSet];
-          registry.removed = [...removedSet];
-          writeFileSync(registryPath, JSON.stringify(registry, null, 2));
-        } catch {
-          console.log(T.danger(`\n  ✖ Installation failed. Try manually: ${platformInstallCommand}`));
+          const entry = queue.enqueue(queueCtx, item.id);
+          console.log(T.success(`  ➕ ${item.name} added to the install queue (nothing has run yet).`));
+          await reviewQueuedInstall(queue, queueCtx, entry);
+        } catch (error) {
+          console.log(T.warning(`  ⚠ ${error.message}`));
         }
+      } else if (item.install_command || item.install_command_windows) {
+        console.log(T.muted(`  ${plan.reason}`));
+        if (item.url) console.log(T.accent(`  Visit: ${item.url}`));
       } else if (item.url) {
         console.log(T.accent(`  Visit: ${item.url}`));
         console.log(T.muted('  (browser required for this item type)'));
@@ -4060,6 +4117,31 @@ async function screenMarketplace() {
       }
       await pressEnter();
     }
+  }
+
+  if (action === 'install-queue') {
+    const queue = await import('../marketplace/install-queue.mjs');
+    while (true) {
+      const entries = queue.listQueue(queueCtx);
+      if (entries.length === 0) {
+        console.log(T.muted('\n  The install queue is empty. Use "Install Item" to queue a tool.\n'));
+        break;
+      }
+      const pick = await select({
+        message: T.white.bold(`Install queue (${entries.length}) — pick one to review:`),
+        choices: [
+          ...entries.map(e => ({
+            name: `${e.stale ? T.warning('⚠ ') : ''}${T.white.bold(e.name)} ${T.muted('— ' + e.command.substring(0, 50))}${e.lastError ? T.danger('  (last attempt failed)') : ''}`,
+            value: e.id,
+          })),
+          { name: T.muted('← Back'), value: '__back__' },
+        ],
+        pageSize: 12,
+      });
+      if (pick === '__back__') break;
+      await reviewQueuedInstall(queue, queueCtx, entries.find(e => e.id === pick));
+    }
+    await pressEnter();
   }
 
   if (action === 'sec-devops') {
