@@ -130,3 +130,31 @@ test('toasts, inbox messages and clipboard actions still reach the page', async 
     await page.unmount()
   }
 })
+
+test('a message sent right after toggling offline mode carries the new setting', async () => {
+  // Regression: sendToJarvis left offlineMode out of its useCallback deps, so
+  // the first message after the toggle still sent the old value.
+  const bodies = []
+  const routes = { ...ROUTES, '/api/jarvis': (url, init) => { bodies.push(JSON.parse(init.body)); return {} } }
+  const page = await renderPage('jarvis/page.tsx', routes)
+  const { window, document } = page
+  const React = require('react')
+  try {
+    await page.click(el => el.textContent.includes('SETTINGS'))
+    await page.click(el => el.getAttribute('aria-label') === 'Toggle offline mode')
+    const input = document.querySelector('form input[type="text"]')
+    await React.act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'what time is it')
+      input.dispatchEvent(new window.Event('input', { bubbles: true }))
+    })
+    await React.act(async () => {
+      input.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }))
+    })
+    for (let i = 0; i < 5; i++) await page.settle()
+    assert.equal(bodies.length, 1)
+    assert.equal(bodies[0].message, 'what time is it')
+    assert.equal(bodies[0].offlineMode, true)
+  } finally {
+    await page.unmount()
+  }
+})

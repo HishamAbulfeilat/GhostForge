@@ -68,7 +68,6 @@ export default function JarvisPage() {
   const [liveModel, setLiveModel]           = useState<{ provider: string; model: string } | null>(null)
   const [toasts] = useState(() => createStore<Toast[]>([]))
   const [copilotMode, setCopilotMode]       = useState(false)
-  const [copilotThinking, setCopilotThinking] = useState(false)
   const [pendingRiskMsg, setPendingRiskMsg] = useState<{ message: string; tool: string } | null>(null)
   const [speechLang, setSpeechLang]         = useState('en-US')
   const [detectedLang, setDetectedLang]     = useState('en')
@@ -76,12 +75,9 @@ export default function JarvisPage() {
   // ── Clicky state ──────────────────────────────────────────────────────────────
   const [clickyPoint, setClickyPoint] = useState<{ x: number; y: number; label?: string | null } | null>(null)
   const [clickyHighlight, setClickyHighlight] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
-  const [screenCaptureActive, setScreenCaptureActive] = useState(false)
-  const [screenCaptureData, setScreenCaptureData] = useState<string | null>(null)
   const [pushToTalkActive, setPushToTalkActive] = useState(false)
   const [visionPending, setVisionPending] = useState(false)
   const pushToTalkRef = useRef(false)
-  const [liveTranscript, setLiveTranscript] = useState('')
   const [audioLevel] = useState(() => createStore(0))
   const [showMarkL, setShowMarkL] = useState(false)
   const [bridgeStatus, setBridgeStatus] = useState<string>('stopped')
@@ -334,7 +330,6 @@ export default function JarvisPage() {
       recognitionRef.current = null
     }
     releaseMicStream()
-    setLiveTranscript('')
     stopAudioAnalyser()
   }, [stopAudioAnalyser, releaseMicStream])
 
@@ -350,6 +345,12 @@ export default function JarvisPage() {
       }
     }, 250)
   }, [])
+
+  const stopSpeaking = useCallback(() => {
+    stopCurrentAudio()
+    resumeMic()
+    setMode('idle')
+  }, [resumeMic, stopCurrentAudio])
 
   // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -545,7 +546,7 @@ export default function JarvisPage() {
       window.removeEventListener('keydown', onKeyDown)
       if (interruptTimer !== null) window.clearTimeout(interruptTimer)
     }
-  }, [])
+  }, [stopSpeaking])
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -625,7 +626,7 @@ export default function JarvisPage() {
       resumeMic()
       return { ok: false, usedEngine: '' }
     }
-  }, [voiceEngine, toast, pauseMic, resumeMic, stopCurrentAudio])
+  }, [voiceEngine, toast, pauseMic, resumeMic, stopCurrentAudio, persistVoiceEngine])
 
   // ── Browser TTS (fallback, always available) ──────────────────────────────
 
@@ -811,7 +812,6 @@ export default function JarvisPage() {
     markActivity()
     addUserMessage(`[Copilot CLI] ${text}`)
     setMode('thinking')
-    setCopilotThinking(true)
     try {
       const res = await fetch('/api/jarvis', {
         method: 'POST',
@@ -830,7 +830,6 @@ export default function JarvisPage() {
       const err = 'Copilot CLI unreachable.'
       addAIMessage(err, 'alert', null, null)
     } finally {
-      setCopilotThinking(false)
       setMode('idle')
     }
   }, [memory, persona, addUserMessage, addAIMessage, speak, markActivity])
@@ -844,7 +843,6 @@ export default function JarvisPage() {
       if (api) {
         const result = await api.capture({ format: 'jpeg', quality: 70 }) as { success: boolean; image: string }
         if (result?.success && result.image) {
-          setScreenCaptureData(result.image)
           return result.image
         }
         return null
@@ -852,7 +850,6 @@ export default function JarvisPage() {
       const res = await fetch('/api/jarvis/screen-capture', { method: 'POST' })
       const data = await res.json() as { image?: string; error?: string }
       if (data.image) {
-        setScreenCaptureData(data.image)
         return data.image
       }
       return null
@@ -919,7 +916,7 @@ export default function JarvisPage() {
       pushToTalkRef.current = false
       setMode('idle')
     }
-  }, [captureScreen, memory, persona, addAIMessage, speak, handleClickyToolResult])
+  }, [captureScreen, memory, persona, addAIMessage, speak, handleClickyToolResult, toast])
 
   // ── Keyboard shortcut: Ctrl+Option for push-to-talk ───────────────────────
   useEffect(() => {
@@ -1213,7 +1210,7 @@ export default function JarvisPage() {
       await speak(err)
       console.error(e)
     }
-  }, [messages, memory, selectedProvider, selectedModel, persona, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast, pauseMic, resumeMic, markActivity, recordModelResponse])
+  }, [messages, memory, selectedProvider, selectedModel, persona, offlineMode, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast, pauseMic, resumeMic, markActivity, recordModelResponse, handleClickyToolResult])
 
   // ── Gemini Live event listeners (Electron only) ────────────────────────────
   useEffect(() => {
@@ -1315,7 +1312,6 @@ export default function JarvisPage() {
     micPausedRef.current = false
     modeRef.current = 'listening'
     setMode('listening')
-    setLiveTranscript('')
     startAudioAnalyser()
 
     const createAndStart = () => {
@@ -1336,7 +1332,6 @@ export default function JarvisPage() {
         latestTranscript = collectRecognitionTranscript(e.results)
         if (!latestTranscript) return
         setInput(latestTranscript)
-        setLiveTranscript(latestTranscript)
 
         const currentResult = e.results[e.results.length - 1]
         const delay = currentResult?.isFinal ? 350 : 1100
@@ -1346,7 +1341,6 @@ export default function JarvisPage() {
           if (!captured) return
           listeningRequestedRef.current = handsFreeEnabledRef.current
           setInput('')
-          setLiveTranscript('')
           void sendToJarvis(captured)
         }, delay)
       }
@@ -1419,7 +1413,6 @@ export default function JarvisPage() {
     }
     releaseMicStream()
     setInput('')
-    setLiveTranscript('')
     stopAudioAnalyser()
     modeRef.current = 'idle'
     setMode('idle')
@@ -1545,7 +1538,7 @@ export default function JarvisPage() {
     localStorage.setItem('gf_hotword', 'true')
     wakeRestartingRef.current = false
     void startWakeListener()
-  }, [startWakeListener, toast, stopCurrentAudio])
+  }, [startWakeListener, toast])
 
   // ── Form submit ───────────────────────────────────────────────────────────
 
@@ -1564,12 +1557,6 @@ export default function JarvisPage() {
     setInput('')
     void sendToJarvisRef.current(prompt)
   }, [markActivity])
-
-  const stopSpeaking = useCallback(() => {
-    stopCurrentAudio()
-    resumeMic()
-    setMode('idle')
-  }, [resumeMic, stopCurrentAudio])
 
   const mc = MODE_COLORS[mode]
 
