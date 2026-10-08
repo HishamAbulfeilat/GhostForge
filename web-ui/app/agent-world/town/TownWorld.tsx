@@ -25,8 +25,10 @@ type TownWorldProps = {
  * World app) fed with GhostForge runtime agents plus CLI sessions.
  */
 export default function TownWorld({ data, boss, cliAgents, sceneCliAgents = cliAgents, selectedCliId, onSelectCli, compacting }: TownWorldProps) {
+  // Slot per character, kept between snapshots so nobody moves when someone else leaves.
+  const slots = useRef(new Map<string, number>())
   const players = useMemo(
-    () => adaptAgentTownSnapshot({ agents: data.agents, tasks: data.tasks, boss }) as AgentTownCharacter[],
+    () => adaptAgentTownSnapshot({ agents: data.agents, tasks: data.tasks, boss }, { slots: slots.current }) as AgentTownCharacter[],
     [data.agents, data.tasks, boss],
   )
   const cliIds = useMemo(() => new Set(cliAgents.map(a => a.id)), [cliAgents])

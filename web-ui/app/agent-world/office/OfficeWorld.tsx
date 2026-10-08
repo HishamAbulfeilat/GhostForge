@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import type { AgentWorldData, AgentWorldRecord } from '../agent-world-model'
 import type { ChatTraffic } from '../shared/ChatBox'
 import OfficeStage, { type OfficeModel } from '../shared/office/OfficeStage'
@@ -27,8 +27,10 @@ type OfficeWorldProps = {
  * Agent World app) fed with GhostForge runtime agents plus CLI sessions.
  */
 export default function OfficeWorld({ data, boss, cliAgents, sceneCliAgents = cliAgents, selectedCliId, onSelectCli, compacting, traffic }: OfficeWorldProps) {
+  // Desk per agent, kept between snapshots so nobody moves when someone else leaves.
+  const slots = useRef(new Map<string, number>())
   const model = useMemo(
-    () => adaptAgentOfficeSnapshot({ agents: data.agents, tasks: data.tasks, boss }) as OfficeModel,
+    () => adaptAgentOfficeSnapshot({ agents: data.agents, tasks: data.tasks, boss }, { slots: slots.current }) as OfficeModel,
     [data.agents, data.tasks, boss],
   )
   const cliIds = useMemo(() => new Set(cliAgents.map(a => a.id)), [cliAgents])

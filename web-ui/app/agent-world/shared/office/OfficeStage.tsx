@@ -10,57 +10,19 @@ import Minimap, { type MinimapState } from '../Minimap'
 import { clipWords } from '../status'
 import type { WorldAgent } from '../world-model'
 import { startOfficeSession } from './office-session'
+import { inPantry, seatAgents, type Cell, type OfficeModel } from './seating'
 
-export type OfficeAgent = AgentFields & { isBoss?: boolean; role?: string; status?: string }
-export type OfficeModel = { agents: OfficeAgent[]; layout: LayoutItem[] }
-type Cell = { x: number; y: number }
+export type { OfficeAgent, OfficeModel } from './seating'
 
 // The upstream floor is 40x40 cells of 16px. Coffee & Pantry = px 350-526,
 // i.e. cells 22-32; its door is on the west wall around cell y 26-27.
 const GRID = 40 * 16
-const inPantry = (s: Cell) => s.x >= 21 && s.x <= 33 && s.y >= 21 && s.y <= 33
 const PANTRY_DOOR: Cell[] = [{ x: 20, y: 27 }, { x: 23, y: 27 }]
 // Six cells apart so name tags do not overlap; more than six guests share spots.
 const BREAK_SPOTS: Cell[] = [25, 28, 31].flatMap((y, row) => [23, 29].map(x => ({ x: x + (row % 2) * 2, y })))
 const STEP_MS = 220
 const TALK_MS = 8000
 const DESKS_KEY = 'aw-office-desks'
-
-/** "gf-integration #3" -> "gf-integra…#3": fits a 128px desk spacing. */
-export function shortName(name: string, max = 13) {
-  const [base, n] = name.split(' #')
-  const suffix = n ? `#${n}` : ''
-  const room = max - suffix.length
-  return (base.length > room ? base.slice(0, room - 1) + '…' : base) + suffix
-}
-
-/**
- * The adapter's desks are 4 cells (64px) apart, narrower than the scene's
- * name tags. Re-seat everyone on every other desk (128px apart, none against
- * the west wall), skip desks
- * inside the pantry, apply desks the user dragged in layout-edit mode, and
- * drop desk labels (each agent already has a name tag).
- */
-export function seatAgents(model: OfficeModel, deskSlots: Cell[], moved: Record<string, Cell>) {
-  // x = 8, 16, 24, 32: 128px apart and clear of the west wall, so bubbles are not clipped.
-  const desks = deskSlots.filter(s => s.x % 8 === 0 && !inPantry(s))
-  const agents: OfficeAgent[] = []
-  const layout: LayoutItem[] = []
-  const seats = new Map<string, Cell>()
-  let next = 0, hidden = 0
-  for (const a of model.agents) {
-    if (a.isBoss) { agents.push(a); seats.set(a.id, { x: a.x, y: a.y }); continue }
-    const slot = desks[next++]
-    if (!slot) { hidden++; continue }
-    const id = `desk-${a.id}`
-    const desk = moved[id] ?? slot
-    layout.push({ id, type: 'desk', x: desk.x, y: desk.y })
-    const seat = { x: desk.x, y: desk.y + 2 }
-    seats.set(a.id, seat)
-    agents.push({ ...a, name: shortName(a.name), ...seat })
-  }
-  return { agents, layout, seats, hidden, capacity: desks.length }
-}
 
 /** Cells from `from` to `to`, one step at a time (x first), via waypoints. */
 function route(from: Cell, waypoints: Cell[]): Cell[] {
@@ -111,7 +73,9 @@ export default function OfficeStage({
     try { setMoved(JSON.parse(localStorage.getItem(DESKS_KEY) || '{}')) } catch { /* storage unavailable */ }
   }, [])
 
-  const seated = useMemo(() => seatAgents(model, deskSlots, moved), [model, deskSlots, moved])
+  // Desk per agent, kept between snapshots so nobody changes desk when someone else leaves.
+  const deskMemory = useRef(new Map<string, number>())
+  const seated = useMemo(() => seatAgents(model, deskSlots, moved, deskMemory.current), [model, deskSlots, moved])
 
   // Walk idle agents to the pantry and back, one cell per STEP_MS.
   useEffect(() => {

@@ -52,6 +52,9 @@ sessions. They come from `GET /api/agents/cli-sessions`, which requires
   Agent Office next to the runtime agents, each tagged with its source. Use the
   Live / Today toggle next to the world switcher to include sessions that
   finished recently.
+  A character's sprite comes from a hash of its session id, and its town slot
+  or office desk stays the same until that session leaves the view, so nobody
+  moves when another session comes or goes.
 - **Live updates**: the page opens `GET /api/agents/cli-sessions?stream=1`
   (Server-Sent Events, same guards as the JSON route). The server watches the
   transcript folders only while a page is connected and also rebuilds every

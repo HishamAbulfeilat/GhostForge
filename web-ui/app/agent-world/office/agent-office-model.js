@@ -30,13 +30,14 @@ function actionFor(character) {
  * Map the GhostForge agent snapshot to Agent Office state: agents sit at desks,
  * the boss stands in the meeting room, the current task becomes the thought bubble.
  * No movement or activity is simulated; only reported data is shown.
+ * Pass the same `slots` Map on every snapshot so agents keep their desks.
  * @param {{ agents?: unknown, tasks?: unknown, boss?: unknown }} snapshot
+ * @param {{ slots?: Map<string, number> }} [options]
  */
-function adaptAgentOfficeSnapshot(snapshot = {}) {
-  const characters = adaptAgentTownSnapshot(snapshot)
+function adaptAgentOfficeSnapshot(snapshot = {}, { slots } = {}) {
+  const characters = adaptAgentTownSnapshot(snapshot, { slots })
   const agents = []
   const layout = []
-  let deskIndex = 0
   let hidden = 0
   for (const character of characters) {
     let x
@@ -45,7 +46,8 @@ function adaptAgentOfficeSnapshot(snapshot = {}) {
       x = BOSS_SPOT.x
       y = BOSS_SPOT.y
     } else {
-      const slot = DESK_SLOTS[deskIndex++]
+      // The town slot doubles as the desk number, so desks are kept the same way.
+      const slot = DESK_SLOTS[character.slot]
       if (!slot) {
         hidden += 1
         continue
