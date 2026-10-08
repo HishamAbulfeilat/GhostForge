@@ -571,6 +571,16 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
   return chain
 }
 
+/**
+ * Does this chain start with a model that needs no key (a local runtime or the
+ * anonymous Pollinations tier)? Those are slow or rate-spaced per request, so
+ * callers can send fewer, larger requests.
+ */
+export async function leadsWithKeylessModel(opts?: ModelOverride): Promise<boolean> {
+  const first = (await buildModelChain(opts))[0]
+  return Boolean(first && (LOCAL_PROVIDERS.has(first.provider) || first.provider === 'pollinations'))
+}
+
 // ── Cooldown: skip models that just failed, so a dead key doesn't slow every request ──
 const _cooldown = new Map<string, number>()
 

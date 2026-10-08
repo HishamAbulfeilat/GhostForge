@@ -13,10 +13,10 @@
  * the limits and sites the user switched on (see autopilot.ts).
  */
 import { createHash } from 'crypto'
-import { generateWithFallback } from '../ai'
+import { generateWithFallback, leadsWithKeylessModel } from '../ai'
 import { auditLog } from '../audit'
 import { analyzeCv, extractCvText } from './cv'
-import { dealbreaker, heuristicScore, matchesLocation, relevantTo, scoreJobs } from './match'
+import { KEYLESS_SCORE_BATCH, SCORE_BATCH, dealbreaker, heuristicScore, matchesLocation, relevantTo, scoreJobs } from './match'
 import { linkedInSearchUrl, searchSources, type SourceReport } from './sources'
 import {
   claimJob, getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs, withJobOperation,
@@ -44,6 +44,19 @@ export function generatorFor(model: ModelChoice | null): Generate {
     { system: opts.system, prompt: opts.prompt, maxTokens: opts.maxTokens },
     { task: 'tools', preferFree: !model, ...(model ? { activeProvider: model.provider, activeModel: model.model } : {}) },
   )).text
+}
+
+const KEYLESS_PROVIDERS = new Set(['ollama', 'llamacpp', 'llama.cpp', 'pollinations'])
+
+/**
+ * Listings per AI scoring request. Anonymous calls are spaced 15 s apart and
+ * local models are slow per request, so they get fewer, larger batches.
+ */
+export async function scoringBatchSize(model: ModelChoice | null, leadsKeyless: typeof leadsWithKeylessModel = leadsWithKeylessModel): Promise<number> {
+  if (model) return KEYLESS_PROVIDERS.has(model.provider) ? KEYLESS_SCORE_BATCH : SCORE_BATCH
+  // Automatic mode: keyed free tiers come first when configured, else local, then anonymous
+  const keyless = await leadsKeyless({ task: 'tools', preferFree: true }).catch(() => false)
+  return keyless ? KEYLESS_SCORE_BATCH : SCORE_BATCH
 }
 
 /** Default generator (free models first — no API key required) */
@@ -152,7 +165,8 @@ export async function runSearch(
     toScore.push({ job, sig, rank: heuristicScore(job, profile).score })
   }
   const candidates = toScore.sort((a, b) => b.rank - a.rank).slice(0, 60)
-  const scores = await scoreJobs(candidates.map(c => c.job), profile, generate)
+  const batchSize = generate && candidates.length > SCORE_BATCH ? await scoringBatchSize(profile.model) : SCORE_BATCH
+  const scores = await scoreJobs(candidates.map(c => c.job), profile, generate, { batchSize })
   let newSkips = 0
   const scored = [
     // New Skip listings are bounded like scored ones, so a scam-heavy feed can't flood the list

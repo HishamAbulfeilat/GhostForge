@@ -206,8 +206,16 @@ export function extractJson<T>(text: string): T | null {
 
 type Generate = (opts: { system?: string; prompt?: string; maxTokens?: number }) => Promise<string>
 
-/** AI fit scoring in small batches; falls back to the heuristic per batch */
-export async function scoreJobs(jobs: RawJob[], profile: JobProfile, generate: Generate | null): Promise<Scored[]> {
+/** Listings per scoring request: 8 for keyed models; up to 20 compact excerpts for anonymous or local ones */
+export const SCORE_BATCH = 8
+export const KEYLESS_SCORE_BATCH = 18
+
+/**
+ * AI fit scoring in batches; falls back to the heuristic per batch. A large
+ * batch (anonymous or local models, see KEYLESS_SCORE_BATCH) uses shorter
+ * excerpts, and is retried in normal-size batches if the model rejects it.
+ */
+export async function scoreJobs(jobs: RawJob[], profile: JobProfile, generate: Generate | null, opts: { batchSize?: number } = {}): Promise<Scored[]> {
   const out: Scored[] = jobs.map(j => heuristicScore(j, profile))
   if (!generate || !profile.cv?.text) return out
 
@@ -222,21 +230,31 @@ Return ONLY a JSON array: [{"i": <index>, "fit": "High"|"Medium"|"Low"|"Skip", "
 
   const context = `CANDIDATE CV:\n${profile.cv.text.slice(0, 6000)}\n\nPREFERENCES:\nTarget roles: ${prefs.titles.join(', ') || 'any'}\nLocations: ${prefs.locations.join(', ') || 'any'} (remote: ${prefs.remote})\nMust-haves: ${prefs.mustHaves.join(', ') || 'none'}\nNice-to-haves: ${prefs.niceToHaves.join(', ') || 'none'}\nDealbreakers: ${prefs.dealbreakers.join(', ') || 'none'}${prefs.minSalary ? `\nMinimum salary: ${prefs.minSalary}` : ''}`
 
-  const BATCH = 8
-  for (let start = 0; start < jobs.length; start += BATCH) {
-    const batch = jobs.slice(start, start + BATCH)
+  const scoreBatch = async (start: number, batch: RawJob[], excerpt: number) => {
     // The requirements say more about fit than the opening lines, which are often company boilerplate
-    const listing = batch.map((j, k) => `[${k}] ${j.title} at ${j.company} — ${j.location}${j.remote ? ' (remote)' : ''}${j.salary ? ` — ${j.salary}` : ''}\n${scoringExcerpt(j.description, 1200)}`).join('\n\n')
+    const listing = batch.map((j, k) => `[${k}] ${j.title} at ${j.company} — ${j.location}${j.remote ? ' (remote)' : ''}${j.salary ? ` — ${j.salary}` : ''}\n${scoringExcerpt(j.description, excerpt)}`).join('\n\n')
+    const text = await generate({ system, prompt: `${context}\n\nJOBS:\n${listing}`, maxTokens: Math.max(1200, batch.length * 120) })
+    const parsed = extractJson<Array<{ i: number; fit: Fit; score: number; reasons: string }>>(text)
+    if (!Array.isArray(parsed)) throw new Error('No JSON array in the scoring reply')
+    for (const r of parsed) {
+      if (typeof r?.i !== 'number' || r.i < 0 || r.i >= batch.length) continue
+      if (!['High', 'Medium', 'Low', 'Skip'].includes(r.fit)) continue
+      out[start + r.i] = { fit: r.fit, score: Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))), reasons: String(r.reasons || '').slice(0, 300), ai: true }
+    }
+  }
+
+  const size = Math.max(1, Math.min(20, Math.round(opts.batchSize ?? SCORE_BATCH)))
+  const excerpt = size > SCORE_BATCH ? 600 : 1200
+  for (let start = 0; start < jobs.length; start += size) {
+    const batch = jobs.slice(start, start + size)
     try {
-      const text = await generate({ system, prompt: `${context}\n\nJOBS:\n${listing}`, maxTokens: 1200 })
-      const parsed = extractJson<Array<{ i: number; fit: Fit; score: number; reasons: string }>>(text)
-      for (const r of parsed || []) {
-        if (typeof r?.i !== 'number' || r.i < 0 || r.i >= batch.length) continue
-        if (!['High', 'Medium', 'Low', 'Skip'].includes(r.fit)) continue
-        out[start + r.i] = { fit: r.fit, score: Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))), reasons: String(r.reasons || '').slice(0, 300), ai: true }
-      }
+      await scoreBatch(start, batch, excerpt)
     } catch {
-      // keep heuristic scores for this batch
+      // A large batch can hit a length limit: try normal-size batches once; otherwise keep heuristic scores
+      if (batch.length <= SCORE_BATCH) continue
+      for (let i = 0; i < batch.length; i += SCORE_BATCH) {
+        await scoreBatch(start + i, batch.slice(i, i + SCORE_BATCH), excerpt).catch(() => {})
+      }
     }
   }
   return out

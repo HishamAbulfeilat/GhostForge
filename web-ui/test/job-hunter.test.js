@@ -153,6 +153,39 @@ test('AI scoring reads the requirements, not the company boilerplate that opens 
   assert.equal(match.scoringExcerpt('Plain text about a job', 1200), 'Plain text about a job')
 })
 
+test('anonymous and local models score in bigger batches, with a fallback to normal batches', async () => {
+  const jobs = Array.from({ length: 30 }, (_, i) => ({ key: `k${i}`, source: 's', title: `Engineer ${i}`, company: 'Acme', location: '', remote: false, salary: '', url: '', applyUrl: '', ats: 'other', postedAt: '', trust: 'board', description: 'Requirements:\n- Go' }))
+  const profile = { cv: { text: 'Go engineer' }, preferences: { titles: [], locations: [], remote: 'any', minSalary: null, mustHaves: [], niceToHaves: [], dealbreakers: [], companies: [] } }
+  const sizes = []
+  const answer = async opts => {
+    const n = (String(opts.prompt).match(/^\[\d+\]/gm) || []).length
+    sizes.push(n)
+    return JSON.stringify(Array.from({ length: n }, (_, i) => ({ i, fit: 'Medium', score: 60, reasons: 'ok' })))
+  }
+  await match.scoreJobs(jobs, profile, answer)
+  assert.deepEqual(sizes, [8, 8, 8, 6], 'keyed models keep batches of 8')
+  sizes.length = 0
+  const big = await match.scoreJobs(jobs, profile, answer, { batchSize: match.KEYLESS_SCORE_BATCH })
+  assert.deepEqual(sizes, [18, 12])
+  assert.ok(big.every(s => s.ai))
+  // A provider that rejects the large prompt: the batch is retried in batches of 8
+  sizes.length = 0
+  const picky = await match.scoreJobs(jobs, profile, async opts => {
+    if ((String(opts.prompt).match(/^\[\d+\]/gm) || []).length > 8) throw new Error('prompt too long')
+    return answer(opts)
+  }, { batchSize: 18 })
+  assert.deepEqual(sizes, [8, 8, 2, 8, 4])
+  assert.ok(picky.every(s => s.ai && s.score === 60))
+
+  const jh = require('../lib/job-hunter/index.ts')
+  assert.equal(await jh.scoringBatchSize({ provider: 'ollama', model: 'qwen2.5:7b' }), match.KEYLESS_SCORE_BATCH)
+  assert.equal(await jh.scoringBatchSize({ provider: 'pollinations', model: 'openai' }), match.KEYLESS_SCORE_BATCH)
+  assert.equal(await jh.scoringBatchSize({ provider: 'groq', model: 'llama' }), match.SCORE_BATCH)
+  assert.equal(await jh.scoringBatchSize(null, async () => true), match.KEYLESS_SCORE_BATCH, 'automatic mode starting at a keyless model')
+  assert.equal(await jh.scoringBatchSize(null, async () => false), match.SCORE_BATCH, 'automatic mode with a free-tier key')
+  assert.equal(await jh.scoringBatchSize(null, async () => { throw new Error('probe failed') }), match.SCORE_BATCH)
+})
+
 test('HTML entities decode once (no double unescaping)', () => {
   assert.equal(sources.stripHtml('<p>A &amp;lt;b&amp;gt; tag &amp; more</p>'), 'A &lt;b&gt; tag & more')
   assert.equal(sources.stripHtml('x &lt; y'), 'x < y')

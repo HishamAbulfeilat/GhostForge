@@ -50,7 +50,10 @@ tried first. Paid models are never silently selected in automatic free mode.
 Anonymous calls use POST with `private: true`, not prompts in URLs, but CV
 text still goes to the provider. Requests are spaced at least 15 seconds apart
 per server process to respect the anonymous tier's limit, including CV and
-cover-letter calls. Rate-limit failures get one paced retry. Select a local
+cover-letter calls. Rate-limit failures get one paced retry. Fit scoring therefore sends up to 18
+listings per request (with shorter excerpts) when the first model is
+anonymous or local, instead of 8 for keyed models, so a search finishes
+two to three times faster without a key. Select a local
 model to keep it on your server:
 install Ollama, run `ollama pull qwen2.5:7b` (or a model your machine supports),
 start `ollama serve`, and select it in Job Hunter. No account/key is required,
