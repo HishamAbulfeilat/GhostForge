@@ -135,6 +135,24 @@ test('the salary floor compares yearly pay: monthly and weekly salaries are annu
   assert.equal(match.salaryMax('USD 90000-120000'), 120000)
 })
 
+test('AI scoring reads the requirements, not the company boilerplate that opens a listing', async () => {
+  const boilerplate = 'Acme was founded in 1999 and builds delightful products for customers worldwide. '.repeat(20)
+  const job = { key: 'k', source: 's', title: 'Platform Engineer', company: 'Acme', location: 'Berlin', remote: true, salary: '', url: '', applyUrl: '', ats: 'other', postedAt: '', trust: 'board',
+    description: `${boilerplate}\nRequirements:\n- 5+ years of Rust in production\n- Kubernetes operations\nBenefits:\nFree lunch` }
+  let prompt = ''
+  const profile = { cv: { text: 'Rust engineer' }, preferences: { titles: ['Platform Engineer'], locations: [], remote: 'any', minSalary: null, mustHaves: [], niceToHaves: [], dealbreakers: [], companies: [] } }
+  await match.scoreJobs([job], profile, async opts => { prompt = opts.prompt; return '[]' })
+  assert.match(prompt, /5\+ years of Rust in production/)
+  assert.match(prompt, /Kubernetes operations/)
+  assert.match(prompt, /\(remote\)/)
+  assert.doesNotMatch(prompt, /Free lunch/)
+  // Short requirements are padded with the start of the description for context
+  const short = match.scoringExcerpt('We build maps.\nRequirements:\n- Go\nAbout us\nMore text', 200)
+  assert.match(short, /^- Go\n…\nWe build maps/)
+  // No requirements section or requirement-like lines: the description as before
+  assert.equal(match.scoringExcerpt('Plain text about a job', 1200), 'Plain text about a job')
+})
+
 test('HTML entities decode once (no double unescaping)', () => {
   assert.equal(sources.stripHtml('<p>A &amp;lt;b&amp;gt; tag &amp; more</p>'), 'A &lt;b&gt; tag & more')
   assert.equal(sources.stripHtml('x &lt; y'), 'x < y')

@@ -150,7 +150,10 @@ down is skipped and named under Sources. A listing the AI already scored keeps
 its score until your CV, preferences, model or the listing itself changes, so
 repeated searches and autopilot runs don't re-score it. Scam-flagged and
 dealbreaker listings are marked Skip without asking the AI. Up to 60 new
-listings are AI-scored per run, best keyword matches first.
+listings are AI-scored per run, best keyword matches first. The AI reads each
+listing's requirements, qualifications and "you have" sections, with its
+title and location, rather than the first lines of the description, which are
+often company boilerplate.
 
 "Everywhere" therefore means these boards plus any company whose ATS board you
 add, plus any job you paste by link. Sites with no public API (most company

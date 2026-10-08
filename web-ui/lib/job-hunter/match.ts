@@ -151,6 +151,17 @@ export function requirementsExcerpt(description: string, max = 1200): string {
   return text.slice(0, max)
 }
 
+/**
+ * What the AI scorer reads of a description: the requirements first, then (when
+ * they are short) the start of the description for context.
+ */
+export function scoringExcerpt(description: string, max = 1200): string {
+  const text = String(description || '')
+  const req = requirementsExcerpt(text, max)
+  if (req.length >= max * 0.6 || text.trim().startsWith(req)) return req.length >= max * 0.6 ? req : text.trim().slice(0, max)
+  return `${req}\n…\n${text.trim().slice(0, Math.max(0, max - req.length - 3))}`.trim()
+}
+
 const STOP = new Set('and the for with you our are will that this from your have team work role able years experience strong using including their about into more such other what who we they them all can not but its has was were also any per etc'.split(' '))
 
 function keywords(text: string): Set<string> {
@@ -214,7 +225,8 @@ Return ONLY a JSON array: [{"i": <index>, "fit": "High"|"Medium"|"Low"|"Skip", "
   const BATCH = 8
   for (let start = 0; start < jobs.length; start += BATCH) {
     const batch = jobs.slice(start, start + BATCH)
-    const listing = batch.map((j, k) => `[${k}] ${j.title} at ${j.company} — ${j.location}${j.salary ? ` — ${j.salary}` : ''}\n${j.description.slice(0, 1200)}`).join('\n\n')
+    // The requirements say more about fit than the opening lines, which are often company boilerplate
+    const listing = batch.map((j, k) => `[${k}] ${j.title} at ${j.company} — ${j.location}${j.remote ? ' (remote)' : ''}${j.salary ? ` — ${j.salary}` : ''}\n${scoringExcerpt(j.description, 1200)}`).join('\n\n')
     try {
       const text = await generate({ system, prompt: `${context}\n\nJOBS:\n${listing}`, maxTokens: 1200 })
       const parsed = extractJson<Array<{ i: number; fit: Fit; score: number; reasons: string }>>(text)
