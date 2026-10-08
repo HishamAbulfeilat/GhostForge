@@ -81,6 +81,6 @@ The marketplace lists security/pentest tools. Rules:
 ## Claude Code mods
 
 `.claude/settings.json` enables three reviewed mods (secret-redactor, burn-meter,
-context-lens) for anyone who opens this repo, cloud sessions included. Mod
+context-lens), pinned by commit SHA in `claude-mods/`, for anyone who opens this repo, cloud sessions included. Mod
 directories and the install/review rules: `docs/CLAUDE-CODE-MODS.md`. Mods are
 not sandboxed — add new ones one at a time, after review.

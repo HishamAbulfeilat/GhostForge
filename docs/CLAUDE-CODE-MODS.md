@@ -5,9 +5,15 @@ status lines, guards on prompts and tool calls). Claude Code 2.1.287 or later.
 
 ## Mods this repo turns on
 
-`.claude/settings.json` registers three marketplaces and enables one mod from
-each. Anyone who opens the repo — this laptop, another device, or a Claude
-Code cloud session — gets them after accepting the workspace trust prompt.
+`.claude/settings.json` registers GhostForge's own marketplace,
+`ghostforge-mods` (`claude-mods/.claude-plugin/marketplace.json`), and enables
+the three mods in it. Anyone who opens the repo — this laptop, another device,
+or a Claude Code cloud session — gets them after accepting the workspace trust
+prompt.
+
+Each mod is fetched from its upstream repo **pinned to the exact commit that
+was reviewed** (`sha` in the marketplace file), so an upstream change can't
+reach anyone until it is reviewed here.
 
 | Mod | What it does | Source |
 |---|---|---|
@@ -21,16 +27,31 @@ requests, starts processes or writes files.
 To install them on a machine by hand (or to get them in sessions started
 outside this repo):
 
+From a clone of this repo:
+
 ```
-claude plugin marketplace add ray-amjad/awesome-claude-code-function-hooks
-claude plugin marketplace add OneWave-AI/claude-code-mods
-claude plugin marketplace add Arunjay4213/claude-mods
-claude plugin install secret-redactor@awesome-claude-code-function-hooks --scope user
-claude plugin install burn-meter@claude-code-mods --scope user
-claude plugin install context-lens@claude-mods --scope user
+claude plugin marketplace add ./claude-mods
+claude plugin install secret-redactor@ghostforge-mods --scope user
+claude plugin install burn-meter@ghostforge-mods --scope user
+claude plugin install context-lens@ghostforge-mods --scope user
 ```
 
+(The marketplace file lives in a subfolder, so `marketplace add` needs the
+local path; inside the repo, accepting the trust prompt does the same.)
+
 Then run `/reload-plugins` in an open session and check with `/plugin`.
+
+### Updating a mod
+
+1. Clone the upstream repo, `git diff <pinned sha>..HEAD -- <plugin path>`, and read it.
+2. `claude plugin validate ./<plugin path>` — check the `hooks:` and `calls:` lines.
+3. Put the new full 40-character SHA in `claude-mods/.claude-plugin/marketplace.json`,
+   then `claude plugin validate ./claude-mods`.
+
+### Adding a mod
+
+Add an entry to the same marketplace file with a `git-subdir` source and a
+`sha`, after the same review, and enable it in `.claude/settings.json`.
 
 ## Where to find more
 
