@@ -1,10 +1,13 @@
 'use client'
 
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
+import dynamic from 'next/dynamic'
 import N8nSettings from './N8nSettings'
-import VoiceEnrollPanel from './VoiceEnrollPanel'
 import type { N8nConnection } from './useN8nConnection'
 import { PERSONA_OPTIONS, type ModelInfo, type ToastFn, type TtsInfo, type VoiceEngine } from './types'
+
+// Mic recording for voice biometrics: loaded only when settings open.
+const VoiceEnrollPanel = dynamic(() => import('./VoiceEnrollPanel'), { ssr: false })
 
 interface SettingsPanelProps {
   mc: { ring: string; glow: string }

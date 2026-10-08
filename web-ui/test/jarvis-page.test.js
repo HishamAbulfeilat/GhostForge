@@ -5,6 +5,8 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const Module = require('node:module')
+const { readFileSync } = require('node:fs')
+const { join } = require('node:path')
 
 // lib/quick-actions has a .js twin for the TUI; the page imports the .ts one.
 const resolve = Module._resolveFilename
@@ -157,4 +159,22 @@ test('a message sent right after toggling offline mode carries the new setting',
   } finally {
     await page.unmount()
   }
+})
+
+test('app/jarvis/page.tsx is a thin server shell over the client app', () => {
+  const shell = readFileSync(join(__dirname, '..', 'app', 'jarvis', 'page.tsx'), 'utf8')
+  assert.doesNotMatch(shell, /^['"]use client['"]/m, 'the route file should stay a server component')
+  assert.match(shell, /import JarvisApp from '\.\/_components\/JarvisApp'/)
+  assert.ok(shell.split('\n').length < 20, 'the route file should only compose client components')
+})
+
+test('voice enrollment, screen-capture overlay and on-demand panels load with next/dynamic', () => {
+  const read = file => readFileSync(join(__dirname, '..', 'app', 'jarvis', '_components', file), 'utf8')
+  const app = read('JarvisApp.tsx')
+  for (const mod of ['./SettingsPanel', './AuditPanel', './MarkLOverlay', './AgentOverlay', '@/components/ClickyOverlay']) {
+    assert.match(app, new RegExp(`dynamic\\(\\(\\) => import\\('${mod.replace(/[./]/g, '\\$&')}'\\)`), `${mod} should be loaded with next/dynamic`)
+    assert.doesNotMatch(app, new RegExp(`^import \\w+ from '${mod.replace(/[./]/g, '\\$&')}'`, 'm'), `${mod} should not be a static import`)
+  }
+  assert.match(read('SettingsPanel.tsx'), /dynamic\(\(\) => import\('\.\/VoiceEnrollPanel'\)/)
+  assert.match(read('ClipboardWatcher.tsx'), /dynamic\(\(\) => import\('\.\/ClipboardPanel'\)/)
 })

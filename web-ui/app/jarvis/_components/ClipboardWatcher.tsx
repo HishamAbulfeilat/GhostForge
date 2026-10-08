@@ -1,8 +1,10 @@
 'use client'
 
 import { memo, useEffect, useRef, useState } from 'react'
-import ClipboardPanel from './ClipboardPanel'
+import dynamic from 'next/dynamic'
 import type { ClipboardPanelState } from './types'
+
+const ClipboardPanel = dynamic(() => import('./ClipboardPanel'), { ssr: false })
 
 type ClipboardAction = 'EXPLAIN' | 'SUMMARISE' | 'TRANSLATE' | 'FIX'
 
