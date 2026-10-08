@@ -73,4 +73,25 @@ function modelReadiness(data) {
   }
 }
 
-module.exports = { STATES, bridgeReadiness, modelReadiness }
+const HEALTH_TO_STATE = { ready: 'configured', missing: 'missing', offline: 'unreachable', error: 'unreachable' }
+
+/**
+ * Map /api/health checks (lib/health-core.mjs) to setup readiness rows, so the
+ * setup checklist shows the same answer as the dashboard and the TUI doctor.
+ * Returns [] when the health report is unavailable (signed out, hosted mode).
+ * @param {{ checks?: Array<{ id: string, label: string, status: string, detail: string, fix?: string }> } | null} report
+ */
+function healthReadiness(report) {
+  if (!report || !Array.isArray(report.checks)) return []
+  return report.checks
+    .filter(c => c && typeof c.id === 'string' && Object.hasOwn(HEALTH_TO_STATE, c.status))
+    .map(c => ({
+      id: `health-${c.id}`,
+      label: String(c.label || c.id),
+      state: HEALTH_TO_STATE[c.status],
+      detail: String(c.detail || ''),
+      action: c.status === 'ready' ? 'Nothing to do.' : String(c.fix || 'Re-check after fixing it.'),
+    }))
+}
+
+module.exports = { STATES, bridgeReadiness, modelReadiness, healthReadiness }

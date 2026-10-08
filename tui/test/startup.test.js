@@ -43,3 +43,9 @@ test('heavy, screen-only modules are loaded lazily', () => {
     assert.doesNotMatch(source, new RegExp(`^import [^\\n]* from '${mod.replace(/[.\/]/g, '\\$&')}';$`, 'm'), mod);
   }
 });
+
+test('doctor shows the shared health-at-a-glance contract', () => {
+  const source = readFileSync(INDEX, 'utf8');
+  assert.match(source, /import\('\.\.\/web-ui\/lib\/health-core\.mjs'\)/);
+  assert.match(source, /async function screenDoctor\(\) \{[\s\S]{0,200}printHealthAtAGlance\(\)/);
+});

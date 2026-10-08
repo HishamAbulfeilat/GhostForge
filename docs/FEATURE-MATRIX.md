@@ -62,7 +62,7 @@ surface. The evidence column names the implementation that was checked.
 | Files/process control | ✅ | ✅ | ✅ | ✅ | `app/files`, `screenOpenProject`, `scripts/open-project.sh`, `/api/mark-l/file-process` |
 | Code helper and developer agent | ⚠️ | ✅ | ✅ | ✅ | `app/chat`, `screenGFAIChat`, `scripts/explain.sh`, `/api/mark-l/code-helper`, `/dev-agent` |
 | Security scan and pentest helpers | ✅ | ✅ | ✅ | ✅ | `app/security` + `app/api/security-scan` (admin-only, defensive scanners), `app/features`, `screenSecurity`, `scripts/security-check.sh`/`scripts/pentest.sh`, bridge `GET/POST /api/security-scan` (token-auth, mark-l-bridge/security_scan.py) |
-| Doctor, health and diagnostics | ✅ | ✅ | ✅ | ✅ | `app/dashboard` + `app/api/doctor`, `screenDoctor`/`screenHealth`, `scripts/doctor.sh`/`health-check.sh`, bridge `/health` |
+| Doctor, health and diagnostics | ✅ | ✅ | ✅ | ✅ | `app/dashboard` + `app/api/doctor` + `app/api/health` (shared ready/missing/offline/error contract in `web-ui/lib/health-core.mjs`), `screenDoctor`/`screenHealth`, `scripts/doctor.sh`/`health-check.sh`, bridge `/health` |
 | Testing and coverage | ✅ | ✅ | ✅ | ✅ | `app/testing/page.tsx` + `app/api/test-run/route.ts` (admin-only test-run/coverage panel), `app/features`, `screenTest`, `scripts/test-all-features.sh`/`coverage.sh`, bridge `GET`/`POST /api/code-health` (`coverage` id, token auth) |
 | Deploy and Azure tooling | ⚠️ | ✅ | ✅ | ✅ | `app/features`, `screenDeploy`, `scripts/deploy-azure.sh`, bridge `/api/release` deploy action |
 | Git hooks, upgrades and release tooling | ✅ | ✅ | ✅ | ✅ | `app/maintenance`, `screenGitHooks`/`screenUpgrade`, `scripts/git-hooks.sh`/`upgrade.sh`/`release.sh`, bridge `/api/release` (status/prepare/notes/deploy) |

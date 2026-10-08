@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { profileForTitle } from '@/lib/title-profiles'
-import { bridgeReadiness, modelReadiness } from './readiness.js'
+import { bridgeReadiness, healthReadiness, modelReadiness } from './readiness.js'
 
 interface ProfileView {
   id: string
@@ -55,10 +55,16 @@ function ReadinessSection() {
 
   const check = async () => {
     setChecking(true)
-    const [bridge, models] = await Promise.all([fetchJson('/api/bridge-status'), fetchJson('/api/models')])
+    const [bridge, models, health] = await Promise.all([
+      fetchJson('/api/bridge-status'), fetchJson('/api/models'), fetchJson('/api/health?fresh=1'),
+    ])
+    // /api/health is the shared status contract (bridge, voice, OmniRoute,
+    // Ollama, gh, HTTPS, push). When it is unavailable, fall back to the
+    // bridge-status row so the bridge is always listed.
+    const healthRows = healthReadiness(health as Parameters<typeof healthReadiness>[0]) as ReadinessRow[]
     setRows([
       modelReadiness(models as Parameters<typeof modelReadiness>[0]),
-      bridgeReadiness(bridge as Parameters<typeof bridgeReadiness>[0]),
+      ...(healthRows.length ? healthRows : [bridgeReadiness(bridge as Parameters<typeof bridgeReadiness>[0])]),
     ] as ReadinessRow[])
     setChecking(false)
   }

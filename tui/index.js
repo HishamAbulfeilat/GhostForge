@@ -3686,17 +3686,52 @@ async function screenOpenProject() {
   await pressEnter();
 }
 
+const HEALTH_STATUS_TONE = {
+  ready: () => T.success.bold(' READY '),
+  missing: () => T.muted.bold(' MISSING '),
+  offline: () => T.warning.bold(' OFFLINE '),
+  error: () => T.danger.bold(' ERROR '),
+};
+
+/**
+ * "Health at a glance": the same checks GET /api/health serves to the web UI
+ * (web-ui/lib/health-core.mjs), run in-process so no session token is needed.
+ */
+async function printHealthAtAGlance() {
+  const { collectHealth, parseEnvFile } = await import('../web-ui/lib/health-core.mjs');
+  let envLocal = {};
+  try { envLocal = parseEnvFile(readFileSync(resolve(ROOT, 'web-ui/.env.local'), 'utf8')); } catch { /* optional */ }
+  const report = await collectHealth({ env: { ...envLocal, ...process.env }, webUiDir: resolve(ROOT, 'web-ui') });
+  const table = new (loadTable())({
+    head: [T.white.bold('Dependency'), T.white.bold('Status'), T.white.bold('Details / fix')],
+    colWidths: [30, 11, 52],
+    wordWrap: true,
+    style: { head: [], border: [] },
+  });
+  for (const check of report.checks) {
+    const detail = check.status === 'ready' ? T.success(check.detail) : `${T.white(check.detail)}\n${T.accent('Fix: ' + (check.fix || '—'))}`;
+    table.push([T.white(check.label) + (check.optional ? T.muted(' (optional)') : ''), HEALTH_STATUS_TONE[check.status](), detail]);
+  }
+  console.log(T.white.bold('  Health at a glance') + T.muted('  (same contract as /api/health)'));
+  console.log(table.toString());
+  console.log();
+  return report;
+}
+
 async function screenDoctor() {
   sectionHeader('🩺  GhostForge Doctor', 'Live health checks — services, AI keys, and required CLI tools');
+
+  try {
+    await printHealthAtAGlance();
+  } catch (error) {
+    console.log(T.warning(`  ⚠ Health at a glance unavailable: ${error.message}\n`));
+  }
 
   const checks = [];
   const addCheck = (label, status, detail, weight = 1) => checks.push({ label, status, detail, weight });
 
   const server = runShellCheck('curl -fsS --max-time 2 http://localhost:3001 >/dev/null');
   addCheck('Server :3001', server.ok ? 'pass' : 'fail', server.ok ? 'responding' : 'not reachable');
-
-  const ollama = runShellCheck('curl -fsS --max-time 2 http://localhost:11434/api/tags >/dev/null');
-  addCheck('Ollama :11434', ollama.ok ? 'pass' : 'warn', ollama.ok ? 'responding' : 'offline');
 
   const cliclick = runShellCheck('command -v cliclick');
   addCheck('cliclick', cliclick.ok ? 'pass' : 'fail', cliclick.ok ? cliclick.output : 'not installed');
@@ -3714,9 +3749,6 @@ async function screenDoctor() {
     || readEnvValueFromFile('web-ui/.env.local', 'GEMINI_API_KEY');
   addCheck('Gemini key', gemini ? 'pass' : 'warn', gemini ? `set (${gemini.length} chars)` : 'missing in web-ui/.env.local');
 
-  const gh = runShellCheck('command -v gh');
-  addCheck('GitHub CLI', gh.ok ? 'pass' : 'fail', gh.ok ? gh.output : 'not installed');
-
   const git = runShellCheck('command -v git');
   addCheck('Git CLI', git.ok ? 'pass' : 'fail', git.ok ? git.output : 'not installed');
 
@@ -3725,11 +3757,6 @@ async function screenDoctor() {
 
   const openInterpreter = runShellCheck('python3 -m interpreter --version 2>/dev/null');
   addCheck('open-interpreter', openInterpreter.ok ? 'pass' : 'warn', openInterpreter.ok ? `v${(openInterpreter.output.match(/\d+\.\d+\.\d+/) || ['?'])[0]}` : 'pip3 install open-interpreter');
-
-  const mkcertCheck = runShellCheck('command -v mkcert');
-  const mkcertTrusted = runShellCheck('security find-certificate -a -c "mkcert" /Library/Keychains/System.keychain 2>/dev/null | head -1');
-  addCheck('mkcert (HTTPS)', mkcertCheck.ok ? (mkcertTrusted.ok ? 'pass' : 'warn') : 'warn',
-    mkcertCheck.ok ? (mkcertTrusted.ok ? 'CA trusted system-wide' : '⚠ run: sudo mkcert -install') : 'brew install mkcert');
 
   const qwen3Check = runShellCheck('ollama list 2>/dev/null | grep -c qwen3');
   addCheck('qwen3:14b model', qwen3Check.output.trim() !== '0' && qwen3Check.ok ? 'pass' : 'warn',
@@ -3781,7 +3808,11 @@ async function screenDoctor() {
     { padding: 1, borderColor: healthScore >= 85 ? '#22C55E' : healthScore >= 65 ? '#F59E0B' : '#EF4444', borderStyle: 'round' }
   ));
 
-  // Show mkcert hint if not trusted
+  // Show mkcert hint if its CA is not trusted (macOS keychain check)
+  const mkcertCheck = runShellCheck('command -v mkcert');
+  const mkcertTrusted = process.platform === 'darwin'
+    ? runShellCheck('security find-certificate -a -c "mkcert" /Library/Keychains/System.keychain 2>/dev/null | head -1')
+    : { ok: true };
   if (mkcertCheck.ok && !mkcertTrusted.ok) {
     console.log('\n' + boxen(
       T.warning.bold(' ⚠ HTTPS not trusted \n\n') +

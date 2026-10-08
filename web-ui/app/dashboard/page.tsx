@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import HealthAtAGlance from '@/components/HealthAtAGlance'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
@@ -857,6 +858,9 @@ export default function DashboardPage() {
         {/* ── Bridge control (live status + start) ── */}
         <BridgeControl />
         <DeviceControlsPanel />
+
+        {/* ── Health at a glance (shared /api/health contract) ── */}
+        <HealthAtAGlance />
 
         {/* ── Doctor + Metrics side by side ── */}
         <div className="grid gap-3 lg:grid-cols-2">
