@@ -5,7 +5,9 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { getCurrentUser, isAuthorizedRequest } from '@/lib/auth'
+import { computeDigest, readSeen, runsToNotify, snapshot, writeSeen, type Digest, type DigestInput } from '@/lib/dashboard-digest'
+import { isPushConfigured, sendToUser } from '@/lib/push'
 import { getCPU, getRAM, getDisk, getBattery, type MetricStat, type BatteryStat } from '@/lib/system-info'
 import { createSwrCache } from '@/lib/swr-cache'
 
@@ -25,6 +27,7 @@ interface DashboardIssue {
 }
 
 interface DashboardRun {
+  id: string
   icon: string
   name: string
   branch: string
@@ -104,6 +107,7 @@ interface DashboardData {
   ai: DashboardAI
   audit: DashboardAuditEntry[]
   warnings: string[]
+  digest: Digest | null
   error?: string
 }
 
@@ -152,6 +156,7 @@ function parseRuns(raw: string): DashboardRun[] {
       conclusion: string
       updatedAt: string
       headBranch: string
+      databaseId?: number
     }>
     return runs.map(run => {
       const icon =
@@ -163,6 +168,7 @@ function parseRuns(raw: string): DashboardRun[] {
               ? '🔄'
               : '⚪'
       return {
+        id: run.databaseId ? String(run.databaseId) : `${run.name ?? ''}:${run.headBranch ?? ''}:${run.updatedAt ?? ''}`,
         icon,
         name: (run.name ?? '').substring(0, 28),
         branch: (run.headBranch ?? '').substring(0, 18),
@@ -328,6 +334,39 @@ async function fetchPanels(githubEnabled: boolean, ghEnv: NodeJS.ProcessEnv): Pr
   return { activityRaw, tagsRaw, issuesRaw, runsRaw, prsRaw }
 }
 
+function digestInput(panels: PanelsRaw): DigestInput {
+  return {
+    runs: parseRuns(panels.runsRaw),
+    prs: parsePRs(panels.prsRaw),
+    releases: parseReleases(panels.tagsRaw),
+  }
+}
+
+/**
+ * "Since you were away": compare the current panels with what this user last
+ * dismissed. The first visit records a baseline. New CI failures are pushed
+ * once per run when push is configured (fire-and-forget).
+ */
+async function buildDigest(username: string, input: DigestInput): Promise<Digest> {
+  const seen = await readSeen(username)
+  if (!seen) {
+    await writeSeen(username, snapshot(input, null)).catch(() => {})
+    return computeDigest(null, input)
+  }
+  const toNotify = runsToNotify(seen, input)
+  if (toNotify.length && isPushConfigured()) {
+    const names = toNotify.map(r => `${r.name} (${r.branch})`).slice(0, 3).join(', ')
+    void sendToUser(username, {
+      title: `CI failed: ${toNotify.length} run${toNotify.length === 1 ? '' : 's'}`,
+      body: names,
+      tag: 'dashboard-ci-failure',
+      url: '/dashboard',
+    }).catch(() => {})
+    await writeSeen(username, { ...seen, notifiedRuns: [...seen.notifiedRuns, ...toNotify.map(r => r.id)].slice(-200) }).catch(() => {})
+  }
+  return computeDigest(seen, input)
+}
+
 export async function GET(req: NextRequest) {
   const hostedBlock = hostedGuard(req)
   if (hostedBlock) return hostedBlock
@@ -366,6 +405,9 @@ export async function GET(req: NextRequest) {
     panelsCache.get(githubEnabled ? 'gh' : 'local', () => fetchPanels(githubEnabled, ghEnv), refresh),
   ])
   const { activityRaw, tagsRaw, issuesRaw, runsRaw, prsRaw } = panels.value
+
+  const user = await getCurrentUser(req).catch(() => null)
+  const digest = user ? await buildDigest(user.username, digestInput(panels.value)).catch(() => null) : null
 
   const ollamaModels = ollamaHealth.models.map(model => model.name)
   const fishAudio = Boolean(process.env.FISH_AUDIO_API_KEY || envLocal.FISH_AUDIO_API_KEY)
@@ -443,7 +485,30 @@ export async function GET(req: NextRequest) {
     },
     audit: readRecentAudit(),
     warnings,
+    digest,
   }
 
   return NextResponse.json(data)
+}
+
+/**
+ * POST { action: 'seen' } — dismiss the "since you were away" digest: record
+ * the panels as they are now (from the cache) as this user's baseline.
+ */
+export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
+  const user = await getCurrentUser(req)
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json().catch(() => null) as { action?: string } | null
+  if (body?.action !== 'seen') return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+
+  const githubEnabled = Boolean(process.env.GITHUB_TOKEN)
+  const ghEnv = githubEnabled ? { ...process.env, GH_TOKEN: process.env.GITHUB_TOKEN } : process.env
+  const panels = await panelsCache.get(githubEnabled ? 'gh' : 'local', () => fetchPanels(githubEnabled, ghEnv))
+  const input = digestInput(panels.value)
+  const previous = await readSeen(user.username)
+  await writeSeen(user.username, snapshot(input, previous))
+  return NextResponse.json({ ok: true, digest: computeDigest(snapshot(input, previous), input) })
 }

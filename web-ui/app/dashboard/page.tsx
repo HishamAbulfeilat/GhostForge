@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import HealthAtAGlance from '@/components/HealthAtAGlance'
+import AwayDigest, { type AwayDigestData } from '@/components/AwayDigest'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
@@ -86,6 +87,7 @@ interface DashboardData {
   }>
   warnings: string[]
   panelsFetchedAt?: string
+  digest?: AwayDigestData | null
   error?: string
 }
 
@@ -840,6 +842,11 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        <AwayDigest
+          digest={data?.digest}
+          onDismissed={() => setData(prev => (prev ? { ...prev, digest: null } : prev))}
+        />
 
         {data?.warnings?.length ? (
           <div className="space-y-2">
