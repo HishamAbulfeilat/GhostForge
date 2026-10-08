@@ -73,6 +73,7 @@ test('Agent World exposes CLI sessions as a tab and in every world', () => {
   assert.match(page, /<CliDashboard world=\{cli\.world\}/)
   assert.match(page, /<CliLanes /)
   assert.match(page, /agents: \[\.\.\.state\.data\.agents, \.\.\.cliCharacters\]/, 'CLI characters join the runtime agents')
+  assert.match(page, /const mergedData = useMemo\(/, 'the page re-renders every second (useNow); worlds need a stable agents array')
   for (const world of ['TownWorld', 'OfficeWorld']) {
     assert.match(page, new RegExp(`<${world} data=\\{mergedData\\}`), `${world} must receive the merged characters`)
   }

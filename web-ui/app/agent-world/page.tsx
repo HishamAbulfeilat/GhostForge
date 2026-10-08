@@ -186,9 +186,12 @@ export default function AgentWorldPage() {
   const attention = useAttention(cliRecent, setCliSelected)
   // Worlds render this instead of state.data: the runtime view plus the CLI
   // characters. Built from state.data so it stays narrowed where it is rendered.
-  const mergedData = state.status === 'loaded'
+  // Memoized: useNow re-renders the page every second, and a fresh agents array
+  // made the town re-adapt and re-post its characters and the office re-seat
+  // everyone each time.
+  const mergedData = useMemo(() => state.status === 'loaded'
     ? { ...state.data, agents: [...state.data.agents, ...cliCharacters] }
-    : { agents: [], tasks: [], connectors: [], sessions: [], events: [] }
+    : { agents: [], tasks: [], connectors: [], sessions: [], events: [] }, [state, cliCharacters])
   const controllerRef = useRef<AbortController | null>(null)
   const load = useCallback(async () => {
     controllerRef.current?.abort()
