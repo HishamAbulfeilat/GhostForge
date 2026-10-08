@@ -215,6 +215,11 @@ The form agent (`web-ui/lib/job-hunter/agent.ts`) drives a real browser:
 4. **Moves through multi-step forms.** It presses Next / Continue / Review,
    including LinkedIn's dialog and its "Select an option" placeholders.
 5. **Submits only when allowed.** Otherwise it stops with everything filled in.
+   Submit is pressed once. If no confirmation appears, it is pressed again
+   only after the site rejected a field and the agent corrected it. A
+   computer-use click that may have sent the form (the model says so, the
+   control reads like Submit or Send, or the page navigated) counts as a
+   pressed Submit too.
 6. **Asks you what it couldn't answer.** These questions appear on the job card
    (and as a push notification when VAPID keys are set). Answer once: the job
    goes back in the queue for autopilot's next run, and every later
