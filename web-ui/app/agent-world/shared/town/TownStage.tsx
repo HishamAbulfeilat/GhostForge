@@ -61,10 +61,19 @@ export default function TownStage({
   const bubbleRefs = useRef(new Map<string, HTMLSpanElement>())
   useEffect(() => {
     let frame = 0
+    let lastWalking: AgentTownCharacter[] | undefined
+    let lastCamera = ''
     const place = () => {
       frame = requestAnimationFrame(place)
       const vp = viewportRef.current
       if (!vp) return
+      // Every render (a walker step, a bubble rotation) yields a new walking
+      // array; otherwise only the camera can move a bubble. Skip the layout
+      // reads below while neither changed, e.g. an idle town.
+      const camera = `${vp.x},${vp.y},${vp.scale.x},${vp.scale.y}`
+      if (walkingRef.current === lastWalking && camera === lastCamera) return
+      lastWalking = walkingRef.current
+      lastCamera = camera
       // Bottom-most bubbles first; a bubble that would overlap one already
       // placed moves up above it, so neighbours stay readable.
       const placed: { left: number; right: number; top: number; bottom: number }[] = []
