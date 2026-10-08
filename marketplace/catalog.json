@@ -1019,6 +1019,24 @@
         "directory"
       ],
       "installed": false
+    },
+    {
+      "id": "awesome-claude-code-mods",
+      "name": "Awesome Claude Code Mods — scanned mod catalogue",
+      "type": "template",
+      "category": "Claude Code Mods",
+      "description": "Community catalogue of ~2,700 public Claude Code mods (CC0), scanned from GitHub. Each entry shows what the mod hooks into and what it can access (read files, write/run, network). Browse at mods.aidojo.si; source at github.com/karanb192/awesome-claude-code-mods. Mods are not sandboxed: review before installing.",
+      "source": "karanb192/awesome-claude-code-mods",
+      "url": "https://mods.aidojo.si/",
+      "tags": [
+        "claude-code",
+        "mods",
+        "plugins",
+        "hooks",
+        "directory",
+        "awesome-list"
+      ],
+      "installed": false
     }
   ]
 }
