@@ -1,7 +1,8 @@
-import { BaseTexture, ISpritesheetData, Spritesheet } from 'pixi.js';
+import { ISpritesheetData, Spritesheet } from 'pixi.js';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { AnimatedSprite, Container, Graphics, Text } from '@pixi/react';
 import * as PIXI from 'pixi.js';
+import { acquireSpritesheet, releaseSpritesheet } from './spritesheetCache';
 
 export const Character = ({
   textureUrl,
@@ -38,18 +39,17 @@ export const Character = ({
   onClick: () => void;
 }) => {
   const [spriteSheet, setSpriteSheet] = useState<Spritesheet>();
+  // agent-world: one shared, reference-counted sheet instead of a new parse per
+  // character (see spritesheetCache.ts and NOTICE.md).
   useEffect(() => {
-    const parseSheet = async () => {
-      const sheet = new Spritesheet(
-        BaseTexture.from(textureUrl, {
-          scaleMode: PIXI.SCALE_MODES.NEAREST,
-        }),
-        spritesheetData,
-      );
-      await sheet.parse();
-      setSpriteSheet(sheet);
+    let live = true;
+    void acquireSpritesheet(textureUrl, spritesheetData).then((sheet) => {
+      if (live) setSpriteSheet(sheet);
+    });
+    return () => {
+      live = false;
+      releaseSpritesheet(textureUrl, spritesheetData);
     };
-    void parseSheet();
   }, [spritesheetData, textureUrl]);
 
   // The first "left" is "right" but reflected.
