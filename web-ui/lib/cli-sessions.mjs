@@ -34,7 +34,8 @@ const STALL_MS = 10 * 60_000                                     // tool call wi
 const RECENT_MS = 7 * 24 * 60 * 60_000                           // sessions shown at all
 const TIMELINE_BUCKET_MS = 5 * 60_000
 const TIMELINE_BUCKETS = 24                                      // 2 hours of 5-minute buckets
-const MAX_EVENTS = 25
+const MAX_EVENTS = 25                                         // "Recent events" in the drawer
+const MAX_REPLAY = 200                                        // events kept per session for the replay scrubber
 const MAX_READ_BYTES = 64 * 1024 * 1024                          // per read chunk
 
 const clip = (v, n = 200) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : undefined)
@@ -81,7 +82,7 @@ function freshClaudeStats() {
 
 function pushEvent(st, ev) {
   st.events.push(ev)
-  if (st.events.length > MAX_EVENTS) st.events.shift()
+  if (st.events.length > MAX_REPLAY) st.events.shift()
 }
 
 function bump(st, ts) {
@@ -294,7 +295,9 @@ function shapeClaude(s, now) {
       tools: sortedCounts(st.tools), toolErrors: st.toolErrors, apiErrors: st.apiErrors, lastError: st.lastError,
       apiMs: st.cost?.apiMs, toolMs: st.cost?.toolMs,
       subagentList: s.subagents.slice(-20).reverse(),
-      events: st.events.slice().reverse(),
+      events: st.events.slice(-MAX_EVENTS).reverse(),
+      // Oldest first, for the drawer's replay scrubber: names and times only.
+      replay: st.events.slice(),
     },
   }
 }
@@ -399,9 +402,8 @@ async function readCopilotSessions(now, limit) {
           apiErrors: u.badFinish ? { 'abnormal finish': u.badFinish } : {}, contentFiltered: u.filtered ?? 0,
           apiMs: u.apiMs, reasoningTokens: u.reasoning ?? 0,
           subagentList: [],
-          events: (recentBy.get(r.id) ?? []).slice(0, MAX_EVENTS).map(e => ({
-            ts: iso(toMs(e.created_at)), type: e.agent_id ? 'subagent' : 'request', name: `${e.model ?? 'model'} · ${e.finish_reason ?? '…'}`,
-          })),
+          events: copilotEvents(recentBy.get(r.id), MAX_EVENTS),
+          replay: copilotEvents(recentBy.get(r.id), MAX_REPLAY).reverse(),
         },
       }
     })
@@ -412,6 +414,13 @@ async function readCopilotSessions(now, limit) {
 }
 
 // --- helpers --------------------------------------------------------------------
+
+/** Newest-first usage rows -> drawer events (model and finish reason only). */
+function copilotEvents(rows, limit) {
+  return (rows ?? []).slice(0, limit).map(e => ({
+    ts: iso(toMs(e.created_at)), type: e.agent_id ? 'subagent' : 'request', name: `${e.model ?? 'model'} · ${e.finish_reason ?? '…'}`,
+  }))
+}
 
 function sum(obj) { return Object.values(obj ?? {}).reduce((a, b) => a + (Number(b) || 0), 0) }
 function topOf(counts) { const e = Object.entries(counts ?? {}).sort((a, b) => b[1] - a[1])[0]; return e ? { name: e[0], count: e[1] } : undefined }

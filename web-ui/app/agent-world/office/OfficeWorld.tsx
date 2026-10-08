@@ -14,6 +14,8 @@ type OfficeWorldProps = {
   boss?: AgentWorldRecord
   /** CLI sessions among data.agents (shared Agent World characters). */
   cliAgents: WorldAgent[]
+  /** cliAgents as the scene shows them (a replayed moment applied); defaults to cliAgents. */
+  sceneCliAgents?: WorldAgent[]
   selectedCliId?: string
   onSelectCli: (id: string | undefined) => void
   compacting: Set<string>
@@ -24,7 +26,7 @@ type OfficeWorldProps = {
  * Agent Office: the shared Agent World office stage (same as the external
  * Agent World app) fed with GhostForge runtime agents plus CLI sessions.
  */
-export default function OfficeWorld({ data, boss, cliAgents, selectedCliId, onSelectCli, compacting, traffic }: OfficeWorldProps) {
+export default function OfficeWorld({ data, boss, cliAgents, sceneCliAgents = cliAgents, selectedCliId, onSelectCli, compacting, traffic }: OfficeWorldProps) {
   const model = useMemo(
     () => adaptAgentOfficeSnapshot({ agents: data.agents, tasks: data.tasks, boss }) as OfficeModel,
     [data.agents, data.tasks, boss],
@@ -54,7 +56,7 @@ export default function OfficeWorld({ data, boss, cliAgents, selectedCliId, onSe
       <OfficeStage
         model={model}
         deskSlots={DESK_SLOTS}
-        agents={cliAgents}
+        agents={sceneCliAgents}
         selectedId={selectedCliId ?? runtimeId}
         onSelect={select}
         traffic={traffic}

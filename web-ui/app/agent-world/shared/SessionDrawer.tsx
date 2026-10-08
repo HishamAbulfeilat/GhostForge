@@ -1,12 +1,14 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useCliSessionDetail } from './api'
 import ContextMeter from './ContextMeter'
 import { activity, ago, compact, duration, healthLabel, isClaude, modelShort, project, providerLabel, usd } from './format'
 import type { SessionDetail, SessionEvent } from './types'
 import { Bars, Spark } from './charts'
 import RawJson from './RawJson'
+import type { Replay } from './replay'
+import ReplayScrubber from './ReplayScrubber'
 
 const EVENT_TONE: Record<SessionEvent['type'], string> = {
   tool: 'text-gf-muted', subagent: 'text-gf-violet', prompt: 'text-gf-ink', error: 'text-gf-danger', request: 'text-gf-muted', compaction: 'text-gf-warn',
@@ -68,19 +70,24 @@ function Usage({ d }: { d: SessionDetail }) {
 
 /**
  * Details for one CLI session. `detailUrl` builds the app's detail endpoint;
- * the raw JSON panel shows that response exactly as returned.
+ * the raw JSON panel shows that response exactly as returned. `onReplay`
+ * receives the replay scrubber's current moment (undefined = live).
  */
 export default function SessionDrawer({
-  id, heartbeat, onClose, detailUrl, compacting = false,
+  id, heartbeat, onClose, detailUrl, compacting = false, onReplay,
 }: {
   id?: string
   heartbeat?: string
   onClose: () => void
   detailUrl: (id: string) => string
   compacting?: boolean
+  onReplay?: (replay: Replay | undefined) => void
 }) {
   const url = id ? detailUrl(id) : undefined
   const { detail: d, error } = useCliSessionDetail(url, id, heartbeat)
+  // While replaying, the backdrop stops dimming the scene so the character can be watched.
+  const [replaying, setReplaying] = useState(false)
+  const replay = useCallback((r: Replay | undefined) => { setReplaying(!!r); onReplay?.(r) }, [onReplay])
 
   useEffect(() => {
     if (!id) return
@@ -95,7 +102,7 @@ export default function SessionDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} aria-hidden="true" />
+      <div className={`fixed inset-0 z-40 ${replaying ? 'bg-transparent' : 'bg-black/30'}`} onClick={onClose} aria-hidden="true" />
       <aside role="dialog" aria-modal="true" aria-label="Session details"
         className="fixed inset-y-0 end-0 z-50 flex w-full max-w-xl flex-col border-s border-gf-line bg-gf-bar shadow-2xl">
         <header className="flex items-start gap-3 border-b border-gf-line p-5">
@@ -131,6 +138,10 @@ export default function SessionDrawer({
 
             <Section title="Activity · last 2 hours">
               <Spark values={d.timeline} className="h-12 w-full" label="session activity, 5-minute buckets" />
+            </Section>
+
+            <Section title="Replay">
+              <ReplayScrubber sessionId={d.id} events={d.replay} onReplay={replay} />
             </Section>
 
             <Section title="Context window">

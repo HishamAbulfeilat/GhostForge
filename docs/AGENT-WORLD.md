@@ -100,6 +100,13 @@ Features (both apps):
 - **Ambience**: day/night tint from local time; sessions idle 3+ minutes walk
   to a break area. `prefers-reduced-motion` turns walking and animations off.
 - **Raw JSON** in the session drawer: the detail response as returned.
+- **Replay** in the session drawer: a scrubber (play, pause, drag, back to
+  live) over the session's last 200 recorded events (tool, subagent, prompt,
+  error, request and compaction names with times, never their content). While
+  you replay, that session's character in the scene shows the moment: working
+  with the event as its bubble, or on a break during a quiet stretch of 3+
+  minutes. Rosters, alerts and the chat box keep the live state. The detail
+  response carries the history as `replay` (oldest first).
 
 Agent Town's renderer (`@pixi/react` 7, as upstream AI Town ships it) needs
 React 18, but the App Router always runs Next's bundled React 19. So the scene

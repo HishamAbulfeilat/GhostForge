@@ -13,6 +13,8 @@ type TownWorldProps = {
   boss?: AgentWorldRecord
   /** CLI sessions among data.agents (shared Agent World characters). */
   cliAgents: WorldAgent[]
+  /** cliAgents as the scene shows them (a replayed moment applied); defaults to cliAgents. */
+  sceneCliAgents?: WorldAgent[]
   selectedCliId?: string
   onSelectCli: (id: string | undefined) => void
   compacting: Set<string>
@@ -22,7 +24,7 @@ type TownWorldProps = {
  * Agent Town: the shared Agent World town stage (same as the external Agent
  * World app) fed with GhostForge runtime agents plus CLI sessions.
  */
-export default function TownWorld({ data, boss, cliAgents, selectedCliId, onSelectCli, compacting }: TownWorldProps) {
+export default function TownWorld({ data, boss, cliAgents, sceneCliAgents = cliAgents, selectedCliId, onSelectCli, compacting }: TownWorldProps) {
   const players = useMemo(
     () => adaptAgentTownSnapshot({ agents: data.agents, tasks: data.tasks, boss }) as AgentTownCharacter[],
     [data.agents, data.tasks, boss],
@@ -53,8 +55,8 @@ export default function TownWorld({ data, boss, cliAgents, selectedCliId, onSele
   const selectedId = selectedCliId ?? runtimeId
   useEffect(() => {
     if (!frameReady) return
-    frameRef.current?.contentWindow?.postMessage({ type: 'aw-town-state', players, agents: cliAgents, selectedId }, window.location.origin)
-  }, [frameReady, players, cliAgents, selectedId])
+    frameRef.current?.contentWindow?.postMessage({ type: 'aw-town-state', players, agents: sceneCliAgents, selectedId }, window.location.origin)
+  }, [frameReady, players, sceneCliAgents, selectedId])
 
   return (
     <section aria-labelledby="agent-town-heading" className="grid min-w-0 gap-4 rounded-2xl border border-gf-line bg-gf-surface p-4">
