@@ -2,13 +2,15 @@
  * Job Hunter storage — one folder per GhostForge user:
  *
  *   ~/.ghostforge/jobs/<username>/profile.json   CV text, applicant data, preferences
- *   ~/.ghostforge/jobs/<username>/jobs.json      discovered jobs + application state
+ *   ~/.ghostforge/jobs/<username>/jobs.db        discovered jobs + application state (SQLite, see job-db.ts;
+ *                                                jobs.json on a Node without node:sqlite)
  *   ~/.ghostforge/jobs/<username>/cv/<file>      the original uploaded CV (used for uploads)
  */
 import { mkdir, readFile, writeFile, rename } from 'fs/promises'
 import { homedir } from 'os'
 import { join, basename } from 'path'
 import { randomUUID } from 'crypto'
+import { acquireOperation, closeJobDbs, jobStoreBackend, openJobDb, transaction, type JobDb } from './job-db'
 
 /**
  * Per-key async mutex. Read-modify-write of a user's JSON files must not
@@ -25,14 +27,24 @@ function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return next
 }
 
-const activeOperations = new Set<string>()
+const activeOperations: Set<string> = ((globalThis as { __gfJobOps?: Set<string> }).__gfJobOps ??= new Set())
+const BUSY = 'An operation on this application is already running. Wait for it to finish before retrying.'
 
-/** Prevent Prepare/Approve/Answer/Dismiss from racing on the same application. */
+/**
+ * Prevent Prepare/Approve/Answer/Dismiss from racing on the same application,
+ * in this process and (with jobs.db) in any other server process on the same
+ * data: the second one is refused, not queued.
+ */
 export async function withJobOperation<T>(username: string, id: string, run: () => Promise<T>): Promise<T> {
   const key = `${userDir(username)}/${id}`
-  if (activeOperations.has(key)) throw new Error('An operation on this application is already running. Wait for it to finish before retrying.')
+  if (activeOperations.has(key)) throw new Error(BUSY)
   activeOperations.add(key)
-  try { return await run() } finally { activeOperations.delete(key) }
+  try {
+    const db = jobDb(username)
+    const release = db ? acquireOperation(db, String(id), randomUUID()) : () => {}
+    if (!release) throw new Error(BUSY)
+    try { return await run() } finally { release() }
+  } finally { activeOperations.delete(key) }
 }
 
 export type RemotePreference = 'remote' | 'hybrid' | 'onsite' | 'any'
@@ -351,17 +363,61 @@ export async function saveCvFile(username: string, fileName: string, data: Buffe
 }
 
 // ── jobs ─────────────────────────────────────────────────────────────────────
+//
+// Jobs live in jobs.db (SQLite, one row per job; see job-db.ts). Without
+// node:sqlite they fall back to the old whole-file jobs.json under the
+// process-local lock.
+
+function jobRow(job: Record<string, unknown>) {
+  const j = job as unknown as JobRecord
+  return {
+    id: String(j.id), key: String(j.key ?? ''), loose: dedupeKey(j), source: String(j.source ?? ''),
+    status: String(j.status ?? 'found'), updatedAt: String(j.updatedAt ?? ''),
+  }
+}
+
+/** The user's jobs database, or null for the jobs.json fallback */
+function jobDb(username: string): JobDb | null {
+  return openJobDb(userDir(username), jobRow)
+}
+
+function parseJob(row: Record<string, unknown> | undefined): JobRecord | null {
+  return row ? JSON.parse(String(row.data)) as JobRecord : null
+}
+
+function writeRow(db: JobDb, job: JobRecord, insert = false): void {
+  const r = jobRow(job as unknown as Record<string, unknown>)
+  const data = JSON.stringify(job)
+  if (insert) db.prepare('INSERT INTO jobs (id, key, loose, source, status, updated_at, data) VALUES (?, ?, ?, ?, ?, ?, ?)').run(r.id, r.key, r.loose, r.source, r.status, r.updatedAt, data)
+  else db.prepare('UPDATE jobs SET key = ?, loose = ?, source = ?, status = ?, updated_at = ?, data = ? WHERE id = ?').run(r.key, r.loose, r.source, r.status, r.updatedAt, data, r.id)
+}
+
+const jobsJson = (username: string) => join(userDir(username), 'jobs.json')
 
 export async function listJobs(username: string): Promise<JobRecord[]> {
-  return readJson<JobRecord[]>(join(userDir(username), 'jobs.json'), [])
+  const db = jobDb(username)
+  if (!db) return readJson<JobRecord[]>(jobsJson(username), [])
+  return db.prepare('SELECT data FROM jobs ORDER BY seq').all().map(r => parseJob(r)!)
 }
 
 async function saveJobs(username: string, jobs: JobRecord[]): Promise<void> {
-  await writeJson(join(userDir(username), 'jobs.json'), jobs)
+  await writeJson(jobsJson(username), jobs)
 }
 
 export async function getJob(username: string, id: string): Promise<JobRecord | null> {
-  return (await listJobs(username)).find(j => j.id === id) || null
+  const db = jobDb(username)
+  if (!db) return (await listJobs(username)).find(j => j.id === id) || null
+  return parseJob(db.prepare('SELECT data FROM jobs WHERE id = ?').get(String(id)))
+}
+
+/** Which storage the jobs use: 'sqlite' (jobs.db) or 'json' (legacy jobs.json) */
+export function jobStorage(): 'sqlite' | 'json' {
+  return jobStoreBackend()
+}
+
+/** Close open job databases (tests and shutdown); they reopen on next use */
+export function closeJobStores(): void {
+  closeJobDbs()
 }
 
 const COMPANY_SUFFIX = /\b(inc|incorporated|llc|ltd|limited|gmbh|ag|sa|sas|bv|nv|plc|corp|corporation|co|company|kk|pty|srl|ab|as|oy|group|holdings?|technologies|labs?)\b/g
@@ -382,10 +438,32 @@ export function dedupeKey(job: Pick<JobRecord, 'company' | 'title' | 'location'>
 }
 
 /** Merge newly found jobs, keeping state for ones we've already seen */
-export function upsertJobs(
+export async function upsertJobs(
   username: string,
   found: Array<Omit<JobRecord, 'id' | 'status' | 'log' | 'createdAt' | 'updatedAt'>>,
 ): Promise<{ added: number; jobs: JobRecord[] }> {
+  const db = jobDb(username)
+  if (db) {
+    const byKey = db.prepare('SELECT data FROM jobs WHERE key = ? ORDER BY seq DESC LIMIT 1')
+    const byLoose = db.prepare('SELECT data FROM jobs WHERE loose = ? ORDER BY seq DESC LIMIT 1')
+    const added = transaction(db, () => {
+      let n = 0
+      for (const f of found) {
+        const now = new Date().toISOString()
+        const loose = parseJob(byLoose.get(dedupeKey(f)))
+        const existing = parseJob(byKey.get(f.key)) || (loose && loose.source !== f.source ? loose : null)
+        if (existing) {
+          if (existing.key !== f.key) continue
+          writeRow(db, mergeFound(existing, f, now))
+          continue
+        }
+        writeRow(db, newRecord(f, now), true)
+        n++
+      }
+      return n
+    })
+    return { added, jobs: await listJobs(username) }
+  }
   return withLock(userDir(username), async () => {
   const jobs = await listJobs(username)
   const byKey = new Map(jobs.map(j => [j.key, j]))
@@ -400,19 +478,10 @@ export function upsertJobs(
     const existing = byKey.get(f.key) || (loose && loose.source !== f.source ? loose : undefined)
     if (existing) {
       if (existing.key !== f.key) continue // the same job from another board: keep the first record
-      // Refresh listing details but never clobber application progress, and keep a
-      // live check result unless the fresh listing is flagged
-      const keepCheck = existing.verification?.live && f.verification?.status !== 'flagged'
-      Object.assign(existing, {
-        ...f, status: existing.status, updatedAt: now,
-        attempts: existing.attempts, verification: keepCheck ? existing.verification : f.verification ?? existing.verification,
-        // Follows the latest listing: pinning a board ("ashby:acme") must clear an earlier
-        // unconfirmed name match, or autopilot would never apply to that job
-        boardUnconfirmed: f.boardUnconfirmed || undefined,
-      })
+      mergeFound(existing, f, now)
       continue
     }
-    const record: JobRecord = { ...f, id: randomUUID().slice(0, 8), status: 'found', log: [{ at: now, msg: `Found on ${f.source}` }], createdAt: now, updatedAt: now }
+    const record = newRecord(f, now)
     jobs.push(record)
     byKey.set(f.key, record)
     byLoose.set(dedupeKey(f), record)
@@ -423,11 +492,58 @@ export function upsertJobs(
   })
 }
 
+function newRecord(f: Omit<JobRecord, 'id' | 'status' | 'log' | 'createdAt' | 'updatedAt'>, now: string): JobRecord {
+  return { ...f, id: randomUUID().slice(0, 8), status: 'found', log: [{ at: now, msg: `Found on ${f.source}` }], createdAt: now, updatedAt: now }
+}
+
+/** Refresh listing details but never clobber application progress */
+function mergeFound(existing: JobRecord, f: Omit<JobRecord, 'id' | 'status' | 'log' | 'createdAt' | 'updatedAt'>, now: string): JobRecord {
+  // Keep a live check result unless the fresh listing is flagged
+  const keepCheck = existing.verification?.live && f.verification?.status !== 'flagged'
+  return Object.assign(existing, {
+    ...f, status: existing.status, updatedAt: now,
+    attempts: existing.attempts, verification: keepCheck ? existing.verification : f.verification ?? existing.verification,
+    // Follows the latest listing: pinning a board ("ashby:acme") must clear an earlier
+    // unconfirmed name match, or autopilot would never apply to that job
+    boardUnconfirmed: f.boardUnconfirmed || undefined,
+  })
+}
+
+/**
+ * Change one job atomically: `change` mutates it and returns false to leave it
+ * untouched. One row in SQLite (a write transaction, safe across processes);
+ * the whole file under the user's lock in the JSON fallback.
+ */
+function changeJob(username: string, id: string, change: (job: JobRecord) => boolean): Promise<JobRecord | null> {
+  const db = jobDb(username)
+  if (db) {
+    return Promise.resolve(transaction(db, () => {
+      const job = parseJob(db.prepare('SELECT data FROM jobs WHERE id = ?').get(String(id)))
+      if (!job || !change(job)) return null
+      writeRow(db, job)
+      return job
+    }))
+  }
+  return withLock(userDir(username), async () => {
+    const jobs = await listJobs(username)
+    const job = jobs.find(j => j.id === id)
+    if (!job || !change(job)) return null
+    await saveJobs(username, jobs)
+    return job
+  })
+}
+
+function applyPatch(job: JobRecord, patch: Partial<JobRecord>, logMsg?: string): void {
+  const now = new Date().toISOString()
+  Object.assign(job, patch, { updatedAt: now })
+  if (logMsg) job.log = [...(job.log || []), { at: now, msg: logMsg }].slice(-50)
+}
+
 /**
  * Atomically move a job into `patch.status` only if it is currently in one of
- * `from` (compare-and-set under the user's write lock). Returns null when
+ * `from` (compare-and-set in one write transaction). Returns null when
  * another request got there first — e.g. two "approve"s, or autopilot and the
- * user, racing to submit the same application.
+ * user, racing to submit the same application, in this or another process.
  */
 export function claimJob(
   username: string,
@@ -436,15 +552,10 @@ export function claimJob(
   patch: Partial<JobRecord>,
   logMsg?: string,
 ): Promise<JobRecord | null> {
-  return withLock(userDir(username), async () => {
-    const jobs = await listJobs(username)
-    const job = jobs.find(j => j.id === id)
-    if (!job || !from.includes(job.status)) return null
-    const now = new Date().toISOString()
-    Object.assign(job, patch, { updatedAt: now })
-    if (logMsg) job.log = [...(job.log || []), { at: now, msg: logMsg }].slice(-50)
-    await saveJobs(username, jobs)
-    return job
+  return changeJob(username, id, job => {
+    if (!from.includes(job.status)) return false
+    applyPatch(job, patch, logMsg)
+    return true
   })
 }
 
@@ -454,14 +565,5 @@ export function updateJob(
   patch: Partial<JobRecord>,
   logMsg?: string,
 ): Promise<JobRecord | null> {
-  return withLock(userDir(username), async () => {
-  const jobs = await listJobs(username)
-  const job = jobs.find(j => j.id === id)
-  if (!job) return null
-  const now = new Date().toISOString()
-  Object.assign(job, patch, { updatedAt: now })
-  if (logMsg) job.log = [...(job.log || []), { at: now, msg: logMsg }].slice(-50)
-  await saveJobs(username, jobs)
-  return job
-  })
+  return changeJob(username, id, job => { applyPatch(job, patch, logMsg); return true })
 }

@@ -329,6 +329,44 @@ class BridgeContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Upload your CV first", response.json()["detail"])
 
+    def test_jobs_use_the_web_servers_jobs_db_once_it_exists(self):
+        import sqlite3
+
+        user = "contract-db"
+        profile_dir = server._JOB_HUNTER_DIR / user
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(str(profile_dir / "jobs.db"))
+        db.execute(
+            "CREATE TABLE jobs (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, key TEXT NOT NULL, "
+            "loose TEXT NOT NULL, source TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, updated_at TEXT NOT NULL, data TEXT NOT NULL)"
+        )
+        for job_id, title in (("db-1", "Backend Engineer"), ("db-2", "Designer")):
+            job = {"id": job_id, "title": title, "status": "found"}
+            db.execute(
+                "INSERT INTO jobs (id, key, loose, status, updated_at, data) VALUES (?, ?, ?, ?, ?, ?)",
+                (job_id, job_id, job_id, "found", "", json.dumps(job)),
+            )
+        db.commit()
+        db.close()
+
+        loaded = self.client.get(f"/api/jobs?user_id={user}", headers=self.headers)
+        self.assertEqual([job["id"] for job in loaded.json()["jobs"]], ["db-1", "db-2"])
+
+        dismissed = self.client.post(
+            "/api/jobs",
+            headers=self.headers,
+            json={"user_id": user, "action": "dismiss", "id": "db-2"},
+        )
+        self.assertEqual(dismissed.status_code, 200)
+        db = sqlite3.connect(str(profile_dir / "jobs.db"))
+        rows = dict(db.execute("SELECT id, status FROM jobs").fetchall())
+        data = json.loads(db.execute("SELECT data FROM jobs WHERE id = 'db-2'").fetchone()[0])
+        db.close()
+        self.assertEqual(rows, {"db-1": "found", "db-2": "dismissed"})
+        self.assertEqual(data["status"], "dismissed")
+        # Live data stays in jobs.db: no stale jobs.json is written next to it
+        self.assertFalse((profile_dir / "jobs.json").exists())
+
     def test_workflow_update_without_status_preserves_status(self):
         created = self.client.post(
             "/api/workflows",

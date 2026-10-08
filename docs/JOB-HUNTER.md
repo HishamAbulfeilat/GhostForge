@@ -252,6 +252,26 @@ Autopilot runs on the machine that hosts GhostForge. You don't have to sit at
 it: pair your phone (see [Remote access](REMOTE-ACCESS.md)) to check results,
 answer questions or take over a stuck application.
 
+## Where your data is stored
+
+Each user's Job Hunter data lives in `~/.ghostforge/jobs/<user>/`: the CV
+and settings in `profile.json`, and jobs with their application state in
+`jobs.db`, a SQLite database (Node's built-in `node:sqlite`, Node.js 22.13 or
+newer; no extra package). Each job is one row, so updating one application
+(for example a live log line) no longer rewrites every job, and two GhostForge
+server processes on the same folder can't lose each other's changes. Starting
+an operation on a job (prepare, apply, answer, dismiss) is refused while
+another process is running one on the same job; an operation left by a
+process that died is taken over.
+
+The first start after updating moves an existing `jobs.json` into `jobs.db`
+in one step and keeps the old file as `jobs.json.migrated-<time>.bak`. An
+unreadable `jobs.json` is kept as `jobs.json.unreadable-<time>.bak`. Nothing
+is deleted. On an older Node.js without `node:sqlite` (or with
+`JOB_HUNTER_STORE=json`), jobs stay in `jobs.json` as before; once `jobs.db`
+exists, that setup reports an error instead of showing an empty list. The
+Python bridge's `/api/jobs` reads and updates `jobs.db` too.
+
 Browser data, including the LinkedIn and Workday sign-ins, lives per user in
 `~/.ghostforge/jobs/<user>/browser`. Set `JOB_HUNTER_BROWSER` to use a
 specific Chrome or Edge.

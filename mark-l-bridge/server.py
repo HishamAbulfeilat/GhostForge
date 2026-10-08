@@ -2054,7 +2054,31 @@ def _job_hunter_profile(user_id: str) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _job_hunter_db(user_id: str):
+    """The web server's jobs.db (SQLite, one row per job) once it exists; else None (jobs.json)."""
+    path = _job_hunter_user_dir(user_id) / "jobs.db"
+    if not path.exists():
+        return None
+    import sqlite3
+
+    conn = sqlite3.connect(str(path), timeout=10, isolation_level=None)
+    conn.execute("PRAGMA busy_timeout = 10000")
+    return conn
+
+
 def _job_hunter_jobs(user_id: str) -> list[dict[str, Any]]:
+    conn = _job_hunter_db(user_id)
+    if conn is not None:
+        try:
+            jobs = []
+            for (data,) in conn.execute("SELECT data FROM jobs ORDER BY seq"):
+                try:
+                    jobs.append(json.loads(data))
+                except ValueError:
+                    continue
+            return jobs
+        finally:
+            conn.close()
     path = _job_hunter_user_dir(user_id) / "jobs.json"
     jobs = _job_hunter_read_json(path, [])
     return jobs if isinstance(jobs, list) else []
@@ -2065,9 +2089,29 @@ def _bridge_jobs(user_id: str) -> list[dict[str, Any]]:
     return jobs if isinstance(jobs, list) else _job_hunter_jobs(user_id)
 
 
-def _persist_jobs(user_id: str, jobs: list[dict[str, Any]]) -> None:
+def _persist_jobs(user_id: str, jobs: list[dict[str, Any]], changed: Optional[list[dict[str, Any]]] = None) -> None:
     _write_store("jobs", user_id, jobs)
-    _job_hunter_write_json(_job_hunter_user_dir(user_id) / "jobs.json", jobs)
+    conn = _job_hunter_db(user_id)
+    if conn is None:
+        _job_hunter_write_json(_job_hunter_user_dir(user_id) / "jobs.json", jobs)
+        return
+    # jobs.db is shared with the web server: write only the jobs this request
+    # changed, one row each, so its own concurrent updates to other jobs survive.
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for job in jobs if changed is None else changed:
+            if not job.get("id"):
+                continue
+            conn.execute(
+                "UPDATE jobs SET status = ?, updated_at = ?, data = ? WHERE id = ?",
+                (str(job.get("status") or "found"), str(job.get("updatedAt") or ""), json.dumps(job), str(job["id"])),
+            )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
 
 
 def _job_hunter_missing_fields(profile: dict[str, Any]) -> list[str]:
@@ -2114,6 +2158,7 @@ def _job_hunter_matches(job: dict[str, Any], terms: list[str]) -> bool:
 def _job_hunter_prepare_matches(user_id: str, jobs: list[dict[str, Any]], terms: list[str], limit: int) -> tuple[int, int]:
     matched = [job for job in jobs if not job.get("status") == "dismissed" and _job_hunter_matches(job, terms)]
     prepared = 0
+    changed: list[dict[str, Any]] = []
     for job in matched:
         if prepared >= limit:
             break
@@ -2123,9 +2168,10 @@ def _job_hunter_prepare_matches(user_id: str, jobs: list[dict[str, Any]], terms:
         job.setdefault("log", [])
         job["log"].append({"at": _iso_now(), "msg": "Bridge autopilot prepared for review"})
         job["updatedAt"] = _iso_now()
+        changed.append(job)
         prepared += 1
     if prepared:
-        _persist_jobs(user_id, jobs)
+        _persist_jobs(user_id, jobs, changed)
     return len(matched), prepared
 
 
@@ -2174,7 +2220,7 @@ def jobs_post(req: JobActionRequest):
                 job.setdefault("log", []).append({"at": _iso_now(), "msg": "Bridge search prepared for approval"})
                 prepared += 1
         if queue:
-            _persist_jobs(user_id, jobs)
+            _persist_jobs(user_id, jobs, queue)
         result = {"terms": terms, "found": len(jobs), "matched": len(matched), "added": len(matched), "prepared": prepared}
         return {"result": result}
     if req.action in ("prepare", "approve", "dismiss"):
@@ -2183,7 +2229,7 @@ def jobs_post(req: JobActionRequest):
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         job["status"] = {"prepare": "ready", "approve": "submitted", "dismiss": "dismissed"}[req.action]
-        _persist_jobs(user_id, jobs)
+        _persist_jobs(user_id, jobs, [job])
         return {"job": job}
     if req.action == "autopilot":
         profile = _job_hunter_profile(user_id)
