@@ -11,7 +11,8 @@ export type CliWorldState =
 
 /**
  * Polls the CLI-session world snapshot at `endpoint` while the page is
- * visible. Keeps the last good snapshot when a refresh fails.
+ * visible, and refreshes as soon as it becomes visible again. Keeps the last
+ * good snapshot when a refresh fails.
  */
 export function useCliWorld(endpoint: string, { paused = false, refreshMs = 5000 } = {}): CliWorldState {
   const [state, setState] = useState<CliWorldState>({ status: 'loading' })
@@ -42,7 +43,13 @@ export function useCliWorld(endpoint: string, { paused = false, refreshMs = 5000
     void load()
     const tick = () => { if (document.visibilityState !== 'hidden') void load() }
     const timer = setInterval(tick, refreshMs)
-    return () => clearInterval(timer)
+    // Back on the tab: refresh now instead of showing a stale world for up to refreshMs.
+    const onVisible = () => { if (document.visibilityState === 'visible') void load() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [load, paused, refreshMs])
 
   return state

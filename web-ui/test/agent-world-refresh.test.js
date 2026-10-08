@@ -33,3 +33,10 @@ test('polling pauses while the document is hidden', () => {
 test('page uses logical Tailwind utilities only', () => {
   assert.doesNotMatch(source, /\b(?:ml|mr|pl|pr)-\d|text-left|text-right/)
 })
+
+test('CLI sessions refresh as soon as the tab is visible again, and clean up', () => {
+  const api = fs.readFileSync(path.resolve(__dirname, '../app/agent-world/shared/api.ts'), 'utf8')
+  const hook = api.slice(api.indexOf('export function useCliWorld'), api.indexOf('export function useCliSessionDetail'))
+  assert.match(hook, /addEventListener\('visibilitychange', onVisible\)/)
+  assert.match(hook, /return \(\) => \{[\s\S]*clearInterval\(timer\)[\s\S]*removeEventListener\('visibilitychange', onVisible\)/)
+})
