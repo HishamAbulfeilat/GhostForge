@@ -986,6 +986,39 @@
         "review-first",
         "mit"
       ]
+    },
+    {
+      "id": "claudemod-directory",
+      "name": "ClaudeMod — Claude Code mod directory",
+      "type": "template",
+      "category": "Claude Code Mods",
+      "description": "Community directory of Claude Code mods, skills, MCP servers, hooks, agents and plugins. Each listing links to its GitHub repo. Mods are not sandboxed: install only from authors you trust.",
+      "source": "claudemod",
+      "url": "https://www.claudemod.com/",
+      "tags": [
+        "claude-code",
+        "mods",
+        "plugins",
+        "hooks",
+        "directory"
+      ],
+      "installed": false
+    },
+    {
+      "id": "claude-mods-directory",
+      "name": "Claude Mods — in-process Claude Code mods",
+      "type": "template",
+      "category": "Claude Code Mods",
+      "description": "Unofficial directory of Claude Code mods (Claude Code 2.1.287+). Install one with: claude plugin marketplace add <owner>/<repo>, then claude plugin install <mod>@<marketplace>. Mods are not sandboxed: review with claude plugin validate first.",
+      "source": "claude-mods",
+      "url": "https://claude-mods.com/",
+      "tags": [
+        "claude-code",
+        "mods",
+        "plugins",
+        "directory"
+      ],
+      "installed": false
     }
   ]
 }
