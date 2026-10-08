@@ -83,7 +83,8 @@ export default function Minimap({
       aria-label={label}
       title="Minimap: click or drag to move the view"
       className="absolute bottom-2 end-2 z-10 cursor-crosshair touch-none rounded-md border border-white/30 shadow-lg"
-      style={{ width }}
+      // On a phone-width scene a fixed 168px map would cover half of it.
+      style={{ width, maxWidth: '35%' }}
       onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); pan(e) }}
       onPointerMove={e => { if (e.buttons) pan(e) }}
     />

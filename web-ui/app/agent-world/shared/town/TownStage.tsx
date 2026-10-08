@@ -125,7 +125,8 @@ export default function TownStage({
     <div className="min-w-0">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
         <AmbienceToggle enabled={ambience} onChange={setAmbience} />
-        <span className="text-gf-muted">Drag to pan, scroll to zoom, click a character for details.</span>
+        {/* Hidden on phones: a wrapped second line would push GhostForge's framed scene past its iframe. */}
+        <span className="hidden text-gf-muted sm:inline">Drag to pan, scroll to zoom, click a character for details.</span>
       </div>
       <div className="relative">
         <Suspense fallback={<div role="status" className="grid h-[min(70dvh,680px)] min-h-80 place-items-center rounded-xl border border-gf-line bg-gf-bar text-sm text-gf-muted">Loading AI Town…</div>}>
