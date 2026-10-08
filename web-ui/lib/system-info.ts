@@ -3,11 +3,9 @@
  * Works on macOS, Windows, and Linux using os + child_process built-ins.
  * Never throws — every getter returns safe defaults on failure.
  */
-import { exec, execSync } from 'child_process'
+import { execSync } from 'child_process'
+import fs from 'fs'
 import os from 'os'
-import { promisify } from 'util'
-
-const execAsync = promisify(exec)
 
 export interface MetricStat {
   usedGB: number
@@ -41,6 +39,24 @@ const safeParseInt = (value: string | undefined): number => {
 const DEFAULT_RAM: MetricStat = { usedGB: 0, totalGB: 0, pct: 0 }
 const DEFAULT_DISK: MetricStat = { usedGB: 0, totalGB: 0, pct: 0 }
 const NO_BATTERY: BatteryStat = { pct: null, charging: false, present: false }
+
+// Disk usage and battery level change slowly but cost a blocking child process
+// (df / wmic / pmset) each. The metrics SSE stream polls every 4 s per open tab
+// and the dashboard polls too, so reuse a reading for a short while.
+const SLOW_METRIC_TTL_MS = 30_000
+
+function cachedFor<T>(ttlMs: number, read: () => T): () => T {
+  let value: T
+  let readAt = -Infinity
+  return () => {
+    const now = Date.now()
+    if (now - readAt >= ttlMs) {
+      value = read()
+      readAt = now
+    }
+    return value
+  }
+}
 
 // ─── CPU ─────────────────────────────────────────────────────────────────────
 
@@ -91,7 +107,9 @@ export function getRAM(): MetricStat {
 
 // ─── Disk ────────────────────────────────────────────────────────────────────
 
-export function getDisk(): MetricStat {
+export const getDisk: () => MetricStat = cachedFor(SLOW_METRIC_TTL_MS, readDisk)
+
+function readDisk(): MetricStat {
   try {
     if (process.platform === 'win32') {
       // Prefer wmic; fall back to PowerShell CIM when wmic is unavailable
@@ -151,7 +169,9 @@ export function getDisk(): MetricStat {
 
 // ─── Battery ─────────────────────────────────────────────────────────────────
 
-export function getBattery(): BatteryStat {
+export const getBattery: () => BatteryStat = cachedFor(SLOW_METRIC_TTL_MS, readBattery)
+
+function readBattery(): BatteryStat {
   try {
     if (process.platform === 'darwin') {
       const out = execSync('pmset -g batt', { timeout: 2000 }).toString()
@@ -175,11 +195,13 @@ export function getBattery(): BatteryStat {
       }
       return NO_BATTERY
     }
-    // Linux: /sys/class/power_supply
-    const capacity = execSync('cat /sys/class/power_supply/BAT0/capacity 2>/dev/null', { timeout: 1000 }).toString().trim()
+    // Linux: /sys/class/power_supply (plain files, no need to spawn `cat`)
+    const readSys = (name: string) => {
+      try { return fs.readFileSync(`/sys/class/power_supply/BAT0/${name}`, 'utf8').trim() } catch { return '' }
+    }
+    const capacity = readSys('capacity')
     if (capacity) {
-      const status = execSync('cat /sys/class/power_supply/BAT0/status 2>/dev/null', { timeout: 1000 }).toString().trim()
-      return { pct: safeParseInt(capacity), charging: status === 'Charging', present: true }
+      return { pct: safeParseInt(capacity), charging: readSys('status') === 'Charging', present: true }
     }
     return NO_BATTERY
   } catch {
