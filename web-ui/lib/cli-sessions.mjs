@@ -56,6 +56,9 @@ function contextLimit(model) {
   return 200_000
 }
 
+/** Folders whose changes mean a new snapshot (watched while a page streams). */
+export const WATCH_ROOTS = [{ dir: CLAUDE_DIR, recursive: true }, { dir: COPILOT_DIR, recursive: false }]
+
 // --- Claude Code: incremental transcript parser ------------------------------
 
 /** One entry per transcript file: parse position plus accumulated metadata. */

@@ -173,7 +173,7 @@ export default function AgentWorldPage() {
   const changeWorld = useCallback((view: AgentWorldView) => setWorld(view), [])
   // CLI sessions: a second, read-only picture of this machine's Claude Code and
   // Copilot sessions. They join every world as extra characters, marked `cli`.
-  const cli = useCliWorld(CLI_ENDPOINT, { refreshMs: 10_000 })
+  const cli = useCliWorld(CLI_ENDPOINT, { refreshMs: 10_000, streamUrl: `${CLI_ENDPOINT}?stream=1` })
   const now = useNow()
   const [cliScope, setCliScope] = useState<WorldScope>('live')
   const [cliSelected, setCliSelected] = useState<string>()

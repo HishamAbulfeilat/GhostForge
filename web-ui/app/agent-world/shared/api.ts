@@ -9,14 +9,26 @@ export type CliWorldState =
   | { status: 'disabled' }
   | { status: 'error'; message: string }
 
+/** How long to wait before trying the push stream again after it failed. */
+const STREAM_RETRY_MS = 30_000
+
 /**
- * Polls the CLI-session world snapshot at `endpoint` while the page is
- * visible, and refreshes as soon as it becomes visible again. Keeps the last
- * good snapshot when a refresh fails.
+ * The CLI-session world snapshot at `endpoint`. With `streamUrl` (Server-Sent
+ * Events) changes are pushed as they happen; polling every `refreshMs` stays
+ * on as the fallback and only fetches when the stream has been quiet for
+ * longer than that (not connected, failed or not supported). Both stop while
+ * the page is hidden and catch up as soon as it is visible again. Keeps the
+ * last good snapshot when a refresh fails.
  */
-export function useCliWorld(endpoint: string, { paused = false, refreshMs = 5000 } = {}): CliWorldState {
+export function useCliWorld(endpoint: string, { paused = false, refreshMs = 5000, streamUrl }: { paused?: boolean; refreshMs?: number; streamUrl?: string } = {}): CliWorldState {
   const [state, setState] = useState<CliWorldState>({ status: 'loading' })
   const inFlight = useRef(false)
+  // When the stream last delivered anything (0 = never / not connected).
+  const lastPush = useRef(0)
+
+  const accept = useCallback((world: World) => {
+    setState({ status: 'loaded', world })
+  }, [])
 
   const load = useCallback(async () => {
     if (inFlight.current) return
@@ -28,29 +40,68 @@ export function useCliWorld(endpoint: string, { paused = false, refreshMs = 5000
         if (body?.disabled) { setState({ status: 'disabled' }); return }
       }
       if (!r.ok) throw new Error(`CLI sessions request failed (${r.status})`)
-      const world = await r.json() as World
-      setState({ status: 'loaded', world })
+      accept(await r.json() as World)
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Unable to load CLI sessions.'
       setState(prev => prev.status === 'loaded' ? { ...prev, error: message } : { status: 'error', message })
     } finally {
       inFlight.current = false
     }
-  }, [endpoint])
+  }, [endpoint, accept])
 
   useEffect(() => {
     if (paused) return
+    let source: EventSource | null = null
+    let retry: ReturnType<typeof setTimeout> | undefined
+    const closeStream = () => {
+      clearTimeout(retry)
+      source?.close()
+      source = null
+      lastPush.current = 0
+    }
+    const openStream = () => {
+      if (!streamUrl || typeof EventSource === 'undefined' || source || document.visibilityState === 'hidden') return
+      const es = new EventSource(streamUrl)
+      source = es
+      es.addEventListener('world', event => {
+        lastPush.current = Date.now()
+        try { accept(JSON.parse((event as MessageEvent).data) as World) } catch { /* ignore a bad frame */ }
+      })
+      es.addEventListener('heartbeat', event => {
+        lastPush.current = Date.now()
+        let heartbeat: string | undefined
+        try { heartbeat = JSON.parse((event as MessageEvent).data)?.heartbeat } catch { /* ignore a bad frame */ }
+        if (heartbeat) setState(prev => prev.status === 'loaded' ? { ...prev, world: { ...prev.world, heartbeat }, error: undefined } : prev)
+      })
+      es.onerror = () => {
+        // CONNECTING = the browser retries by itself; CLOSED = refused (auth,
+        // 503, not an event stream): poll and try the stream again later.
+        if (es.readyState !== EventSource.CLOSED) return
+        closeStream()
+        retry = setTimeout(openStream, STREAM_RETRY_MS)
+      }
+    }
+
     void load()
-    const tick = () => { if (document.visibilityState !== 'hidden') void load() }
+    openStream()
+    const tick = () => {
+      if (document.visibilityState === 'hidden') return
+      if (Date.now() - lastPush.current < refreshMs * 1.5) return // the stream is live
+      void load()
+    }
     const timer = setInterval(tick, refreshMs)
-    // Back on the tab: refresh now instead of showing a stale world for up to refreshMs.
-    const onVisible = () => { if (document.visibilityState === 'visible') void load() }
+    // Back on the tab: refresh now instead of showing a stale world for up to
+    // refreshMs, and reopen the stream; hidden tabs hold no stream open.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') { void load(); openStream() } else closeStream()
+    }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
+      closeStream()
     }
-  }, [load, paused, refreshMs])
+  }, [load, accept, paused, refreshMs, streamUrl])
 
   return state
 }

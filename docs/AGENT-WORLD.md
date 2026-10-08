@@ -52,6 +52,14 @@ sessions. They come from `GET /api/agents/cli-sessions`, which requires
   Agent Office next to the runtime agents, each tagged with its source. Use the
   Live / Today toggle next to the world switcher to include sessions that
   finished recently.
+- **Live updates**: the page opens `GET /api/agents/cli-sessions?stream=1`
+  (Server-Sent Events, same guards as the JSON route). The server watches the
+  transcript folders only while a page is connected and also rebuilds every
+  5 s; it sends a `world` event when the snapshot changed and a small
+  `heartbeat` event otherwise, so a session that newly needs you shows up within
+  about a second. Streams end after 10 minutes (the browser reconnects and is
+  authorised again) and at most 16 run at once. Polling every 10 s stays on as
+  the fallback whenever the stream is not delivering.
 - The collector (`web-ui/lib/cli-sessions.mjs`) reads `~/.claude/projects`
   transcripts and `~/.copilot/session-store.db` (read-only) on the server's
   machine. Transcripts are parsed incrementally from their last byte offset.
