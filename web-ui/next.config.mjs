@@ -31,7 +31,9 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react'],
   },
   async headers() {
-    return [{ source: '/:path*', headers: [{ key: 'X-Frame-Options', value: 'DENY' }, { key: 'X-Content-Type-Options', value: 'nosniff' }, { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' }, { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' }] },
+    // Permissions-Policy: JARVIS voice (getUserMedia / SpeechRecognition) and
+    // vision need the mic and camera on our own origin; other origins get neither.
+    return [{ source: '/:path*', headers: [{ key: 'X-Frame-Options', value: 'DENY' }, { key: 'X-Content-Type-Options', value: 'nosniff' }, { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' }, { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' }] },
       // Agent Town renders in an iframe on /agent-world (React 18 for @pixi/react 7); allow same-origin framing for that page only.
       { source: '/agent-world/town-frame', headers: [{ key: 'X-Frame-Options', value: 'SAMEORIGIN' }, { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" }] }]
   },
