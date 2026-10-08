@@ -24,3 +24,14 @@ test('collects cumulative browser recognition results without dropping words', (
 
   assert.equal(collectRecognitionTranscript(results), 'open the browser please')
 })
+
+test('Permissions-Policy lets the app itself use the mic and camera that JARVIS voice needs', async () => {
+  const path = require('node:path')
+  const { pathToFileURL } = require('node:url')
+  const { default: config } = await import(pathToFileURL(path.join(__dirname, '..', 'next.config.mjs')).href)
+  const rules = await config.headers()
+  const policy = rules.find(r => r.source === '/:path*').headers.find(h => h.key === 'Permissions-Policy').value
+  assert.match(policy, /microphone=\(self\)/)
+  assert.match(policy, /camera=\(self\)/)
+  assert.match(policy, /geolocation=\(\)/)
+})

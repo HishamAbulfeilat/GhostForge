@@ -7906,19 +7906,10 @@ Integration: Standardize GhostForge/Jarvis behavior through skills, rules, and h
 }
 
 async function main() {
-  // Silently ensure officecli is installed
-  try {
-    const { execSync: _exec } = await import('child_process');
-    try { _exec('officecli --version', { stdio: 'ignore', timeout: 3000 }); }
-    catch {
-      // Not installed — install quietly in background
-      import('child_process').then(({ spawn }) => {
-        const p = spawn('bash', ['-c', 'curl -fsSL https://d.officecli.ai/install.sh | bash'], { stdio: 'ignore', detached: true });
-        p.unref();
-      });
-    }
-  } catch {}
-
+  // OfficeCLI is installed on request from Skills → OfficeCLI (with a confirm
+  // prompt). Startup used to run `officecli --version` synchronously and, when
+  // missing, pipe a remote install script to bash in the background on every
+  // launch without asking.
   try {
     while (true) {
       const choice = await screenHome();
