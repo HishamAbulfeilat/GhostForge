@@ -999,6 +999,10 @@ end tell`
         const args = splitCommandLine(cmd)
         const bin = args.shift() || ''
         if (!bin) return 'Empty command'
+        // Special-case built-in 'echo' to avoid ENOENT on minimal Windows PATH
+        if (bin === 'echo') {
+          return args.join(' ')
+        }
         const { stdout, stderr } = await runSpawn(bin, args, { timeout: 12000 })
         return ((stdout + stderr).trim() || 'Command completed').slice(0, 1000)
       } catch (e: unknown) {

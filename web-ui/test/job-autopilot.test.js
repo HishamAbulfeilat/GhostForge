@@ -93,6 +93,25 @@ async function setupUser(user, autopilot) {
   })
 }
 
+test('AI writing outage leaves drafts ready for manual approval, never auto-submitted', async () => {
+  const user = 'ai-outage'
+  await setupUser(user, { enabled: true, dailyLimit: 5, mode: 'full', minScore: 75 })
+  const { calls, approve } = recorder()
+  const generate = async opts => {
+    if (/job evaluation/i.test(opts.system || '')) return fakeAi(opts)
+    throw new Error('No AI model answered')
+  }
+  const report = await ap.runAutopilot(user, { force: true, generate, approve })
+  assert.equal(report.ran, true)
+  assert.equal(report.prepared, 2)
+  assert.equal(report.submitted, 0)
+  assert.equal(calls.length, 0)
+  const drafts = (await jh.listJobs(user)).filter(j => j.status === 'ready')
+  assert.equal(drafts.length, 2)
+  assert.ok(drafts.every(j => j.preparationWarning && j.tailoredResume && j.coverLetter))
+  assert.match((await jh.getProfile(user)).autopilot.lastResult, /draft\(s\) need your approval/)
+})
+
 test('the per-user model choice is saved, and null follows Settings', async () => {
   const user = 'modeluser'
   assert.equal((await jh.getProfile(user)).model, null)
@@ -213,12 +232,13 @@ test('answering a job\'s questions saves them for every later application and re
   await jh.updateJob(user, job.id, { status: 'needs_user', questions: [{ label: 'Years with React *', type: 'number', options: [] }, { label: 'Notice period', type: 'text', options: [] }] }, 'test')
 
   const partial = await jh.answerQuestions(user, job.id, { 'Years with React *': '5' })
-  assert.equal(partial.status, 'ready')
+  assert.equal(partial.status, 'needs_user')
   assert.deepEqual(partial.questions.map(q => q.label), ['Notice period'])
   assert.equal((await jh.getProfile(user)).customAnswers['Years with React'], '5')
 
   const done = await jh.answerQuestions(user, job.id, { 'Notice period': '1 month' })
   assert.equal(done.questions, undefined)
+  assert.equal(done.status, 'ready')
   await assert.rejects(jh.answerQuestions(user, job.id, { 'Notice period': '   ' }), /at least one/)
   await assert.rejects(jh.answerQuestions(user, 'missing', { a: 'b' }), /not found/)
 })

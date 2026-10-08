@@ -23,7 +23,9 @@ test('resolveWorkspaceRoot blocks symlink escapes', () => {
   fs.symlinkSync(outside, escape, 'junction')
 
   assert.throws(() => resolveWorkspaceRoot(root, escape), /Workspace escape detected/)
-  assert.equal(resolveWorkspaceRoot(root, path.join(root, 'inside')), path.join(root, 'inside'))
+  assert.equal(resolveWorkspaceRoot(root, path.join(root, 'inside')), path.join(fs.realpathSync(root), 'inside'))
+  fs.rmSync(root, { recursive: true, force: true })
+  fs.rmSync(outside, { recursive: true, force: true })
 })
 
 test('say defaults are applied before validation', () => {

@@ -278,7 +278,7 @@ test('SmartRecruiters: "I\'m interested", then a form built from shadow-DOM web 
   } finally { await page.close() }
 })
 
-test('Workable: consent checkbox, optional summary, cover letter textarea', async t => {
+test('Workable: fills the form but leaves the privacy consent to the user', async t => {
   if (!browser) return t.skip('no Chromium available')
   const html = `<!doctype html><body><form data-ui="application-form">
     <div data-ui="firstname"><label for="firstname">First name*</label><input id="firstname" required></div>
@@ -291,9 +291,11 @@ test('Workable: consent checkbox, optional summary, cover letter textarea', asyn
     <button type="button" data-ui="submit" onclick="${THANKS}">Submit application</button></form></body>`
   const { outcome, page } = await runOn({ 'https://apply.workable.com/acme/j/ABC123/apply/': html }, await ctxFor())
   try {
-    assert.equal(outcome.status, 'submitted', JSON.stringify(outcome))
-    assert.ok(outcome.filled.some(l => /privacy/.test(l)), 'consent ticked')
-    assert.ok(outcome.filled.includes('Cover letter'))
+    assert.equal(outcome.status, 'needs_user', JSON.stringify(outcome))
+    assert.match(outcome.message, /did not accept terms/)
+    assert.equal(outcome.submitPressed, false)
+    assert.equal(await page.isChecked('#gdpr'), false, 'consent never ticked by GhostForge')
+    for (const f of ['First name', 'Resume upload', 'Cover letter']) assert.ok(outcome.filled.some(l => l.startsWith(f)), f)
   } finally { await page.close() }
 })
 
@@ -322,7 +324,7 @@ test('Taleo: a sign-in page is never filled; it comes back to the user', async t
   const { outcome, page } = await runOn({ 'https://acme.taleo.net/careersection/iam/accessmanagement/login.jsf?lang=en': html }, await ctxFor())
   try {
     assert.equal(outcome.status, 'needs_user')
-    assert.match(outcome.message, /sign in/)
+    assert.match(outcome.message, /sign-in|sign in/i)
     assert.equal(await page.inputValue('#u'), '')
   } finally { await page.close() }
 })
@@ -344,7 +346,7 @@ test('BambooHR: "Apply for This Job" opens the form; native selects and consent'
   } finally { await page.close() }
 })
 
-test('Teamtailor: an upload button that creates its file input on click', async t => {
+test('Teamtailor: an upload button that creates its file input on click; terms stay with the user', async t => {
   if (!browser) return t.skip('no Chromium available')
   const html = `<!doctype html><body><form>
     <label for="first_name">First name *</label><input id="first_name" required>
@@ -355,8 +357,10 @@ test('Teamtailor: an upload button that creates its file input on click', async 
     <button type="button" onclick="if(document.getElementById('cvfile')?.files.length)${THANKS}">Send application</button></form></body>`
   const { outcome, page } = await runOn({ 'https://acme.teamtailor.com/jobs/123-frontend-engineer/applications/new': html }, await ctxFor())
   try {
-    assert.equal(outcome.status, 'submitted', JSON.stringify(outcome))
+    assert.equal(outcome.status, 'needs_user', JSON.stringify(outcome))
     assert.ok(outcome.filled.includes('Resume upload'))
+    assert.equal(await page.isChecked('#terms'), false, 'terms never ticked by GhostForge')
+    assert.doesNotMatch(await page.evaluate(() => document.body.innerText), /Thank you/)
   } finally { await page.close() }
 })
 

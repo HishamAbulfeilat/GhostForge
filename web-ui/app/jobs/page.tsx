@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ApplicantData, AutopilotSettings, JobPreferences, JobRecord, ModelChoice } from '@/lib/job-hunter/store'
 import { CvImprover } from '@/components/career/CvImprover'
 import { GithubProfileSetup } from '@/components/career/GithubProfileSetup'
+import type { ApplicationActivity } from '@/lib/job-hunter/live'
+import type { AccountMode } from '@/lib/job-hunter/accounts'
 
 // Layout and tokens follow the "GhostForge Job Hunter & Setup" Claude Design canvas.
 
@@ -77,7 +79,12 @@ export default function JobsPage() {
   const [notice, setNotice] = useState<{ tone: 'info' | 'error'; text: string } | null>(null)
   const [lastSearch, setLastSearch] = useState<SearchResult | null>(null)
   const [showDetails, setShowDetails] = useState(false)
+  const [batchIds, setBatchIds] = useState<string[]>([])
+  const [batchReview, setBatchReview] = useState(false)
+  const [batchProgress, setBatchProgress] = useState('')
+  const [batchResults, setBatchResults] = useState<Array<{ id: string; title: string; status: string; message: string }>>([])
   const fileRef = useRef<HTMLInputElement>(null)
+  const operationRef = useRef(false)
 
   // Editable preference fields (comma-separated inputs)
   const [roles, setRoles] = useState('')
@@ -123,9 +130,26 @@ export default function JobsPage() {
     }).catch(e => setNotice({ tone: 'error', text: e.message }))
   }, [load])
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'hidden') return
+      void load().catch(e => setNotice({ tone: 'error', text: `Could not refresh applications: ${e instanceof Error ? e.message : String(e)}` }))
+    }, 10_000)
+    return () => clearInterval(timer)
+  }, [load])
+
   const run = async (label: string, fn: () => Promise<void>) => {
+    if (operationRef.current) {
+      setNotice({ tone: 'error', text: 'Another operation is running. Wait for it to finish before starting another.' })
+      return
+    }
+    operationRef.current = true
     setBusy(label); setNotice(null)
-    try { await fn() } catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : String(e) }) } finally { setBusy('') }
+    try { await fn() } catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : String(e) }) } finally {
+      operationRef.current = false
+      setBusy('')
+      setBatchProgress('')
+    }
   }
 
   const savePreferences = () => api('/api/jobs/profile', {
@@ -163,18 +187,63 @@ export default function JobsPage() {
   })
 
   const act = (action: 'prepare' | 'approve' | 'dismiss', id: string) => run(`${action}:${id}`, async () => {
-    const r = await api<{ message?: string }>('/api/jobs', {
+    const r = await api<{ job?: JobRecord; message?: string }>('/api/jobs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }),
     })
     await load()
     if (action === 'dismiss') setSelected(null)
-    if (r.message) setNotice({ tone: 'info', text: r.message })
+    if (action === 'prepare') {
+      setTab('waiting')
+      setSelected(id)
+      setNotice({ tone: 'info', text: r.job?.preparationWarning || 'Application prepared. Review the CV, cover letter and answers, then approve to apply.' })
+    }
+    if (action === 'approve' && r.job?.status === 'submitted') setTab('applied')
+    if (r.message) setNotice({ tone: r.job?.status === 'failed' ? 'error' : 'info', text: r.message })
+  })
+
+  const batchIdSet = useMemo(() => new Set(batchIds), [batchIds])
+  const batchJobs = jobs.filter(job => batchIdSet.has(job.id))
+  const batchCanApply = batchJobs.length > 0 && batchJobs.every(job =>
+    ['ready', 'needs_user', 'failed'].includes(job.status) && job.tailoredResume?.trim() && job.coverLetter?.trim())
+  const toggleBatch = (id: string) => {
+    setBatchReview(false)
+    setBatchIds(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id])
+  }
+  const runBatch = (action: 'prepare' | 'approve') => run(`batch:${action}`, async () => {
+    if (!batchJobs.length || (action === 'approve' && !batchCanApply)) throw new Error('Prepare all selected jobs before confirming applications.')
+    const queue = [...batchJobs]
+    setBatchReview(false)
+    setBatchResults([])
+    const results: Array<{ id: string; title: string; status: string; message: string }> = []
+    // One persistent browser profile and anonymous-model quota serve the whole batch.
+    for (const [index, job] of queue.entries()) {
+      setBatchProgress(`${action === 'prepare' ? 'Preparing' : 'Applying'} ${index + 1}/${queue.length}: ${job.title} at ${job.company}`)
+      try {
+        const result = await api<{ job: JobRecord; message?: string }>('/api/jobs', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id: job.id }),
+        })
+        results.push({ id: job.id, title: `${job.title} at ${job.company}`, status: result.job.status,
+          message: result.message || result.job.preparationWarning || 'Prepared for review; not submitted.' })
+      } catch (error) {
+        results.push({ id: job.id, title: `${job.title} at ${job.company}`, status: 'failed',
+          message: error instanceof Error ? error.message : String(error) })
+      }
+      setBatchResults([...results])
+    }
+    setBatchProgress('')
+    await load()
+    setBatchIds(action === 'prepare' ? queue.map(job => job.id) : [])
+    const failed = results.filter(result => result.status === 'failed').length
+    const submitted = results.filter(result => result.status === 'submitted').length
+    setNotice({ tone: failed ? 'error' : 'info', text: action === 'prepare'
+      ? `Preparation finished: ${results.length - failed} prepared, ${failed} failed. Review the materials before applying.`
+      : `Batch finished: ${submitted} submitted, ${results.filter(result => result.status === 'needs_user').length} need you, ${failed} failed. See each result below.` })
   })
 
   const answer = (id: string, answers: Record<string, string>) => run(`answer:${id}`, async () => {
     await api('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'answer', id, answers }) })
     await load()
-    setNotice({ tone: 'info', text: 'Saved. These answers are reused on every later application; this job goes back in the queue.' })
+    setNotice({ tone: 'info', text: 'Saved. These answers are reused on future applications. Answer every remaining question to return this job to the approval queue.' })
   })
 
   const addByUrl = () => run('add-url', async () => {
@@ -355,7 +424,7 @@ export default function JobsPage() {
             {autopilot && (
               <AutomationCard model={model} autopilot={autopilot} busy={busy} linkedin={linkedinStatus}
                 onLinkedIn={a => void linkedinAction(a)}
-                onModel={m => void saveAutomation({ model: m }, m ? `Job Hunter now uses ${m.model}.` : 'Job Hunter follows the model selected in Settings.')}
+                onModel={m => void saveAutomation({ model: m }, m ? `Job Hunter now uses ${m.model}.` : 'Job Hunter now uses automatic free models, including local and anonymous models.')}
                 onAutopilot={(a, msg) => void saveAutomation({ autopilot: a }, msg)}
                 onRunNow={() => void runAutopilotNow()} />
             )}
@@ -392,6 +461,50 @@ export default function JobsPage() {
               ))}
             </div>
 
+            <section aria-label="Multiple job applications" className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-5">
+              <h2 className="font-display text-base font-semibold">Apply to multiple jobs</h2>
+              <p className="text-sm text-gf-muted">Select jobs below. Prepare selected jobs first, then review the exact applications and explicitly confirm. Jobs run one at a time. Keep this page open until the batch finishes.</p>
+              <div className="flex flex-wrap gap-3">
+                <span className="self-center text-sm">{batchJobs.length} selected</span>
+                <button type="button" disabled={Boolean(busy) || !batchJobs.length} onClick={() => void runBatch('prepare')}
+                  className="min-h-11 rounded-xl border border-gf-line2 px-4 text-sm disabled:opacity-60">Prepare / retry AI for selected</button>
+                <button type="button" disabled={Boolean(busy) || !batchCanApply} onClick={() => setBatchReview(true)}
+                  className="min-h-11 rounded-xl bg-gf-accent px-4 text-sm font-semibold text-gf-bg disabled:opacity-60">Review selected applications</button>
+                <button type="button" disabled={Boolean(busy) || !batchIds.length} onClick={() => { setBatchIds([]); setBatchReview(false) }}
+                  className="min-h-11 px-3 text-sm disabled:opacity-60">Clear selection</button>
+              </div>
+              {batchProgress && <p role="status" className="text-sm text-sky-200">{batchProgress}</p>}
+              {batchReview && (
+                <div role="region" aria-label="Confirm selected applications" className="flex flex-col gap-3 rounded-xl border border-amber-700 p-4">
+                  <h3 className="font-semibold">Review and approve these {batchJobs.length} applications</h3>
+                  <p className="text-sm">Confirmation authorizes submission for exactly the jobs listed below. Captchas, sign-ins and unknown answers still stop for you. Review each CV, letter and answers, including any non-AI draft warnings.</p>
+                  {batchJobs.map(job => (
+                    <details key={job.id} className="rounded-lg border border-gf-line p-3">
+                      <summary className="cursor-pointer text-sm font-semibold">{job.title} at {job.company} · {job.location || 'Location not provided'}{job.preparationWarning ? ' · Non-AI draft: review required' : ''}</summary>
+                      {job.preparationWarning && <p className="my-3 text-sm text-gf-warn">{job.preparationWarning}</p>}
+                      <p className="my-3 whitespace-pre-wrap break-words text-sm">{job.description || 'Description not provided'}</p>
+                      <h4 className="mt-3 font-semibold">{job.preparationWarning ? 'Original CV' : 'Tailored CV'}</h4>
+                      <pre className="whitespace-pre-wrap break-words text-sm">{job.tailoredResume}</pre>
+                      <h4 className="mt-3 font-semibold">Cover letter</h4>
+                      <pre className="whitespace-pre-wrap break-words text-sm">{job.coverLetter}</pre>
+                      <h4 className="mt-3 font-semibold">Form answers</h4>
+                      {(job.answers || []).map(answer => <p key={answer.label} className="text-sm">{answer.label}: {answer.value}</p>)}
+                    </details>
+                  ))}
+                  <div className="flex flex-wrap gap-3">
+                    <button type="button" disabled={Boolean(busy) || !batchCanApply} onClick={() => void runBatch('approve')}
+                      className="min-h-11 rounded-xl bg-gf-accent px-4 text-sm font-semibold text-gf-bg disabled:opacity-60">Confirm & apply to {batchJobs.length} selected jobs</button>
+                    <button type="button" onClick={() => setBatchReview(false)} className="min-h-11 px-3 text-sm">Cancel batch approval</button>
+                  </div>
+                </div>
+              )}
+              {batchResults.length > 0 && (
+                <ul aria-label="Batch application results" className="flex flex-col gap-2">
+                  {batchResults.map(result => <li key={result.id} className="text-sm"><strong>{result.title}</strong> · {STATUS_VIEW[result.status]?.label || result.status}: {result.message}</li>)}
+                </ul>
+              )}
+            </section>
+
             <section className="flex min-h-0 flex-col rounded-2xl border border-gf-line bg-gf-surface">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gf-line px-5 py-4">
                 <div role="tablist" aria-label="Job lists" className="flex flex-wrap gap-2">
@@ -416,6 +529,9 @@ export default function JobsPage() {
                     return (
                       <li key={j.id} className="grid grid-cols-[64px_minmax(0,1fr)] items-center gap-4 border-b border-[#1C2130] px-5 py-[18px] sm:grid-cols-[76px_minmax(0,1fr)_auto]">
                         <div className={`flex flex-col items-center gap-1 rounded-xl py-2 ${FIT_STYLE[j.fit] || FIT_STYLE.Low}`}>
+                          <input type="checkbox" aria-label={`Select ${j.title} at ${j.company}`} checked={batchIdSet.has(j.id)}
+                            disabled={Boolean(busy) || !['found', 'ready', 'needs_user', 'failed'].includes(j.status)}
+                            onChange={() => toggleBatch(j.id)} className="h-5 w-5 accent-sky-300" />
                           <span className="font-display text-xl font-bold">{j.score}</span>
                           <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">{j.fit}</span>
                         </div>
@@ -426,15 +542,19 @@ export default function JobsPage() {
                           </span>
                           <span className="flex flex-wrap gap-x-3.5 text-sm text-gf-muted">
                             <span>{j.location || '—'}{j.remote ? ' · Remote' : ''}</span>
+                            {j.salary && <span>{j.salary}</span>}
+                            {j.postedAt && <span>Posted {postingDate(j.postedAt)}</span>}
                             <span className="font-mono">{j.source}</span>
                             <span className="font-mono capitalize">{j.ats}</span>
                             <VerifyBadge job={j} />
                           </span>
                           {j.reasons && <span className="text-sm text-slate-300">{j.reasons}</span>}
+                          {j.activity && <span className="text-sm text-sky-200">{j.activity.phase}: {j.activity.message}</span>}
+                          {j.description && <span className="line-clamp-2 whitespace-pre-line text-sm text-gf-muted">{j.description}</span>}
                         </button>
                         <div className="col-span-2 flex items-center justify-between gap-2 sm:col-span-1 sm:flex-col sm:items-end">
                           <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${sv.style}`}>{sv.label}</span>
-                          <button type="button" onClick={cta} disabled={busy.endsWith(j.id)}
+                          <button type="button" onClick={cta} disabled={Boolean(busy)}
                             className="inline-flex min-h-10 items-center rounded-[10px] bg-gf-ink px-4 text-sm font-semibold text-gf-bg disabled:opacity-60">
                             {busy === `prepare:${j.id}` ? 'Preparing…' : sv.cta}
                           </button>
@@ -491,6 +611,11 @@ function SourceRow({ name, state, ok }: { name: string; state: string; ok: boole
   )
 }
 
+function postingDate(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 10)
+}
+
 function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }: {
   job: JobRecord; busy: string; onBack: () => void; onApprove: () => void; onPrepare: () => void; onDismiss: () => void
   onAnswer: (answers: Record<string, string>) => void
@@ -526,9 +651,15 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
           )}
         </div>
         <div className="flex flex-wrap gap-3">
-          <button type="button" onClick={onDismiss} className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px]">Dismiss</button>
+          <button type="button" onClick={onDismiss} disabled={Boolean(busy) || job.status === 'submitting'} className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px] disabled:opacity-60">Dismiss</button>
+          {prepared && job.preparationWarning && canApprove && (
+            <button type="button" onClick={onPrepare} disabled={Boolean(busy)}
+              className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px] disabled:opacity-60">
+              {busy === `prepare:${job.id}` ? 'Preparing…' : 'Retry AI tailoring'}
+            </button>
+          )}
           {prepared ? (
-            <button type="button" onClick={onApprove} disabled={!canApprove || approving}
+            <button type="button" onClick={onApprove} disabled={!canApprove || Boolean(busy)}
               className="flex min-h-12 items-center gap-2 rounded-xl bg-gf-accent px-6 text-[15px] font-semibold text-gf-bg disabled:opacity-60">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0B0D12" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 6 9 17l-5-5" /></svg>
               {approving ? 'Filling the form…' : job.status === 'needs_user' ? 'Open & fill again' : 'Approve & apply'}
@@ -542,6 +673,32 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
         </div>
       </div>
 
+      <Panel title="Job details" note="As provided by the source; missing information is not inferred">
+        <dl className="grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-3">
+          {([
+            ['Company', job.company || 'Not provided'],
+            ['Location', job.location || 'Not provided'],
+            ['Remote work', job.remote ? 'Yes (check location restrictions below)' : 'Not marked remote by source'],
+            ['Salary', job.salary || 'Not provided'],
+            ['Posted', job.postedAt ? postingDate(job.postedAt) : 'Not provided'],
+            ['Source', job.source],
+            ['Application system', job.ats],
+            ['Match assessment', job.reasons || 'Not provided'],
+          ]).map(([label, value]) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-gf-muted">{label}</dt>
+              <dd className="whitespace-pre-wrap break-words text-slate-200">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <div className="mt-4 flex flex-wrap gap-4 text-sm">
+          {job.url && <a href={job.url} target="_blank" rel="noreferrer" className="text-sky-300">Original posting ↗</a>}
+          {job.applyUrl && <a href={job.applyUrl} target="_blank" rel="noreferrer" className="text-sky-300">Application page ↗</a>}
+        </div>
+        <h3 className="mb-2 mt-5 font-display text-base font-semibold">Job description</h3>
+        <p className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-300">{job.description || 'The source did not provide a description. Open the original posting for requirements and responsibilities.'}</p>
+      </Panel>
+
       <div className="flex items-start gap-3 rounded-xl border border-cyan-800 bg-gf-accent-soft px-4 py-3.5 text-sm text-sky-100">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7DD3FC" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-px shrink-0" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16h.01" /></svg>
         <span>
@@ -550,6 +707,14 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
           {' '}It stops for captchas, sign-ins and questions it can&apos;t answer truthfully, and lists those below for you.
         </span>
       </div>
+
+      {job.preparationWarning && (
+        <div role="status" className="rounded-xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-gf-warn">
+          {job.preparationWarning}
+        </div>
+      )}
+
+      <ApplicationMonitor key={job.id} job={job} applying={approving} />
 
       {!!job.questions?.length && (
         <form className="flex flex-col gap-3 rounded-2xl border border-amber-700/60 bg-amber-950/20 p-5"
@@ -584,7 +749,7 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
       )}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_380px]">
-        <Panel title="Tailored CV" note="Only facts from your CV — reordered for this role">
+        <Panel title={job.preparationWarning ? 'Original CV' : 'Tailored CV'} note={job.preparationWarning ? 'Unchanged, not AI-tailored' : 'Only facts from your CV — reordered for this role'}>
           <pre className="whitespace-pre-wrap font-plex text-sm leading-relaxed text-slate-300">{job.tailoredResume || 'Not prepared yet.'}</pre>
         </Panel>
         <Panel title="Cover letter">
@@ -640,13 +805,15 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
   onRunNow: () => void
 }) {
   const [options, setOptions] = useState<ModelOption[]>([])
+  const [showAdd, setShowAdd] = useState(false)
+  const [customForm, setCustomForm] = useState({ name: '', baseURL: '', model: '', apiKey: '' })
+  const [customNotice, setCustomNotice] = useState<string | null>(null)
 
-  useEffect(() => {
+  const refreshOptions = useCallback(() => {
     fetch('/api/models').then(r => (r.ok ? r.json() : null)).then(data => {
       if (!data) return
       const opts: ModelOption[] = []
       for (const p of data.providers || []) {
-        if (!p.available) continue
         for (const m of p.models || []) opts.push({ value: `${p.id}|${m.id}`, label: `${m.label || m.id}${m.free ? ' (free)' : ''}`, group: p.name })
       }
       for (const c of data.custom || []) opts.push({ value: `custom|${c.id}`, label: c.name, group: 'Custom models' })
@@ -654,6 +821,27 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
       setOptions(opts)
     }).catch(() => {})
   }, [])
+
+  useEffect(() => { refreshOptions() }, [refreshOptions])
+
+  const addCustomModel = async () => {
+    setCustomNotice(null)
+    try {
+      const r = await fetch('/api/models/custom', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: customForm.name.trim(), baseURL: customForm.baseURL.trim(), model: customForm.model.trim(), apiKey: customForm.apiKey.trim() || undefined }),
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(data.error || `Failed (${r.status})`)
+      setCustomForm({ name: '', baseURL: '', model: '', apiKey: '' })
+      setShowAdd(false)
+      refreshOptions()
+      if (data.model?.id) onModel({ provider: 'custom', model: data.model.id })
+      setCustomNotice(`Added “${data.model?.name ?? 'model'}”.`)
+    } catch (e) {
+      setCustomNotice(e instanceof Error ? e.message : 'Could not add the model')
+    }
+  }
 
   const current = model ? `${model.provider}|${model.model}` : ''
   const groups = [...new Set(options.map(o => o.group))]
@@ -689,7 +877,7 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
             onModel({ provider: v.slice(0, i), model: v.slice(i + 1) })
           }}
           className="h-11 rounded-[10px] border border-gf-line bg-gf-bar px-3 text-sm">
-          <option value="">Default — the model selected in Settings</option>
+          <option value="">Free models (automatic — no API key needed)</option>
           {!known && model && <option value={current}>{model.model} ({model.provider})</option>}
           {groups.map(g => (
             <optgroup key={g} label={g}>
@@ -697,7 +885,24 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
             </optgroup>
           ))}
         </select>
-        <span className="text-xs text-gf-muted">Used for fit scoring, CV tailoring and cover letters. Add keys or custom models in Settings → AI Models.</span>
+        <span className="text-xs text-gf-muted">Used for fit scoring, CV tailoring and cover letters. Automatic mode tries configured free-tier models, installed local models (no account/key), then anonymous Pollinations (no signup/key, availability and length limits apply). Existing provider and custom models remain selectable. Anonymous requests use private mode; choose a local model to keep CV text on this server.</span>
+        <button type="button" onClick={() => setShowAdd(v => !v)} className="self-start text-xs text-gf-accent underline-offset-2 hover:underline">
+          {showAdd ? 'Cancel' : '+ Add another model (OpenAI-compatible)'}
+        </button>
+        {showAdd && (
+          <div className="flex flex-col gap-2 rounded-xl border border-gf-line p-3">
+            {([['name', 'Name (e.g. My gateway)'], ['baseURL', 'Base URL (e.g. http://localhost:1234/v1)'], ['model', 'Model id'], ['apiKey', 'API key (optional)']] as const).map(([k, ph]) => (
+              <input key={k} value={customForm[k]} onChange={e => setCustomForm(f => ({ ...f, [k]: e.target.value }))}
+                placeholder={ph} aria-label={ph} type={k === 'apiKey' ? 'password' : 'text'}
+                className="h-9 rounded-[8px] border border-gf-line bg-gf-bar px-2.5 text-sm" />
+            ))}
+            <button type="button" onClick={() => void addCustomModel()} disabled={!customForm.name.trim() || !customForm.baseURL.trim() || !customForm.model.trim()}
+              className="h-9 rounded-[8px] bg-gf-accent px-3 text-sm font-semibold text-gf-bg disabled:opacity-50">
+              Save model
+            </button>
+          </div>
+        )}
+        {customNotice && <span className="text-xs text-gf-muted">{customNotice}</span>}
       </div>
 
       <div className="grid grid-cols-3 gap-2">
@@ -804,6 +1009,157 @@ function NumberSetting({ id, label, value, min, max, onCommit }: {
         onKeyDown={e => { if (e.key === 'Enter') commit() }}
         className="h-10 rounded-[10px] border border-gf-line bg-gf-bar px-3 text-sm" />
     </div>
+  )
+}
+
+const ACTIVITY_LABELS: Record<ApplicationActivity['phase'], string> = {
+  opening: 'Opening application', filling: 'Filling form', waiting_ai: 'Waiting for AI answers', submitting: 'Submitting',
+  login: 'Waiting for login / account verification', captcha: 'Waiting for captcha',
+  terms: 'Waiting for your terms / privacy review',
+  questions: 'Waiting for your answers', blocked: 'Needs your attention',
+  submitted: 'Submission confirmed', failed: 'Application failed',
+}
+
+function monitorActivity(job: JobRecord, active: boolean, live?: ApplicationActivity | null) {
+  if (active) return live || job.activity
+  return job.activity || live
+}
+
+function ApplicationMonitor({ job, applying }: { job: JobRecord; applying: boolean }) {
+  const [previewEnabled, setPreviewEnabled] = useState(false)
+  const [live, setLive] = useState<{ activity: ApplicationActivity | null; available: boolean; image: string | null; origin?: string } | null>(null)
+  const [error, setError] = useState('')
+  const active = applying || ['submitting', 'needs_user'].includes(job.status)
+  const refreshMonitor = useCallback(async (signal: AbortSignal) => {
+    try {
+      if (document.visibilityState === 'hidden') return
+      const result = await api<{ activity: ApplicationActivity | null; available: boolean; image: string | null; origin?: string }>(
+        `/api/jobs/${encodeURIComponent(job.id)}/live${previewEnabled ? '?preview=1' : ''}`, { signal })
+      if (!signal.aborted) { setLive(result); setError('') }
+    } catch (cause) {
+      if (!signal.aborted) setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }, [job.id, previewEnabled])
+  useEffect(() => {
+    if (!previewEnabled && !active) return
+    const controller = new AbortController()
+    let loading = false
+    const refresh = async () => {
+      if (loading) return
+      loading = true
+      try { await refreshMonitor(controller.signal) } finally { loading = false }
+    }
+    void refresh()
+    const timer = setInterval(() => void refresh(), 3000)
+    return () => { controller.abort(); clearInterval(timer) }
+  }, [active, previewEnabled, refreshMonitor])
+  const activity = monitorActivity(job, active, live?.activity)
+  return (
+    <section aria-label="Application monitor" className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-display text-lg font-semibold">Application monitor</h2>
+        <button type="button" aria-pressed={previewEnabled} onClick={() => { setPreviewEnabled(value => !value); setLive(null) }}
+          className="min-h-11 rounded-xl border border-gf-line2 px-4 text-sm">{previewEnabled ? 'Hide browser preview' : 'Show browser preview'}</button>
+      </div>
+      <div role="status" className="rounded-xl bg-gf-raised p-3 text-sm">
+        <strong>{activity ? ACTIVITY_LABELS[activity.phase] : active ? 'Starting application' : 'No active application'}</strong>
+        <p className="mt-1 whitespace-pre-wrap">{activity?.message || 'Approve a prepared job to open its application in the server browser.'}</p>
+      </div>
+      <p className="text-sm text-gf-muted">Use account automation below for supported sign-in/signup forms, or complete them directly in the application browser. GhostForge reuses that browser&apos;s saved session on later attempts; it never stores your password. Automatic registration pauses for terms, MFA, email verification, captcha or unsupported fields. Finish those steps yourself, then use Open &amp; fill again. A new tab in your regular browser has a separate session.</p>
+      {job.status === 'needs_user' && live?.available && live.origin &&
+        <AccountAssistance key={`${job.id}:${live.origin}`} jobId={job.id} origin={live.origin} />}
+      {previewEnabled && <p className="text-xs text-gf-muted">Read-only screenshot of the server browser, refreshed every three seconds. It may contain personal application data; only enable on a trusted screen. Input fields are masked, including passwords and verification codes. Nothing is recorded to disk.</p>}
+      {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+      {previewEnabled && (
+        <div className="overflow-hidden rounded-xl border border-gf-line bg-gf-bar p-3">
+          {live?.origin && <p className="mb-2 break-words text-xs text-gf-muted">{live.origin}</p>}
+          {live?.image
+            // A transient authenticated screenshot, not a public optimizable asset.
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={live.image} alt="Live read-only view of the application browser" className="h-auto w-full rounded-lg" />
+            : <p className="py-8 text-center text-sm text-gf-muted">{live?.available ? 'Loading browser preview…' : 'No browser preview available. The window may be closed or running in another server process.'}</p>}
+        </div>
+      )}
+    </section>
+  )
+}
+
+const ACCOUNT_ACTION_LABELS: Record<AccountMode, string> = {
+  login: 'Approve sign-in', 'open-signup': 'Open signup form', 'fill-signup': 'Fill signup form', register: 'Approve automatic registration',
+}
+const NOTIFICATION_MESSAGES = {
+  sent: '',
+  unavailable: ' Phone push is not configured; this alert and the job status remain in GhostForge.',
+  failed: ' Phone notification failed; check this alert and the job status.',
+}
+
+function AccountAssistance({ jobId, origin }: { jobId: string; origin: string }) {
+  const [mode, setMode] = useState<AccountMode>('login')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [consent, setConsent] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (busy) return
+    if (window.location.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)) {
+      setPassword('')
+      setError('Open GhostForge over HTTPS or on localhost before entering website credentials.')
+      return
+    }
+    setBusy(true); setError(''); setMessage('')
+    const body = JSON.stringify({ mode, origin, consent, ...(mode === 'open-signup' ? {} : { email, password }) })
+    setPassword('')
+    try {
+      const result = await api<{ message: string; notification?: 'sent' | 'unavailable' | 'failed' }>(`/api/jobs/${encodeURIComponent(jobId)}/account`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body,
+      })
+      setMessage(`${result.message}${NOTIFICATION_MESSAGES[result.notification || 'sent']}`)
+      setConsent(false)
+      if (mode === 'open-signup') setMode('fill-signup')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Account assistance failed. Check the application browser.')
+    } finally { setBusy(false) }
+  }
+  return (
+    <details className="rounded-xl border border-gf-line2 p-4">
+      <summary className="min-h-11 cursor-pointer font-semibold">Account sign-in / signup assistance</summary>
+      <form onSubmit={event => void submit(event)} className="mt-3 flex flex-col gap-3">
+        <p className="break-words text-sm">Approved website: <strong>{origin}</strong></p>
+        <p className="text-xs text-gf-muted">Credentials are used for this request only, never saved by GhostForge or sent to AI. Only use on a trusted HTTPS GhostForge connection or this computer&apos;s localhost. Keep signup passwords in your own password manager. Email-first, SSO and embedded forms may need manual steps.</p>
+        <label className="text-sm">Account action
+          <select value={mode} disabled={busy} onChange={event => { setMode(event.target.value as AccountMode); setConsent(false); setPassword('') }}
+            className="mt-1 min-h-11 w-full rounded-lg border border-gf-line2 bg-gf-bar p-2">
+            <option value="login">Sign in with my existing account</option>
+            <option value="open-signup">Open this website&apos;s signup form</option>
+            <option value="fill-signup">Fill signup details (I finish account creation)</option>
+            <option value="register">Automatically create account (pause at blockers)</option>
+          </select>
+        </label>
+        {mode !== 'open-signup' && <>
+          <label className="text-sm">Website account email
+            <input type="email" required maxLength={254} autoComplete="username" value={email} disabled={busy}
+              onChange={event => setEmail(event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-gf-line2 bg-gf-bar p-2" />
+          </label>
+          <label className="text-sm">Website account password
+            <input type="password" required maxLength={512} autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              value={password} disabled={busy} onChange={event => setPassword(event.target.value)}
+              className="mt-1 min-h-11 w-full rounded-lg border border-gf-line2 bg-gf-bar p-2" />
+          </label>
+        </>}
+        <label className="flex min-h-11 items-center gap-3 text-sm">
+          <input type="checkbox" checked={consent} required disabled={busy} onChange={event => setConsent(event.target.checked)} />
+          I trust this exact website and approve this account action{mode === 'register' ? ', including submitting registration once when no blockers are present' : ''}. Terms, MFA and captcha require my attention.
+        </label>
+        <button type="submit" disabled={busy || !consent} className="min-h-11 rounded-lg bg-gf-ink px-4 text-sm font-semibold text-gf-bg disabled:opacity-60">
+          {busy ? 'Working on account…' : ACCOUNT_ACTION_LABELS[mode]}
+        </button>
+        {message && <p role="alert" className="text-sm text-sky-200">{message}</p>}
+        {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+      </form>
+    </details>
   )
 }
 

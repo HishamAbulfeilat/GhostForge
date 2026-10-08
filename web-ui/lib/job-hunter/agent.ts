@@ -31,6 +31,8 @@ export interface PendingQuestion { label: string; type: string; options: string[
 export interface AgentContext {
   profile: JobProfile
   job: JobRecord
+  /** Prepared CV file; falls back to the original upload when absent. */
+  resumePath?: string
   /** Cover letter as a file, for upload fields ('' when there is none) */
   coverPath: string
   generate: Generate | null
@@ -39,6 +41,7 @@ export interface AgentContext {
   /** Screenshot model for the computer-use fallback (only when the user allowed it) */
   vision?: Vision | null
   log?: (msg: string) => void
+  onPage?: (page: Page) => void
   maxSteps?: number
 }
 
@@ -73,6 +76,9 @@ interface Field {
 
 const CAPTCHA = 'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], iframe[title*="captcha" i], .g-recaptcha, .h-captcha, #captcha, [data-sitekey]'
 const CONFIRMED = /thank(s| you) for (applying|your application|your interest)|application (has been |was )?(received|submitted|sent|complete)|we('| ha)ve received your application|your application (was|has been) (sent|submitted)|successfully (applied|submitted)/i
+// Consent the user must give themselves: never ticked or implied by GhostForge
+const CONSENT = /privacy|consent|agree|acknowledg|terms|certify|confirm (that )?(the )?information/i
+const CONSENT_BY_SUBMIT = /by (clicking|submitting|continuing|applying).{0,120}(agree|accept|consent|terms)/i
 const SUBMIT = /^(submit( (my |your )?application)?|send( (my )?application)?|finish( application)?|complete( application)?)$/i
 /** "Apply" / "Apply now" submits only when it belongs to a form; on a job page it opens the form. */
 const APPLY = /^apply( now)?$/i
@@ -411,7 +417,9 @@ Use "stop" for captchas, sign-in or account-creation pages, anything needing a p
 async function blocked(page: Page): Promise<string | null> {
   if (await page.locator(CAPTCHA).count().catch(() => 0)) return 'captcha'
   const url = page.url()
-  if (/\/(login|signin|sign-in|authwall|checkpoint|uas\/login)\b/i.test(url)) return 'login'
+  if (/\/(login|signin|sign-in|signup|sign-up|register|verify-email|verification|two-factor|mfa|authwall|checkpoint|uas\/login)\b/i.test(url)) return 'login'
+  if (await page.locator('input[autocomplete="one-time-code"]:visible').count()) return 'login'
+  if (await page.getByLabel(/verification code|one.?time (code|password)|authentication code|security code/i).filter({ visible: true }).count()) return 'login'
   const password = await page.locator('input[type="password"]:visible').count().catch(() => 0)
   if (password) return 'login'
   return null
@@ -453,24 +461,36 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
 
   // A site may open the form in a new tab; follow it.
   let current = page
-  page.context().on('page', p => { current = p })
+  const followed = new Set<Page>([page])
+  const followPage = (p: Page) => {
+    current = p
+    ctx.onPage?.(p)
+    if (!followed.has(p)) {
+      followed.add(p)
+      p.on('popup', followPage)
+    }
+  }
+  page.on('popup', followPage)
 
+  try {
   for (let step = 0; step < maxSteps; step++) {
     try {
       const pg = current
+      ctx.onPage?.(pg)
       await pg.waitForLoadState('domcontentloaded').catch(() => {})
       await pg.waitForTimeout(800)
       if (beforeSubmit !== null && isNewConfirmation(beforeSubmit, await bodyText(pg))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
       const wall = await blocked(pg)
-      if (wall === 'captcha') return outcome('needs_user', 'This form has a captcha. Solve it and press Submit; everything else is filled in.')
+      if (wall === 'captcha') return outcome('needs_user', 'This form has a captcha. Solve it in the application browser, then retry. Filling stopped before the captcha; the application has not been submitted.')
       if (wall === 'login') {
         const signUp = /create (an |your )?account|sign up|register|verify (new )?password/i.test(await bodyText(pg))
         return outcome('needs_user', signUp
-          ? `${new URL(pg.url()).hostname} asks you to create an account before applying. GhostForge never creates accounts or passwords for you: create it once in the GhostForge browser, and the next attempt continues signed in.`
-          : `${new URL(pg.url()).hostname} wants you to sign in first. Sign in once in the GhostForge browser and the next attempt continues from there.`)
+          ? `${new URL(pg.url()).hostname || 'This website'} asks you to create an account before applying. GhostForge never creates accounts or passwords for you: use account assistance for supported forms, or create it yourself in the GhostForge browser, then use Open & fill again. The application has not been submitted.`
+          : `${new URL(pg.url()).hostname || 'This website'} requires sign-in or verification. Use account assistance for supported forms, or complete sign-in/MFA yourself in the GhostForge browser, then use Open & fill again. The application has not been submitted.`)
       }
 
       const fields = await scan(pg)
+      ctx.log?.(`Filling application step ${step + 1}: ${fields.length} fields detected`)
       const btns = await buttons(pg)
       const looksLikeForm = fields.some(f => f.kind === 'file' || (f.kind !== 'checkbox' && f.required))
 
@@ -513,19 +533,14 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
         if (f.kind === 'file') {
           if (!f.empty) { if (/resume|cv/i.test(f.label)) resumeUploaded = true; continue }
           const wantsCover = /cover/i.test(f.label)
-          const path = wantsCover ? ctx.coverPath : (/resume|cv|curriculum/i.test(f.label) || (!resumeUploaded && (f.required || fields.filter(x => x.kind === 'file').length === 1))) ? ctx.profile.cv?.filePath : ''
+          const path = wantsCover ? ctx.coverPath : (/resume|cv|curriculum/i.test(f.label) || (!resumeUploaded && (f.required || fields.filter(x => x.kind === 'file').length === 1))) ? (ctx.resumePath || ctx.profile.cv?.filePath) : ''
           if (path) {
             try { await loc(pg, f).setInputFiles(path); filled.push(wantsCover ? 'Cover letter upload' : 'Resume upload'); if (!wantsCover) resumeUploaded = true } catch { /* custom uploader */ }
           }
           continue
         }
         if (!f.empty && !f.invalid) continue
-        if (f.kind === 'checkbox') {
-          if (/privacy|consent|agree|acknowledg|terms|certify|confirm (that )?(the )?information/i.test(f.label)) {
-            if (await setField(pg, f, 'yes')) filled.push(f.label)
-          }
-          continue
-        }
+        if (f.kind === 'checkbox') continue
         if (f.kind === 'textarea' && ctx.job.coverLetter && /cover letter|additional information|anything else|message to (the )?(hiring|recruit)/i.test(f.label)) {
           if (await setField(pg, f, ctx.job.coverLetter)) { filled.push(f.label || 'Cover letter'); continue }
         }
@@ -535,7 +550,8 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
       }
 
       // Custom uploaders that only create their file input when the button is pressed
-      if (!resumeUploaded && ctx.profile.cv?.filePath && fields.length && !fields.some(f => f.kind === 'file')) {
+      const resumeFile = ctx.resumePath || ctx.profile.cv?.filePath
+      if (!resumeUploaded && resumeFile && fields.length && !fields.some(f => f.kind === 'file')) {
         let upload: (typeof btns)[number] | undefined
         for (const b of btns) {
           if (!UPLOAD_BUTTON.test(b.text) || THIRD_PARTY_PICKER.test(b.text) || opened.has(`upload|${pg.url()}|${b.text}`)) continue
@@ -555,7 +571,7 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
           const chooser = pg.waitForEvent('filechooser', { timeout: 4000 }).catch(() => null)
           await pg.locator(`[data-gf-btn="${upload.idx}"]`).click({ timeout: 5000 }).catch(() => {})
           const fc = await chooser
-          if (fc) { await fc.setFiles(ctx.profile.cv.filePath).then(() => { filled.push('Resume upload'); resumeUploaded = true }).catch(() => {}) }
+          if (fc) { await fc.setFiles(resumeFile).then(() => { filled.push('Resume upload'); resumeUploaded = true }).catch(() => {}) }
         }
       }
 
@@ -569,15 +585,23 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
 
       // 2. Ask the AI for the rest (grounded in the CV); never for sensitive questions.
       const answerable = unknown.filter(f => !SENSITIVE.test(f.label) || /gender|race|ethnic|veteran|disabilit|sexual/i.test(f.label))
+      if (answerable.length && ctx.generate) ctx.log?.(`Waiting for AI to suggest CV-grounded answers for ${answerable.length} fields`)
       const ai = await aiAnswers(answerable, ctx)
+      ctx.log?.(`Filling application step ${step + 1}: checking required answers and uploads`)
       for (const f of unknown) {
         const v = ai.get(f.id)
         if (v && await setField(pg, f, v)) { filled.push(f.label); aiUsed.push({ label: f.label, value: v }) }
       }
 
-      // 3. Anything required still empty is a question for the user.
+      // 3. Terms, privacy consent and certifications are the user's to accept, never
+      // GhostForge's: stop with everything else filled in.
       await pg.waitForTimeout(300)
       const after = await scan(pg)
+      if (after.some(f => f.kind === 'checkbox' && f.empty && (f.required || f.invalid) && CONSENT.test(f.label))) {
+        return outcome('needs_user', 'Everything else is filled in. Terms, privacy consent or a certification need your review: accept them in the application browser only if you agree, then submit. GhostForge did not accept terms or submit the application.')
+      }
+
+      // Anything required still empty is a question for the user.
       const missing = after.filter(f => (f.required || f.invalid) && f.empty && f.kind !== 'file')
       const missingFile = after.filter(f => f.required && f.empty && f.kind === 'file')
       if (missing.length || missingFile.length) {
@@ -589,6 +613,9 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
       const submit = btns.find(b => SUBMIT.test(b.text) || /submit application|send application/i.test(b.text) || (APPLY.test(b.text) && b.inForm))
       const next = btns.find(b => NEXT.test(b.text))
       if (submit) {
+        if (CONSENT_BY_SUBMIT.test(await bodyText(pg))) {
+          return outcome('needs_user', 'Everything is filled in, but submitting this form means agreeing to terms or privacy consent. Review it and press Submit yourself if you agree. GhostForge did not accept terms or submit the application.')
+        }
         if (!ctx.allowSubmit) return outcome('needs_user', 'Everything is filled in and ready. Review it and press Submit.')
         ctx.log?.(`Submitting (${submit.text})`)
         const before = await bodyText(pg)
@@ -643,4 +670,7 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     }
   }
   return outcome('needs_user', 'The application has more steps than expected. It is pre-filled; finish it in the browser.')
+  } finally {
+    for (const tracked of followed) tracked.off('popup', followPage)
+  }
 }

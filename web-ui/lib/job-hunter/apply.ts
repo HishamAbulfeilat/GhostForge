@@ -19,6 +19,9 @@ import type { BrowserContext } from 'playwright-core'
 import type { JobProfile, JobRecord } from './store'
 import { userDir } from './store'
 import { runFormAgent, type AgentContext, type AgentOutcome } from './agent'
+import { markdownToDocx } from './improve'
+import { detectAts } from './sources'
+import { trackApplicationPage, updateApplicationActivity } from './live'
 
 export interface ApplyResult {
   status: 'submitted' | 'needs_user' | 'failed'
@@ -36,7 +39,17 @@ export const AUTO_SUBMIT_ATS = new Set(['lever', 'greenhouse', 'ashby', 'workabl
 
 // Visible browsers left open for the user to finish, one per user (also keeps them from being collected).
 // The profile directory can only be open once, so later runs share this window instead of failing to launch.
-const leftOpen = new Map<string, BrowserContext>()
+interface BrowserState {
+  leftOpen: Map<string, BrowserContext>
+  profileLocks: Map<string, Promise<unknown>>
+}
+// Next development reloads must not forget windows still owning profile locks.
+const runtime = globalThis as typeof globalThis & { ghostforgeJobBrowserState?: BrowserState }
+const browserState = runtime.ghostforgeJobBrowserState ??= {
+  leftOpen: new Map<string, BrowserContext>(),
+  profileLocks: new Map<string, Promise<unknown>>(),
+}
+const { leftOpen, profileLocks } = browserState
 
 /**
  * Apply URLs come from third-party job boards. Only open public http(s)
@@ -93,10 +106,16 @@ export async function resolvesPublicly(raw: string, lookup = async (host: string
   }
 }
 
-function formUrl(job: JobRecord): string {
-  if (job.ats === 'lever') return job.applyUrl.endsWith('/apply') ? job.applyUrl : `${job.applyUrl.replace(/\/$/, '')}/apply`
-  if (job.ats === 'ashby' && !/\/application\/?$/.test(job.applyUrl)) return `${job.applyUrl.replace(/\/$/, '')}/application`
-  return job.applyUrl || job.url
+export function formUrl(job: Pick<JobRecord, 'ats' | 'applyUrl' | 'url'>): string {
+  const raw = job.applyUrl?.trim() || job.url?.trim()
+  const url = new URL(raw)
+  // Only transform actual ATS hosts, not job-board redirects or attribution URLs.
+  const ats = detectAts(url.href)
+  const suffix = job.ats === ats && ats === 'lever' ? 'apply' : job.ats === ats && ats === 'ashby' ? 'application' : ''
+  if (suffix && !url.pathname.replace(/\/+$/, '').endsWith(`/${suffix}`)) {
+    url.pathname = `${url.pathname.replace(/\/+$/, '')}/${suffix}`
+  }
+  return url.href
 }
 
 /** Browser executable / channel options (Chrome, Edge or Chromium, or JOB_HUNTER_BROWSER). */
@@ -106,7 +125,6 @@ async function browserChoices(): Promise<Array<{ executablePath?: string; channe
 }
 
 // One browser profile per user, used by one application at a time.
-const profileLocks = new Map<string, Promise<unknown>>()
 export function withProfileLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const prev = profileLocks.get(key) ?? Promise.resolve()
   const run = prev.then(fn, fn)
@@ -135,12 +153,16 @@ export async function launchProfile(username: string, headless: boolean): Promis
   let lastError: unknown
   for (const choice of await browserChoices()) {
     try {
-      return await chromium.launchPersistentContext(dir, { ...choice, headless, viewport: { width: 1280, height: 900 } })
+      return await chromium.launchPersistentContext(dir, { ...choice, headless, timeout: 20_000, viewport: { width: 1280, height: 900 } })
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      if (/opening in existing browser session|processsingleton|singletonlock|profile.*(in use|locked)|user data directory.*in use/i.test(message)) {
+        throw new Error('The Job Hunter browser profile is already open in another browser or server process. Close that Job Hunter window (not your normal browser), then retry Approve & apply. Do not run two GhostForge servers with the same user profile.')
+      }
       lastError = e
     }
   }
-  throw new Error(`No Chrome or Edge found for applying (set JOB_HUNTER_BROWSER to a browser path). ${String(lastError).slice(0, 120)}`)
+  throw new Error(`Could not launch a browser for applying. Install Playwright Chromium with "npx playwright install chromium" in web-ui, or set JOB_HUNTER_BROWSER to a Chrome/Edge executable. Details: ${String(lastError).slice(0, 500)}`)
 }
 
 /**
@@ -167,6 +189,22 @@ function keepOpen(username: string, context: BrowserContext) {
   context.on('close', () => { if (leftOpen.get(username) === context) leftOpen.delete(username) })
 }
 
+export async function prepareApplicationFiles(job: JobRecord, profile: JobProfile, username: string): Promise<{ resumePath: string; coverPath: string }> {
+  const docsDir = join(userDir(username), 'applications', job.id)
+  await mkdir(docsDir, { recursive: true })
+  let resumePath = profile.cv?.filePath || ''
+  if (job.tailoredResume && !job.preparationWarning) {
+    resumePath = join(docsDir, 'tailored-cv.docx')
+    await writeFile(resumePath, await markdownToDocx(job.tailoredResume))
+  }
+  let coverPath = ''
+  if (job.coverLetter) {
+    coverPath = join(docsDir, 'cover-letter.txt')
+    await writeFile(coverPath, job.coverLetter, 'utf8')
+  }
+  return { resumePath, coverPath }
+}
+
 export interface ApplyOptions {
   headless?: boolean
   /** Press the final Submit when the form is complete */
@@ -179,7 +217,10 @@ export interface ApplyOptions {
 }
 
 export async function applyToJob(job: JobRecord, profile: JobProfile, username: string, opts: ApplyOptions = {}): Promise<ApplyResult & { questions?: AgentOutcome['questions']; aiAnswers?: AgentOutcome['aiAnswers'] }> {
-  const target = formUrl(job)
+  let target: string
+  try { target = formUrl(job) } catch {
+    return { status: 'failed', message: 'This listing has no valid application URL. Open the original posting or add the correct job link before retrying.', filled: [], missing: [] }
+  }
   if (!(await resolvesPublicly(target))) {
     return { status: 'failed', message: 'This listing\'s application link is not a public web address, so it was not opened.', filled: [], missing: [] }
   }
@@ -189,42 +230,54 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
   const headless = opts.headless ?? process.env.JOB_HUNTER_HEADLESS === '1'
 
   return withProfileLock(username, async () => {
+    updateApplicationActivity(username, job.id, 'Opening the application browser')
     const context = await launchProfile(username, headless)
-    const page = context.pages()[0] || await context.newPage()
-    const finish = (result: ApplyResult & { questions?: AgentOutcome['questions']; aiAnswers?: AgentOutcome['aiAnswers'] }) => {
+    const finish = async (result: ApplyResult & { questions?: AgentOutcome['questions']; aiAnswers?: AgentOutcome['aiAnswers'] }) => {
+      updateApplicationActivity(username, job.id, result.message, result.status)
       // Visible browser + something left for the user: leave it open for them.
       if (!headless && result.status === 'needs_user') keepOpen(username, context)
-      else void context.close().catch(() => {})
+      else await context.close().catch(error => {
+        console.error('[Job Hunter] Could not close application browser:', error)
+      })
       return result
     }
     try {
+      const page = context.pages().find(candidate => candidate.url() === 'about:blank') || await context.newPage()
+      trackApplicationPage(username, job.id, page)
+      opts.log?.(`Opening application: ${target}`)
+      if (!headless) await page.bringToFront()
       const nav = await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+      if (!isSafeApplyUrl(page.url()) || (nav && !nav.ok())) {
+        return await finish({ status: 'failed', message: `The application page could not be opened${nav ? ` (HTTP ${nav.status()})` : ''}. Check the original posting and application link.`, filled: [], missing: [] })
+      }
       // Defence against DNS rebinding: the pre-navigation lookup in resolvesPublicly()
       // and the browser's own resolution can differ. Verify the IP the browser
       // actually connected to (this is also the post-redirect host) is public.
       const serverIp = (await nav?.serverAddr())?.ipAddress
       if (serverIp && isPrivateAddress(serverIp)) {
-        return finish({ status: 'failed', message: 'This listing\'s application link resolved to a private address, so it was not used.', filled: [], missing: [] })
+        return await finish({ status: 'failed', message: 'This listing\'s application link resolved to a private address, so it was not used.', filled: [], missing: [] })
+      }
+      if (!headless) await page.bringToFront()
+      for (const blank of context.pages().filter(candidate => candidate !== page && candidate.url() === 'about:blank')) {
+        await blank.close()
       }
 
-      const docsDir = join(userDir(username), 'applications', job.id)
-      await mkdir(docsDir, { recursive: true })
-      let coverPath = ''
-      if (job.coverLetter) {
-        coverPath = join(docsDir, 'cover-letter.txt')
-        await writeFile(coverPath, job.coverLetter, 'utf8')
-      }
+      const { resumePath, coverPath } = await prepareApplicationFiles(job, profile, username)
 
       const out = await runFormAgent(page, {
-        profile, job, coverPath,
+        profile, job, resumePath, coverPath,
         generate: opts.generate ?? null,
         vision: opts.vision ?? null,
         allowSubmit: opts.allowSubmit ?? AUTO_SUBMIT_ATS.has(job.ats),
-        log: opts.log,
+        onPage: current => trackApplicationPage(username, job.id, current),
+        log: message => {
+          updateApplicationActivity(username, job.id, message)
+          opts.log?.(message)
+        },
       })
-      return finish({ status: out.status, message: out.message, filled: out.filled, missing: out.missing, questions: out.questions, aiAnswers: out.aiAnswers, closed: out.closed, submitPressed: out.submitPressed })
+      return await finish({ status: out.status, message: out.message, filled: out.filled, missing: out.missing, questions: out.questions, aiAnswers: out.aiAnswers, closed: out.closed, submitPressed: out.submitPressed })
     } catch (e) {
-      return finish({ status: 'failed', message: `Applying failed: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`, filled: [], missing: [] })
+      return await finish({ status: 'failed', message: `Applying failed: ${e instanceof Error ? e.message.slice(0, 200) : String(e)}`, filled: [], missing: [] })
     }
   })
 }

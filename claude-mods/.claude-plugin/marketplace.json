@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "ghostforge-mods",
+  "owner": { "name": "GhostForge", "url": "https://github.com/HishamAbulfeilat/GhostForge" },
+  "description": "Claude Code mods reviewed for GhostForge, each pinned to the exact upstream commit that was reviewed. Bump a sha only after re-reviewing the diff (see docs/CLAUDE-CODE-MODS.md).",
+  "plugins": [
+    {
+      "name": "secret-redactor",
+      "description": "Redacts keys, tokens, emails and IPs from prompts, tool calls and context. MIT, Ray Amjad.",
+      "source": { "source": "git-subdir", "url": "https://github.com/ray-amjad/awesome-claude-code-function-hooks.git", "path": "plugins/secret-redactor", "sha": "12b5fea27a4bd1b88cd9c9b6abc1efc0756c6625" }
+    },
+    {
+      "name": "burn-meter",
+      "description": "Token and cost burn above the prompt; /burn opens a pane. MIT, Claude Code Mods contributors.",
+      "source": { "source": "git-subdir", "url": "https://github.com/OneWave-AI/claude-code-mods.git", "path": "burn-meter", "sha": "e6da26ca36a88eec3be25605d30fa20f2c1c0cec" }
+    },
+    {
+      "name": "context-lens",
+      "description": "Shows what fills the context window; /context-lens. MIT (per its plugin.json), Arunjay4213.",
+      "source": { "source": "git-subdir", "url": "https://github.com/Arunjay4213/claude-mods.git", "path": "plugins/context-lens", "sha": "d4fffd7de9204a62b10e7b3604fc893158fa25fd" }
+    }
+  ]
+}

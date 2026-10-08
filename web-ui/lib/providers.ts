@@ -4,13 +4,14 @@
  *
  * Keys saved through Settings (~/.ghostforge/provider-keys.json, owner-only
  * file mode) take precedence over the environment (.env / .env.local).
+ * Pollinations' anonymous endpoint needs no key or install, but has limits
+ * and may be unavailable. Local models provide a no-account alternative.
  *
  * Hosted mode (GHOSTFORGE_MODE=hosted) is different: the environment is never
  * read for keys, and keys, the model choice and custom models are stored per
  * user (~/.ghostforge/hosted-ai/<userId>.json). The user comes from
  * runWithAIUser() (or ModelOverride.userId in lib/ai.ts); with no user there
  * is no key, so only keyless free models (Pollinations) answer.
- * Pollinations needs no key and no install: it is the always-on free default.
  * OmniRoute is optional — used when it is running.
  */
 import Anthropic from '@anthropic-ai/sdk'
@@ -40,7 +41,7 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
-  pollinations: { id: 'pollinations', name: 'Pollinations (free, no key)', keyEnv: null, paid: false, defaultModel: 'openai-fast', baseURL: 'https://text.pollinations.ai/openai' },
+  pollinations: { id: 'pollinations', name: 'Pollinations (free, no key)', keyEnv: null, paid: false, defaultModel: 'openai', baseURL: 'https://text.pollinations.ai/openai' },
   omniroute:  { id: 'omniroute',  name: 'OmniRoute (optional)', keyEnv: null, paid: false, defaultModel: 'auto' },
   openai:     { id: 'openai',     name: 'OpenAI (ChatGPT)',  keyEnv: 'OPENAI_API_KEY', keyUrl: 'https://platform.openai.com/api-keys', paid: true, defaultModel: 'gpt-4o-mini', baseURL: 'https://api.openai.com/v1' },
   anthropic:  { id: 'anthropic',  name: 'Anthropic (Claude)', keyEnv: 'ANTHROPIC_API_KEY', keyUrl: 'https://console.anthropic.com/settings/keys', paid: true, defaultModel: 'claude-opus-5' },
@@ -66,8 +67,8 @@ export function isProviderId(value: unknown): value is ProviderId {
  */
 export const FREE_CATALOG: Partial<Record<ProviderId, Array<{ id: string; label: string }>>> = {
   pollinations: [
-    { id: 'openai-fast', label: 'GPT-OSS 20B (fast)' },
     { id: 'openai',      label: 'GPT-OSS (default)' },
+    { id: 'openai-fast', label: 'GPT-OSS 20B (fast)' },
   ],
   google: [
     { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },

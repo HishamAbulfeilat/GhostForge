@@ -6,7 +6,19 @@ import os from 'os'
 import { execSync } from 'child_process'
 import { isAuthorizedRequest } from '@/lib/auth'
 
-const ROOT = path.join(os.homedir(), 'GhostForge')
+function findRoot(): string {
+  const candidates = [
+    path.join(os.homedir(), 'Desktop', 'GhostForge', 'GhostForge-public'),
+    path.join(os.homedir(), 'GhostForge'),
+    path.join(os.homedir(), 'Desktop', 'GhostForge'),
+  ]
+  for (const dir of candidates) {
+    try { if (fs.existsSync(path.join(dir, 'web-ui'))) return dir } catch { /* next */ }
+  }
+  return candidates[candidates.length - 1]
+}
+
+const ROOT = findRoot()
 const WEBUI = path.join(ROOT, 'web-ui')
 const BRIDGE_DIR = path.join(os.homedir(), '.ghostforge/bridge')
 const ROUTES_CONFIG = path.join(WEBUI, 'routes.config.json')
@@ -26,12 +38,20 @@ function fileExists(p: string) {
   try { fs.accessSync(p); return true } catch { return false }
 }
 
+function isPlaceholder(v: string): boolean {
+  return /^(your-|\.\.\.$|sk-or-\.\.\.|AIza\.\.\.|x{2,})/.test(v.trim()) || v.includes('...')
+}
+
 function envVal(key: string): string {
-  try {
-    const content = fs.readFileSync(path.join(WEBUI, '.env.local'), 'utf8')
-    const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'))
-    return match?.[1]?.trim() ?? ''
-  } catch { return '' }
+  for (const name of ['.env.local', '.env']) {
+    try {
+      const content = fs.readFileSync(path.join(WEBUI, name), 'utf8')
+      const match = content.match(new RegExp(`^${key}=(.+)$`, 'm'))
+      const v = match?.[1]?.trim() ?? ''
+      if (v && !isPlaceholder(v)) return v
+    } catch { /* try next file */ }
+  }
+  return ''
 }
 
 async function checkUrl(url: string, timeoutMs = 3000): Promise<boolean> {
@@ -86,22 +106,24 @@ export async function GET(req: NextRequest) {
   if (fileExists(ROUTES_CONFIG)) add('Folders', 'routes.config.json', 'pass', 'found')
   else add('Folders', 'routes.config.json', 'warn', 'missing', 'Run: ghostforge doctor')
 
-  // ── .env.local ──
-  const envPath = path.join(WEBUI, '.env.local')
-  if (fileExists(envPath)) {
-    add('Config', '.env.local', 'pass', 'exists')
+  // ── .env / .env.local ──
+  const envLocalPath = path.join(WEBUI, '.env.local')
+  const envPath = path.join(WEBUI, '.env')
+  const hasEnv = fileExists(envLocalPath) || fileExists(envPath)
+  if (hasEnv) {
+    add('Config', '.env(.local)', 'pass', fileExists(envLocalPath) ? '.env.local exists' : '.env exists')
     for (const key of ['ACCESS_PIN', 'AUTH_SECRET']) {
       const v = envVal(key)
       if (v) add('Config', `env:${key}`, 'pass', `set (${v.length} chars)`)
-      else add('Config', `env:${key}`, 'fail', 'not set', `Add ${key} to .env.local`)
+      else add('Config', `env:${key}`, 'fail', 'not set', `Add ${key} to web-ui/.env.local`)
     }
     for (const key of ['GOOGLE_GENERATIVE_AI_API_KEY', 'OPENROUTER_API_KEY', 'GEMINI_MODEL']) {
       const v = envVal(key)
       if (v) add('Config', `env:${key}`, 'pass', 'set')
-      else add('Config', `env:${key}`, 'warn', 'not set', `Add ${key} to .env.local`)
+      else add('Config', `env:${key}`, 'warn', 'not set (optional — free Pollinations chain is used)', `Add ${key} to web-ui/.env.local for a more reliable free tier`)
     }
   } else {
-    add('Config', '.env.local', 'fail', 'missing', `Create ${envPath}`)
+    add('Config', '.env', 'fail', 'missing', `Create ${envPath}`)
   }
 
   // ── Web UI pages ──
@@ -126,20 +148,20 @@ export async function GET(req: NextRequest) {
     const age = Math.round((Date.now() - fs.statSync(tokenFile).mtimeMs) / 60000)
     add('Bridge', 'token file', 'pass', `exists (~${age}m old)`)
   } else {
-    add('Bridge', 'token file', 'warn', 'no token', 'Run: bash ~/GhostForge/scripts/bridge.sh start')
+    add('Bridge', 'token file', 'warn', 'no token', `Run: node ${path.join(ROOT, 'scripts', 'bridge-server.js')}`)
   }
 
   const bridgeOk = await checkUrl('http://localhost:4747/health')
   add('Bridge', 'bridge:4747', bridgeOk ? 'pass' : 'warn', bridgeOk ? 'online' : 'offline (optional — for remote access)',
-    bridgeOk ? undefined : 'Run: bash ~/GhostForge/scripts/bridge.sh start')
+    bridgeOk ? undefined : `Run: node ${path.join(ROOT, 'scripts', 'bridge-server.js')}`)
 
   const ttydOk = await checkUrl('http://localhost:4748')
   add('Bridge', 'ttyd:4748', ttydOk ? 'pass' : 'warn', ttydOk ? 'online' : 'offline (optional — web terminal)',
     ttydOk ? undefined : 'Start bridge to also launch ttyd')
 
   // ── AI Models ──
-  const geminiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
-  const geminiModel = process.env.GEMINI_MODEL ?? 'gemini-2.5-pro'
+  const geminiKey = envVal('GOOGLE_GENERATIVE_AI_API_KEY') || (process.env.GOOGLE_GENERATIVE_AI_API_KEY && !isPlaceholder(process.env.GOOGLE_GENERATIVE_AI_API_KEY) ? process.env.GOOGLE_GENERATIVE_AI_API_KEY : '')
+  const geminiModel = envVal('GEMINI_MODEL') || process.env.GEMINI_MODEL || 'gemini-2.5-flash'
   if (geminiKey) {
     const { ok, status } = await testGemini(geminiKey, geminiModel)
     if (ok) add('AI', `Gemini (${geminiModel})`, 'pass', 'API responding 200')
@@ -149,7 +171,7 @@ export async function GET(req: NextRequest) {
     add('AI', 'Gemini', 'warn', 'no API key (optional — OpenRouter/Ollama will be used)', 'Add GOOGLE_GENERATIVE_AI_API_KEY to .env.local')
   }
 
-  const orKey = process.env.OPENROUTER_API_KEY
+  const orKey = envVal('OPENROUTER_API_KEY') || (process.env.OPENROUTER_API_KEY && !isPlaceholder(process.env.OPENROUTER_API_KEY) ? process.env.OPENROUTER_API_KEY : '')
   if (orKey) {
     const ok = await checkUrl('https://openrouter.ai/api/v1/models')
     add('AI', 'OpenRouter', ok ? 'pass' : 'fail', ok ? 'reachable' : 'unreachable',
@@ -170,7 +192,7 @@ export async function GET(req: NextRequest) {
       add('AI', 'Ollama', 'pass', 'running')
     }
   } else {
-    add('AI', 'Ollama', 'warn', 'not running', 'Run: brew services start ollama')
+    add('AI', 'Ollama', 'warn', 'not running', 'Install/start Ollama from ollama.com (optional — Pollinations free chain is used by default)')
   }
 
   // ── G.F.A.I. specific ──
@@ -186,12 +208,16 @@ export async function GET(req: NextRequest) {
 
   // ── CLI tools ──
   const checkCmd = (cmd: string): boolean => {
-    try { execSync(`which ${cmd} 2>/dev/null`, { timeout: 2000 }); return true } catch { return false }
+    try {
+      const locator = process.platform === 'win32' ? 'where' : 'which'
+      execSync(`${locator} ${cmd}`, { timeout: 2000, stdio: 'ignore' })
+      return true
+    } catch { return false }
   }
-  add('Tools', 'gh (GitHub CLI)', checkCmd('gh') ? 'pass' : 'warn', checkCmd('gh') ? 'installed' : 'not found', 'brew install gh')
-  add('Tools', 'cliclick (mouse ctrl)', checkCmd('cliclick') ? 'pass' : 'warn', checkCmd('cliclick') ? 'installed' : 'not found', 'brew install cliclick')
-  add('Tools', 'git', checkCmd('git') ? 'pass' : 'fail', checkCmd('git') ? 'installed' : 'not found', 'xcode-select --install')
-  add('Tools', 'node', checkCmd('node') ? 'pass' : 'fail', checkCmd('node') ? 'installed' : 'not found', 'brew install node')
+  add('Tools', 'gh (GitHub CLI)', checkCmd('gh') ? 'pass' : 'warn', checkCmd('gh') ? 'installed' : 'not found', 'https://cli.github.com')
+  add('Tools', 'cliclick (mouse ctrl)', checkCmd('cliclick') ? 'pass' : 'warn', checkCmd('cliclick') ? 'installed' : 'not found (macOS only — optional)', 'macOS only: brew install cliclick')
+  add('Tools', 'git', checkCmd('git') ? 'pass' : 'fail', checkCmd('git') ? 'installed' : 'not found', 'Install Git from git-scm.com')
+  add('Tools', 'node', checkCmd('node') ? 'pass' : 'fail', checkCmd('node') ? 'installed' : 'not found', 'Install Node.js from nodejs.org')
 
   // ── Audit log ──
   const auditFile = path.join(os.homedir(), '.ghostforge', 'audit.log')

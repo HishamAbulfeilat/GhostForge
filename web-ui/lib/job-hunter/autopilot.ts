@@ -164,7 +164,7 @@ export async function runAutopilot(
   let prepared = search.prepared
   if (generate && remaining > 0) {
     const jobs = await listJobs(username)
-    let wanted = Math.max(0, remaining - jobs.filter(j => j.status === 'ready' && eligible(j)).length)
+    let wanted = Math.max(0, remaining - jobs.filter(j => j.status === 'ready' && !j.preparationWarning && eligible(j)).length)
     const candidates = jobs.filter(j => j.status === 'found' && eligible(j)).sort((a, b) => b.score - a.score)
     for (const j of candidates) {
       if (wanted <= 0) break
@@ -181,7 +181,7 @@ export async function runAutopilot(
     // "ready" includes jobs whose questions the user has since answered;
     // a failed attempt (site error, timeout) gets one more try.
     const queue = (await listJobs(username))
-      .filter(j => eligible(j) && (j.status === 'ready' || (j.status === 'failed' && Boolean(j.tailoredResume) && (j.attempts || 0) < MAX_ATTEMPTS)))
+      .filter(j => eligible(j) && ((j.status === 'ready' && !j.preparationWarning) || (j.status === 'failed' && Boolean(j.tailoredResume) && (j.attempts || 0) < MAX_ATTEMPTS)))
       .sort((a, b) => Number(a.status === 'failed') - Number(b.status === 'failed') || b.score - a.score)
     queueLen = queue.length
     let budget = remaining
@@ -206,7 +206,10 @@ export async function runAutopilot(
   }
 
   // Explain the common "autopilot ran but applied to nothing" case.
-  const hint = remaining > 0 && queueLen === 0 && submitted === 0
+  const reviewDrafts = (await listJobs(username)).filter(j => j.status === 'ready' && j.preparationWarning).length
+  const hint = reviewDrafts > 0
+    ? ` ${reviewDrafts} basic draft(s) need your approval because AI writing was unavailable.`
+    : remaining > 0 && queueLen === 0 && submitted === 0
     ? ap.mode === 'safe'
       ? ' No matches on Lever/Greenhouse/Ashby/Workable/Recruitee — switch Autopilot to "Any site" or add company boards under Preferences → Companies.'
       : ' No new High-fit matches at your minimum score this time.'

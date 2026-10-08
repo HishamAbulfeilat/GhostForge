@@ -76,6 +76,8 @@ jobs:
       # access profiles, per-user data isolation, SSRF guards on apply URLs
       - run: node --test test/users-security.test.js test/job-hunter.test.js
         working-directory: web-ui
+      - run: npx playwright install --with-deps chromium
+        working-directory: web-ui
       - run: npm test
         working-directory: web-ui
       - run: npx tsc --noEmit

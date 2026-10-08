@@ -981,3 +981,7 @@ const electronAPI: ElectronAPI = {
 };
 
 contextBridge.exposeInMainWorld('electron', electronAPI);
+contextBridge.exposeInMainWorld('ghostforgeStudio', {
+  getUrl: (): Promise<string | null> => ipcRenderer.invoke('studio:get-url'),
+  connect: (url: string, section: string): Promise<void> => ipcRenderer.invoke('studio:connect', url, section),
+});

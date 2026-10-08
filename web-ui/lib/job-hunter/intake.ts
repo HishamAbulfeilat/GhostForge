@@ -42,7 +42,7 @@ export function parsePosting(html: string, url: string): Posting | null {
         company: String(org?.name || '').trim(),
         location: location || (remote ? 'Remote' : ''),
         remote,
-        description: stripHtml(String(j.description || '')).slice(0, 8000),
+        description: stripHtml(String(j.description || '')),
         salary,
         postedAt: String(j.datePosted || ''),
         applyUrl: url,

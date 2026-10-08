@@ -10,7 +10,81 @@ Upload your CV and GhostForge does the rest:
 3. It fills in the application and submits it, or sends it to you for one
    approval.
 
+## Prepare, approve and track
+
+Click a job's title to read **Job details** before preparing it: company,
+location/remote restrictions, salary, posting date, source, application system,
+match assessment, original/application links and the source's full description.
+Cards show a description preview, salary and date. Missing fields are labelled
+**Not provided** rather than guessed. Lever's requirement/responsibility lists
+are included; descriptions from sources and pasted JobPosting links are no
+longer cut off at 8,000 characters. Existing saved jobs gain fuller source text
+after another search.
+
+Click **Prepare** on a match to open its application review in **Waiting for
+approval**. Review the CV, cover letter and form answers, then click
+**Approve & apply**. A confirmed submission appears in **Applied**; captchas,
+logins and unanswered questions appear in **Needs you**. Browser errors are
+shown as failures, not successful applications. GhostForge needs Chrome,
+Edge or Playwright Chromium on the server machine to fill forms.
+
+AI writing retries with a shorter prompt if a provider rejects the full CV
+and job text. If no model answers, preparation still creates a clearly
+labelled draft using your **unchanged original CV** and a neutral, basic
+cover letter. It does not infer qualifications from your search preferences.
+These drafts require manual approval and are never auto-submitted by
+Job Hunter autopilot. Use **Retry AI tailoring** to replace the basic draft
+when a model becomes available.
+AI-tailored CVs are uploaded as DOCX; basic drafts upload the original CV file.
+
+### AI without an account or API key
+
+Automatic mode keeps configured free-tier providers and gateways, then tries
+installed Ollama/llama.cpp models and Pollinations' anonymous
+`https://text.pollinations.ai/openai` POST endpoint. The separate
+`gen.pollinations.ai` gateway requires a key and is not used for anonymous
+writing. Pollinations' GPT-OSS aliases remain selectable; all existing keyed,
+custom and local models remain available, with an explicitly selected model
+tried first. Paid models are never silently selected in automatic free mode.
+
+Anonymous calls use POST with `private: true`, not prompts in URLs, but CV
+text still goes to the provider. Requests are spaced at least 15 seconds apart
+per server process to respect the anonymous tier's limit, including CV and
+cover-letter calls. Rate-limit failures get one paced retry. Select a local
+model to keep it on your server:
+install Ollama, run `ollama pull qwen2.5:7b` (or a model your machine supports),
+start `ollama serve`, and select it in Job Hunter. No account/key is required,
+but the model must be downloaded and the runtime running.
+
+The anonymous service is best-effort: rate/length limits and outages can still
+produce a labelled original-CV draft. Preparation retries with compact and then
+smaller CV/job prompts while retaining strict no-invention instructions.
+It never disguises a template as an AI answer or auto-submits the
+fallback. Existing provider keys remain optional alternatives, not required
+for the anonymous or local paths.
+
+The page refreshes application status and progress every ten seconds while
+visible, including work running on the server from another device. A single
+server process rejects overlapping prepare/apply/answer/dismiss operations
+on the same job, preventing duplicate clicks from launching two submissions.
+Answering only some questions keeps the job in **Needs you** until all
+remaining questions are answered; it does not prematurely return to approval.
+
+Desktop and Android clients can open **Job Hunter** from the Studio connection
+screen. Connect to your running GhostForge server and sign in or pair the
+device. CV storage, model requests and browser automation run on that server,
+not inside the Android APK.
+
 ## Ways in
+
+**Multiple jobs:** use the checkboxes in a job list, then **Prepare / retry AI
+for selected**. This only prepares; it never submits. After preparation, choose
+**Review selected applications**, inspect every CV/letter/answer and any
+non-AI warnings, then **Confirm & apply** to authorize those exact jobs.
+Applications run sequentially with individual submitted/needs-you/failed
+results, and one failure does not hide the others. Keep the page open until
+the batch finishes; it is not a durable background queue. No jobs are selected
+or approved automatically.
 
 - **Search.** Uses your target roles, locations and work style. LinkedIn
   results are included when LinkedIn is connected.
@@ -123,7 +197,7 @@ Tested against local pages that copy each system's structure
 | Ashby | Autocomplete location field, hidden upload input. |
 | Workday | Multi-page (My Information → My Experience → Questions → Review), listbox dropdowns, resume step. **Account creation and sign-in always come back to you.** |
 | SmartRecruiters | "I'm interested", then a form built from shadow-DOM web components. |
-| Workable, BambooHR | Consent checkboxes, "Apply for This Job", native selects, cover letter box. |
+| Workable, BambooHR | "Apply for This Job", native selects, cover letter box. Consent checkboxes are left for you. |
 | Teamtailor | Upload buttons that create their file input only when pressed. |
 | iCIMS | The career page's iframe is opened as the form. |
 | Taleo | Usually needs an account: comes back to you. |
@@ -175,3 +249,80 @@ answer questions or take over a stuck application.
 Browser data, including the LinkedIn and Workday sign-ins, lives per user in
 `~/.ghostforge/jobs/<user>/browser`. Set `JOB_HUNTER_BROWSER` to use a
 specific Chrome or Edge.
+
+If the browser reports **profile already open**, close the older **Job Hunter**
+window and retry; do not delete its profile or cookies. Run only one server per
+user profile. Browser shutdown completes before the next application launches,
+and windows retained for captchas/questions are reused in new tabs (including
+development reloads). A profile conflict is reported separately from a missing
+browser. With no installed browser, run `npx playwright install chromium` in
+`web-ui`, or set `JOB_HUNTER_BROWSER` to a Chrome/Edge executable.
+
+Approval opens the application URL (or original posting when it is missing).
+Lever/Ashby application paths preserve tracking queries and fragments, and
+job-board redirect URLs are not modified into invalid ATS paths. Navigation
+failures are reported, never left as a successful application on `about:blank`.
+Visible application tabs are explicitly brought to the front before and after
+navigation. Extra startup blank tabs are closed after successful navigation;
+existing nonblank application tabs are preserved.
+
+## Live application monitor and sign-in
+
+Open a job's review to see **Application monitor**: opening, filling,
+waiting for AI answers, submitting, waiting for login/account verification, captcha, unanswered
+questions, other blockers, failure or confirmed submission. Status refreshes
+while the application is running and blockers persist with the job.
+
+**Show browser preview** enables a read-only screenshot of the actual server
+browser, refreshed every three seconds while visible. It follows application
+popups/new tabs; the real browser stays open separately when you need to act.
+This is not an iframe or interactive remote-control window. Third-party sites
+often prohibit embedding, so screenshots provide a reliable quick view.
+Inputs/textareas/editable fields are masked, but page text may still contain
+personal information. Enable only on a trusted screen. Screenshots are never
+saved to disk, are served without caching, and require the signed-in user's
+Job Hunter permission and ownership of the job.
+
+For a waiting application, **Account sign-in / signup assistance** can use
+your existing website email/password to fill and submit an ordinary login
+form. Approve the exact HTTPS website origin each time. Alternatively, open
+its same-origin signup link and fill name/email/password/confirmation fields
+from your confirmed profile and supplied credentials. **Fill signup details**
+does not submit. **Automatically create account** opens a same-origin signup
+link when needed, fills recognizable fields and submits registration **once**
+after your explicit website approval, only when there are no blockers.
+Save the chosen password in your own password manager before proceeding.
+LinkedIn/Workday registration, SSO, embedded forms, email-first flows and unusual layouts
+remain manual. Cross-site form targets and GET submissions are refused.
+
+Automatic registration stops for explicit or implicit terms/privacy consent,
+captcha, MFA/verification, unknown required fields, invalid passwords,
+disabled buttons and unsupported navigation/forms. It does not accept
+terms, read your mailbox or bypass verification. Review and complete these
+steps in the real browser. Account creation is confirmed only when a new
+website success message appears; a click alone is not success, and unknown
+outcomes must be checked before retrying to avoid duplicate registration.
+
+Blockers persist in job status and appear as in-app alerts. Phone push is
+attempted through your configured GhostForge push subscriptions; the account
+panel reports when delivery is unavailable or failed. Keep the app open when
+push is not configured. Application-form terms now also pause the form agent;
+GhostForge no longer automatically checks legal/consent checkboxes.
+
+Credentials are request-only: GhostForge never saves them, writes them to job
+logs, or sends them to AI. The app clears the password field when an action
+starts. Use an HTTPS connection to GhostForge (or this computer's localhost);
+account assistance rejects plain HTTP on LAN/public addresses. This is not a
+password vault; a website's own scripts still handle its login form.
+
+Complete MFA/email verification/captcha yourself. Then use **Open & fill
+again**; the persistent browser profile reuses that session. A normal browser
+tab is a separate session. An attempted login is never reported as verified,
+and an account action never marks the job Applied or approves another job.
+GhostForge does not bypass authentication. Registration authorization is
+per-request and per-origin; it is not blanket signup permission for autopilot.
+
+Live preview is process-local and unavailable after the application browser
+closes or when requests are served by a different server process. Persisted
+status still appears. Headless autopilot blockers may require retrying visibly
+from the review to complete sign-in.

@@ -82,7 +82,7 @@ export function resolveBridgeLauncher(options: {
   const scriptName = isWindows ? 'bridge.cmd' : 'bridge.sh'
 
   for (const candidate of repoRootCandidates(env, cwd)) {
-    const repoRoot = path.resolve(candidate)
+    const repoRoot = fs.existsSync(candidate) ? fs.realpathSync(candidate) : path.resolve(candidate)
     if (!isGhostforgeRoot(repoRoot, exists)) continue
 
     const scriptPath = path.join(repoRoot, 'scripts', scriptName)

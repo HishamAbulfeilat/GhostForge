@@ -58,7 +58,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   Quality: '✅', Security: '🔒', Git: '⚙️', Frontend: '🎨',
   Accessibility: '♿', 'AI Models': '🧠', Database: '🗄️', Architecture: '🏛️',
   DevOps: '🐳', Code: '💻', Search: '🔍', Learning: '🎓', Deployment: '🚀',
-  Design: '🎨', 'Mac Control': '🖥️', 'Project Management': '🗂️',
+  Design: '🎨', 'Mac Control': '🖥️', 'Project Management': '🗂️', 'Claude Code Mods': '🧩',
 }
 
 const HF_SORT_OPTIONS = [
