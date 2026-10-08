@@ -398,6 +398,17 @@ test('store keeps each user\'s jobs separate and strips path characters from use
   assert.ok(store.userDir('jane.doe').endsWith('jane.doe'))
 })
 
+test('pinning a board clears the "unconfirmed board" mark on jobs already found by name', async () => {
+  const job = { key: 'acme|engineer|remote', source: 'Ashby (acme)', title: 'Engineer', company: 'acme', location: 'Remote', remote: true, salary: '', url: 'https://jobs.ashbyhq.com/acme/1', applyUrl: 'https://jobs.ashbyhq.com/acme/1', ats: 'ashby', description: '', postedAt: '', fit: 'High', score: 90, reasons: '' }
+  await store.upsertJobs('pinner', [{ ...job, trust: 'board', boardUnconfirmed: true }])
+  assert.equal((await store.listJobs('pinner'))[0].boardUnconfirmed, true)
+  // The user pinned "ashby:acme": the same listing now arrives without the mark
+  await store.upsertJobs('pinner', [{ ...job, trust: 'official' }])
+  const [after] = await store.listJobs('pinner')
+  assert.equal(after.boardUnconfirmed, undefined)
+  assert.equal(after.trust, 'official')
+})
+
 test('application links must be public http(s) addresses', () => {
   const { isSafeApplyUrl } = require('../lib/job-hunter/apply.ts')
   assert.equal(isSafeApplyUrl('https://jobs.lever.co/acme/1/apply'), true)

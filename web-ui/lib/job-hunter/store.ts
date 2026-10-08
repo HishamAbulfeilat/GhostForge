@@ -404,6 +404,9 @@ export function upsertJobs(
       Object.assign(existing, {
         ...f, status: existing.status, updatedAt: now,
         attempts: existing.attempts, verification: keepCheck ? existing.verification : f.verification ?? existing.verification,
+        // Follows the latest listing: pinning a board ("ashby:acme") must clear an earlier
+        // unconfirmed name match, or autopilot would never apply to that job
+        boardUnconfirmed: f.boardUnconfirmed || undefined,
       })
       continue
     }
