@@ -264,6 +264,22 @@ test('AI outage produces a persisted honest approval draft, then AI retry clears
   assert.equal(await readFile(files.coverPath, 'utf8'), aiPrepared.coverLetter)
 })
 
+test('after Submit was pressed, applying again needs the user\'s explicit confirmation', async () => {
+  const jh = require('../lib/job-hunter/index.ts')
+  const user = 'resubmit'
+  await jh.importCv(user, 'cv.txt', Buffer.from(profile.cv.text), null)
+  await jh.saveProfile(user, { applicant: profile.applicant })
+  await jh.upsertJobs(user, [{ ...job, key: 'resubmit', source: 'test', location: 'Worldwide', remote: true, salary: '', url: '', applyUrl: 'http://127.0.0.1/', ats: 'lever', postedAt: '', fit: 'High', score: 90, reasons: '' }])
+  const [found] = await jh.listJobs(user)
+  await jh.updateJob(user, found.id, { status: 'needs_user', tailoredResume: 'CV', coverLetter: 'Letter', submitPressedAt: new Date().toISOString() })
+  await assert.rejects(jh.approveJob(user, found.id, { by: 'user', headless: true }), /already pressed/)
+  await assert.rejects(jh.approveJob(user, found.id, { by: 'autopilot', confirmResubmit: true }), /already pressed/)
+  assert.equal((await jh.getJob(user, found.id)).status, 'needs_user', 'a refused approval changes nothing')
+  // Confirmed by the user: it proceeds (and the unsafe test URL is still never opened)
+  const result = await jh.approveJob(user, found.id, { by: 'user', headless: true, confirmResubmit: true })
+  assert.match(result.message, /not a public web address/)
+})
+
 test('cover-letter failure and blank AI output still yield labelled approval drafts', async () => {
   const jh = require('../lib/job-hunter/index.ts')
   const [job] = await jh.listJobs('fallback')

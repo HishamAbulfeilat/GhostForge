@@ -234,15 +234,23 @@ async function prepareJobMaterials(username: string, id: string, generate?: Gene
 export function approveJob(
   username: string,
   id: string,
-  opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean } = {},
+  opts: ApproveOptions = {},
 ): Promise<{ job: JobRecord; message: string; missing: string[] }> {
   return withJobOperation(username, id, () => applyApprovedJob(username, id, opts))
+}
+
+export interface ApproveOptions {
+  headless?: boolean
+  by?: 'user' | 'autopilot'
+  allowSubmit?: boolean
+  /** The user checked that an earlier submission did not go through and wants to submit again */
+  confirmResubmit?: boolean
 }
 
 async function applyApprovedJob(
   username: string,
   id: string,
-  opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean } = {},
+  opts: ApproveOptions = {},
 ): Promise<{ job: JobRecord; message: string; missing: string[] }> {
   const job = await getJob(username, id)
   if (!job) throw new Error('Job not found')
@@ -251,6 +259,12 @@ async function applyApprovedJob(
   }
   if (!job.tailoredResume?.trim() || !job.coverLetter?.trim()) throw new Error('Prepare the application materials before approving')
   if (opts.by === 'autopilot' && job.preparationWarning) throw new Error('This draft needs your review and approval because AI writing was unavailable')
+  // Submit was pressed on an earlier attempt, so the application may already have
+  // been sent. Only the user, after checking, may run it again (never autopilot or
+  // a batch approval that didn't confirm this job).
+  if (job.submitPressedAt && !(opts.by !== 'autopilot' && opts.confirmResubmit)) {
+    throw new Error('Submit was already pressed for this application, so it may have been sent. Check your email or the website; to fill and submit it again, confirm that in the job\'s review.')
+  }
   const profile: JobProfile = await getProfile(username)
   const missing = missingApplicantFields(profile)
   if (missing.length) throw new Error(`Fill in your ${missing.join(', ')} before applying`)

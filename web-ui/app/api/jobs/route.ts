@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   return runWithAIUser(user.id, () => runAction(user.username, body))
 }
 
-async function runAction(username: string, body: { action?: string; id?: string; terms?: string[]; autoPrepare?: number; answers?: Record<string, string>; url?: string }) {
+async function runAction(username: string, body: { action?: string; id?: string; terms?: string[]; autoPrepare?: number; answers?: Record<string, string>; url?: string; confirmResubmit?: boolean }) {
   const user = { username }
   try {
     switch (body.action) {
@@ -71,7 +71,7 @@ async function runAction(username: string, body: { action?: string; id?: string;
         return NextResponse.json({ job: await prepareJob(user.username, body.id) })
       case 'approve':
         if (!body.id) return NextResponse.json({ error: 'Job id required' }, { status: 400 })
-        return NextResponse.json(await approveJob(user.username, body.id))
+        return NextResponse.json(await approveJob(user.username, body.id, { confirmResubmit: body.confirmResubmit === true }))
       case 'autopilot':
         // "Run now": one full autopilot pass, even if not due (or switched off)
         return NextResponse.json({ report: await runAutopilot(user.username, { force: true }) })

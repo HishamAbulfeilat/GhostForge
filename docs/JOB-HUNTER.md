@@ -236,7 +236,9 @@ What autopilot does on its own, and what it leaves to you:
 - **Retries.** Jobs whose questions you answered go back in the queue. A failed
   attempt (site error, timeout) is retried once, **unless Submit had already
   been pressed**. In that case the application may have gone through, so it is
-  handed to you to check and never submitted again automatically. Only one
+  handed to you to check and never submitted again automatically. Applying
+  to it again yourself (including in a batch) is refused until you tick
+  "I checked: it was not sent" in its review. Only one
   autopilot pass runs per user at a time, and two approvals of the same job
   can't both start.
 - **Interrupted applications** (GhostForge stopped mid-form) are handed to you
