@@ -111,7 +111,11 @@ scraped, and LinkedIn is never scraped.
 Put keys in `web-ui/.env.local`, never in code. The Sources card on `/jobs`
 shows which keyed sources are connected. Feed responses are cached for an hour,
 so several search terms or runs don't hit a feed repeatedly. A source that is
-down is skipped and named under Sources.
+down is skipped and named under Sources. A listing the AI already scored keeps
+its score until your CV, preferences, model or the listing itself changes, so
+repeated searches and autopilot runs don't re-score it. Scam-flagged and
+dealbreaker listings are marked Skip without asking the AI. Up to 60 new
+listings are AI-scored per run, best keyword matches first.
 
 "Everywhere" therefore means these boards plus any company whose ATS board you
 add, plus any job you paste by link. Sites with no public API (most company

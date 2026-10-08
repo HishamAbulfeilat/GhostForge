@@ -11,7 +11,11 @@
 import type { Fit, JobPreferences, JobProfile } from './store'
 import type { RawJob } from './sources'
 
-export interface Scored { fit: Fit; score: number; reasons: string }
+export interface Scored {
+  fit: Fit; score: number; reasons: string
+  /** Rated by the model (not the offline keyword heuristic) */
+  ai?: boolean
+}
 
 const norm = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
@@ -174,7 +178,7 @@ Return ONLY a JSON array: [{"i": <index>, "fit": "High"|"Medium"|"Low"|"Skip", "
       for (const r of parsed || []) {
         if (typeof r?.i !== 'number' || r.i < 0 || r.i >= batch.length) continue
         if (!['High', 'Medium', 'Low', 'Skip'].includes(r.fit)) continue
-        out[start + r.i] = { fit: r.fit, score: Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))), reasons: String(r.reasons || '').slice(0, 300) }
+        out[start + r.i] = { fit: r.fit, score: Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))), reasons: String(r.reasons || '').slice(0, 300), ai: true }
       }
     } catch {
       // keep heuristic scores for this batch

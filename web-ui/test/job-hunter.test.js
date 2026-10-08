@@ -389,6 +389,53 @@ test('search → prepare → approve guards, end to end with mocked sources', as
   }
 })
 
+test('search reuses AI scores for unchanged listings and never asks the model about Skip listings', async () => {
+  const realFetch = globalThis.fetch
+  sources.clearSourceCache()
+  globalThis.fetch = async url => {
+    const host = new URL(String(url)).hostname
+    const body = host === 'remotive.com'
+      ? { jobs: [
+          { title: 'Platform Engineer', company_name: 'Acme', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/acme/7', salary: '', description: 'Kubernetes Go platform', publication_date: RECENT },
+          { title: 'Platform Engineer', company_name: 'Gamble', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/gamble/8', salary: '', description: 'Online casino platform', publication_date: RECENT },
+        ] }
+      : null
+    return body ? new Response(JSON.stringify(body), { status: 200 }) : new Response('not found', { status: 404 })
+  }
+  try {
+    const jh = require('../lib/job-hunter/index.ts')
+    const user = 'rescore'
+    await jh.importCv(user, 'cv.txt', Buffer.from('Jane Example\nPlatform Engineer | Acme | 2020 - Present\nKubernetes Go Terraform'), null)
+    const profile = await jh.getProfile(user)
+    await jh.saveProfile(user, { preferences: { ...profile.preferences, titles: ['platform'], locations: ['Remote'], remote: 'remote', dealbreakers: ['casino'] } })
+    const prompts = []
+    const generate = async ({ prompt }) => {
+      prompts.push(prompt)
+      const n = (prompt.match(/^\[\d+\]/gm) || []).length
+      return JSON.stringify(Array.from({ length: n }, (_, i) => ({ i, fit: 'High', score: 88, reasons: 'Strong Kubernetes fit' })))
+    }
+    await jh.runSearch(user, { generate, autoPrepare: 0 })
+    assert.equal(prompts.length, 1)
+    assert.ok(!prompts[0].includes('Gamble'), 'a dealbreaker listing is not sent to the model')
+    const jobs = await jh.listJobs(user)
+    assert.equal(jobs.find(j => j.company === 'Gamble').fit, 'Skip')
+    assert.equal(jobs.find(j => j.company === 'Acme').score, 88)
+
+    // Same CV, preferences and listing: the stored score is reused, no model call
+    await jh.runSearch(user, { generate, autoPrepare: 0 })
+    assert.equal(prompts.length, 1)
+    assert.equal((await jh.listJobs(user)).find(j => j.company === 'Acme').score, 88)
+
+    // Changed preferences: scored again
+    await jh.saveProfile(user, { preferences: { ...(await jh.getProfile(user)).preferences, mustHaves: ['terraform'] } })
+    await jh.runSearch(user, { generate, autoPrepare: 0 })
+    assert.equal(prompts.length, 2)
+  } finally {
+    globalThis.fetch = realFetch
+    sources.clearSourceCache()
+  }
+})
+
 test('store keeps each user\'s jobs separate and strips path characters from usernames', async () => {
   await store.upsertJobs('alice', [{ key: 'a|b|c', source: 't', title: 'A', company: 'B', location: 'C', remote: false, salary: '', url: '', applyUrl: '', ats: 'other', description: '', postedAt: '', fit: 'High', score: 90, reasons: '' }])
   assert.equal((await store.listJobs('alice')).length, 1)

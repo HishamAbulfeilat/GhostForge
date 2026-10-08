@@ -231,6 +231,8 @@ export interface JobRecord {
   fit: Fit
   score: number
   reasons: string
+  /** Fingerprint of the CV, preferences, model and listing the AI score was given for: unchanged means no re-scoring */
+  scoreSig?: string
   status: JobStatus
   activity?: import('./live').ApplicationActivity
   tailoredResume?: string
