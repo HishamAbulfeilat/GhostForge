@@ -48,7 +48,7 @@ export default function OfficeWorld({ data, boss, cliAgents, sceneCliAgents = cl
           <p className="mt-1 text-xs text-gf-muted">
             harishkotra/agent-office&apos;s office. Agents sit at desks with short thought bubbles; one that newly needs you gets the
             camera (cinematic mode); idle ones take a break in the Coffee &amp; Pantry. The boss works from the meeting room.
-            Click an agent to follow; arrow keys or WASD pan.
+            Click an agent to follow; arrow keys or WASD pan; on a touch screen drag to pan and pinch to zoom.
           </p>
         </div>
         <span className="rounded-full border border-gf-line2 px-2 py-1 text-xs text-gf-muted">

@@ -11,6 +11,7 @@ import { clipWords } from '../status'
 import type { WorldAgent } from '../world-model'
 import { startOfficeSession } from './office-session'
 import { inPantry, seatAgents, type Cell, type OfficeModel } from './seating'
+import { attachTouchControls, type TouchCamera } from './touch'
 
 export type { OfficeAgent, OfficeModel } from './seating'
 
@@ -267,12 +268,29 @@ export default function OfficeStage({
   }, [traffic]) // eslint-disable-line react-hooks/exhaustive-deps
 
   type SceneLike = {
-    cameras?: { main: { worldView: { x: number; y: number; width: number; height: number }; centerOn(x: number, y: number): void } }
+    cameras?: { main: TouchCamera & { worldView: { x: number; y: number; width: number; height: number }; centerOn(x: number, y: number): void } }
     agentSprites?: Map<string, { x: number; y: number }>
     followTarget?: unknown
     cinematicReleaseAt?: number
+    layoutEditMode?: boolean
+    layoutDragItemId?: string | null
   }
   const scene = () => gameRef.current?.scene.getScene('OfficeScene') as SceneLike | undefined
+
+  // Phones and tablets: drag to pan, pinch to zoom (the scene only has keys and the wheel).
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    return attachTouchControls(host, () => {
+      const s = gameRef.current?.scene.getScene('OfficeScene') as SceneLike | undefined
+      if (!s?.cameras) return null
+      return {
+        camera: s.cameras.main,
+        release: () => { s.followTarget = null; s.cinematicReleaseAt = 0 },
+        canPan: () => !(s.layoutEditMode && s.layoutDragItemId),
+      }
+    })
+  }, [])
   const readMinimap = (): MinimapState | null => {
     const s = scene()
     if (!s?.cameras) return null
@@ -323,7 +341,7 @@ export default function OfficeStage({
             ref={hostRef}
             role="img"
             aria-label="Agent Office pixel-art scene"
-            className="h-[min(70dvh,680px)] min-h-80 w-full overflow-hidden rounded-xl border border-gf-line bg-gf-bar"
+            className="h-[min(70dvh,680px)] min-h-80 w-full touch-none overflow-hidden rounded-xl border border-gf-line bg-gf-bar"
           />
           <Ambience enabled={ambience} />
           <Minimap read={readMinimap} onPan={pan} label="Agent Office minimap" />
