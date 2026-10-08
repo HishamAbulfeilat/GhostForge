@@ -340,3 +340,44 @@ test('saved searches and the digest: save, check now and open a digest job, neve
     assert.deepEqual(state.actions, ['digest'], 'no prepare or approve from the digest')
   } finally { await page.unmount() }
 })
+
+test('interview prep shows CV-grounded examples and gaps for a prepared application, without applying', async () => {
+  const state = { job: { ...baseJob, status: 'ready', tailoredResume: 'CV', coverLetter: 'Letter' }, actions: [] }
+  const endpoints = routes(state)
+  const jobsRoute = endpoints['/api/jobs']
+  endpoints['/api/jobs'] = (url, init) => {
+    if (init?.method === 'POST' && JSON.parse(init.body).action === 'interview') {
+      state.actions.push('interview')
+      state.job = { ...state.job, interviewPrep: { ai: true, createdAt: '', gaps: ['Kubernetes operations'], questions: [
+        { question: 'Walk me through the checkout rebuild.', why: 'The role asks for React', points: ['Rebuilt the checkout in React'],
+          star: { situation: 'Slow checkout', task: 'Speed it up', action: 'Rebuilt it in React', result: 'Faster pages' }, evidence: 'Rebuilt the checkout in React' },
+        { question: 'How have you run Kubernetes?', why: '', points: [], gap: 'Your CV does not show a specific example for this.' },
+      ] } }
+      return { job: state.job }
+    }
+    return jobsRoute(url, init)
+  }
+  const page = await renderPage('jobs/page.tsx', endpoints)
+  try {
+    await page.click(el => text(el) === 'Review & approve')
+    const panel = () => page.document.querySelector('[aria-label="Interview prep"]')
+    assert.ok(panel())
+    await page.click(el => text(el) === 'Prepare for the interview')
+    assert.deepEqual(state.actions, ['interview'])
+    assert.match(panel().textContent, /Walk me through the checkout rebuild/)
+    assert.match(panel().textContent, /From your CV: .Rebuilt the checkout in React/)
+    assert.match(panel().textContent, /Your CV does not show a specific example/)
+    assert.match(panel().textContent, /Kubernetes operations/)
+    assert.ok([...page.document.querySelectorAll('button')].some(el => text(el) === 'Prepare again'))
+  } finally { await page.unmount() }
+})
+
+test('interview prep is offered only once an application is prepared', async () => {
+  const state = { job: { ...baseJob }, actions: [] }
+  const page = await renderPage('jobs/page.tsx', routes(state))
+  try {
+    await page.click(el => text(el).startsWith('All matches'))
+    await page.click(el => text(el).includes('Engineer') && text(el).includes('Acme'))
+    assert.equal(page.document.querySelector('[aria-label="Interview prep"]'), null)
+  } finally { await page.unmount() }
+})

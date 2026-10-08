@@ -75,6 +75,20 @@ screen. Connect to your running GhostForge server and sign in or pair the
 device. CV storage, model requests and browser automation run on that server,
 not inside the Android APK.
 
+### Interview prep
+
+A prepared application's review has an **Interview prep** panel. **Prepare for
+the interview** writes the questions this job's interviewer is likely to ask,
+with talking points and STAR examples (situation, task, action, result) taken
+from your CV and the job description. It uses your own uploaded CV as the only
+source of facts. Each example must quote the CV line it comes from; an example
+whose quote isn't in your CV, or that names a number found in neither your CV
+nor the posting, is dropped, and the question says what your CV doesn't show
+instead. The panel also lists the job's requirements your CV doesn't show.
+Without a model, it builds a labelled basic outline: one question per
+requirement line, with the matching CV lines quoted unchanged. Preparing it
+never changes the application's status or submits anything.
+
 ## Ways in
 
 **Multiple jobs:** use the checkboxes in a job list, then **Prepare / retry AI

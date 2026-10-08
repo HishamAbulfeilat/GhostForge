@@ -122,6 +122,35 @@ export function dealbreaker(job: Pick<RawJob, 'title' | 'company' | 'description
   return null
 }
 
+/** A heading that opens a requirements-like section ("Requirements", "What you'll bring", "You have") */
+const REQ_HEADING = /^(?:#+\s*)?(?:(?:minimum|basic|preferred|key|required|desired)\s+)?(?:requirements?|qualifications?|skills(?: (?:and|&) experience)?|must[- ]haves?|nice[- ]to[- ]haves?|bonus(?: points)?|about you|who you are|your (?:profile|skills|experience|background)|what (?:you(?:'|’)?ll|you will|you) (?:bring|need|have)|you (?:have|bring|will have|should have)|you(?:'|’)?(?:ll|d) (?:have|bring|be)|what we(?:'|’)?re looking for|we(?:'|’)?re looking for|ideal candidate|experience (?:and|&) skills|requirements (?:and|&) skills|the ideal candidate)\b[^.!?]{0,40}:?$/i
+/** A heading that closes one (benefits, company blurb, how to apply…) */
+const OTHER_HEADING = /^(?:#+\s*)?(?:benefits|perks|what we offer|we offer|our offer|about (?:us|the company|the team)|compensation|salary|how to apply|equal opportunity|eeo|diversity|why (?:join|work)|life at|our (?:values|culture|mission)|responsibilities|what you(?:'|’)?ll do|what you will do|the role|role overview|your role|day to day|in this role)\b[^.!?]{0,40}:?$/i
+/** A line that reads like a requirement even without a heading */
+const REQ_LINE = /\b(\d+\+?\s*(?:years?|yrs)|experience (?:with|in|building|leading)|proficien|knowledge of|familiar(?:ity)? with|degree in|bachelor|master'?s|must have|required|strong (?:understanding|background|knowledge)|hands-on)\b/i
+
+/**
+ * The requirements, qualifications and "you have" parts of a description.
+ * Many listings open with company boilerplate, so the first characters are a
+ * poor summary of what the job asks for. Falls back to requirement-like lines,
+ * then to the start of the description.
+ */
+export function requirementsExcerpt(description: string, max = 1200): string {
+  const lines = String(description || '').split(/\n+/).map(l => l.trim()).filter(Boolean)
+  const picked: string[] = []
+  let inSection = false
+  for (const line of lines) {
+    // Headings are short and not bullets: "Requirements:", "What you'll bring"
+    const short = line.length <= 80 && !/^[-•*·▪●–]/.test(line) && (line.endsWith(':') || line.split(/\s+/).length <= 6)
+    if (short && REQ_HEADING.test(line)) { inSection = true; continue }
+    if (short && OTHER_HEADING.test(line)) { inSection = false; continue }
+    if (inSection) picked.push(line)
+  }
+  const chosen = picked.length ? picked : lines.filter(l => REQ_LINE.test(l))
+  const text = (chosen.length ? chosen : lines).join('\n')
+  return text.slice(0, max)
+}
+
 const STOP = new Set('and the for with you our are will that this from your have team work role able years experience strong using including their about into more such other what who we they them all can not but its has was were also any per etc'.split(' '))
 
 function keywords(text: string): Set<string> {

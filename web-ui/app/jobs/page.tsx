@@ -248,6 +248,12 @@ export default function JobsPage() {
     setNotice({ tone: 'info', text: 'Saved. These answers are reused on future applications. Answer every remaining question to return this job to the approval queue.' })
   })
 
+  const interviewPrep = (id: string) => run(`interview:${id}`, async () => {
+    const { job: updated } = await api<{ job: JobRecord }>('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'interview', id }) })
+    await load()
+    setNotice({ tone: 'info', text: updated.interviewPrep?.warning || 'Interview prep is ready. Every example comes from your CV; gaps are listed instead of invented.' })
+  })
+
   const addByUrl = () => run('add-url', async () => {
     const { job } = await api<{ job: JobRecord }>('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-url', url: jobUrl }) })
     setJobUrl('')
@@ -355,7 +361,7 @@ export default function JobsPage() {
       ) : section === 'github' ? (
         <GithubProfileSetup />
       ) : job ? (
-        <Review job={job} busy={busy} onBack={() => setSelected(null)} onAnswer={answers => void answer(job.id, answers)}
+        <Review job={job} busy={busy} onBack={() => setSelected(null)} onAnswer={answers => void answer(job.id, answers)} onInterview={() => void interviewPrep(job.id)}
           onApprove={confirmResubmit => void act('approve', job.id, confirmResubmit ? { confirmResubmit } : {})} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)} />
       ) : (
         <div className="grid gap-6 px-4 py-6 lg:grid-cols-[400px_minmax(0,1fr)] lg:px-8 lg:py-7">
@@ -651,9 +657,10 @@ function postingDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 10)
 }
 
-function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }: {
+function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer, onInterview }: {
   job: JobRecord; busy: string; onBack: () => void; onApprove: (confirmResubmit: boolean) => void; onPrepare: () => void; onDismiss: () => void
   onAnswer: (answers: Record<string, string>) => void
+  onInterview: () => void
 }) {
   const sv = STATUS_VIEW[job.status] || STATUS_VIEW.found
   const prepared = Boolean(job.tailoredResume)
@@ -835,7 +842,56 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
           </div>
         </section>
       </div>
+
+      {prepared && <InterviewPanel job={job} busy={busy} onGenerate={onInterview} />}
     </div>
+  )
+}
+
+/** Likely interview questions and STAR talking points, only from the CV */
+function InterviewPanel({ job, busy, onGenerate }: { job: JobRecord; busy: string; onGenerate: () => void }) {
+  const prep = job.interviewPrep
+  const working = busy === `interview:${job.id}`
+  return (
+    <section aria-label="Interview prep" className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-display text-lg font-semibold">Interview prep</h2>
+        <button type="button" onClick={onGenerate} disabled={Boolean(busy)}
+          className="min-h-11 rounded-xl border border-gf-line2 px-4 text-sm font-semibold disabled:opacity-60">
+          {working ? 'Preparing questions…' : prep ? 'Prepare again' : 'Prepare for the interview'}
+        </button>
+      </div>
+      <p className="text-sm text-gf-muted">Likely questions from this job description, with talking points and STAR examples taken only from your CV. When your CV doesn&apos;t show something, it says so instead of inventing an answer.</p>
+      {prep?.warning && <p role="status" className="rounded-xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-gf-warn">{prep.warning}</p>}
+      {prep && (
+        <ol className="flex flex-col gap-3">
+          {prep.questions.map((q, i) => (
+            <li key={i} className="flex flex-col gap-1.5 rounded-xl border border-gf-line p-4 text-sm">
+              <strong>{q.question}</strong>
+              {q.why && <span className="text-xs text-gf-muted">{q.why}</span>}
+              {q.points.length > 0 && <ul className="flex list-disc flex-col gap-0.5 ps-5">{q.points.map(p => <li key={p}>{p}</li>)}</ul>}
+              {q.star && (
+                <dl className="grid gap-1 rounded-lg bg-gf-raised p-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-x-3">
+                  {([['Situation', q.star.situation], ['Task', q.star.task], ['Action', q.star.action], ['Result', q.star.result]] as const).map(([label, value]) => value ? (
+                    <div key={label} className="contents">
+                      <dt className="font-semibold">{label}</dt><dd>{value}</dd>
+                    </div>
+                  ) : null)}
+                </dl>
+              )}
+              {q.evidence && <span className="text-xs text-gf-muted">From your CV: &ldquo;{q.evidence}&rdquo;</span>}
+              {q.gap && <span className="text-gf-warn">{q.gap}</span>}
+            </li>
+          ))}
+        </ol>
+      )}
+      {!!prep?.gaps.length && (
+        <div className="flex flex-col gap-1 text-sm">
+          <span className="font-semibold">Your CV doesn&apos;t show</span>
+          <ul className="flex list-disc flex-col gap-0.5 ps-5 text-gf-warn">{prep.gaps.map(g => <li key={g}>{g}</li>)}</ul>
+        </div>
+      )}
+    </section>
   )
 }
 

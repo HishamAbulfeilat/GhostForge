@@ -244,6 +244,30 @@ export interface JobProfile {
 
 export interface FieldAnswer { label: string; value: string }
 
+/** One likely interview question with talking points taken only from the CV */
+export interface InterviewQuestion {
+  question: string
+  /** What in the job description makes this question likely */
+  why: string
+  points: string[]
+  /** A STAR-style example, only when the CV shows one (see evidence) */
+  star?: { situation: string; task: string; action: string; result: string }
+  /** The CV text the example comes from, quoted exactly */
+  evidence?: string
+  /** What the CV doesn't show for this question (prepare it yourself; never invented) */
+  gap?: string
+}
+
+export interface InterviewPrep {
+  questions: InterviewQuestion[]
+  /** Requirements of the job the CV doesn't show */
+  gaps: string[]
+  /** Written by a model (false: a basic outline built from the job's requirements and your CV lines) */
+  ai: boolean
+  warning?: string
+  createdAt: string
+}
+
 export interface JobRecord {
   id: string
   /** Stable identity used to de-duplicate across searches */
@@ -283,6 +307,8 @@ export interface JobRecord {
   questions?: Array<{ label: string; type: string; options: string[] }>
   /** Answers the AI wrote on the last attempt (shown for transparency) */
   aiAnswers?: FieldAnswer[]
+  /** Likely interview questions and talking points from the prepared application */
+  interviewPrep?: InterviewPrep
   log: Array<{ at: string; msg: string }>
   createdAt: string
   updatedAt: string
