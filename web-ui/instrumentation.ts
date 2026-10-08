@@ -21,6 +21,8 @@ export async function register() {
       if (process.env.NODE_ENV !== 'test') {
         const { resumeApplyBatches } = await import('./lib/job-hunter/batch')
         void resumeApplyBatches().catch(() => {})
+        const { startFollowUpReminders } = await import('./lib/job-hunter/pipeline')
+        startFollowUpReminders()
       }
     }
   }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ApplicantData, AutopilotSettings, JobPreferences, JobRecord, ModelChoice } from '@/lib/job-hunter/store'
 import { CvImprover } from '@/components/career/CvImprover'
 import { GithubProfileSetup } from '@/components/career/GithubProfileSetup'
+import { ApplicationPipeline, PipelineBadges, followUpDue } from '@/components/jobs/ApplicationPipeline'
 import type { ApplicationActivity } from '@/lib/job-hunter/live'
 import type { AccountMode } from '@/lib/job-hunter/accounts'
 import type { ApplyBatch } from '@/lib/job-hunter/batch'
@@ -322,6 +323,8 @@ export default function JobsPage() {
     applied: jobs.filter(j => j.status === 'submitted'),
   }), [jobs])
 
+  const followUps = lists.applied.filter(followUpDue).length
+
   const stats = [
     { label: 'Matches in your locations', value: lists.all.length, tone: 'text-gf-ink' },
     { label: 'Waiting for your approval', value: jobs.filter(j => j.status === 'ready').length, tone: 'text-gf-accent-ink' },
@@ -357,7 +360,8 @@ export default function JobsPage() {
         <GithubProfileSetup />
       ) : job ? (
         <Review job={job} busy={busy} onBack={() => setSelected(null)} onAnswer={answers => void answer(job.id, answers)}
-          onApprove={confirmResubmit => void act('approve', job.id, confirmResubmit ? { confirmResubmit } : {})} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)} />
+          onApprove={confirmResubmit => void act('approve', job.id, confirmResubmit ? { confirmResubmit } : {})} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)}
+          onPipelineSaved={() => void load().catch(() => {})} />
       ) : (
         <div className="grid gap-6 px-4 py-6 lg:grid-cols-[400px_minmax(0,1fr)] lg:px-8 lg:py-7">
           <aside className="flex flex-col gap-4">
@@ -554,7 +558,7 @@ export default function JobsPage() {
                     </button>
                   ))}
                 </div>
-                <span className="text-sm text-gf-muted">{tab === 'all' ? 'Sorted by fit' : 'Newest first'}</span>
+                <span className="text-sm text-gf-muted">{tab === 'all' ? 'Sorted by fit' : 'Newest first'}{tab === 'applied' && followUps ? ` · ${followUps} follow-up${followUps === 1 ? '' : 's'} due` : ''}</span>
               </div>
               {lists[tab].length === 0 ? (
                 <p className="px-5 py-10 text-center text-sm text-gf-muted">
@@ -587,6 +591,7 @@ export default function JobsPage() {
                             <span className="font-mono capitalize">{j.ats}</span>
                             <VerifyBadge job={j} />
                           </span>
+                          {j.pipeline && <PipelineBadges job={j} />}
                           {j.reasons && <span className="text-sm text-slate-300">{j.reasons}</span>}
                           {j.activity && <span className="text-sm text-sky-200">{j.activity.phase}: {j.activity.message}</span>}
                           {j.description && <span className="line-clamp-2 whitespace-pre-line text-sm text-gf-muted">{j.description}</span>}
@@ -697,9 +702,10 @@ function BatchProgress({ batch, busy, onCancel }: { batch: ApplyBatch; busy: str
   )
 }
 
-function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }: {
+function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer, onPipelineSaved }: {
   job: JobRecord; busy: string; onBack: () => void; onApprove: (confirmResubmit: boolean) => void; onPrepare: () => void; onDismiss: () => void
   onAnswer: (answers: Record<string, string>) => void
+  onPipelineSaved?: () => void
 }) {
   const sv = STATUS_VIEW[job.status] || STATUS_VIEW.found
   const prepared = Boolean(job.tailoredResume)
@@ -807,6 +813,8 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
           {job.preparationWarning}
         </div>
       )}
+
+      {job.status === 'submitted' && <ApplicationPipeline key={`pipeline-${job.id}`} job={job} disabled={Boolean(busy)} onSaved={onPipelineSaved} />}
 
       <ApplicationMonitor key={job.id} job={job} applying={approving} />
 

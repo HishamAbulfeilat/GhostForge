@@ -222,6 +222,10 @@ const route = load('../app/api/jobs/route.ts', {
     cancelApplyBatch: async username => { routeCalls.push({ action: 'cancel', username }); return null },
     getApplyBatch: async () => null, runApplyBatch: async () => {},
   },
+  '@/lib/job-hunter/pipeline': {
+    startFollowUpReminders: () => {},
+    updatePipeline: async (username, id, patch) => { routeCalls.push({ action: 'pipeline', username, id, patch }); return { id } },
+  },
   '@/lib/hosted': require('../lib/hosted.ts'),
   '@/lib/providers': { runWithAIUser: (_id, fn) => fn() },
 })
@@ -235,6 +239,14 @@ test('batch-apply queues only the signed-in user\'s confirmed items, with strict
   assert.equal((await post({ action: 'batch-apply' })).status, 400)
   assert.equal((await post({ action: 'batch-cancel' })).status, 200)
   assert.equal(routeCalls.at(-1).username, 'route-user')
+})
+
+test('pipeline updates are scoped to the signed-in user and pass only the pipeline fields', async () => {
+  routeCalls.length = 0
+  const r = await post({ action: 'pipeline', id: 'j1', stage: 'interview', followUpInDays: 7, notes: 'n', status: 'submitted', username: 'victim' })
+  assert.equal(r.status, 200)
+  assert.deepEqual(routeCalls, [{ action: 'pipeline', username: 'route-user', id: 'j1', patch: { stage: 'interview', followUpAt: undefined, followUpInDays: 7, notes: 'n' } }])
+  assert.equal((await post({ action: 'pipeline', stage: 'offer' })).status, 400)
 })
 
 test('hosted mode refuses batch applications (fail-closed, like single approvals)', async () => {

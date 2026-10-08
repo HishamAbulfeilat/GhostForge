@@ -75,6 +75,17 @@ screen. Connect to your running GhostForge server and sign in or pair the
 device. CV storage, model requests and browser automation run on that server,
 not inside the Android APK.
 
+### After you apply
+
+Open an application in **Applied** to track what happens next under
+**After applying**: the stage (Applied, Screening, Interview, Offer,
+Rejected), a follow-up day and notes. **Follow up in 7 days** sets the day
+for you. On that day you get one reminder through the usual Job Hunter
+notifications (push when set up), and the job card shows **Follow up now**
+until you change the stage or the day. Offers and rejections get no
+reminders. Everything here is entered by you: GhostForge never reads your
+mailbox. Stage changes are kept in a short history and in the job's log.
+
 ## Ways in
 
 **Multiple jobs:** use the checkboxes in a job list, then **Prepare / retry AI

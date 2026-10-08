@@ -5,6 +5,7 @@ import { addJobByUrl, connectLinkedIn, disconnectLinkedIn } from '@/lib/job-hunt
 import { keyedSources } from '@/lib/job-hunter/sources'
 import { runAutopilot, startAutopilotScheduler, submittedToday } from '@/lib/job-hunter/autopilot'
 import { cancelApplyBatch, getApplyBatch, runApplyBatch, startApplyBatch } from '@/lib/job-hunter/batch'
+import { startFollowUpReminders, updatePipeline } from '@/lib/job-hunter/pipeline'
 import { hostedUnavailableResponse, isHostedMode } from '@/lib/hosted'
 import { runWithAIUser } from '@/lib/providers'
 
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
   const user = await requirePermission(req, 'job_hunter')
   if (user instanceof NextResponse) return user
   // Idempotent: makes sure autopilot runs even if instrumentation didn't start it
-  if (!isHostedMode()) startAutopilotScheduler()
+  if (!isHostedMode()) { startAutopilotScheduler(); startFollowUpReminders() }
   const [jobs, profile, batch] = await Promise.all([listJobs(user.username), getProfile(user.username), getApplyBatch(user.username)])
   // A confirmed batch keeps going on the server; restart its worker if this server was restarted
   if (!isHostedMode() && batch?.state === 'running') void runApplyBatch(user.username)
@@ -43,6 +44,8 @@ export async function GET(req: NextRequest) {
  *   batch-apply  { items: [{ id, confirmResubmit? }] } — queue the reviewed, confirmed
  *            applications; the server applies to them one at a time, even after the tab closes
  *   batch-cancel  stop the batch after the application in progress
+ *   pipeline { id, stage?, followUpAt?, followUpInDays?, notes? } — track a sent application
+ *            (applied/screening/interview/offer/rejected); entered by hand, no mailbox reading
  *   dismiss  hide a job
  *   answer   { id, answers: { label: value } } — answer the questions an application stopped on
  *   add-url  { url } — add any job by link (LinkedIn, careers page, ATS)
@@ -67,6 +70,7 @@ export async function POST(req: NextRequest) {
 type JobAction = {
   action?: string; id?: string; terms?: string[]; autoPrepare?: number; answers?: Record<string, string>; url?: string
   confirmResubmit?: boolean; items?: Array<{ id?: unknown; confirmResubmit?: unknown }>
+  stage?: unknown; followUpAt?: unknown; followUpInDays?: unknown; notes?: unknown
 }
 
 async function runAction(username: string, body: JobAction) {
@@ -88,6 +92,11 @@ async function runAction(username: string, body: JobAction) {
         if (!Array.isArray(body.items)) return NextResponse.json({ error: 'items required' }, { status: 400 })
         const items = body.items.map(item => ({ id: String(item?.id ?? ''), confirmResubmit: item?.confirmResubmit === true }))
         return NextResponse.json({ batch: await startApplyBatch(user.username, items) })
+      }
+      case 'pipeline': {
+        if (!body.id) return NextResponse.json({ error: 'Job id required' }, { status: 400 })
+        const { stage, followUpAt, followUpInDays, notes } = body
+        return NextResponse.json({ job: await updatePipeline(user.username, String(body.id), { stage, followUpAt, followUpInDays, notes }) })
       }
       case 'batch-cancel':
         return NextResponse.json({ batch: await cancelApplyBatch(user.username) })

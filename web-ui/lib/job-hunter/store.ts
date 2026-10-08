@@ -217,6 +217,19 @@ export interface JobProfile {
 
 export interface FieldAnswer { label: string; value: string }
 
+/** Stages after an application was sent. Entered by hand; mailboxes are never read. */
+export type PipelineStage = 'applied' | 'screening' | 'interview' | 'offer' | 'rejected'
+export interface ApplicationPipeline {
+  stage: PipelineStage
+  /** Day to follow up (YYYY-MM-DD); a reminder is sent on that day */
+  followUpAt?: string
+  notes?: string
+  /** The follow-up day a reminder was already sent for */
+  remindedFor?: string
+  history?: Array<{ at: string; stage: PipelineStage }>
+  updatedAt?: string
+}
+
 export interface JobRecord {
   id: string
   /** Stable identity used to de-duplicate across searches */
@@ -256,6 +269,8 @@ export interface JobRecord {
   questions?: Array<{ label: string; type: string; options: string[] }>
   /** Answers the AI wrote on the last attempt (shown for transparency) */
   aiAnswers?: FieldAnswer[]
+  /** What happened after applying, entered by the user (see pipeline.ts) */
+  pipeline?: ApplicationPipeline
   log: Array<{ at: string; msg: string }>
   createdAt: string
   updatedAt: string
@@ -514,6 +529,10 @@ function mergeFound(existing: JobRecord, f: Omit<JobRecord, 'id' | 'status' | 'l
  * untouched. One row in SQLite (a write transaction, safe across processes);
  * the whole file under the user's lock in the JSON fallback.
  */
+export function mutateJob(username: string, id: string, change: (job: JobRecord) => boolean): Promise<JobRecord | null> {
+  return changeJob(username, id, change)
+}
+
 function changeJob(username: string, id: string, change: (job: JobRecord) => boolean): Promise<JobRecord | null> {
   const db = jobDb(username)
   if (db) {

@@ -344,3 +344,60 @@ test('bulk preparation never approves and requires review of fallback drafts bef
     assert.equal(page.document.querySelector('[aria-label="Confirm selected applications"]'), null)
   } finally { await page.unmount() }
 })
+
+test('a sent application tracks stage, follow-up and notes by hand, and shows them on its card', async () => {
+  const state = { job: { ...baseJob, status: 'submitted', tailoredResume: 'CV', coverLetter: 'Letter' }, actions: [] }
+  const endpoints = routes(state)
+  const jobsHandler = endpoints['/api/jobs']
+  endpoints['/api/jobs'] = (url, init) => {
+    if (init?.method === 'POST' && JSON.parse(init.body).action === 'pipeline') {
+      const body = JSON.parse(init.body)
+      state.actions.push(body)
+      const p = state.job.pipeline || { stage: 'applied' }
+      state.job = { ...state.job, pipeline: {
+        ...p, ...(body.stage ? { stage: body.stage } : {}), ...(body.notes !== undefined ? { notes: body.notes } : {}),
+        ...(body.followUpInDays ? { followUpAt: '2000-01-01' } : body.followUpAt ? { followUpAt: body.followUpAt } : {}),
+      } }
+      return { job: state.job }
+    }
+    return jobsHandler(url, init)
+  }
+  const page = await renderPage('jobs/page.tsx', endpoints)
+  try {
+    await page.click(el => text(el).startsWith('Applied'))
+    await page.click(el => text(el) === 'View')
+    const panel = page.document.querySelector('[aria-label="Application pipeline"]')
+    assert.ok(panel, 'shown for a sent application')
+    assert.match(panel.textContent, /never reads your email/)
+    // Only the new panel is checked here; page-level rules (landmarks, region) belong to the page tests
+    const { violations } = await page.window.axe.run(panel, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })
+    assert.equal(violations.length, 0, `pipeline panel axe violations: ${violations.map(v => v.id).join(', ')}`)
+    await page.click(el => text(el) === 'Follow up in 7 days')
+    assert.deepEqual(state.actions, [{ action: 'pipeline', id: 'job1', followUpInDays: 7 }])
+    assert.match(panel.textContent, /Reminder set for 7 days/)
+    assert.match(panel.textContent, /Follow-up due/, 'a past follow-up day is flagged')
+    const interview = panel.querySelector('input[type="radio"][value="interview"]')
+    await require('react').act(async () => { interview.dispatchEvent(new page.window.MouseEvent('click', { bubbles: true })) })
+    const notes = panel.querySelector('textarea')
+    await require('react').act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(notes), 'value').set
+      setter.call(notes, 'Call with the team lead')
+      notes.dispatchEvent(new page.window.Event('input', { bubbles: true }))
+    })
+    await page.click(el => text(el) === 'Save')
+    assert.deepEqual(state.actions[1], { action: 'pipeline', id: 'job1', stage: 'interview', followUpAt: '2000-01-01', notes: 'Call with the team lead' })
+    await page.click(el => text(el) === '← Back to jobs')
+    assert.match(page.document.body.textContent, /Interview/)
+    assert.match(page.document.body.textContent, /Follow up now/)
+    assert.match(page.document.body.textContent, /1 follow-up due/)
+  } finally { await page.unmount() }
+})
+
+test('the pipeline is not offered before an application is sent', async () => {
+  const state = { job: { ...baseJob, status: 'ready', tailoredResume: 'CV', coverLetter: 'Letter' }, actions: [] }
+  const page = await renderPage('jobs/page.tsx', routes(state))
+  try {
+    await page.click(el => text(el) === 'Review & approve')
+    assert.equal(page.document.querySelector('[aria-label="Application pipeline"]'), null)
+  } finally { await page.unmount() }
+})
