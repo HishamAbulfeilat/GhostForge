@@ -304,7 +304,11 @@ function attachUpgradeHandler(server) {
     // Also validate bridge token present to avoid unauthenticated proxy.
     const pathname = (req.url || '').split('?')[0]
     const host = req.headers.host || ''
-    const url = new URL(req.url || '/', `http://${host || 'localhost'}`)
+    // A malformed Host header (e.g. containing a space) makes new URL() throw;
+    // inside this event handler that would be an uncaught exception that takes
+    // the whole server down, so parse against a fixed base and drop bad input.
+    let url
+    try { url = new URL(req.url || '/', 'http://localhost') } catch { socket.destroy(); return }
     const token = url.searchParams.get('token') || req.headers['x-bridge-token'] || ''
     const expected = getBridgeToken()
     const hasValidToken = tokenMatches(token, expected)
