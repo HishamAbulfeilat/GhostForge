@@ -1,33 +1,33 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import Link from 'next/link'
-import dynamic from 'next/dynamic'
-import CollabShare from '@/components/CollabShare'
 import LLMfitAutoSwitch from '@/components/LLMfitAutoSwitch'
 import ClickyOverlay from '@/components/ClickyOverlay'
-import { usePlatform, detectLanguage, getSpeechLang, platformLabel } from '@/lib/platform'
-
-const MarkLPanel = dynamic(() => import('@/components/MarkLPanel'), { ssr: false })
-const OpenJarvisPanel = dynamic(() => import('@/components/OpenJarvisPanel'), { ssr: false })
-const MarkLivToolsPanel = dynamic(() => import('@/components/MarkLivToolsPanel'), { ssr: false })
-const AgentDashboard = dynamic(() => import('@/components/AgentDashboard'), { ssr: false })
+import { usePlatform, detectLanguage, getSpeechLang } from '@/lib/platform'
 import { collectRecognitionTranscript, findWakePhrase } from '@/lib/voice-runtime'
 import { JARVIS_QUICK_ACTIONS } from '@/lib/quick-actions'
-import { MARK_LIV_ACTIONS } from '@/lib/mark-liv-actions'
 import {
   getSR, GREETINGS, MODE_COLORS, PERSONA_OPTIONS,
   type Any, type ClipboardPanelState, type Emotion, type HistoryPayloadSession, type HostCapabilities,
   type Memory, type Message, type Mode, type ModelInfo, type MorningBriefingResponse, type Toast, type TtsInfo, type VoiceEngine,
 } from './_components/types'
 import OrbSVG from './_components/OrbSVG'
-import Clock from './_components/Clock'
 import ToastContainer from './_components/ToastContainer'
-import ToolCard from './_components/ToolCard'
 import AuditPanel from './_components/AuditPanel'
-import VoiceEnrollPanel from './_components/VoiceEnrollPanel'
 import ClipboardPanel from './_components/ClipboardPanel'
 import HardwareMetrics from './_components/HardwareMetrics'
+import TopBar from './_components/TopBar'
+import CopilotBanner from './_components/CopilotBanner'
+import PermissionBanner from './_components/PermissionBanner'
+import SettingsPanel from './_components/SettingsPanel'
+import MarkLOverlay from './_components/MarkLOverlay'
+import AgentOverlay from './_components/AgentOverlay'
+import SystemsPanel from './_components/SystemsPanel'
+import MessageList from './_components/MessageList'
+import VoiceControls from './_components/VoiceControls'
+import QuickCommandsPanel from './_components/QuickCommandsPanel'
+import StatusBar from './_components/StatusBar'
+import { useN8nConnection } from './_components/useN8nConnection'
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -85,17 +85,7 @@ export default function JarvisPage() {
   const [showMarkL, setShowMarkL] = useState(false)
   const [bridgeStatus, setBridgeStatus] = useState<string>('stopped')
   // ── n8n workflow state ───────────────────────────────────────────────────────
-  const [n8nConnected, setN8nConnected] = useState(false)
-  const [n8nUrl, setN8nUrl] = useState('http://localhost:5678')
-  const [n8nUrlTouched, setN8nUrlTouched] = useState(false)
-  const [n8nWorkflows, setN8nWorkflows] = useState<Array<{ id: string; name: string; active: boolean; trigger: string }>>([])
-  const [n8nConnecting, setN8nConnecting] = useState(false)
-  const [n8nReachable, setN8nReachable] = useState<boolean | null>(null)
-  const [n8nCreating, setN8nCreating] = useState(false)
-  const [n8nNewName, setN8nNewName] = useState('')
-  const [n8nNewType, setN8nNewType] = useState<'deploy' | 'notify' | 'pr' | 'custom'>('deploy')
-  const [n8nNewDesc, setN8nNewDesc] = useState('')
-  const [n8nCopiedId, setN8nCopiedId] = useState<string | null>(null)
+  const n8n = useN8nConnection()
   // ── Gemini Live voice state ───────────────────────────────────────────────────
   const [geminiConnectionState, setGeminiConnectionState] = useState<string>('disconnected')
   const [geminiListening, setGeminiListening] = useState(false)
@@ -121,7 +111,6 @@ export default function JarvisPage() {
   const wakeRecognitionRef = useRef<Any>(null)
   const micStreamRef       = useRef<MediaStream | null>(null)  // held while speech recognition is active (Windows fix)
   const voicesRef          = useRef<Any[]>([])
-  const messagesEndRef     = useRef<HTMLDivElement>(null)
   const inputRef           = useRef<HTMLInputElement>(null)
   const hotwordEnabledRef  = useRef(false)
   const handsFreeEnabledRef = useRef(false)
@@ -530,53 +519,12 @@ export default function JarvisPage() {
   }, [])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const api = (window as any).electron?.bridgeManager
     if (!api) return
     api.getStatus().then((res: { status: string }) => setBridgeStatus(res.status)).catch(() => {})
     api.onStatusChange((status: string) => setBridgeStatus(status))
   }, [])
-
-  useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const api = (window as any).electron?.n8n
-    if (!api) return
-    api.getStatus().then((res: { connected: boolean; url: string }) => {
-      setN8nConnected(res.connected)
-      if (res.url) setN8nUrl(res.url)
-      if (res.connected) {
-        api.listWorkflows().then((wfs: Array<{ id: string; name: string; active: boolean; trigger: string }>) => {
-          setN8nWorkflows(wfs)
-        }).catch(() => {})
-      }
-    }).catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    // Only probe n8n when it's actually in use (connected via Electron, or the
-    // user entered a custom URL) — avoids ERR_CONNECTION_REFUSED noise in the
-    // console every 15s when n8n is never used.
-    if (!n8nConnected && !n8nUrlTouched) {
-      setN8nReachable(null)
-      return
-    }
-    let active = true
-    const check = async () => {
-      try {
-        const res = await fetch(n8nUrl, { method: 'HEAD', mode: 'no-cors', signal: AbortSignal.timeout(3000) })
-        if (active) setN8nReachable(true)
-      } catch {
-        if (active) setN8nReachable(false)
-      }
-    }
-    void check()
-    const timer = setInterval(check, 15000)
-    return () => { active = false; clearInterval(timer) }
-  }, [n8nUrl, n8nConnected, n8nUrlTouched])
 
   // ── Agent IPC listeners ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -1744,598 +1692,42 @@ export default function JarvisPage() {
           style={{ background: 'linear-gradient(transparent 50%, rgba(26,111,255,0.03) 50%)', backgroundSize: '100% 4px' }} />
 
         {/* ── Top HUD bar ── */}
-        <div className="relative z-10 flex shrink-0 flex-wrap items-center justify-between gap-y-2 border-b px-4 py-2"
-          style={{ borderColor: `${mc.ring}33`, background: 'rgba(0,5,20,0.92)' }}>
-          <div className="flex items-center gap-3">
-            <Link href="/dashboard" className="text-xs font-mono text-blue-400/60 hover:text-blue-300 transition">← DASHBOARD</Link>
-            <span className="text-[10px] text-blue-400/30 font-mono">|</span>
-            <div className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full gfai-blink" style={{ background: mc.ring }} />
-              <span className="font-mono text-[10px] tracking-widest uppercase" style={{ color: mc.ring }}>
-                G.F.A.I. — {mode}
-              </span>
-            </div>
-            {lastToolUsed && (
-              <span className="font-mono text-[10px] text-blue-400/40 hidden sm:block">
-                ⚡ {lastToolUsed.replace(/_/g, ' ')}
-              </span>
-            )}
-          </div>
-          {/* On phones the controls scroll sideways instead of running off-screen */}
-          <div className="-mx-1 flex min-w-0 max-w-full items-center gap-3 overflow-x-auto px-1 pb-0.5 [scrollbar-width:none] [&>*]:shrink-0">
-            {currentUser ? (
-              <span className="hidden sm:flex items-center gap-1.5 font-mono text-[10px]" style={{ color: currentUser.role === 'admin' ? '#fbbf24' : '#93c5fd' }}
-                title={`Signed in as ${currentUser.name}`}>
-                <span>👤</span>
-                <span>{currentUser.username.toUpperCase()}</span>
-                <span className="rounded px-1 py-px text-[9px] uppercase"
-                  style={{ background: currentUser.role === 'admin' ? 'rgba(251,191,36,0.15)' : 'rgba(147,197,253,0.15)', border: currentUser.role === 'admin' ? '1px solid rgba(251,191,36,0.4)' : '1px solid rgba(147,197,253,0.4)' }}>
-                  {currentUser.role}
-                </span>
-              </span>
-            ) : (
-              <span className="hidden font-mono text-[10px] text-blue-400/40 sm:block">👤</span>
-            )}
-            {memory.userName && (
-              <span className="font-mono text-[10px] text-blue-300/50 hidden sm:block">
-                {memory.userName.toUpperCase()}
-              </span>
-            )}
-            {/* Platform + language indicator */}
-            <span className="font-mono text-[10px] text-blue-400/40 hidden sm:block" title={`Device: ${platform.type} | Lang: ${detectedLang}`}>
-              {platformLabel(platform)} {detectedLang !== 'en' ? `| ${detectedLang.toUpperCase()}` : ''}
-            </span>
-            <span className="hidden rounded border px-2 py-1 font-mono text-[10px] sm:block" style={{ borderColor: `${mc.ring}33`, color: mc.ring, background: `${mc.ring}12` }}>
-              {activePersona.badge}
-            </span>
-            <Link href="/history"
-              className="font-mono text-[10px] rounded px-2 py-1 border transition"
-              style={{ borderColor: `${mc.ring}44`, color: '#67e8f9cc', background: 'transparent' }}>
-              📜 HISTORY
-            </Link>
-            {currentUser?.role === 'admin' && (
-              <Link href="/users"
-                className="font-mono text-[10px] rounded px-2 py-1 border transition"
-                style={{ borderColor: '#fbbf2444', color: '#fde68acc', background: 'transparent' }}>
-                👥 USERS
-              </Link>
-            )}
-            <button type="button" onClick={() => setShowSettings(s => !s)}
-              className="font-mono text-[10px] rounded px-2 py-1 border transition"
-              style={{ borderColor: `${mc.ring}44`, color: `${mc.ring}99`, background: showSettings ? `${mc.ring}18` : 'transparent' }}>
-              ⚙ SETTINGS
-            </button>
-            <CollabShare />
-            <button type="button" onClick={() => setShowAudit(s => !s)}
-              className="font-mono text-[10px] rounded px-2 py-1 border transition"
-              style={{ borderColor: `${mc.ring}44`, color: '#f59e0b99', background: showAudit ? 'rgba(245,158,11,0.08)' : 'transparent' }}
-              title="View audit log of all tool actions">
-              📋 AUDIT
-            </button>
-            <button type="button" onClick={() => { setShowMarkL(s => !s); if (!showMarkL) setShowSettings(false) }}
-              className="font-mono text-[10px] rounded px-2 py-1 border transition"
-              style={{ borderColor: showMarkL ? '#00ff88' : `${mc.ring}44`, color: showMarkL ? '#00ff88' : `${mc.ring}88`, background: showMarkL ? 'rgba(0,255,136,0.08)' : 'transparent' }}
-              title="Mark-L features panel — 29 capabilities">
-              ⚡ MARK-L
-            </button>
-            {/* ── Copilot CLI Mode Toggle ── */}
-            <button type="button"
-              onClick={() => {
-                const next = !copilotMode
-                setCopilotMode(next)
-                toast(next ? 'success' : 'info',
-                  next ? '🤖 Copilot CLI mode ON — all messages go to gh copilot' : '🤖 Copilot CLI mode OFF — back to G.F.A.I.')
-              }}
-              className="font-mono text-[10px] rounded px-2 py-1 border transition"
-              style={{
-                borderColor: copilotMode ? '#00ff88' : `${mc.ring}44`,
-                color:       copilotMode ? '#00ff88' : `${mc.ring}88`,
-                background:  copilotMode ? 'rgba(0,255,136,0.08)' : 'transparent',
-                boxShadow:   copilotMode ? '0 0 8px rgba(0,255,136,0.2)' : 'none',
-              }}
-              title="Toggle GitHub Copilot CLI mode — routes messages directly to gh copilot">
-              {copilotMode ? '🤖 COPILOT ON' : '🤖 COPILOT'}
-            </button>
-            <Clock />
-          </div>
-        </div>
+        <TopBar
+          mc={mc} mode={mode} lastToolUsed={lastToolUsed} currentUser={currentUser} memory={memory}
+          platform={platform} detectedLang={detectedLang} activePersona={activePersona}
+          showSettings={showSettings} setShowSettings={setShowSettings}
+          showAudit={showAudit} setShowAudit={setShowAudit}
+          showMarkL={showMarkL} setShowMarkL={setShowMarkL}
+          copilotMode={copilotMode} setCopilotMode={setCopilotMode} toast={toast}
+        />
 
         {/* ── Copilot CLI mode banner ── */}
         {copilotMode && (
-          <div className="gfai-fade relative z-20 flex items-center justify-between border-b px-4 py-1.5 font-mono text-[10px]"
-            style={{ borderColor: '#00ff8844', background: 'rgba(0,255,136,0.05)' }}>
-            <div className="flex items-center gap-2">
-              <span className="gfai-blink h-1.5 w-1.5 rounded-full bg-green-400" />
-              <span style={{ color: '#00ff88' }}>COPILOT CLI MODE ACTIVE</span>
-              <span className="text-blue-400/40">— messages route directly to <code className="text-green-400/70">gh copilot -p</code></span>
-            </div>
-            <button type="button" aria-label="Exit Copilot CLI mode" onClick={() => { setCopilotMode(false); toast('info', 'Copilot CLI mode OFF') }}
-              className="text-green-400/50 hover:text-green-300 transition">✕ EXIT</button>
-          </div>
+          <CopilotBanner setCopilotMode={setCopilotMode} toast={toast} />
         )}
 
         {/* ── Permissions banner ── */}
         {showPermissionBanner && (
-          <div className="gfai-fade relative z-20 border-b px-4 py-2 font-mono text-[10px]"
-            style={{ borderColor: '#ff6b3522', background: 'rgba(255,107,53,0.05)' }}>
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <span className="gfai-blink h-1.5 w-1.5 rounded-full" style={{ background: '#ff6b35' }} />
-                <span style={{ color: '#ff6b35' }}>PERMISSIONS REQUIRED</span>
-                <span className="text-blue-400/40">— mic &amp; camera needed for voice and vision</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => void requestAllPermissions()}
-                  className="rounded px-3 py-1 border transition text-[10px]"
-                  style={{ borderColor: '#ff6b3566', color: '#ff6b35', background: 'rgba(255,107,53,0.1)' }}>
-                  GRANT PERMISSIONS
-                </button>
-                <button type="button" aria-label="Dismiss permissions banner" onClick={() => setShowPermissionBanner(false)}
-                  className="text-blue-400/40 hover:text-blue-300 transition">✕</button>
-              </div>
-            </div>
-            {permissionError && (
-              <p className="mt-1 text-[9px] text-red-400/70">{permissionError}</p>
-            )}
-            <div className="mt-1 flex items-center gap-4 text-[9px]">
-              <span className="flex items-center gap-1">
-                <span className="h-1 w-1 rounded-full" style={{ background: permissions.mic ? '#00ff88' : '#ff444466' }} />
-                <span style={{ color: permissions.mic ? '#00ff88' : 'rgba(255,100,100,0.5)' }}>
-                  Microphone {permissions.mic ? '✓' : '✗'}
-                </span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="h-1 w-1 rounded-full" style={{ background: permissions.camera ? '#00ff88' : '#ff444466' }} />
-                <span style={{ color: permissions.camera ? '#00ff88' : 'rgba(255,100,100,0.5)' }}>
-                  Camera {permissions.camera ? '✓' : '✗'}
-                </span>
-              </span>
-            </div>
-          </div>
+          <PermissionBanner
+            permissions={permissions} permissionError={permissionError}
+            requestAllPermissions={requestAllPermissions} setShowPermissionBanner={setShowPermissionBanner}
+          />
         )}
 
         {/* ── Settings panel (collapsible) ── */}
-        {showSettings && (          <div className="relative z-20 border-b px-4 py-3 gfai-fade"
-            style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,25,0.97)' }}>
-            <div className="flex flex-wrap gap-6 font-mono text-[10px]">
-
-              {/* Model selector */}
-              <div className="flex-1 min-w-[280px]">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <p className="text-blue-400/40 tracking-widest">AI MODEL</p>
-                  {offlineMode && (
-                    <span className="rounded border border-emerald-500/40 bg-emerald-950/40 px-1.5 py-0.5 text-[9px] text-emerald-300">
-                      OFFLINE · LOCAL ONLY
-                    </span>
-                  )}
-                  {selectedProvider && (
-                    <span className="rounded px-1.5 py-0.5 text-[9px]"
-                      style={{ background: `${mc.ring}22`, color: mc.ring }}>
-                      ✓ OVERRIDE ACTIVE — {selectedModel?.split('/').pop()?.split(':')[0]}
-                    </span>
-                  )}
-                  {liveModel && (
-                    <span className="rounded px-1.5 py-0.5 text-[9px] text-blue-400/40">
-                      last used: {liveModel.model?.split('/').pop()?.split(':')[0]}
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <button type="button"
-                    onClick={() => { setSelectedProvider(''); setSelectedModel(''); toast('info', 'Auto mode — will use best available model') }}
-                    className="rounded px-2 py-1 border transition"
-                    style={{
-                      borderColor: !selectedProvider ? mc.ring : `${mc.ring}33`,
-                      color: !selectedProvider ? mc.ring : 'rgba(150,170,220,0.5)',
-                      background: !selectedProvider ? `${mc.ring}18` : 'transparent',
-                    }}>
-                    AUTO (CHAIN)
-                  </button>
-                  {models.filter(m => m.available && (!offlineMode || m.provider === 'ollama' || m.provider === 'llamacpp')).map(m => {
-                    const isActive = selectedProvider === m.provider && selectedModel === m.id
-                    const isLast = liveModel?.provider === m.provider && liveModel?.model === m.id
-                    return (
-                      <button type="button" key={`${m.provider}/${m.id}`}
-                        onClick={() => {
-                          setSelectedProvider(m.provider)
-                          setSelectedModel(m.id)
-                          toast('success', `Model set to ${m.label} — will use next message`)
-                        }}
-                        className="rounded px-2 py-1 border transition relative"
-                        style={{
-                          borderColor: isActive ? mc.ring : isLast ? `${mc.ring}66` : `${mc.ring}22`,
-                          color: isActive ? mc.ring : isLast ? `${mc.ring}cc` : 'rgba(150,170,220,0.5)',
-                          background: isActive ? `${mc.ring}18` : 'transparent',
-                        }}
-                        title={m.free ? 'Free tier' : 'Paid tier'}>
-                        {isActive && <span className="me-1">✓</span>}
-                        {isLast && !isActive && <span className="me-1" style={{ color: mc.ring }}>◉</span>}
-                        {m.label}
-                        {m.free && <span className="ms-1 opacity-40">free</span>}
-                      </button>
-                    )
-                  })}
-                </div>
-                <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-500/20 bg-emerald-950/10 px-3 py-2">
-                  <div>
-                    <p className="text-[11px] text-emerald-300">Offline mode</p>
-                    <p className="text-[9px] text-emerald-200/50">Ollama first, llama.cpp fallback; cloud providers are blocked</p>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Toggle offline mode"
-                    onClick={() => {
-                      const next = !offlineMode
-                      setOfflineMode(next)
-                      localStorage.setItem('gf_offline', String(next))
-                      if (next && selectedProvider && selectedProvider !== 'ollama' && selectedProvider !== 'llamacpp') {
-                        setSelectedProvider('')
-                        setSelectedModel('')
-                      }
-                      toast(next ? 'success' : 'info', next ? 'Offline mode enabled — local models only' : 'Cloud fallback enabled')
-                    }}
-                    className={`relative h-6 w-12 rounded-full transition-colors ${offlineMode ? 'bg-emerald-600' : 'bg-zinc-700'}`}
-                  >
-                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${offlineMode ? 'start-7' : 'start-1'}`} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="min-w-[280px]">
-                <p className="mb-1.5 text-blue-400/40 tracking-widest">PERSONA</p>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  {PERSONA_OPTIONS.map(option => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => {
-                        setPersona(option.id)
-                        localStorage.setItem('gf_persona', option.id)
-                      }}
-                      className={`rounded-lg border p-2 text-start transition-colors ${persona === option.id ? 'border-blue-500 bg-blue-900/40 text-blue-300' : 'border-zinc-700 bg-zinc-800 text-zinc-400 hover:border-zinc-600'}`}
-                    >
-                      <div className="text-sm font-medium">{option.label}</div>
-                      <div className="text-xs text-zinc-500">{option.desc}</div>
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-4 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-zinc-300">🎙️ Hotword Detection</p>
-                    <p className="text-xs text-zinc-500">&ldquo;Hey GhostForge&rdquo; / &ldquo;Hey JARVIS&rdquo;</p>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Toggle hotword detection"
-                    onClick={() => void toggleWakeWord()}
-                    className={`relative h-6 w-12 rounded-full transition-colors ${hotwordEnabled ? 'bg-blue-600' : 'bg-zinc-700'}`}
-                  >
-                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${hotwordEnabled ? 'start-7' : 'start-1'}`} />
-                  </button>
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-zinc-300">🎧 Hands-free Conversation</p>
-                    <p className="text-xs text-zinc-500">Resume listening after each JARVIS response</p>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Toggle hands-free conversation"
-                    onClick={() => {
-                      const next = !handsFreeEnabled
-                      setHandsFreeEnabled(next)
-                      handsFreeEnabledRef.current = next
-                      localStorage.setItem('gf_handsfree', String(next))
-                      if (!next) listeningRequestedRef.current = false
-                    }}
-                    className={`relative h-6 w-12 rounded-full transition-colors ${handsFreeEnabled ? 'bg-emerald-600' : 'bg-zinc-700'}`}
-                  >
-                    <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${handsFreeEnabled ? 'start-7' : 'start-1'}`} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Voice selector */}
-              <div>
-                <p className="text-blue-400/40 tracking-widest mb-1.5">VOICE ENGINE</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {/* Fish Audio — JARVIS movie voice */}
-                  <button type="button"
-                    disabled={!ttsInfo?.fishAudio}
-                    onClick={() => { persistVoiceEngine('fish-audio'); ttsFailCountRef.current = 0; toast('success', '🎙 Fish Audio JARVIS voice active (movie-accurate)') }}
-                    className="rounded px-2 py-1 border transition disabled:opacity-30"
-                    style={{
-                      borderColor: voiceEngine === 'fish-audio' ? '#00ff88' : `${mc.ring}33`,
-                      color: voiceEngine === 'fish-audio' ? '#00ff88' : 'rgba(150,170,220,0.5)',
-                      background: voiceEngine === 'fish-audio' ? 'rgba(0,255,136,0.1)' : 'transparent',
-                    }}
-                    title={!ttsInfo?.fishAudio ? 'Add FISH_AUDIO_API_KEY to .env.local — free tier available' : 'Fish Audio JARVIS voice from Iron Man movies'}>
-                    {voiceEngine === 'fish-audio' && '✓ '}🎙 JARVIS VOICE {!ttsInfo?.fishAudio ? '(NO KEY)' : 'free'}
-                  </button>
-
-                  {/* ElevenLabs */}
-                  <button type="button"
-                    disabled={!ttsInfo?.elevenLabs}
-                    onClick={() => { persistVoiceEngine('elevenlabs'); ttsFailCountRef.current = 0; toast('success', 'ElevenLabs active — Adam voice') }}
-                    className="rounded px-2 py-1 border transition disabled:opacity-30"
-                    style={{
-                      borderColor: voiceEngine === 'elevenlabs' ? '#ff9922' : `${mc.ring}33`,
-                      color: voiceEngine === 'elevenlabs' ? '#ff9922' : 'rgba(150,170,220,0.5)',
-                      background: voiceEngine === 'elevenlabs' ? 'rgba(255,153,34,0.1)' : 'transparent',
-                    }}>
-                    {voiceEngine === 'elevenlabs' && '✓ '}⚡ ELEVENLABS {!ttsInfo?.elevenLabs && '(NO KEY)'}
-                  </button>
-
-                  {/* Browser fallback */}
-                  <button type="button"
-                    onClick={() => { persistVoiceEngine('browser'); ttsFailCountRef.current = 0; toast('info', 'Browser TTS active (Daniel/Alex voice)') }}
-                    className="rounded px-2 py-1 border transition"
-                    style={{
-                      borderColor: voiceEngine === 'browser' ? mc.ring : `${mc.ring}33`,
-                      color: voiceEngine === 'browser' ? mc.ring : 'rgba(150,170,220,0.5)',
-                      background: voiceEngine === 'browser' ? `${mc.ring}18` : 'transparent',
-                    }}>
-                    {voiceEngine === 'browser' && '✓ '}BROWSER TTS
-                  </button>
-                </div>
-                <p className="mt-1.5 text-[9px] text-blue-400/25 leading-relaxed">
-                  {!ttsInfo?.fishAudio && !ttsInfo?.elevenLabs
-                    ? '⚠ Get free JARVIS voice: fish.audio/app/api-keys → add FISH_AUDIO_API_KEY to .env.local'
-                    : ttsInfo?.fishAudio
-                      ? '🎙 Fish Audio model ID: 36b6f66cfecf466caac7fcba1f8b59c8 (JARVIS)'
-                      : ''}
-                </p>
-              </div>
-
-              {/* Integrations status */}
-              <div>
-                <p className="text-blue-400/40 tracking-widest mb-1.5">INTEGRATIONS</p>
-                <div className="flex flex-col gap-1">
-                  {[
-                    { label: 'GitHub', ok: integrations.github, hint: 'Set GITHUB_TOKEN' },
-                    { label: 'Discord', ok: integrations.discord, hint: 'Set DISCORD_WEBHOOK_URL' },
-                    { label: 'Google Search', ok: integrations.googleSearch, hint: 'Set GOOGLE_SEARCH_API_KEY + CX' },
-                    { label: 'Fish Audio (JARVIS)', ok: !!ttsInfo?.fishAudio, hint: 'Set FISH_AUDIO_API_KEY (free)' },
-                    { label: 'ElevenLabs TTS', ok: !!ttsInfo?.elevenLabs, hint: 'Set ELEVENLABS_API_KEY' },
-                  ].map(i => (
-                    <div key={i.label} className="flex items-center gap-2">
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: i.ok ? '#00ff88' : '#ff444466' }} />
-                      <span style={{ color: i.ok ? '#00ff88' : 'rgba(255,100,100,0.5)' }}>{i.label}</span>
-                      {!i.ok && <span className="text-blue-400/25">{i.hint}</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* n8n Workflows */}
-              <div className="min-w-[300px]">
-                <p className="text-blue-400/40 tracking-widest mb-1.5">N8N WORKFLOWS</p>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="h-2 w-2 rounded-full" style={{ background: n8nReachable === null ? '#f59e0b' : n8nReachable ? '#00ff88' : '#ff4444' }} />
-                  <span className="font-mono text-[10px]" style={{ color: n8nConnected ? '#00ff88' : 'rgba(255,100,100,0.5)' }}>
-                    {n8nConnected ? `Connected — ${n8nWorkflows.length} workflows` : n8nReachable === false ? 'Unreachable' : 'Disconnected'}
-                  </span>
-                </div>
-                <div className="flex gap-1.5 mb-2">
-                  <input
-                    type="text"
-                    value={n8nUrl}
-                    onChange={e => { setN8nUrl(e.target.value); setN8nUrlTouched(true) }}
-                    placeholder="http://localhost:5678"
-                    aria-label="n8n URL"
-                    className="flex-1 rounded border px-2 py-1 font-mono text-[10px] bg-black/30 outline-none"
-                    style={{ borderColor: `${mc.ring}44`, color: mc.ring }}
-                  />
-                  <button
-                    type="button"
-                    disabled={n8nConnecting}
-                    onClick={async () => {
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      const api = (window as any).electron?.n8n
-                      if (!api) { toast('error', 'n8n requires Electron app'); return }
-                      setN8nConnecting(true)
-                      try {
-                        const res = await api.connect(n8nUrl)
-                        setN8nConnected(res.connected)
-                        if (res.connected) {
-                          const wfs = await api.listWorkflows()
-                          setN8nWorkflows(wfs)
-                          toast('success', `Connected to n8n — ${wfs.length} workflows`)
-                        } else {
-                          toast('error', 'Cannot connect to n8n — is it running?')
-                        }
-                      } catch {
-                        toast('error', 'n8n connection failed')
-                      } finally {
-                        setN8nConnecting(false)
-                      }
-                    }}
-                    className="rounded px-2 py-1 border font-mono text-[10px] transition disabled:opacity-40"
-                    style={{ borderColor: `${mc.ring}66`, color: mc.ring, background: `${mc.ring}12` }}>
-                    {n8nConnecting ? '...' : 'CONNECT'}
-                  </button>
-                </div>
-
-                {/* Open n8n Editor button */}
-                <button
-                  type="button"
-                  onClick={() => window.open(n8nUrl, '_blank')}
-                  className="w-full rounded border px-3 py-1.5 font-mono text-[10px] transition flex items-center justify-center gap-2 mb-2"
-                  style={{ borderColor: `${mc.ring}66`, color: mc.ring, background: `${mc.ring}18` }}>
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: n8nReachable === true ? '#00ff88' : n8nReachable === false ? '#ff4444' : '#f59e0b' }} />
-                  Open n8n Editor
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
-                  </svg>
-                </button>
-
-                {/* Workflow list with webhook URLs */}
-                {n8nConnected && n8nWorkflows.length > 0 && (
-                  <div className="rounded border max-h-40 overflow-y-auto mb-2"
-                    style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,0,0,0.18)' }}>
-                    {n8nWorkflows.map(wf => (
-                      <div key={wf.id} className="px-2 py-1.5 border-b last:border-b-0"
-                        style={{ borderColor: `${mc.ring}11` }}>
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono text-[9px] truncate" style={{ color: wf.active ? '#00ff88' : `${mc.ring}88` }}>
-                            {wf.active ? '🟢' : '⚪'} {wf.name}
-                          </span>
-                          <span className="font-mono text-[8px] text-blue-400/30 shrink-0">{wf.id}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <code
-                            className="flex-1 font-mono text-[8px] px-1.5 py-0.5 rounded truncate select-all"
-                            style={{ background: 'rgba(0,0,0,0.3)', color: `${mc.ring}cc`, border: `1px solid ${mc.ring}22` }}
-                          >
-                            {`${n8nUrl}/webhook/ghostforge-${wf.id}`}
-                          </code>
-                          <button
-                            type="button"
-                            aria-label={`Copy webhook URL for ${wf.name}`}
-                            onClick={() => {
-                              const url = `${n8nUrl}/webhook/ghostforge-${wf.id}`
-                              navigator.clipboard.writeText(url).then(() => {
-                                setN8nCopiedId(wf.id)
-                                toast('success', 'Webhook URL copied')
-                                setTimeout(() => setN8nCopiedId(null), 1500)
-                              }).catch(() => toast('error', 'Failed to copy'))
-                            }}
-                            className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[8px] transition"
-                            style={{
-                              borderColor: n8nCopiedId === wf.id ? '#00ff8866' : `${mc.ring}44`,
-                              color: n8nCopiedId === wf.id ? '#00ff88' : `${mc.ring}aa`,
-                              background: n8nCopiedId === wf.id ? 'rgba(0,255,136,0.1)' : 'transparent',
-                              border: `1px solid ${n8nCopiedId === wf.id ? '#00ff8866' : `${mc.ring}44`}`,
-                            }}>
-                            {n8nCopiedId === wf.id ? '✓' : '⧉'}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Quick Workflow Creator */}
-                <div className="rounded border p-2 mb-2" style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,0,0,0.18)' }}>
-                  <p className="font-mono text-[9px] tracking-widest text-blue-400/45 mb-1.5">CREATE WORKFLOW</p>
-                  <input
-                    type="text"
-                    value={n8nNewName}
-                    onChange={e => setN8nNewName(e.target.value)}
-                    placeholder="Workflow name (required)"
-                    aria-label="Workflow name"
-                    className="w-full rounded border px-2 py-1 font-mono text-[10px] bg-black/30 outline-none mb-1.5"
-                    style={{ borderColor: `${mc.ring}33`, color: mc.ring }}
-                  />
-                  <select
-                    value={n8nNewType}
-                    aria-label="Workflow template type"
-                    onChange={e => setN8nNewType(e.target.value as typeof n8nNewType)}
-                    className="w-full rounded border px-2 py-1 font-mono text-[10px] bg-black/30 outline-none mb-1.5"
-                    style={{ borderColor: `${mc.ring}33`, color: mc.ring }}>
-                    <option value="deploy">🚀 Deploy — webhook + HTTP request</option>
-                    <option value="notify">📢 Notify — webhook + email/Slack</option>
-                    <option value="pr">🔀 PR Review — webhook + GitHub</option>
-                    <option value="custom">⚙ Custom — webhook only</option>
-                  </select>
-                  <input
-                    type="text"
-                    value={n8nNewDesc}
-                    onChange={e => setN8nNewDesc(e.target.value)}
-                    placeholder="Description (optional)"
-                    aria-label="Workflow description"
-                    className="w-full rounded border px-2 py-1 font-mono text-[10px] bg-black/30 outline-none mb-1.5"
-                    style={{ borderColor: `${mc.ring}33`, color: mc.ring }}
-                  />
-                  <button
-                    type="button"
-                    disabled={!n8nNewName.trim() || n8nCreating || !n8nConnected}
-                    onClick={async () => {
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      const api = (window as any).electron?.n8n
-                      if (!api) { toast('error', 'n8n requires Electron app'); return }
-                      setN8nCreating(true)
-                      try {
-                        const res = await api.createWorkflow({
-                          name: n8nNewName.trim(),
-                          type: n8nNewType,
-                          description: n8nNewDesc.trim(),
-                        })
-                        if (res?.id) {
-                          toast('success', `Workflow "${n8nNewName.trim()}" created — ${n8nUrl}/webhook/ghostforge-${res.id}`)
-                        } else {
-                          toast('success', `Workflow "${n8nNewName.trim()}" created`)
-                        }
-                        setN8nNewName('')
-                        setN8nNewDesc('')
-                        if (n8nConnected) {
-                          const wfs = await api.listWorkflows()
-                          setN8nWorkflows(wfs)
-                        }
-                      } catch (e) {
-                        toast('error', `Create failed: ${(e as Error).message || 'unknown error'}`)
-                      } finally {
-                        setN8nCreating(false)
-                      }
-                    }}
-                    className="w-full rounded px-2 py-1 border font-mono text-[10px] transition disabled:opacity-40"
-                    style={{ borderColor: `${mc.ring}66`, color: mc.ring, background: `${mc.ring}12` }}>
-                    {n8nCreating ? 'CREATING…' : '+ CREATE'}
-                  </button>
-                </div>
-
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { label: 'DEPLOY', action: 'deploy', icon: '🚀' },
-                    { label: 'NOTIFY', action: 'notify', icon: '📢' },
-                    { label: 'PR', action: 'pr', icon: '🔀' },
-                    { label: 'IMPORT', action: 'import', icon: '📥' },
-                  ].map(btn => (
-                    <button
-                      key={btn.action}
-                      type="button"
-                      disabled={!n8nConnected}
-                      onClick={async () => {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const api = (window as any).electron?.n8n
-                        if (!api) { toast('error', 'n8n requires Electron app'); return }
-                        if (btn.action === 'import') {
-                          const res = await api.importWorkflows()
-                          toast('success', `Imported ${res.count} workflows`)
-                          if (n8nConnected) {
-                            const wfs = await api.listWorkflows()
-                            setN8nWorkflows(wfs)
-                          }
-                          return
-                        }
-                        if (btn.action === 'deploy') {
-                          await api.deploy('deploy', 'ghostforge')
-                          toast('success', 'Deploy workflow triggered')
-                          return
-                        }
-                        if (btn.action === 'notify') {
-                          await api.notify('general', 'Test notification from JARVIS', 'medium')
-                          toast('success', 'Notify workflow triggered')
-                          return
-                        }
-                        if (btn.action === 'pr') {
-                          await api.pr('review', 1, 'ghostforge/ghostforge-agents')
-                          toast('success', 'PR workflow triggered')
-                          return
-                        }
-                      }}
-                      className="rounded px-2 py-1 border font-mono text-[9px] transition disabled:opacity-30"
-                      style={{ borderColor: `${mc.ring}33`, color: `${mc.ring}cc`, background: `${mc.ring}08` }}>
-                      {btn.icon} {btn.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Voice Biometrics Enrollment */}
-              <VoiceEnrollPanel mc={mc} />
-            </div>
-          </div>
+        {showSettings && (
+          <SettingsPanel
+            mc={mc} toast={toast} models={models} liveModel={liveModel}
+            offlineMode={offlineMode} setOfflineMode={setOfflineMode}
+            selectedProvider={selectedProvider} setSelectedProvider={setSelectedProvider}
+            selectedModel={selectedModel} setSelectedModel={setSelectedModel}
+            persona={persona} setPersona={setPersona}
+            hotwordEnabled={hotwordEnabled} toggleWakeWord={toggleWakeWord}
+            handsFreeEnabled={handsFreeEnabled} setHandsFreeEnabled={setHandsFreeEnabled}
+            handsFreeEnabledRef={handsFreeEnabledRef} listeningRequestedRef={listeningRequestedRef}
+            ttsInfo={ttsInfo} voiceEngine={voiceEngine} persistVoiceEngine={persistVoiceEngine} ttsFailCountRef={ttsFailCountRef}
+            integrations={integrations} n8n={n8n}
+          />
         )}
 
         {/* ── Audit Log Panel ── */}
@@ -2348,191 +1740,28 @@ export default function JarvisPage() {
 
           {/* ── Mark-L Panel (overlay) ── */}
           {showMarkL && (
-            <div className="absolute inset-y-0 start-0 z-30 w-72 overflow-y-auto border-e p-3 gfai-fade gfai-scroll"
-              style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.96)' }}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-mono text-[10px] tracking-widest" style={{ color: mc.ring }}>⚡ MARK-L</span>
-                <button type="button" aria-label="Close Mark-L panel" onClick={() => setShowMarkL(false)}
-                  className="text-blue-400/50 hover:text-blue-300 transition text-[10px]">✕</button>
-              </div>
-              <MarkLPanel
-                onRunAction={(prompt, id) => void sendToJarvis(prompt, id)}
-                disabled={mode === 'thinking' || mode === 'listening'}
-                ringColor={mc.ring}
-              />
-              {/* Mark-LIV engine registry — mirrors vendor/mark-liv actions */}
-              <div className="mt-4 border-t pt-3" style={{ borderColor: `${mc.ring}22` }}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-[10px] tracking-widest" style={{ color: mc.ring }}>🧠 MARK-LIV ENGINE</span>
-                  <span className="rounded px-1.5 py-0.5 text-[8px]" style={{ background: `${mc.ring}18`, color: mc.ring }}>20 TOOLS</span>
-                </div>
-                <div className="grid grid-cols-2 gap-1">
-                  {MARK_LIV_ACTIONS.map(action => (
-                    <button
-                      key={action.id}
-                      type="button"
-                      title={action.description}
-                      onClick={() => void sendToJarvis(action.prompt, action.id)}
-                      disabled={mode === 'thinking' || mode === 'listening'}
-                      className="rounded border px-2 py-1 text-start text-[9px] transition disabled:opacity-30"
-                      style={{ borderColor: `${mc.ring}22`, color: `${mc.ring}99`, background: `${mc.ring}08` }}
-                    >
-                      {action.icon} {action.label}
-                      {action.scope === 'device' && <span className="ms-1 text-[7px] opacity-50">⚙</span>}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-2 text-[8px] leading-snug" style={{ color: `${mc.ring}55` }}>
-                  ⚙ = needs bridge / desktop engine (scripts/mark-liv.sh start)
-                </p>
-              </div>
-
-              {/* OpenJarvis — local-first agent framework (opt-in, Apache-2.0) */}
-              <div className="mt-4 border-t pt-3" style={{ borderColor: `${mc.ring}22` }}>
-                <OpenJarvisPanel ringColor={mc.ring} />
-              </div>
-
-              {/* Weather, flights, reminders and the Mark-LV tool runner (via /api/mark-liv-tools) */}
-              <div className="mt-4 border-t pt-3" style={{ borderColor: `${mc.ring}22` }}>
-                <MarkLivToolsPanel ringColor={mc.ring} />
-              </div>
-            </div>
+            <MarkLOverlay mc={mc} mode={mode} sendToJarvis={sendToJarvis} setShowMarkL={setShowMarkL} />
           )}
 
           {/* ── Agent Dashboard Panel (overlay) ── */}
           {showAgent && (
-            <div className="absolute inset-y-0 start-0 z-30 w-[min(640px,85vw)] overflow-y-auto border-e gfai-fade"
-              style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.98)' }}>
-              <div className="flex items-center justify-between px-4 py-2 border-b sticky top-0 z-10"
-                style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.98)' }}>
-                <span className="font-mono text-[10px] tracking-widest" style={{ color: mc.ring }}>🤖 AUTONOMOUS AGENT</span>
-                <button type="button" onClick={() => setShowAgent(false)}
-                  className="text-blue-400/50 hover:text-blue-300 transition text-[10px]">✕ CLOSE</button>
-              </div>
-              <div className="p-3" style={{ height: 'calc(100% - 40px)' }}>
-                <AgentDashboard
-                  onStart={() => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const api = (window as any).electron?.autonomousAgent
-                    if (api) {
-                      api.start({}).then(() => {
-                        toast('success', '🤖 Agent started')
-                        setAgentStatus('MONITORING')
-                      }).catch(() => toast('error', 'Failed to start agent'))
-                    } else {
-                      toast('error', 'Agent requires Electron app')
-                    }
-                  }}
-                  onStop={() => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const api = (window as any).electron?.autonomousAgent
-                    if (api) {
-                      api.stop().then(() => {
-                        toast('info', '🤖 Agent stopped')
-                        setAgentStatus('IDLE')
-                      }).catch(() => toast('error', 'Failed to stop agent'))
-                    }
-                  }}
-                  onPause={() => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const api = (window as any).electron?.autonomousAgent
-                    if (api) {
-                      api.pause().then(() => {
-                        toast('info', '🤖 Agent paused')
-                        setAgentStatus('PAUSED')
-                      }).catch(() => toast('error', 'Failed to pause agent'))
-                    }
-                  }}
-                />
-              </div>
-            </div>
+            <AgentOverlay mc={mc} toast={toast} setShowAgent={setShowAgent} setAgentStatus={setAgentStatus} />
           )}
 
           {/* ── Left panel ── */}
-          <div className="hidden md:flex w-44 shrink-0 flex-col gap-3 border-e p-3 font-mono text-[10px]"
-            style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.6)' }}>
-            <div>
-              <p className="text-blue-400/40 tracking-widest mb-2">SYSTEMS</p>
-              {[
-                { label: 'AI ENGINE', val: liveModel ? liveModel.model?.split('/').pop()?.split(':')[0]?.slice(0, 14) || 'ONLINE' : 'ONLINE', ok: true },
-                { label: 'MAC CTRL', val: hostCapabilities.macControl ? (platform.isMac ? 'LOCAL' : 'REMOTE') : 'N/A', ok: hostCapabilities.macControl },
-                { label: 'MEMORY', val: memory.conversationCount > 0 ? `${memory.conversationCount} SES` : 'INIT', ok: true },
-                { label: 'VOICE', val: geminiVoiceMode === 'gemini-live' ? (geminiConnectionState === 'connected' ? 'GEMINI LIVE' : 'GEMINI OFF') : voiceEngine === 'fish-audio' ? 'JARVIS' : voiceEngine === 'elevenlabs' ? 'ELEVENLABS' : voiceSupported ? 'BROWSER' : 'N/A', ok: geminiConnectionState === 'connected' || voiceSupported || voiceEngine !== 'browser' },
-                { label: 'WAKE WORD', val: hotwordEnabled || wakeWordActive ? 'ACTIVE' : 'OFF', ok: hotwordEnabled || wakeWordActive },
-                { label: 'GITHUB', val: integrations.github ? 'LINKED' : 'N/A', ok: integrations.github },
-                { label: 'DISCORD', val: integrations.discord ? 'LINKED' : 'N/A', ok: integrations.discord },
-                { label: 'BRIDGE', val: bridgeStatus === 'running' ? 'ONLINE' : bridgeStatus === 'starting' ? 'STARTING' : bridgeStatus === 'error' ? 'ERROR' : 'OFF', ok: bridgeStatus === 'running' },
-                { label: 'N8N', val: n8nConnected ? `${n8nWorkflows.length} WF` : 'OFF', ok: n8nConnected },
-                { label: 'AGENT', val: agentStatus === 'IDLE' ? 'IDLE' : agentStatus === 'ERROR' ? 'ERROR' : agentStatus, ok: agentStatus !== 'ERROR' },
-              ].map(s => (
-                <div key={s.label} className="flex justify-between py-0.5">
-                  <span className="text-blue-400/40">{s.label}</span>
-                  <span style={{ color: s.ok ? mc.ring : '#ff444488' }}>{s.val}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="border-t pt-2" style={{ borderColor: `${mc.ring}22` }}>
-              <p className="text-blue-400/40 tracking-widest mb-1.5">TOOLS</p>
-              {['TIME', 'WEATHER', 'SEARCH', 'MESSAGES', 'MUSIC', 'REMINDER', 'APPS', 'TERMINAL', 'SCREENSHOT', 'VOLUME', 'CLIPBOARD', 'GITHUB', 'DISCORD'].map(t => (
-                <div key={t} className="flex items-center gap-1.5 py-0.5">
-                  <span className="h-[3px] w-[3px] rounded-full" style={{ background: mc.ring }} />
-                  <span className="text-blue-300/40">{t}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <SystemsPanel
+            mc={mc} liveModel={liveModel} hostCapabilities={hostCapabilities} platform={platform} memory={memory}
+            geminiVoiceMode={geminiVoiceMode} geminiConnectionState={geminiConnectionState} voiceEngine={voiceEngine}
+            voiceSupported={voiceSupported} hotwordEnabled={hotwordEnabled} wakeWordActive={wakeWordActive}
+            integrations={integrations} bridgeStatus={bridgeStatus} n8nConnected={n8n.n8nConnected}
+            n8nWorkflowCount={n8n.n8nWorkflows.length} agentStatus={agentStatus}
+          />
 
           {/* ── Center ── */}
           <div className="flex flex-1 flex-col items-center overflow-hidden">
 
             {/* Messages */}
-            <div className="gfai-scroll flex-1 w-full max-w-2xl overflow-y-auto px-4 py-3 space-y-2">
-              {messages.map(m => {
-                const borderColor = m.role === 'user' ? '#1a6fff' : (m.emotion === 'alert' ? '#ff4444' : mc.ring)
-                return (
-                  <div key={m.id}
-                    className={`gfai-fade rounded-lg px-3 py-2 text-sm ${m.role === 'user' ? 'gfai-msg-user ms-8' : 'gfai-msg-ai me-8'}`}
-                    style={{ borderLeftColor: borderColor }}>
-                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                      <span className="font-mono text-[10px] opacity-60" style={{ color: borderColor }}>
-                        {m.role === 'user' ? 'YOU' : 'G.F.A.I.'}
-                      </span>
-                      {m.tool && (
-                        <span className="font-mono text-[9px] rounded px-1 py-0.5"
-                          style={{ background: `${mc.ring}22`, color: mc.ring }}>
-                          ⚙ {m.tool.replace(/_/g, ' ')}
-                        </span>
-                      )}
-                      {m.domain && m.domain !== 'general' && m.role === 'ai' && (
-                        <span className="font-mono text-[9px] rounded px-1 py-0.5 uppercase tracking-wide"
-                          style={{ background: 'rgba(170,68,255,0.12)', color: 'rgba(170,68,255,0.8)', border: '1px solid rgba(170,68,255,0.2)' }}>
-                          {m.domain}
-                        </span>
-                      )}
-                      {m.confidence !== undefined && m.role === 'ai' && (
-                        <span className="flex items-center gap-1" title={`Confidence: ${m.confidence}%`}>
-                          <span className="font-mono text-[9px]" style={{ color: m.confidence >= 80 ? '#00ff88' : m.confidence >= 50 ? '#ffaa00' : '#ff4444' }}>
-                            {m.confidence}%
-                          </span>
-                          <span className="h-1 w-12 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
-                            <span className="h-full block rounded-full transition-[width]" style={{
-                              width: `${m.confidence}%`,
-                              background: m.confidence >= 80 ? '#00ff88' : m.confidence >= 50 ? '#ffaa00' : '#ff4444',
-                            }} />
-                          </span>
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-gray-100 leading-relaxed">{m.text}</p>
-                    {m.tool && m.toolResult && m.toolResult !== 'Done' && (
-                      <ToolCard tool={m.tool} result={m.toolResult} ringColor={mc.ring} />
-                    )}
-                  </div>
-                )
-              })}
-              <div ref={messagesEndRef} />
-            </div>
+            <MessageList messages={messages} ringColor={mc.ring} />
 
             {/* Orb */}
             <div className="shrink-0 py-3 flex flex-col items-center gap-2">
@@ -2560,141 +1789,14 @@ export default function JarvisPage() {
               <HardwareMetrics isMobile={platform.isMobile} />
 
               {/* Voice controls */}
-              <div className="flex flex-col items-center gap-1.5">
-                {/* Connection status + voice mode indicator */}
-                <div className="flex items-center gap-2 font-mono" style={{ fontSize: 9 }}>
-                  <span className="flex items-center gap-1">
-                    <span className="h-1 w-1 rounded-full" style={{
-                      background: geminiConnectionState === 'connected' ? '#00ff88'
-                        : geminiConnectionState === 'connecting' ? '#ffaa00'
-                        : geminiConnectionState === 'error' ? '#ff4444' : '#555',
-                    }} />
-                    <span style={{
-                      color: geminiConnectionState === 'connected' ? '#00ff88'
-                        : geminiConnectionState === 'connecting' ? '#ffaa00'
-                        : geminiConnectionState === 'error' ? '#ff4444' : '#555',
-                    }}>
-                      {geminiConnectionState === 'connected' ? 'GEMINI LIVE'
-                        : geminiConnectionState === 'connecting' ? 'CONNECTING'
-                        : geminiConnectionState === 'error' ? 'ERROR'
-                        : 'OFFLINE'}
-                    </span>
-                  </span>
-                  <span style={{ color: `${mc.ring}44` }}>|</span>
-                  <span style={{ color: `${mc.ring}88` }}>
-                    {geminiVoiceMode === 'gemini-live' ? '🔴 LIVE'
-                      : geminiVoiceMode === 'browser' ? '🎤 BROWSER'
-                      : '🔇 OFFLINE'}
-                  </span>
-                  {geminiPlayActive && (
-                    <span style={{ color: '#aa44ff' }}>🔊 PLAYING</span>
-                  )}
-                </div>
-
-                {/* Live transcript display */}
-                {geminiTranscript.length > 0 && geminiVoiceMode === 'gemini-live' && (
-                  <div className="max-h-16 overflow-y-auto rounded border px-2 py-1 font-mono"
-                    style={{ fontSize: 9, borderColor: `${mc.ring}33`, background: 'rgba(0,0,0,0.3)', width: '100%', maxWidth: 400 }}>
-                    {geminiTranscript.slice(-5).map((t, i) => (
-                      <div key={i} style={{ color: t.isFinal ? mc.ring : `${mc.ring}88` }}>
-                        <span style={{ color: `${mc.ring}44`, marginRight: 4 }}>
-                          {new Date(t.ts).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                        </span>
-                        {t.text}
-                        {!t.isFinal && <span className="animate-pulse"> …</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Controls */}
-                <div className="flex items-center gap-2">
-                  {/* Gemini Live connect/disconnect */}
-                  {geminiVoiceMode === 'gemini-live' && (
-                    <button type="button"
-                      onClick={async () => {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const gl = (window as any).electron?.geminiLive
-                        if (!gl) { toast('error', 'Gemini Live requires Electron'); return }
-                        if (geminiConnectionState === 'connected') {
-                          await gl.disconnect()
-                        } else {
-                          await gl.connect()
-                        }
-                      }}
-                      className="font-mono text-[10px] rounded px-3 py-1.5 border transition active:scale-95"
-                      style={{
-                        borderColor: geminiConnectionState === 'connected' ? '#00ff88' : `${mc.ring}66`,
-                        color: geminiConnectionState === 'connected' ? '#00ff88' : mc.ring,
-                        background: geminiConnectionState === 'connected' ? 'rgba(0,255,136,0.12)' : `${mc.ring}11`,
-                      }}>
-                      {geminiConnectionState === 'connected' ? '⚡ DISCONNECT' : '⚡ CONNECT'}
-                    </button>
-                  )}
-
-                  {/* Gemini Live push-to-talk / continuous mic */}
-                  {geminiVoiceMode === 'gemini-live' && geminiConnectionState === 'connected' && (
-                    <button type="button"
-                      onClick={async () => {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const gl = (window as any).electron?.geminiLive
-                        if (!gl) return
-                        if (geminiListening) {
-                          await gl.stopListening()
-                        } else {
-                          await gl.startListening()
-                        }
-                      }}
-                      className="font-mono text-[10px] rounded px-3 py-1.5 border transition disabled:opacity-30 active:scale-95"
-                      style={{
-                        borderColor: geminiListening ? '#00ff88' : `${mc.ring}66`,
-                        color: geminiListening ? '#00ff88' : mc.ring,
-                        background: geminiListening ? 'rgba(0,255,136,0.12)' : `${mc.ring}11`,
-                        boxShadow: geminiListening ? '0 0 12px rgba(0,255,136,0.3)' : 'none',
-                        animation: geminiListening ? 'gfai-pulse 1.5s ease-in-out infinite' : 'none',
-                      }}>
-                      {geminiListening ? '■ STOP MIC' : '🎤 LIVE MIC'}
-                    </button>
-                  )}
-
-                  {/* Browser voice controls (fallback) */}
-                  {geminiVoiceMode !== 'gemini-live' && voiceSupported && (
-                    <>
-                      <button type="button"
-                        onClick={mode === 'listening' ? () => stopListening() : () => void startListening()}
-                        disabled={mode === 'thinking'}
-                        className="font-mono text-[10px] rounded px-3 py-1.5 border transition disabled:opacity-30 active:scale-95"
-                        style={{
-                          borderColor: mode === 'listening' ? '#00ff88' : `${mc.ring}66`,
-                          color: mode === 'listening' ? '#00ff88' : mc.ring,
-                          background: mode === 'listening' ? 'rgba(0,255,136,0.12)' : `${mc.ring}11`,
-                          boxShadow: mode === 'listening' ? '0 0 12px rgba(0,255,136,0.3)' : 'none',
-                          animation: mode === 'listening' ? 'gfai-pulse 1.5s ease-in-out infinite' : 'none',
-                        }}>
-                        {mode === 'listening' ? '■ STOP' : '🎤 SPEAK'}
-                      </button>
-                      <button type="button" onClick={() => void toggleWakeWord()}
-                        className="font-mono text-[10px] rounded px-3 py-1.5 border transition"
-                        style={{
-                          borderColor: hotwordEnabled ? '#00ff88' : `${mc.ring}44`,
-                          color: hotwordEnabled ? '#00ff88' : `${mc.ring}88`,
-                          background: hotwordEnabled ? 'rgba(0,255,136,0.08)' : 'transparent',
-                        }}
-                        title='Say "Hey GhostForge" or "Hey JARVIS" to activate'>
-                        {hotwordEnabled ? (wakeWordActive ? '🔊 WAKE ON' : '⏳ WAKE READY') : '😴 WAKE OFF'}
-                      </button>
-                    </>
-                  )}
-
-                  {/* Stop speaking */}
-                  {mode === 'speaking' && (
-                    <button type="button" onClick={stopSpeaking}
-                      className="font-mono text-[10px] rounded px-2 py-1.5 border border-red-700/50 text-red-400 hover:bg-red-950/30 transition">
-                      ■ STOP
-                    </button>
-                  )}
-                </div>
-              </div>
+              <VoiceControls
+                mc={mc} mode={mode} toast={toast} voiceSupported={voiceSupported}
+                geminiConnectionState={geminiConnectionState} geminiVoiceMode={geminiVoiceMode}
+                geminiPlayActive={geminiPlayActive} geminiTranscript={geminiTranscript} geminiListening={geminiListening}
+                hotwordEnabled={hotwordEnabled} wakeWordActive={wakeWordActive}
+                startListening={startListening} stopListening={stopListening}
+                toggleWakeWord={toggleWakeWord} stopSpeaking={stopSpeaking}
+              />
 
                 {interruptFlash && (
                 <div className="gfai-fade font-mono text-[11px] tracking-widest text-yellow-300">
@@ -2742,77 +1844,18 @@ export default function JarvisPage() {
           </div>
 
           {/* ── Right panel: quick commands ── */}
-          <div className="hidden lg:flex w-48 shrink-0 flex-col gap-1.5 border-s p-3"
-            style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.6)' }}>
-            <p className="font-mono text-[10px] text-blue-400/40 tracking-widest mb-1">QUICK COMMANDS</p>
-            <div className="flex-1 overflow-y-auto gfai-scroll space-y-1">
-              {QUICK_COMMANDS.map(q => (
-                <button type="button" key={q.id}
-                  onClick={() => void sendToJarvis(q.prompt, q.id)}
-                  disabled={mode === 'thinking' || mode === 'listening'}
-                  className="w-full text-start rounded px-2 py-1.5 font-mono text-[10px] border transition disabled:opacity-30 hover:border-blue-600/60"
-                  style={{ borderColor: `${mc.ring}22`, color: 'rgba(200,210,255,0.7)', background: `${mc.ring}08` }}>
-                  {q.label}
-                </button>
-              ))}
-            </div>
-            <div className="border-t pt-2 mt-1" style={{ borderColor: `${mc.ring}22` }}>
-              <p className="font-mono text-[9px] text-blue-400/30 leading-relaxed">
-                Say <span style={{ color: mc.ring }}>&ldquo;Hey GhostForge&rdquo;</span> to activate wake word.
-              </p>
-            </div>
-
-            {/* Agent quick actions */}
-            <div className="border-t pt-2 mt-1" style={{ borderColor: `${mc.ring}22` }}>
-              <p className="font-mono text-[10px] text-blue-400/40 tracking-widest mb-1.5">🤖 AGENT</p>
-              <button type="button"
-                onClick={() => setShowAgent(s => !s)}
-                className="w-full text-start rounded px-2 py-1.5 font-mono text-[10px] border transition hover:border-blue-600/60 mb-1"
-                style={{
-                  borderColor: showAgent ? '#3b82f666' : `${mc.ring}22`,
-                  color: showAgent ? '#3b82f6' : 'rgba(200,210,255,0.7)',
-                  background: showAgent ? 'rgba(59,130,246,0.08)' : `${mc.ring}08`,
-                }}>
-                📊 {showAgent ? 'CLOSE DASHBOARD' : 'OPEN DASHBOARD'}
-              </button>
-              <div className="flex items-center gap-1.5 py-0.5">
-                <span className="h-[3px] w-[3px] rounded-full" style={{
-                  background: agentStatus === 'IDLE' ? '#71717a'
-                    : agentStatus === 'ERROR' ? '#ef4444'
-                    : agentStatus === 'CODING' ? '#f97316'
-                    : '#22c55e',
-                }} />
-                <span className="text-blue-300/40">AGENT: {agentStatus}</span>
-              </div>
-              {agentCurrentTask && (
-                <div className="text-[8px] mt-0.5 truncate" style={{ color: '#52525b' }}>
-                  → {agentCurrentTask}
-                </div>
-              )}
-              {agentIssueCount > 0 && (
-                <div className="text-[8px] mt-0.5" style={{ color: '#52525b' }}>
-                  {agentIssueCount} issues tracked
-                </div>
-              )}
-            </div>
-          </div>
+          <QuickCommandsPanel
+            mc={mc} mode={mode} QUICK_COMMANDS={QUICK_COMMANDS} sendToJarvis={sendToJarvis}
+            showAgent={showAgent} setShowAgent={setShowAgent}
+            agentStatus={agentStatus} agentCurrentTask={agentCurrentTask} agentIssueCount={agentIssueCount}
+          />
         </div>
 
         {/* ── Bottom HUD bar ── */}
-        <div className="relative z-10 flex shrink-0 items-center justify-between border-t px-4 py-1 font-mono text-[9px]"
-          style={{ borderColor: `${mc.ring}22`, background: 'rgba(0,5,20,0.92)', color: `${mc.ring}55` }}>
-          <span>G.F.A.I. v4.7 — GHOSTFORGE AI SYSTEM</span>
-          <span style={{ color: liveModel ? mc.ring : `${mc.ring}44` }}>
-            {liveModel
-              ? `⚡ ${liveModel.provider}/${liveModel.model?.split('/').pop()?.split(':')[0]}`
-              : selectedProvider
-                ? `→ ${selectedModel?.split('/').pop()?.split(':')[0]} (pending)`
-                : activeModel
-                  ? `${activeModel.provider}/${activeModel.model}`
-                  : 'AI ENGINE STANDBY'}
-          </span>
-          <span>{offlineMode ? 'OFFLINE · LOCAL ONLY · SECURE' : 'PRIVATE · LOCAL · SECURE'}</span>
-        </div>
+        <StatusBar
+          mc={mc} liveModel={liveModel} selectedProvider={selectedProvider} selectedModel={selectedModel}
+          activeModel={activeModel} offlineMode={offlineMode}
+        />
 
         {/* Toast container */}
         <ToastContainer toasts={toasts} onRemove={removeToast} />

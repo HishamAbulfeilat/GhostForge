@@ -109,3 +109,7 @@ export const PERSONA_OPTIONS = [
   { id: 'creative', label: '🎨 Creative', desc: 'Brainstorm mode', badge: 'CREATIVE' },
   { id: 'security', label: '🔒 Security', desc: 'Security focus', badge: 'SECURITY' },
 ] as const
+
+export type ToastFn = (type: Toast['type'], msg: string, duration?: number) => void
+
+export type GeminiVoiceMode = 'gemini-live' | 'browser' | 'offline' | 'voicebox'
