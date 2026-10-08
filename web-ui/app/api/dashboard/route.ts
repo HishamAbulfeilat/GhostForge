@@ -307,8 +307,7 @@ export async function GET(req: NextRequest) {
   // Everything below is independent I/O, so run it all at once: the three gh
   // calls used to run one after another after the rest, each with a 12 s
   // timeout, which put up to ~36 s on top of every dashboard load.
-  const [serverHealth, bridgeHealth, ollamaHealth, activityRaw, tagsRaw, tagDatesRaw, issuesRaw, runsRaw, prsRaw] = await Promise.all([
-    checkUrl('http://localhost:3001', 1500),
+  const [bridgeHealth, ollamaHealth, activityRaw, tagsRaw, tagDatesRaw, issuesRaw, runsRaw, prsRaw] = await Promise.all([
     checkUrl('http://localhost:4747/health', 1500),
     fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1500) })
       .then(async res => ({
@@ -339,10 +338,13 @@ export async function GET(req: NextRequest) {
 
   const services: DashboardService[] = [
     {
+      // This handler is running, so the web UI is up by definition. It used to
+      // fetch http://localhost:3001 here: that rendered the home page on every
+      // dashboard load and always failed when the server runs HTTPS on 3001.
       name: 'GhostForge Web UI',
-      port: 3001,
-      status: serverHealth.ok ? 'online' : 'offline',
-      detail: serverHealth.ok ? 'responding' : 'not reachable',
+      port: Number(process.env.PORT) || 3001,
+      status: 'online',
+      detail: 'responding',
     },
     {
       name: 'Ollama',

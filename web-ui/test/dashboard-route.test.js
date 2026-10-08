@@ -60,7 +60,8 @@ try {
 }
 
 const realFetch = global.fetch
-test.before(() => { global.fetch = async () => { throw new Error('offline') } })
+const fetched = []
+test.before(() => { global.fetch = async (url) => { fetched.push(String(url)); throw new Error('offline') } })
 test.after(() => {
   global.fetch = realFetch
   fs.rmSync(home, { recursive: true, force: true })
@@ -83,4 +84,11 @@ test('dashboard reads only the newest audit entries and skips malformed lines', 
 
   const body = await (await route.GET({})).json()
   assert.deepEqual(body.audit.map(e => e.event), ['new-9', 'new-8', 'new-7', 'new-6', 'new-5', 'new-4', 'new-3', 'new-2'])
+})
+
+test('dashboard does not fetch its own web UI to decide that it is online', async () => {
+  fetched.length = 0
+  const body = await (await route.GET({})).json()
+  assert.ok(!fetched.some(u => u.includes(':3001')), `self-fetch: ${fetched.join(', ')}`)
+  assert.equal(body.services.find(s => s.name === 'GhostForge Web UI').status, 'online')
 })
