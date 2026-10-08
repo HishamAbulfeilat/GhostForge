@@ -414,6 +414,38 @@ test('regression: page errors after Submit (navigation) end as "check it", never
   } finally { await page.close() }
 })
 
+test('regression: Submit is never pressed a second time when no confirmation appears', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const page = await browser.newPage()
+  try {
+    // A slow site: the press is accepted but nothing on the page changes in time
+    await page.setContent(`<form><label for="fn">First name *</label><input id="fn" required>
+      <button type="button" onclick="window.__clicks = (window.__clicks || 0) + 1">Submit application</button></form>`)
+    page.waitForFunction = async () => { throw new Error('timeout') }
+    const out = await runFormAgent(page, await ctxFor())
+    assert.equal(await page.evaluate(() => window.__clicks), 1, 'pressed exactly once')
+    assert.equal(out.status, 'needs_user', JSON.stringify(out))
+    assert.equal(out.submitPressed, true)
+    assert.match(out.message, /did not press it again/)
+  } finally { await page.close() }
+})
+
+test('a Submit the site rejected (a field cleared as invalid) is pressed again after the fix', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const page = await browser.newPage()
+  try {
+    await page.setContent(`<form><label for="fn">First name *</label><input id="fn" required>
+      <button type="button" onclick="window.__clicks = (window.__clicks || 0) + 1; const f = document.getElementById('fn');
+        if (window.__clicks === 1) { f.value = ''; f.setAttribute('aria-invalid', 'true') } else { ${THANKS} }">Submit application</button></form>`)
+    const realWait = page.waitForFunction.bind(page)
+    let waits = 0
+    page.waitForFunction = async (...args) => { if (++waits === 1) throw new Error('timeout'); return realWait(...args) }
+    const out = await runFormAgent(page, await ctxFor())
+    assert.equal(out.status, 'submitted', JSON.stringify(out))
+    assert.equal(await page.evaluate(() => window.__clicks), 2)
+  } finally { await page.close() }
+})
+
 test('regression: a field sharing its wrapper with another control keeps the wrapper label', async t => {
   if (!browser) return t.skip('no Chromium available')
   const html = `<!doctype html><body><form>
