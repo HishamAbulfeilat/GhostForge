@@ -122,6 +122,19 @@ test('dealbreakers and salary floor mark jobs as Skip', () => {
   assert.equal(match.dealbreaker({ title: 'Engineer', company: 'A', description: '', salary: 'Competitive' }, prefs), null)
 })
 
+test('the salary floor compares yearly pay: monthly and weekly salaries are annualized', () => {
+  const prefs = { dealbreakers: [], minSalary: 100000 }
+  const at = salary => match.dealbreaker({ title: 'Engineer', company: 'A', description: '', salary }, prefs)
+  assert.equal(at('PLN 15000-20000/month'), null, '240,000 a year is above the minimum')
+  assert.equal(at('EUR 9,000 per month'), null)
+  assert.match(at('EUR 5000-6000 monthly'), /below your minimum/)
+  assert.equal(at('GBP 2,500 a week'), null)
+  assert.equal(at('$45/hour'), null, 'hourly pay depends on hours worked: never a Skip on its own')
+  assert.equal(at('USD 400 per day'), null)
+  assert.equal(match.salaryMax('$120k-$150k'), 150000)
+  assert.equal(match.salaryMax('USD 90000-120000'), 120000)
+})
+
 test('HTML entities decode once (no double unescaping)', () => {
   assert.equal(sources.stripHtml('<p>A &amp;lt;b&amp;gt; tag &amp; more</p>'), 'A &lt;b&gt; tag & more')
   assert.equal(sources.stripHtml('x &lt; y'), 'x < y')

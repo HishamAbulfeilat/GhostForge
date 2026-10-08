@@ -87,13 +87,27 @@ export function relevantTo(job: Pick<RawJob, 'title' | 'description'>, terms: st
   })
 }
 
-/** Parse the top of a salary string like "$120k-$150k" or "USD 90000-120000" */
-function salaryMax(s: string): number | null {
-  const nums = [...String(s || '').toLowerCase().matchAll(/(\d[\d,.]*)\s*(k(?!\p{L}))?/gu)].map(m => {
+/**
+ * Pay periods other than a year. Monthly and weekly pay is annualized so
+ * "PLN 15000-20000/month" isn't compared with a yearly minimum as if it were
+ * 20,000 a year. Hourly and daily rates depend on hours worked: unknown (null).
+ */
+const PAY_PERIODS: Array<[RegExp, number | null]> = [
+  [/\b(per|a|an|each)\s+(month|mo)\b|\/\s*(month|mo|mth)\b|\bmonthly\b|\bpcm\b/, 12],
+  [/\b(per|a|an|each)\s+week\b|\/\s*(week|wk)\b|\bweekly\b/, 52],
+  [/\b(per|an?|each)\s+(hour|day)\b|\/\s*(hour|hr|h|day)\b|\b(hourly|daily)\b/, null],
+]
+
+/** Parse the top of a salary string like "$120k-$150k" or "USD 90000-120000", as yearly pay */
+export function salaryMax(s: string): number | null {
+  const text = String(s || '').toLowerCase()
+  const period = PAY_PERIODS.find(([re]) => re.test(text))
+  if (period && period[1] === null) return null
+  const nums = [...text.matchAll(/(\d[\d,.]*)\s*(k(?!\p{L}))?/gu)].map(m => {
     const n = parseFloat(m[1].replace(/,/g, ''))
     return m[2] ? n * 1000 : n
   }).filter(n => n >= 1000)
-  return nums.length ? Math.max(...nums) : null
+  return nums.length ? Math.max(...nums) * (period?.[1] ?? 1) : null
 }
 
 /** Hard rules from preferences.md in the Proficiently rubric */
