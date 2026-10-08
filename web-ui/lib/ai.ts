@@ -21,6 +21,8 @@ export interface ModelOverride {
   activeProvider?: string
   offline?: boolean
   task?: string
+  /** Start the chain at free providers instead of the paid model selected in Settings */
+  preferFree?: boolean
 }
 
 /**
@@ -115,12 +117,50 @@ async function generateWithAnthropic(apiKey: string, modelId: string, opts: Gene
   return text
 }
 
+let anonymousSlots: Promise<void> = Promise.resolve()
+let nextAnonymousRequestAt = 0
+
+function waitForAnonymousSlot(): Promise<void> {
+  const slot = anonymousSlots.then(async () => {
+    const delay = nextAnonymousRequestAt - Date.now()
+    if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay))
+    nextAnonymousRequestAt = Date.now() + 15_000
+  })
+  anonymousSlots = slot
+  return slot
+}
+
 /** Chain entry for any registry provider with a key; null when the key is missing */
 async function makeProviderEntry(provider: ProviderId, modelId: string): Promise<ModelEntry | null> {
   if (provider === 'omniroute') return makeOmniRouteEntry(modelId)
   if (provider === 'pollinations') {
-    const baseURL = PROVIDERS.pollinations.baseURL!
-    return { provider, modelId, generate: opts => generateOpenAICompatible('Pollinations', baseURL, undefined, modelId, opts) }
+    return {
+      provider, modelId,
+      generate: async opts => {
+        // The gen gateway requires a key; text/openai is the anonymous API.
+        // Flatten instructions for its anonymous tier and omit max_tokens.
+        const messages = toChatMessages(opts)
+        const system = messages.filter(message => message.role === 'system').map(message => message.content).join('\n\n')
+        const chat = messages.filter(message => message.role !== 'system')
+        if (system) {
+          const firstUser = chat.find(message => message.role === 'user')
+          if (firstUser) firstUser.content = `${system}\n\n${firstUser.content}`
+          else chat.unshift({ role: 'user', content: system })
+        }
+        const anonymousOpts: GenerateOpts = {
+          messages: chat.map(message => ({ role: message.role === 'assistant' ? 'assistant' : 'user', content: message.content })),
+        }
+        for (let attempt = 0; ; attempt++) {
+          await waitForAnonymousSlot()
+          try {
+            return await generateChatCompletion('Pollinations', PROVIDERS.pollinations.baseURL!, undefined, modelId, anonymousOpts, { private: true }, 45_000)
+          } catch (e) {
+            const status = (e as { status?: number })?.status
+            if (attempt >= 1 || !isFallbackError(e) || (status !== undefined && status !== 402 && status !== 429 && status < 500)) throw e
+          }
+        }
+      },
+    }
   }
   const apiKey = getProviderKey(provider)
   if (!apiKey) return null
@@ -168,16 +208,28 @@ export async function generateOpenAICompatible(
   modelId: string,
   opts: GenerateOpts,
 ): Promise<string> {
+  return generateChatCompletion(label, `${baseURL.replace(/\/+$/, '')}/chat/completions`, apiKey, modelId, opts)
+}
+
+async function generateChatCompletion(
+  label: string,
+  endpoint: string,
+  apiKey: string | undefined,
+  modelId: string,
+  opts: GenerateOpts,
+  extraBody: Record<string, unknown> = {},
+  timeoutMs = 120_000,
+): Promise<string> {
   const messages = toChatMessages(opts)
   if (messages.length === 0) messages.push({ role: 'user', content: 'Hello' })
 
   let res: Response
   try {
-    res = await fetch(`${baseURL.replace(/\/+$/, '')}/chat/completions`, {
+    res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
-      signal: AbortSignal.timeout(120_000),
-      body: JSON.stringify({ model: modelId, messages, stream: false, max_tokens: opts.maxTokens || 800 }),
+      signal: AbortSignal.timeout(timeoutMs),
+      body: JSON.stringify({ model: modelId, messages, stream: false, ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}), ...extraBody }),
     })
   } catch (e) {
     throw new Error(`${label} connection failed: ${String(e).slice(0, 120)}`)
@@ -189,9 +241,12 @@ export async function generateOpenAICompatible(
     throw Object.assign(new Error(`${label} returned ${res.status}: ${body.slice(0, 160)}`), { status: res.status })
   }
 
-  const data = await res.json() as {
+  let data: {
     choices?: Array<{ message?: { content?: string | Array<unknown> } }>
     error?: { message?: string }
+  }
+  try { data = await res.json() } catch {
+    throw new Error(`${label} ${modelId} returned an invalid JSON response`)
   }
   if (data.error?.message) throw new Error(`${label} ${modelId}: ${data.error.message.slice(0, 160)}`)
   const content = data.choices?.[0]?.message?.content
@@ -311,18 +366,7 @@ async function appendLocalModels(chain: ModelEntry[], push: (entry: ModelEntry) 
         modelId: entry.model,
         model: client.chat(entry.model),
         generate: async (opts) => {
-          const messages: Array<{ role: string; content: string }> = []
-          if (typeof opts.system === 'string' && opts.system.trim()) {
-            messages.push({ role: 'system', content: opts.system })
-          }
-          if (Array.isArray(opts.messages)) {
-            for (const message of opts.messages) {
-              messages.push({
-                role: message.role,
-                content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
-              })
-            }
-          }
+          const messages = toChatMessages(opts)
 
           const response = await fetch(`${local.ollamaUrl}/api/chat`, {
             method: 'POST',
@@ -405,7 +449,7 @@ const FREE_MODELS_PER_PROVIDER = 3
  * Build an ordered fallback chain of AI models.
  * Order: selected model (request override, else the model saved in Settings)
  *   → free-tier providers you have keys for → OmniRoute (only if running)
- *   → Pollinations (free, no key — always available) → local runtimes.
+ *   → local runtimes → Pollinations (best-effort anonymous, no key).
  * Paid providers (OpenAI, Anthropic, xAI, DeepSeek) are used only when
  * selected — never as a silent fallback. Cached for 30s per selection.
  */
@@ -415,10 +459,10 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
     ? { provider: opts.activeProvider, model: opts.activeModel }
     : null
   const selection = override ?? getSavedSelection()
-  const localSelected = !!selection && LOCAL_PROVIDERS.has(selection.provider)
+  const localSelected = !!selection && LOCAL_PROVIDERS.has(selection.provider) && opts?.preferFree !== true
   const localOpts: ModelOverride = { ...opts, activeProvider: selection?.provider, activeModel: selection?.model }
 
-  const cacheKey = `${offline}|${selection?.provider}|${selection?.model}|${opts?.task || ''}`
+  const cacheKey = `${offline}|${selection?.provider}|${selection?.model}|${opts?.task || ''}|${opts?.preferFree === true}`
   const cached = _chainCache.get(cacheKey)
   if (cached && Date.now() - cached.ts < CHAIN_CACHE_TTL) return cached.chain
 
@@ -431,8 +475,8 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
   }
   const omniUp = await isOmniRouteUp()
 
-  // 1. Selected model (highest priority)
-  if (selection && !localSelected) {
+  // 1. Selected model (highest priority) — skipped when preferFree is set
+  if (selection && !localSelected && opts?.preferFree !== true) {
     if (selection.provider === 'omniroute') {
       if (omniUp) push(makeOmniRouteEntry(selection.model))
     } else if (selection.provider === 'custom') {
@@ -460,11 +504,11 @@ export async function buildModelChain(opts?: ModelOverride): Promise<ModelEntry[
     // 3. OmniRoute — optional, only when it is running
     if (omniUp) for (const modelId of FREE_OMNIROUTE_MODELS) push(makeOmniRouteEntry(modelId))
 
-    // 4. Pollinations — free and keyless, so JARVIS always has a model
-    for (const m of FREE_CATALOG.pollinations || []) push(await makeProviderEntry('pollinations', m.id))
-
-    // 5. Local runtimes: prefer Ollama, then an OpenAI-compatible llama.cpp server
+    // Installed local models need neither an account nor an API key.
     await appendLocalModels(chain, push, localOpts)
+
+    // Anonymous cloud fallback is best-effort, not a guaranteed free service.
+    for (const m of FREE_CATALOG.pollinations || []) push(await makeProviderEntry('pollinations', m.id))
   }
 
   _chainCache.set(cacheKey, { chain, ts: Date.now() })

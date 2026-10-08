@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { join } from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
@@ -14,9 +14,8 @@ import {
 } from '../dist/main/headless-smoke.js'
 
 const electronAppDir = fileURLToPath(new URL('..', import.meta.url))
-const electronBin = process.platform === 'win32'
-  ? join(electronAppDir, 'node_modules', 'electron', 'dist', 'electron.exe')
-  : join(electronAppDir, 'node_modules', '.bin', 'electron')
+// Electron's resolver downloads a missing binary before the startup timer begins.
+const electronBin = createRequire(import.meta.url)('electron')
 
 test('Electron app launches in headless CI mode and reaches the bridge', async () => {
   const child = spawn(electronBin, ['.', HEADLESS_SMOKE_ARG], {

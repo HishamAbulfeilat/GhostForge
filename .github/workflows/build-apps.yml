@@ -19,6 +19,26 @@ permissions:
   contents: read
 
 jobs:
+  web:
+    name: Studio and Job Hunter validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: web-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-ui/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run build
+
   desktop:
     name: Desktop (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
@@ -62,10 +82,21 @@ jobs:
           cache: npm
           cache-dependency-path: electron-app/package-lock.json
       - if: matrix.name == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm
+        run: |
+          sudo apt-get update && sudo apt-get install -y rpm
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: npm ci
       - run: node scripts/generate-icons.js
-      - run: npx tsc
+      - name: Test desktop runtime before packaging
+        env:
+          GHOSTFORGE_ELECTRON_HEADLESS_SMOKE: '1'
+        shell: bash
+        run: |
+          if [ "${{ matrix.name }}" = "linux" ]; then
+            xvfb-run -a npm test
+          else
+            npm test
+          fi
       - name: Build desktop (signed)
         if: env.HAS_CSC == 'true'
         run: ${{ matrix.build }}
@@ -130,7 +161,8 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           echo "GF_ANDROID_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
-          echo "GF_ANDROID_VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
+          CODE="$(node -p "const [major,minor,patch]=require('./package.json').version.split('.').map(Number); major*10000+minor*100+patch")"
+          echo "GF_ANDROID_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
           echo "GF_VERSION=$VERSION" >> "$GITHUB_ENV"
       # Without a keystore the release APK is unsigned and Android refuses to
       # install it, so the debug APK (signed with the debug key) is built too and
@@ -220,8 +252,8 @@ jobs:
     if: >-
       always() &&
       (startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != '') &&
-      needs.desktop.result == 'success' && needs.android.result == 'success'
-    needs: [desktop, android, ios]
+      needs.desktop.result == 'success' && needs.android.result == 'success' && needs.web.result == 'success'
+    needs: [web, desktop, android, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write

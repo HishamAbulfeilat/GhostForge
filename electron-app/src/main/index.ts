@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, screen, globalShortcut, nativeTheme, shell } from 'electron';
 import { isAbsolute, join, relative, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { ScreenCapture } from './screen-capture';
 import { CursorOverlay } from './cursor-overlay';
 import { VoiceSystem } from './voice';
@@ -63,8 +63,12 @@ import { DEFAULT_CONFIG } from '../shared/constants';
 import { readFileSync } from 'fs';
 import { join as pathJoin } from 'path';
 import { assertOAuthProvider } from './oauth-providers';
+import { readStudioUrl, saveStudioUrl, studioTarget } from './studio-connection';
 
 let mainWindow: BrowserWindow | null = null;
+let connectedStudioOrigin: string | null = null;
+const STUDIO_LAUNCHER = resolve(__dirname, '../../android-web/studio.html');
+const LOCAL_INTERFACE = resolve(__dirname, '../../android-web/index.html');
 let trayManager: TrayManager | null = null;
 let screenCapture: ScreenCapture;
 let cursorOverlay: CursorOverlay;
@@ -156,11 +160,8 @@ async function loadFirstReachable(urls: string[]): Promise<void> {
       // try next candidate
     }
   }
-  try {
-    await mainWindow?.loadURL(urls[urls.length - 1]);
-  } catch (e) {
-    console.error('[electron] all web UI candidates failed:', (e as Error).message);
-  }
+  console.warn('[electron] web UI unavailable; opening the bundled studio connection screen');
+  await mainWindow?.loadFile(STUDIO_LAUNCHER);
 }
 
 // ── Navigation / IPC trust guards ───────────────────────────────────────────
@@ -173,6 +174,7 @@ function getAppOrigins(): Set<string> {
     'https://localhost:3000',
     'http://localhost:3000',
   ]);
+  if (connectedStudioOrigin) origins.add(connectedStudioOrigin);
   const envUrl = process.env.JARVIS_WEB_UI_URL;
   if (envUrl) {
     try {
@@ -191,7 +193,9 @@ function isTrustedSender(event: Electron.IpcMainInvokeEvent): boolean {
     // file:, data:, about: and sandboxed frames all report origin "null", so
     // file: pages are trusted only when they are the app's own bundled files.
     if (url.protocol === 'file:') {
-      const rel = relative(resolve(__dirname, '..'), fileURLToPath(url));
+      const file = resolve(fileURLToPath(url));
+      if (file === STUDIO_LAUNCHER || file === LOCAL_INTERFACE) return true;
+      const rel = relative(resolve(__dirname, '..'), file);
       return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
     }
     return getAppOrigins().has(url.origin);
@@ -256,8 +260,9 @@ function createMainWindow(): void {
   // Navigation: block any navigation away from the app's own origins.
   mainWindow.webContents.on('will-navigate', (event, url) => {
     try {
-      const origin = new URL(url).origin;
-      if (!getAppOrigins().has(origin)) {
+      const target = new URL(url);
+      const bundledPage = target.protocol === 'file:' && [STUDIO_LAUNCHER, LOCAL_INTERFACE].includes(resolve(fileURLToPath(target)));
+      if (!bundledPage && !getAppOrigins().has(target.origin)) {
         event.preventDefault();
       }
     } catch {
@@ -282,12 +287,20 @@ function createMainWindow(): void {
   });
 
   // Load the GhostForge web UI (runs on 3001; HTTPS when certs exist, else HTTP)
+  let savedStudioUrl: string | null = null;
+  try {
+    savedStudioUrl = readStudioUrl(join(app.getPath('userData'), 'studio-url.json'));
+    connectedStudioOrigin = savedStudioUrl;
+  } catch (error) {
+    console.error('[electron] could not restore studio URL:', error);
+  }
   const webUICandidates = [
     process.env.JARVIS_WEB_UI_URL,
+    savedStudioUrl,
     'https://localhost:3001',
     'http://localhost:3001',
   ].filter((u): u is string => Boolean(u));
-  loadFirstReachable(webUICandidates);
+  void loadFirstReachable(webUICandidates).catch(error => console.error('[electron] could not load the studio launcher:', error));
 
   mainWindow.once('ready-to-show', () => {
     logHeadlessSmoke(HEADLESS_WINDOW_LOG);
@@ -363,6 +376,32 @@ function createMainWindow(): void {
 }
 
 function registerIPC(): void {
+  const requireLauncher = (event: Electron.IpcMainInvokeEvent) => {
+    const frame = event.senderFrame;
+    if (!frame || frame !== event.sender.mainFrame || frame.url.split(/[?#]/)[0] !== pathToFileURL(STUDIO_LAUNCHER).href) {
+      throw new Error('Studio connection can only be changed from the bundled launcher');
+    }
+  };
+  ipcMain.handle('studio:get-url', event => {
+    requireLauncher(event);
+    return readStudioUrl(join(app.getPath('userData'), 'studio-url.json'));
+  });
+  ipcMain.handle('studio:connect', async (event, raw: unknown, section: unknown) => {
+    requireLauncher(event);
+    const target = studioTarget(raw, section);
+    const previous = connectedStudioOrigin;
+    connectedStudioOrigin = new URL(target).origin;
+    try {
+      await mainWindow?.loadURL(target);
+      saveStudioUrl(join(app.getPath('userData'), 'studio-url.json'), connectedStudioOrigin);
+    } catch (error) {
+      connectedStudioOrigin = previous;
+      await mainWindow?.loadFile(STUDIO_LAUNCHER, {
+        query: { error: `Could not connect: ${error instanceof Error ? error.message : String(error)}` },
+      });
+      throw error;
+    }
+  });
   // Screen capture
   ipcMain.handle('screen:capture', trusted(async (_event, options: ScreenCaptureOptions) => {
     return screenCapture.capture(options);

@@ -5,7 +5,72 @@ what is going on.** The top half is written by humans/lead agents; the
 `LIVE STATUS` block at the bottom is rewritten automatically by the boss every
 couple of minutes while the agent team runs.
 
-## ▶ START HERE — state at 2026-10-02 12:00 (Asia/Amman)
+## ▶ START HERE — state at 2026-10-07 (Asia/Amman) — main includes PRs #13–#20, agent team stopped, Job Hunter preparation/approval repaired
+
+**Current release work:** v5.3.2 adds a shared desktop/Android Studio
+connection screen, cross-platform startup/script fixes and stronger release
+validation. Full studio features require a running authenticated server;
+Android opens its browser and application automation runs on the server.
+Job Hunter refreshes status/progress, rejects overlapping operations on the
+same job, keeps partial answers in Needs you, and sends prompt-based CV/job
+requests correctly to Ollama. macOS test failures noted below are now fixed.
+Only `main` remains; do not recreate deleted agent branches without approval.
+See `CHANGELOG.md` and the GitHub release/build run for publication status.
+Local verification: root smoke passed, web 515 passed/one Windows-only skip,
+desktop 34 passed, MCP eight passed; React Doctor remains 81. Production
+high/critical audit gates passed (moderate mammoth-chain advisories remain).
+The first v5.3.2 build passed web production, macOS, Linux and Android; Windows
+revealed a lazy Electron-download assumption in its smoke test, now corrected
+by resolving the executable through Electron's own package API.
+
+**Follow-up Job Hunter fixes (on main, after v5.3.2):** job review now
+shows description, salary, dates, location, source, match reasons and posting/
+application links; source descriptions no longer truncate at 8,000 characters,
+and Lever's requirements lists are retained. Pollinations was incorrectly using
+the key-required `gen` gateway twice; it now uses the verified anonymous
+`text.pollinations.ai/openai` endpoint with private POSTs and 15-second pacing.
+Configured/local models remain available; local models precede anonymous
+fallback. Synthetic live CV and cover-letter writing both succeeded without
+an account/key; no real CV was sent and no application was submitted. Anonymous
+availability/length limits remain, so honest manually-approved fallback drafts
+are still necessary. These follow-up edits are not in the published v5.3.2
+installers. Full web regression: 524 passed, one Windows-only skip; typecheck
+and changed-file lint passed, React Doctor 81 with no changed findings.
+
+**Browser/batch follow-up:** application shutdown is now awaited inside the
+profile lock; retained windows/locks survive Next development module reloads.
+Profile-in-use errors no longer masquerade as missing Chrome/Edge. Lever/Ashby
+paths preserve query/hash, missing apply links fall back to the posting, and
+navigation failures are explicit. Real Chromium fixtures verified target
+navigation and retained-window reuse without real applications. The jobs page
+adds selected-job preparation and explicit batch review/confirmation followed
+by sequential single-job requests with per-job results. Keep the page open;
+this is not a durable queue. AI writing adds a third, smaller prompt attempt;
+unavailable models still generate labelled drafts, not false AI success.
+
+**Application monitor:** jobs now persist structured opening/filling/AI wait/
+submitting/login/captcha/question/blocker/result states. Review includes an
+opt-in, read-only three-second screenshot preview of the actual Playwright
+page, following popups. Preview is authenticated, owner-scoped, masked on input/
+editable fields and no-store; it is not saved to disk or interactive remote
+control. Sessions are process-local. Request-only account assistance now
+supports explicitly approved, origin-bound login forms and opening/filling
+same-origin signup forms. Passwords are not persisted or sent to AI; HTTPS/
+localhost transport, owner checks, rate limits and credential-safe errors are
+enforced. Signup submission/terms/MFA/captcha and LinkedIn remain manual.
+Cookies persist for later attempts; use Open & fill again after authenticating.
+Automatic registration is now an explicit per-origin option: open/fill/submit
+once on supported standard forms, pause for terms (including implicit consent),
+captcha/MFA/verification, unknown fields and unsupported flows. LinkedIn and
+Workday signup remain manual. Durable blockers show in-app and trigger phone
+push when configured; unavailable/failed delivery is reported, not hidden.
+The application agent no longer accepts legal/consent checkboxes. Confirmed
+account creation never marks a job Applied. No password vault was added.
+Verification: root smoke passed; web 551 passed with one Windows-only skip;
+isolated production build, typecheck and changed-file lint passed. React Doctor
+changed scope 81, with no introduced findings; same-tool full-snapshot
+baseline/current comparison showed no score regression. Browser fixtures used fictional credentials;
+no real website account was created and no real application was submitted.
 
 **Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
 (main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
@@ -124,12 +189,24 @@ Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). 
 
 ## Branches
 
-- `main` — protected; changes arrive only via the agent-team PR.
-- `feat/agent-boss` — this checkout; agent framework + everything integrated so far.
-- `agent/integration` — the boss's merge branch (worktree `../gf-integration`), PR → `main`.
-- `agent/<provider>/…` — per-worker branches, reset onto integration before each task.
+- `main` — the only current local and remote branch, per the user's request.
+- `agent/integration` and `fix/job-hunter-free-models` were deleted on
+  2026-10-07 after verifying both were ancestors of `main` (no unmerged commits).
+- The team is stopped. Restarting its workflow can recreate integration and
+  worker branches; the historical workflow instructions above describe that setup.
 
 ## History
+
+- **2026-10-07** — Verified `main` contains both remaining branch tips, deleted
+  the merged remote branches at the user's request, and repaired Job Hunter:
+  compact AI-writing retry, clearly labelled original-CV/basic-letter drafts
+  when AI is unavailable (manual approval only), automatic review opening,
+  accurate application-result notices, and prepared-CV DOCX uploads. Added
+  outage, approval-queue, UI, and real-browser upload/submission regressions.
+  The full web suite has three pre-existing macOS failures (temporary-path
+  canonicalization in agent/bridge tests and Bash 3.2 in the project wizard);
+  Job Hunter regressions, root smoke, typecheck and changed-file lint pass.
+  React Doctor changed-scope score is 81 with no new findings. — copilot
 
 - **2026-09-30** — PRs #6–#10 merged (marketplace source of truth, Mark-LV +
   OpenJarvis bridge, Job Hunter autopilot, workflows engine). Built the
@@ -175,52 +252,32 @@ Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). 
 ## LIVE STATUS
 
 <!-- LIVE-STATUS:START -->
-_Auto-updated by the boss (pid 26576) at 2026-10-04T13:03:03.063Z._
+_Handoff updated by interactive session at 2026-10-06._
 
-**Phase 1:** Make GhostForge fully working and polished: every feature in web-ui, TUI, Electron, the Python bridge, MCP server, marketplace and Job Hunter works end to end; every JARVIS tool works and is covered by tests; fix bugs, add missing tests, remove dead code, improve UX and accessibility.
+**State:** `main` = `e1840a87` (PR #12, merge 2026-10-05, all checks green).
+PR #13 **merged** 2026-10-05; PRs #15–#19 merged. **No open PRs.** The boss /
+watchdog agent team is **stopped** — `.agent-sync/state/boss.pid` is stale;
+restart with `node scripts/agents/team.mjs start` from GhostForge-public.
+`GhostForge-public` sits detached at `origin/main`. Worktree `gf-integration`
+is on `agent/integration` (one commit behind origin/main; bump it when resumed).
 
-**Health:** 100/100 · **merges this run:** 12 · **PR:** https://github.com/HishamAbulfeilat/GhostForge/pull/12 · **boss:** claude
+**This session (2026-10-06), Job Hunter model fix (uncommitted):**
+- `web-ui/lib/ai.ts`: new `ModelOverride.preferFree`; when set, `buildModelChain`
+  skips the paid model saved in Settings and starts at free providers →
+  OmniRoute → Pollinations (keyless) → local.
+- `web-ui/lib/job-hunter/index.ts`: `generatorFor(null)` now passes
+  `preferFree: true`, so Job Hunter defaults to best free models with **no API
+  key** instead of silently using the paid Settings model. Any explicit choice
+  (provider/model, custom, ollama) still leads the chain.
+- `web-ui/app/jobs/page.tsx`: the AI-model dropdown defaults to
+  "Free models (automatic — no API key needed)", lists **all** provider models
+  (the `available` filter that hid keyless free models is removed), and has an
+  inline "+ Add another model" form posting to `/api/models/custom`; new
+  models auto-select.
+- Verified: `node --test test/job-hunter.test.js test/job-autopilot.test.js
+  test/job-agent.test.js` → 35/35 pass; `tsc --noEmit` clean. Mirrored into
+  `gf-integration` (uncommitted there too).
 
-**Board:** todo 1 · in-progress 1 · review 2 · done 12 · blocked 2
-
-**Agents**
-- **claude** (claude): waiting-merge on T-012
-- **claude-2** (claude): working on T-017
-- **claude-3** (claude): waiting-merge on T-013
-
-**In progress / review**
-- T-017 [test] Tests: add a pytest suite for voice-pipeline (server contract, wake phrases, missing-engine degradation) — claude-2
-- T-012 [bugfix] Push notifications: store subscriptions and actually send via web-push (honest 'not configured' without VAPID keys) — claude
-- T-013 [test] Health score blind spots: run mcp, tui, electron-app tests and bridge pytest in scripts/agents/health.mjs — claude-3
-
-**Next up (todo)**
-- T-016 [bugfix] A11y: label unlabeled inputs and make clickable divs keyboard-accessible (jarvis, jobs, dashboard, Mark-LV, AI providers, terminal)
-
-**Blocked (needs a human or a fresh approach)**
-- T-014 [docs] Bridge: document every mark-l-bridge/server.py endpoint in README and test the table stays complete: …s only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- T-018 [docs] Docs: correct stale CHANGELOG claims (bridge endpoint count, partial features): …s only ~11622 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-
-**Recently done**
-- T-001 [feature] Deeper OpenJarvis bridge: expose /api/openjarvis/* endpoints in mark-l-bridge/server.py with a graceful stub when the package is not installed — claude-2
-- T-002 [bugfix] Marketplace: verify every catalog install_command works cross-platform (Windows/macOS/Linux); fix macOS-only ones — claude
-- T-003 [chore] Add a web-ui ESLint flat config (eslint.config.mjs) so `eslint .` and CI lint work — claude-3
-- T-004 [refactor] Knip: remove or wire up the unused files reported by `cd web-ui && npx knip` — claude
-- T-005 [test] JARVIS: add tests proving every tool in web-ui/lib/tool-permissions.ts is registered, permission-gated, and callable — claude-2
-- T-006 [test] Tests: add root unit tests under tests/*.test.js and run them from scripts/test.js — claude-2
-- T-007 [docs] Docs: refresh README.md feature list and bridge section to match the current code — claude-3
-- T-008 [docs] Add root LICENSE file or fix README license links — claude-3
-- T-009 [docs] extension/LICENSE is a truncated MIT missing the liability disclaimer — claude-3
-- T-010 [bug] api-route-auth test must ignore dot-directories in web-ui/app — claude-3
-- T-011 [bugfix] Fix failing health check: web-ui production build — claude
-- T-015 [bugfix] Electron: stop advertising Outlook OAuth/ops that throw 'not implemented' — claude-2
-
-**Latest messages**
-- 2026-10-04T12:22 boss → claude-3: … this conversation is only ~10995 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:22 boss → claude-3: … this conversation is only ~11622 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:23 boss → claude-3: … this conversation is only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:23 boss → claude-3: … this conversation is only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:23 boss → claude-3: … this conversation is only ~11172 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:24 boss → claude-3: … this conversation is only ~11622 tokens — the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context. 
-- 2026-10-04T12:29 claude-2 → boss: …sh path, so any Outlook account persisted by an earlier build still refreshes and lists/sends mail. Outlook sign-in being offered is a separate feature (needs an MSAL/auth-URL step) if anyone wants it - I did not add it.
-- 2026-10-04T12:53 boss → all: …contacts-integration.ts, electron-app/src/main/email-integration.ts, electron-app/src/main/index.ts, electron-app/src/main/oauth-providers.ts, electron-app/src/preload/index.ts, electron-app/test/oauth-providers.test.mjs
+**Then the recurring items below still apply.** Restart command:
+`node C:\Users\User\Desktop\GhostForge\GhostForge-public\scripts\agents\team.mjs start`
 <!-- LIVE-STATUS:END -->
