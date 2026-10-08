@@ -569,6 +569,9 @@ export async function searchSources(prefs: JobPreferences, terms: string[]): Pro
 /**
  * One job posted on several boards becomes one listing: the copy from the most
  * trusted source wins (the company's own ATS over a board over a forum post).
+ * Details the winning copy lacks (a salary, a posting date, a description: some
+ * ATS APIs return none) are taken from the other copies, so scoring and the
+ * salary floor see them. The winner's own values are never replaced.
  */
 export function dedupeListings(jobs: RawJob[]): RawJob[] {
   const byKey = new Map<string, RawJob>()
@@ -576,7 +579,14 @@ export function dedupeListings(jobs: RawJob[]): RawJob[] {
     if (!job.title || !job.company) continue
     const k = dedupeKey(job)
     const seen = byKey.get(k)
-    if (!seen || TRUST_RANK[job.trust] > TRUST_RANK[seen.trust]) byKey.set(k, job)
+    if (!seen) { byKey.set(k, job); continue }
+    const [win, other] = TRUST_RANK[job.trust] > TRUST_RANK[seen.trust] ? [job, seen] : [seen, job]
+    const fill = {
+      ...(!win.salary && other.salary ? { salary: other.salary } : {}),
+      ...(!win.postedAt && other.postedAt ? { postedAt: other.postedAt } : {}),
+      ...(!win.description.trim() && other.description.trim() ? { description: other.description } : {}),
+    }
+    byKey.set(k, Object.keys(fill).length ? { ...win, ...fill } : win)
   }
   return [...byKey.values()]
 }
