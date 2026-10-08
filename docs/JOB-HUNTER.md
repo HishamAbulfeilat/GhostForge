@@ -149,7 +149,10 @@ scraped, and LinkedIn is never scraped.
 Put keys in `web-ui/.env.local`, never in code. The Sources card on `/jobs`
 shows which keyed sources are connected. Feed responses are cached for an hour,
 so several search terms or runs don't hit a feed repeatedly. A source that is
-down is skipped and named under Sources. A listing the AI already scored keeps
+down is skipped and named under Sources. A feed that rate-limits GhostForge,
+fails with a server error or times out is skipped for the next 12 minutes
+instead of being asked again for every search term, and at most two requests
+per feed host run at once. A listing the AI already scored keeps
 its score until your CV, preferences, model or the listing itself changes, so
 repeated searches and autopilot runs don't re-score it. Scam-flagged and
 dealbreaker listings are marked Skip without asking the AI. Up to 60 new

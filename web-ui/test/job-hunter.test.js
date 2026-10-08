@@ -186,6 +186,50 @@ test('anonymous and local models score in bigger batches, with a fallback to nor
   assert.equal(await jh.scoringBatchSize(null, async () => { throw new Error('probe failed') }), match.SCORE_BATCH)
 })
 
+test('a feed that rate-limits or fails is skipped for a while, and each host gets at most two requests at once', async () => {
+  const realFetch = globalThis.fetch
+  const calls = {}
+  let inFlight = 0, maxInFlight = 0
+  let himalayasStatus = 429
+  globalThis.fetch = async url => {
+    const u = new URL(String(url))
+    calls[u.hostname] = (calls[u.hostname] || 0) + 1
+    if (u.hostname === 'himalayas.app') return new Response('slow down', { status: himalayasStatus })
+    if (u.hostname === 'remotive.com') {
+      inFlight++; maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise(resolve => setTimeout(resolve, 30))
+      inFlight--
+      return new Response(JSON.stringify({ jobs: [] }), { status: 200 })
+    }
+    if (u.hostname === 'jobicy.com') return new Response('down', { status: 503 })
+    return new Response('not found', { status: 404 })
+  }
+  try {
+    sources.clearSourceCache()
+    const prefs = { titles: [], locations: [], remote: 'remote', minSalary: null, mustHaves: [], niceToHaves: [], dealbreakers: [], companies: [] }
+    const terms = ['alpha', 'beta', 'gamma', 'delta', 'epsilon']
+    const { report } = await sources.searchSources(prefs, terms)
+    assert.equal(calls['himalayas.app'], 1, 'after a 429 the other terms skip Himalayas instead of asking again')
+    assert.equal(report.filter(r => /^Himalayas/.test(r.source) && r.error).length, 5, 'each skipped term still reports the problem')
+    assert.ok(report.some(r => /skipped: failed in the last 12 minutes/.test(r.error || '')))
+    assert.equal(calls['remotive.com'], 5)
+    assert.ok(maxInFlight <= 2, `at most two requests in flight per host (saw ${maxInFlight})`)
+    assert.equal(calls['jobicy.com'], 2, 'a 5xx is remembered per URL, so other URLs on the host are still tried')
+
+    // Within the window, a new search does not ask the failing host again
+    await sources.searchSources(prefs, ['alpha'])
+    assert.equal(calls['himalayas.app'], 1)
+    // After a refresh (or the window passing) it is tried again
+    sources.clearSourceCache()
+    himalayasStatus = 200
+    await sources.searchSources(prefs, ['alpha'])
+    assert.equal(calls['himalayas.app'], 2)
+  } finally {
+    globalThis.fetch = realFetch
+    sources.clearSourceCache()
+  }
+})
+
 test('HTML entities decode once (no double unescaping)', () => {
   assert.equal(sources.stripHtml('<p>A &amp;lt;b&amp;gt; tag &amp; more</p>'), 'A &lt;b&gt; tag & more')
   assert.equal(sources.stripHtml('x &lt; y'), 'x < y')
