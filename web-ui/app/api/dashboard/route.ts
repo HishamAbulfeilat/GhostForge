@@ -233,24 +233,44 @@ function getVersion(): string {
   }
 }
 
+// The audit log is append-only and never rotated, so only read its tail.
+const AUDIT_TAIL_BYTES = 64 * 1024
+
 function readRecentAudit(limit = 8): DashboardAuditEntry[] {
+  let text = ''
+  let fd: number | undefined
   try {
-    if (!fs.existsSync(AUDIT_FILE)) return []
-    const lines = fs.readFileSync(AUDIT_FILE, 'utf8').split('\n').filter(Boolean)
-    return lines
-      .slice(-limit)
-      .reverse()
-      .map(line => JSON.parse(line) as DashboardAuditEntry)
-      .map(entry => ({
-        ts: entry.ts ?? new Date().toISOString(),
-        level: entry.level ?? 'info',
-        event: entry.event ?? 'unknown',
-        tool: entry.tool,
-        result: entry.result ? String(entry.result).slice(0, 80) : undefined,
-      }))
+    fd = fs.openSync(AUDIT_FILE, 'r')
+    const size = fs.fstatSync(fd).size
+    const start = Math.max(0, size - AUDIT_TAIL_BYTES)
+    const buf = Buffer.alloc(size - start)
+    fs.readSync(fd, buf, 0, buf.length, start)
+    text = buf.toString('utf8')
+    // Drop the (probably partial) first line when we started mid-file
+    if (start > 0) text = text.slice(text.indexOf('\n') + 1)
   } catch {
     return []
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd)
   }
+
+  const entries: DashboardAuditEntry[] = []
+  const lines = text.split('\n')
+  // Newest first; skip lines that aren't valid JSON instead of dropping all of them
+  for (let i = lines.length - 1; i >= 0 && entries.length < limit; i--) {
+    if (!lines[i]) continue
+    let entry: Partial<DashboardAuditEntry> | null
+    try { entry = JSON.parse(lines[i]) } catch { continue }
+    if (!entry || typeof entry !== 'object') continue
+    entries.push({
+      ts: entry.ts ?? new Date().toISOString(),
+      level: entry.level ?? 'info',
+      event: entry.event ?? 'unknown',
+      tool: entry.tool,
+      result: entry.result ? String(entry.result).slice(0, 80) : undefined,
+    })
+  }
+  return entries
 }
 
 function readEnvLocal(): Record<string, string> {
@@ -284,7 +304,10 @@ export async function GET(req: NextRequest) {
   const githubEnabled = Boolean(process.env.GITHUB_TOKEN)
   const ghEnv = githubEnabled ? { ...process.env, GH_TOKEN: process.env.GITHUB_TOKEN } : process.env
 
-  const [serverHealth, bridgeHealth, ollamaHealth, activityRaw, tagsRaw, tagDatesRaw] = await Promise.all([
+  // Everything below is independent I/O, so run it all at once: the three gh
+  // calls used to run one after another after the rest, each with a 12 s
+  // timeout, which put up to ~36 s on top of every dashboard load.
+  const [serverHealth, bridgeHealth, ollamaHealth, activityRaw, tagsRaw, tagDatesRaw, issuesRaw, runsRaw, prsRaw] = await Promise.all([
     checkUrl('http://localhost:3001', 1500),
     checkUrl('http://localhost:4747/health', 1500),
     fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1500) })
@@ -297,17 +320,16 @@ export async function GET(req: NextRequest) {
     runCommand('git log --oneline -20 --no-merges 2>/dev/null'),
     runCommand('git tag -l --sort=-version:refname 2>/dev/null | head -8'),
     runCommand("git tag -l --sort=-version:refname 2>/dev/null | head -8 | xargs -I{} git log -1 --format=%ai {} 2>/dev/null | cut -c1-10"),
+    githubEnabled
+      ? runCommand('gh issue list --assignee @me --json number,title,labels,state,updatedAt --limit 15 2>/dev/null', ghEnv)
+      : Promise.resolve(''),
+    githubEnabled
+      ? runCommand('gh run list --limit 12 --json name,status,conclusion,updatedAt,headBranch 2>/dev/null', ghEnv)
+      : Promise.resolve(''),
+    githubEnabled
+      ? runCommand('gh pr list --json number,title,author,reviewDecision --limit 12 2>/dev/null', ghEnv)
+      : Promise.resolve(''),
   ])
-
-  const issuesRaw = githubEnabled
-    ? await runCommand('gh issue list --assignee @me --json number,title,labels,state,updatedAt --limit 15 2>/dev/null', ghEnv)
-    : ''
-  const runsRaw = githubEnabled
-    ? await runCommand('gh run list --limit 12 --json name,status,conclusion,updatedAt,headBranch 2>/dev/null', ghEnv)
-    : ''
-  const prsRaw = githubEnabled
-    ? await runCommand('gh pr list --json number,title,author,reviewDecision --limit 12 2>/dev/null', ghEnv)
-    : ''
 
   const ollamaModels = ollamaHealth.models.map(model => model.name)
   const fishAudio = Boolean(process.env.FISH_AUDIO_API_KEY || envLocal.FISH_AUDIO_API_KEY)
