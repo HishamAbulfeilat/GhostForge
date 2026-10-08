@@ -20,6 +20,7 @@ function routes(state, approveStatus = 'submitted') {
       if (init?.method === 'POST') {
         const body = JSON.parse(init.body)
         state.actions.push(body.action)
+        ;(state.bodies ||= []).push(body)
         if (body.action === 'prepare') {
           state.job = { ...state.job, status: 'ready', tailoredResume: 'Jane Example original CV', coverLetter: 'Dear Hiring Manager,', answers: [{ label: 'Email', value: 'jane@example.com' }], preparationWarning: 'AI writing was unavailable. This draft uses your original CV and a basic cover letter. Review it before approving.' }
         } else if (body.action === 'approve') {
@@ -178,6 +179,23 @@ test('approval reports failures and human blockers, never as Applied', async () 
       assert.ok([...page.document.querySelectorAll('[role="tab"]')].some(el => /Applied.*0/.test(el.textContent)))
     } finally { await page.unmount() }
   }
+})
+
+test('a job whose Submit was already pressed needs an explicit check before applying again', async () => {
+  const state = { job: { ...baseJob, status: 'needs_user', tailoredResume: 'CV', coverLetter: 'Letter', submitPressedAt: '2026-10-01T12:00:00Z' }, actions: [] }
+  const page = await renderPage('jobs/page.tsx', routes(state, 'needs_user'))
+  try {
+    await page.click(el => el.getAttribute('role') === 'tab' && /Waiting for you/.test(text(el)))
+    await page.click(el => el.tagName === 'BUTTON' && text(el).includes('Engineer') && text(el).includes('Acme'))
+    assert.match(page.document.body.textContent, /Submit was already pressed for this application on 2026-10-01/)
+    const button = () => [...page.document.querySelectorAll('button')].find(el => text(el) === 'Open & fill again')
+    assert.equal(button().disabled, true, 'applying again is blocked until the user confirms')
+    await page.click(el => el.type === 'checkbox' && /it was not sent/.test(el.parentElement.textContent))
+    assert.equal(button().disabled, false)
+    await page.click(el => el === button())
+    assert.deepEqual(state.actions, ['approve'])
+    assert.equal(state.bodies[0].confirmResubmit, true)
+  } finally { await page.unmount() }
 })
 
 test('job cards and review expose source details before preparing an application', async () => {

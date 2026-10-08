@@ -458,6 +458,8 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
   const outcome = (status: AgentOutcome['status'], message: string, missing: string[] = [], questions: PendingQuestion[] = []): AgentOutcome =>
     ({ status, message, filled, missing, questions, aiAnswers: aiUsed, submitPressed: beforeSubmit !== null })
   let errorsAfterSubmit = 0
+  // GhostForge's own Submit click happened (not computer use's)
+  let pressedSubmit = false
 
   // A site may open the form in a new tab; follow it.
   let current = page
@@ -476,6 +478,7 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
   for (let step = 0; step < maxSteps; step++) {
     try {
       const pg = current
+      const filledAtStart = filled.length
       ctx.onPage?.(pg)
       await pg.waitForLoadState('domcontentloaded').catch(() => {})
       await pg.waitForTimeout(800)
@@ -617,9 +620,16 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
           return outcome('needs_user', 'Everything is filled in, but submitting this form means agreeing to terms or privacy consent. Review it and press Submit yourself if you agree. GhostForge did not accept terms or submit the application.')
         }
         if (!ctx.allowSubmit) return outcome('needs_user', 'Everything is filled in and ready. Review it and press Submit.')
+        // Submit was already pressed and this step changed nothing (no field the site
+        // rejected was corrected): the first press may have gone through on a slow
+        // site, so pressing again could send a duplicate application.
+        if (pressedSubmit && filled.length === filledAtStart) {
+          return outcome('needs_user', 'Submit was pressed but no confirmation appeared. GhostForge did not press it again because the application may already have been sent: check the application browser or your email before retrying.')
+        }
         ctx.log?.(`Submitting (${submit.text})`)
         const before = await bodyText(pg)
         beforeSubmit = before // from here on, the application may have been sent
+        pressedSubmit = true
         await pg.locator(`[data-gf-btn="${submit.idx}"]`).click({ timeout: 10_000 })
         const ok = await pg.waitForFunction(([re, prev]) => {
           const rx = new RegExp(re, 'gi')

@@ -186,9 +186,9 @@ export default function JobsPage() {
     setNotice({ tone: 'info', text: `Found ${result.found} jobs, ${result.matched} in your locations, ${result.added} new. ${result.prepared} prepared for your approval.${removed ? ` Removed ${removed} (old, broken link or scam).` : ''}${d?.flagged ? ` ${d.flagged} flagged as possible scams.` : ''}` })
   })
 
-  const act = (action: 'prepare' | 'approve' | 'dismiss', id: string) => run(`${action}:${id}`, async () => {
+  const act = (action: 'prepare' | 'approve' | 'dismiss', id: string, extra: { confirmResubmit?: boolean } = {}) => run(`${action}:${id}`, async () => {
     const r = await api<{ job?: JobRecord; message?: string }>('/api/jobs', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id, ...extra }),
     })
     await load()
     if (action === 'dismiss') setSelected(null)
@@ -331,7 +331,7 @@ export default function JobsPage() {
         <GithubProfileSetup />
       ) : job ? (
         <Review job={job} busy={busy} onBack={() => setSelected(null)} onAnswer={answers => void answer(job.id, answers)}
-          onApprove={() => void act('approve', job.id)} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)} />
+          onApprove={confirmResubmit => void act('approve', job.id, confirmResubmit ? { confirmResubmit } : {})} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)} />
       ) : (
         <div className="grid gap-6 px-4 py-6 lg:grid-cols-[400px_minmax(0,1fr)] lg:px-8 lg:py-7">
           <aside className="flex flex-col gap-4">
@@ -617,7 +617,7 @@ function postingDate(value: string): string {
 }
 
 function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }: {
-  job: JobRecord; busy: string; onBack: () => void; onApprove: () => void; onPrepare: () => void; onDismiss: () => void
+  job: JobRecord; busy: string; onBack: () => void; onApprove: (confirmResubmit: boolean) => void; onPrepare: () => void; onDismiss: () => void
   onAnswer: (answers: Record<string, string>) => void
 }) {
   const sv = STATUS_VIEW[job.status] || STATUS_VIEW.found
@@ -625,6 +625,9 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
   const approving = busy === `approve:${job.id}`
   const canApprove = prepared && ['ready', 'needs_user', 'failed'].includes(job.status)
   const [draft, setDraft] = useState<Record<string, string>>({})
+  // Submit was pressed before: the application may have been sent, so applying again needs an explicit check
+  const pressedBefore = Boolean(job.submitPressedAt)
+  const [resubmitOk, setResubmitOk] = useState(false)
 
   return (
     <div className="flex flex-col gap-5 px-4 py-6 lg:px-8 lg:py-7">
@@ -659,7 +662,7 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
             </button>
           )}
           {prepared ? (
-            <button type="button" onClick={onApprove} disabled={!canApprove || Boolean(busy)}
+            <button type="button" onClick={() => onApprove(pressedBefore && resubmitOk)} disabled={!canApprove || Boolean(busy) || (pressedBefore && !resubmitOk)}
               className="flex min-h-12 items-center gap-2 rounded-xl bg-gf-accent px-6 text-[15px] font-semibold text-gf-bg disabled:opacity-60">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0B0D12" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M20 6 9 17l-5-5" /></svg>
               {approving ? 'Filling the form…' : job.status === 'needs_user' ? 'Open & fill again' : 'Approve & apply'}
@@ -707,6 +710,16 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
           {' '}It stops for captchas, sign-ins and questions it can&apos;t answer truthfully, and lists those below for you.
         </span>
       </div>
+
+      {pressedBefore && canApprove && (
+        <div role="status" className="flex flex-col gap-2 rounded-xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-gf-warn">
+          <span>Submit was already pressed for this application on {postingDate(job.submitPressedAt || '')}, so it may have been sent. Check your email or the website before applying again.</span>
+          <label className="flex items-center gap-2 text-slate-200">
+            <input type="checkbox" checked={resubmitOk} onChange={e => setResubmitOk(e.target.checked)} className="size-4" />
+            I checked: it was not sent. Fill and submit it again.
+          </label>
+        </div>
+      )}
 
       {job.preparationWarning && (
         <div role="status" className="rounded-xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-gf-warn">

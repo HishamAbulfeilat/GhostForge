@@ -231,6 +231,8 @@ export interface JobRecord {
   fit: Fit
   score: number
   reasons: string
+  /** Fingerprint of the CV, preferences, model and listing the AI score was given for: unchanged means no re-scoring */
+  scoreSig?: string
   status: JobStatus
   activity?: import('./live').ApplicationActivity
   tailoredResume?: string
@@ -404,6 +406,9 @@ export function upsertJobs(
       Object.assign(existing, {
         ...f, status: existing.status, updatedAt: now,
         attempts: existing.attempts, verification: keepCheck ? existing.verification : f.verification ?? existing.verification,
+        // Follows the latest listing: pinning a board ("ashby:acme") must clear an earlier
+        // unconfirmed name match, or autopilot would never apply to that job
+        boardUnconfirmed: f.boardUnconfirmed || undefined,
       })
       continue
     }

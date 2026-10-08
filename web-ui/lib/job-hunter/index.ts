@@ -12,10 +12,11 @@
  * Submitting happens on the user's approval of a job, or by autopilot within
  * the limits and sites the user switched on (see autopilot.ts).
  */
+import { createHash } from 'crypto'
 import { generateWithFallback } from '../ai'
 import { auditLog } from '../audit'
 import { analyzeCv, extractCvText } from './cv'
-import { dealbreaker, matchesLocation, relevantTo, scoreJobs } from './match'
+import { dealbreaker, heuristicScore, matchesLocation, relevantTo, scoreJobs } from './match'
 import { linkedInSearchUrl, searchSources, type SourceReport } from './sources'
 import {
   claimJob, getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs, withJobOperation,
@@ -96,6 +97,16 @@ export interface SearchResult {
   linkedin: Array<{ term: string; location: string; url: string }>
 }
 
+/** What an AI fit score depends on besides the listing: the CV, the preferences and the model */
+function scoreBasis(profile: JobProfile): string {
+  const p = profile.preferences
+  return JSON.stringify([profile.cv?.text || '', p.titles, p.locations, p.remote, p.minSalary, p.mustHaves, p.niceToHaves, p.dealbreakers, profile.model])
+}
+
+function scoreSignature(basis: string, job: { title: string; company: string; location: string; salary: string; description: string }): string {
+  return createHash('sha256').update(JSON.stringify([basis, job.title, job.company, job.location, job.salary, job.description])).digest('hex').slice(0, 24)
+}
+
 export async function runSearch(
   username: string,
   opts: { terms?: string[]; autoPrepare?: number; generate?: Generate | null; includeLinkedIn?: boolean; fetcher?: Fetcher } = {},
@@ -112,18 +123,38 @@ export async function runSearch(
   const home = [profile.applicant.city, profile.applicant.country].filter(Boolean)
   const inLocation = kept.filter(j => relevantTo(j, terms) && matchesLocation(j, profile.preferences, home))
 
-  // Score at most 60 listings per run to keep model usage bounded
-  const candidates = inLocation.slice(0, 60)
-  const scores = await scoreJobs(candidates, profile, generate)
-  const scored = candidates.map((job, i) => {
+  // Model calls are the slow, rate-limited part of a search, so:
+  //  - scam-flagged and dealbreaker listings are Skip without asking the model;
+  //  - a listing the model already scored for the same CV, preferences and model
+  //    keeps that score (autopilot re-runs the same search every few hours);
+  //  - at most 60 new listings are scored per run, the best keyword matches first
+  //    (not whichever source answered first).
+  const existing = new Map((await listJobs(username)).map(j => [j.key, j]))
+  const basis = scoreBasis(profile)
+  const skip = (reasons: string) => ({ fit: 'Skip' as const, score: 0, reasons, scoreSig: undefined })
+  const fixed: Array<(typeof inLocation)[number] & Pick<JobRecord, 'fit' | 'score' | 'reasons' | 'scoreSig'>> = []
+  const toScore: Array<{ job: (typeof inLocation)[number]; sig: string; rank: number }> = []
+  for (const job of inLocation) {
     const blocked = dealbreaker(job, profile.preferences)
-    if (job.verification.status === 'flagged') {
-      return { ...job, fit: 'Skip' as const, score: 0, reasons: `Possible scam: ${job.verification.flags.join('; ')}` }
-    }
-    return blocked
-      ? { ...job, fit: 'Skip' as const, score: 0, reasons: blocked }
-      : { ...job, ...scores[i] }
-  })
+    if (job.verification.status === 'flagged') { fixed.push({ ...job, ...skip(`Possible scam: ${job.verification.flags.join('; ')}`) }); continue }
+    if (blocked) { fixed.push({ ...job, ...skip(blocked) }); continue }
+    const sig = scoreSignature(basis, job)
+    const seen = existing.get(job.key)
+    if (seen?.scoreSig === sig) { fixed.push({ ...job, fit: seen.fit, score: seen.score, reasons: seen.reasons, scoreSig: sig }); continue }
+    toScore.push({ job, sig, rank: heuristicScore(job, profile).score })
+  }
+  const candidates = toScore.sort((a, b) => b.rank - a.rank).slice(0, 60)
+  const scores = await scoreJobs(candidates.map(c => c.job), profile, generate)
+  let newSkips = 0
+  const scored = [
+    // New Skip listings are bounded like scored ones, so a scam-heavy feed can't flood the list
+    ...fixed.filter(j => existing.has(j.key) || j.fit !== 'Skip' || newSkips++ < 60),
+    ...candidates.map(({ job, sig }, i) => {
+      const { fit, score, reasons, ai } = scores[i]
+      // Only a model's score is remembered; a keyword estimate is re-scored once a model answers
+      return { ...job, fit, score, reasons, scoreSig: ai ? sig : undefined }
+    }),
+  ]
 
   const { added } = await upsertJobs(username, scored)
 
@@ -203,15 +234,23 @@ async function prepareJobMaterials(username: string, id: string, generate?: Gene
 export function approveJob(
   username: string,
   id: string,
-  opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean } = {},
+  opts: ApproveOptions = {},
 ): Promise<{ job: JobRecord; message: string; missing: string[] }> {
   return withJobOperation(username, id, () => applyApprovedJob(username, id, opts))
+}
+
+export interface ApproveOptions {
+  headless?: boolean
+  by?: 'user' | 'autopilot'
+  allowSubmit?: boolean
+  /** The user checked that an earlier submission did not go through and wants to submit again */
+  confirmResubmit?: boolean
 }
 
 async function applyApprovedJob(
   username: string,
   id: string,
-  opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean } = {},
+  opts: ApproveOptions = {},
 ): Promise<{ job: JobRecord; message: string; missing: string[] }> {
   const job = await getJob(username, id)
   if (!job) throw new Error('Job not found')
@@ -220,6 +259,12 @@ async function applyApprovedJob(
   }
   if (!job.tailoredResume?.trim() || !job.coverLetter?.trim()) throw new Error('Prepare the application materials before approving')
   if (opts.by === 'autopilot' && job.preparationWarning) throw new Error('This draft needs your review and approval because AI writing was unavailable')
+  // Submit was pressed on an earlier attempt, so the application may already have
+  // been sent. Only the user, after checking, may run it again (never autopilot or
+  // a batch approval that didn't confirm this job).
+  if (job.submitPressedAt && !(opts.by !== 'autopilot' && opts.confirmResubmit)) {
+    throw new Error('Submit was already pressed for this application, so it may have been sent. Check your email or the website; to fill and submit it again, confirm that in the job\'s review.')
+  }
   const profile: JobProfile = await getProfile(username)
   const missing = missingApplicantFields(profile)
   if (missing.length) throw new Error(`Fill in your ${missing.join(', ')} before applying`)

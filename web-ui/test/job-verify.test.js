@@ -140,6 +140,22 @@ test('one job listed on several boards is kept once, preferring the company\'s o
   assert.equal(store.dedupeKey({ company: 'Beta GmbH', title: 'Jr Developer', location: 'Berlin, Germany' }), store.dedupeKey({ company: 'beta', title: 'Junior Developer', location: 'Berlin, Germany (Hybrid)' }))
 })
 
+test('a de-duplicated listing keeps the salary, date and description the winning copy lacks', () => {
+  const [job] = sources.dedupeListings([
+    listing({ source: 'SmartRecruiters (acme)', trust: 'official', salary: '', description: '', postedAt: '' }),
+    listing({ source: 'Adzuna', salary: 'EUR 70000-90000', description: 'Build React apps', postedAt: '2026-01-02T00:00:00Z' }),
+    listing({ source: 'Remotive', salary: 'USD 1', description: 'Other text' }),
+  ])
+  assert.equal(job.source, 'SmartRecruiters (acme)')
+  assert.equal(job.trust, 'official')
+  assert.equal(job.salary, 'EUR 70000-90000')
+  assert.equal(job.description, 'Build React apps')
+  assert.equal(job.postedAt, '2026-01-02T00:00:00Z')
+  // The winner's own details are never overwritten
+  const [kept] = sources.dedupeListings([listing({ trust: 'official', salary: 'USD 100k' }), listing({ salary: 'USD 1' })])
+  assert.equal(kept.salary, 'USD 100k')
+})
+
 test('regression: different cities sharing a first word are different jobs', () => {
   const key = location => store.dedupeKey({ company: 'Acme', title: 'Engineer', location })
   assert.notEqual(key('New York, NY'), key('New Delhi, India'))

@@ -122,6 +122,19 @@ test('dealbreakers and salary floor mark jobs as Skip', () => {
   assert.equal(match.dealbreaker({ title: 'Engineer', company: 'A', description: '', salary: 'Competitive' }, prefs), null)
 })
 
+test('the salary floor compares yearly pay: monthly and weekly salaries are annualized', () => {
+  const prefs = { dealbreakers: [], minSalary: 100000 }
+  const at = salary => match.dealbreaker({ title: 'Engineer', company: 'A', description: '', salary }, prefs)
+  assert.equal(at('PLN 15000-20000/month'), null, '240,000 a year is above the minimum')
+  assert.equal(at('EUR 9,000 per month'), null)
+  assert.match(at('EUR 5000-6000 monthly'), /below your minimum/)
+  assert.equal(at('GBP 2,500 a week'), null)
+  assert.equal(at('$45/hour'), null, 'hourly pay depends on hours worked: never a Skip on its own')
+  assert.equal(at('USD 400 per day'), null)
+  assert.equal(match.salaryMax('$120k-$150k'), 150000)
+  assert.equal(match.salaryMax('USD 90000-120000'), 120000)
+})
+
 test('HTML entities decode once (no double unescaping)', () => {
   assert.equal(sources.stripHtml('<p>A &amp;lt;b&amp;gt; tag &amp; more</p>'), 'A &lt;b&gt; tag & more')
   assert.equal(sources.stripHtml('x &lt; y'), 'x < y')
@@ -264,6 +277,22 @@ test('AI outage produces a persisted honest approval draft, then AI retry clears
   assert.equal(await readFile(files.coverPath, 'utf8'), aiPrepared.coverLetter)
 })
 
+test('after Submit was pressed, applying again needs the user\'s explicit confirmation', async () => {
+  const jh = require('../lib/job-hunter/index.ts')
+  const user = 'resubmit'
+  await jh.importCv(user, 'cv.txt', Buffer.from(profile.cv.text), null)
+  await jh.saveProfile(user, { applicant: profile.applicant })
+  await jh.upsertJobs(user, [{ ...job, key: 'resubmit', source: 'test', location: 'Worldwide', remote: true, salary: '', url: '', applyUrl: 'http://127.0.0.1/', ats: 'lever', postedAt: '', fit: 'High', score: 90, reasons: '' }])
+  const [found] = await jh.listJobs(user)
+  await jh.updateJob(user, found.id, { status: 'needs_user', tailoredResume: 'CV', coverLetter: 'Letter', submitPressedAt: new Date().toISOString() })
+  await assert.rejects(jh.approveJob(user, found.id, { by: 'user', headless: true }), /already pressed/)
+  await assert.rejects(jh.approveJob(user, found.id, { by: 'autopilot', confirmResubmit: true }), /already pressed/)
+  assert.equal((await jh.getJob(user, found.id)).status, 'needs_user', 'a refused approval changes nothing')
+  // Confirmed by the user: it proceeds (and the unsafe test URL is still never opened)
+  const result = await jh.approveJob(user, found.id, { by: 'user', headless: true, confirmResubmit: true })
+  assert.match(result.message, /not a public web address/)
+})
+
 test('cover-letter failure and blank AI output still yield labelled approval drafts', async () => {
   const jh = require('../lib/job-hunter/index.ts')
   const [job] = await jh.listJobs('fallback')
@@ -389,6 +418,53 @@ test('search → prepare → approve guards, end to end with mocked sources', as
   }
 })
 
+test('search reuses AI scores for unchanged listings and never asks the model about Skip listings', async () => {
+  const realFetch = globalThis.fetch
+  sources.clearSourceCache()
+  globalThis.fetch = async url => {
+    const host = new URL(String(url)).hostname
+    const body = host === 'remotive.com'
+      ? { jobs: [
+          { title: 'Platform Engineer', company_name: 'Acme', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/acme/7', salary: '', description: 'Kubernetes Go platform', publication_date: RECENT },
+          { title: 'Platform Engineer', company_name: 'Gamble', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/gamble/8', salary: '', description: 'Online casino platform', publication_date: RECENT },
+        ] }
+      : null
+    return body ? new Response(JSON.stringify(body), { status: 200 }) : new Response('not found', { status: 404 })
+  }
+  try {
+    const jh = require('../lib/job-hunter/index.ts')
+    const user = 'rescore'
+    await jh.importCv(user, 'cv.txt', Buffer.from('Jane Example\nPlatform Engineer | Acme | 2020 - Present\nKubernetes Go Terraform'), null)
+    const profile = await jh.getProfile(user)
+    await jh.saveProfile(user, { preferences: { ...profile.preferences, titles: ['platform'], locations: ['Remote'], remote: 'remote', dealbreakers: ['casino'] } })
+    const prompts = []
+    const generate = async ({ prompt }) => {
+      prompts.push(prompt)
+      const n = (prompt.match(/^\[\d+\]/gm) || []).length
+      return JSON.stringify(Array.from({ length: n }, (_, i) => ({ i, fit: 'High', score: 88, reasons: 'Strong Kubernetes fit' })))
+    }
+    await jh.runSearch(user, { generate, autoPrepare: 0 })
+    assert.equal(prompts.length, 1)
+    assert.ok(!prompts[0].includes('Gamble'), 'a dealbreaker listing is not sent to the model')
+    const jobs = await jh.listJobs(user)
+    assert.equal(jobs.find(j => j.company === 'Gamble').fit, 'Skip')
+    assert.equal(jobs.find(j => j.company === 'Acme').score, 88)
+
+    // Same CV, preferences and listing: the stored score is reused, no model call
+    await jh.runSearch(user, { generate, autoPrepare: 0 })
+    assert.equal(prompts.length, 1)
+    assert.equal((await jh.listJobs(user)).find(j => j.company === 'Acme').score, 88)
+
+    // Changed preferences: scored again
+    await jh.saveProfile(user, { preferences: { ...(await jh.getProfile(user)).preferences, mustHaves: ['terraform'] } })
+    await jh.runSearch(user, { generate, autoPrepare: 0 })
+    assert.equal(prompts.length, 2)
+  } finally {
+    globalThis.fetch = realFetch
+    sources.clearSourceCache()
+  }
+})
+
 test('store keeps each user\'s jobs separate and strips path characters from usernames', async () => {
   await store.upsertJobs('alice', [{ key: 'a|b|c', source: 't', title: 'A', company: 'B', location: 'C', remote: false, salary: '', url: '', applyUrl: '', ats: 'other', description: '', postedAt: '', fit: 'High', score: 90, reasons: '' }])
   assert.equal((await store.listJobs('alice')).length, 1)
@@ -396,6 +472,17 @@ test('store keeps each user\'s jobs separate and strips path characters from use
   assert.throws(() => store.userDir('../../etc'), /Invalid username/)
   assert.throws(() => store.userDir('..'), /Invalid username/)
   assert.ok(store.userDir('jane.doe').endsWith('jane.doe'))
+})
+
+test('pinning a board clears the "unconfirmed board" mark on jobs already found by name', async () => {
+  const job = { key: 'acme|engineer|remote', source: 'Ashby (acme)', title: 'Engineer', company: 'acme', location: 'Remote', remote: true, salary: '', url: 'https://jobs.ashbyhq.com/acme/1', applyUrl: 'https://jobs.ashbyhq.com/acme/1', ats: 'ashby', description: '', postedAt: '', fit: 'High', score: 90, reasons: '' }
+  await store.upsertJobs('pinner', [{ ...job, trust: 'board', boardUnconfirmed: true }])
+  assert.equal((await store.listJobs('pinner'))[0].boardUnconfirmed, true)
+  // The user pinned "ashby:acme": the same listing now arrives without the mark
+  await store.upsertJobs('pinner', [{ ...job, trust: 'official' }])
+  const [after] = await store.listJobs('pinner')
+  assert.equal(after.boardUnconfirmed, undefined)
+  assert.equal(after.trust, 'official')
 })
 
 test('application links must be public http(s) addresses', () => {

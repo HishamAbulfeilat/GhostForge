@@ -157,7 +157,7 @@ export async function addJobByUrl(username: string, rawUrl: string, generate: Ge
     url, applyUrl: url, ats: detectAts(url), description: p.description, postedAt: p.postedAt, trust: 'link',
   }
   const [score] = await scoreJobs([raw], profile, generate)
-  await upsertJobs(username, [{ ...raw, ...score }])
+  await upsertJobs(username, [{ ...raw, fit: score.fit, score: score.score, reasons: score.reasons }])
   void auditLog({ level: 'info', event: 'job_added_by_url', params: { username, host: new URL(url).hostname } })
   const job = (await listJobs(username)).find(j => j.key === raw.key)
   if (!job) throw new Error('Could not save the job')
