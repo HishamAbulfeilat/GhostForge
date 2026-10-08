@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "extraKnownMarketplaces": {
+    "awesome-claude-code-function-hooks": {
+      "source": { "source": "github", "repo": "ray-amjad/awesome-claude-code-function-hooks" }
+    },
+    "claude-code-mods": {
+      "source": { "source": "github", "repo": "OneWave-AI/claude-code-mods" }
+    },
+    "claude-mods": {
+      "source": { "source": "github", "repo": "Arunjay4213/claude-mods" }
+    }
+  },
+  "enabledPlugins": {
+    "secret-redactor@awesome-claude-code-function-hooks": true,
+    "burn-meter@claude-code-mods": true,
+    "context-lens@claude-mods": true
+  }
+}
