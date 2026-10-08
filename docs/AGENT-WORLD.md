@@ -91,14 +91,16 @@ Features (both apps):
   session drawer.
 - **Needs-you badge** next to Refresh, with a list, and one browser
   notification when a session *newly* needs you (permission asked once).
-- **Chat box** (bottom corner): message a Claude Code session.
+- **Chat box** (bottom corner): message a Claude Code or Copilot CLI session.
   `POST /api/agents/cli-sessions/chat` `{ sessionId, message }` (admin_tools,
-  JSON, same-origin) runs `claude -p --resume <id> --output-format json` in the
-  session's folder with the message on stdin — no shell — and returns the
-  reply. Only sessions in the current snapshot can be messaged; Copilot sessions
-  cannot yet. Off with `GF_CLI_CHAT=0` (or `GF_CLI_SESSIONS=0`). `CLAUDE_BIN`
-  overrides the binary. The page still reads metadata only; the chat box shows
-  just what you typed and Claude's reply.
+  JSON, same-origin) runs `claude -p --resume <id> --output-format json` or
+  `copilot --resume <id> --silent --no-color` in the session's folder with the
+  message on stdin — no shell, never as an argument — and returns the reply.
+  Headless runs cannot answer permission prompts, so tools that need approval
+  are declined. Only sessions in the current snapshot can be messaged. Off with
+  `GF_CLI_CHAT=0` (or `GF_CLI_SESSIONS=0`). `CLAUDE_BIN` / `COPILOT_BIN`
+  override the binaries. The page still reads metadata only; the chat box shows
+  just what you typed and the reply.
 - **Agent Town** (a16z AI Town) and **Agent Office** (harishkotra/agent-office)
   — short rotating bubbles (≤ 6 words: current tool or state, never message
   text) through the upstream bubbles; Office cinematic camera follow on
