@@ -299,6 +299,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // ?scope=system: just the host metrics. JARVIS polls this every 5 s for its
+  // HUD; the full payload spawns git and gh processes on every call.
+  const scope = req.nextUrl?.searchParams.get('scope')
+  if (scope === 'system') {
+    return NextResponse.json({
+      timestamp: new Date().toISOString(),
+      system: { cpu: getCPU(), ram: getRAM(), disk: getDisk(), battery: getBattery() },
+    })
+  }
+
   const envLocal = readEnvLocal()
   const version = getVersion()
   const githubEnabled = Boolean(process.env.GITHUB_TOKEN)

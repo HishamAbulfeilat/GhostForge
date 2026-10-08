@@ -92,3 +92,14 @@ test('dashboard does not fetch its own web UI to decide that it is online', asyn
   assert.ok(!fetched.some(u => u.includes(':3001')), `self-fetch: ${fetched.join(', ')}`)
   assert.equal(body.services.find(s => s.name === 'GhostForge Web UI').status, 'online')
 })
+
+test('scope=system returns only host metrics without spawning git or gh', async () => {
+  execStats.commands.length = 0
+  fetched.length = 0
+  const req = { nextUrl: new URL('http://localhost/api/dashboard?scope=system') }
+  const body = await (await route.GET(req)).json()
+  assert.deepEqual(Object.keys(body).sort(), ['system', 'timestamp'])
+  assert.equal(body.system.ram.pct, 50)
+  assert.equal(execStats.commands.length, 0)
+  assert.equal(fetched.length, 0)
+})

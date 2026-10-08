@@ -776,7 +776,7 @@ function HardwareMetrics({ isMobile }: { isMobile: boolean }) {
           return
         }
 
-        const res = await fetch('/api/dashboard', { cache: 'no-store' })
+        const res = await fetch('/api/dashboard?scope=system', { cache: 'no-store' })
         if (!res.ok) return
         const data = await res.json() as { system?: { cpu?: number; ram?: { pct?: number; usedGB?: number; totalGB?: number }; disk?: { pct?: number; usedGB?: number; totalGB?: number }; battery?: { pct?: number | null; charging?: boolean } } }
         if (!mounted) return
