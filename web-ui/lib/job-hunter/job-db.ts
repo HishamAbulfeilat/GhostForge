@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS operations (
   host TEXT NOT NULL,
   started_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS state (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
 `
 
 /**
@@ -186,6 +187,22 @@ function pidAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true } catch (e) { return (e as NodeJS.ErrnoException).code === 'EPERM' }
 }
 
+/** Who is doing something (an operation, a batch worker): this server process */
+export function currentOwner(): { process: string; pid: number; host: string } {
+  return { process: PROCESS_ID, pid: process.pid, host: hostname() }
+}
+
+/**
+ * True when `owner` certainly no longer runs: on this machine its pid is gone,
+ * or the pid is ours but belongs to an earlier run (containers reuse pids).
+ * A process on another machine is never presumed dead here.
+ */
+export function ownerGone(owner: { process: string; pid: number; host: string }): boolean {
+  if (owner.host !== hostname()) return false
+  if (owner.pid === process.pid) return owner.process !== PROCESS_ID
+  return !pidAlive(owner.pid)
+}
+
 /** Longest a lease is honoured without a liveness check (another machine sharing the folder) */
 const LEASE_MAX_MS = 6 * 60 * 60_000
 
@@ -199,8 +216,7 @@ export function acquireOperation(db: JobDb, jobId: string, owner: string): (() =
   const ok = transaction(db, () => {
     const row = db.prepare('SELECT owner, process, pid, host, started_at FROM operations WHERE job_id = ?').get(jobId)
     if (row) {
-      const sameHost = row.host === host
-      const dead = sameHost && (!pidAlive(Number(row.pid)) || (Number(row.pid) === process.pid && row.process !== PROCESS_ID))
+      const dead = ownerGone({ process: String(row.process), pid: Number(row.pid), host: String(row.host) })
       const expired = Date.now() - Date.parse(String(row.started_at)) > LEASE_MAX_MS
       if (!dead && !expired) return false
     }

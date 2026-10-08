@@ -81,10 +81,23 @@ not inside the Android APK.
 for selected**. This only prepares; it never submits. After preparation, choose
 **Review selected applications**, inspect every CV/letter/answer and any
 non-AI warnings, then **Confirm & apply** to authorize those exact jobs.
-Applications run sequentially with individual submitted/needs-you/failed
-results, and one failure does not hide the others. Keep the page open until
-the batch finishes; it is not a durable background queue. No jobs are selected
-or approved automatically.
+A job whose Submit was already pressed needs its own "I checked: it was not
+sent" tick in that review.
+
+Confirmed applications run **on the server**, one at a time, so you can
+confirm ten applications from your phone and close the app. The queue is
+saved with your data and continues after a server restart. **Apply to multiple
+jobs** shows progress and each result (applied, needs you, failed, not sent)
+from any device, and each running job shows its live activity as usual.
+**Cancel remaining** stops the batch after the application in progress.
+Each job goes through the same checks as a single approval. A job is
+skipped, not sent, if its CV, letter or answers changed after you confirmed,
+if Submit was pressed for it after you confirmed, or if it is already being
+submitted. An application that was in progress when GhostForge stopped is
+handed to you to check, never re-run. Only one batch runs at a time. Preparing
+several jobs still runs in the page, so keep it open while preparing. No
+jobs are selected or approved automatically, autopilot never confirms a
+batch, and hosted mode refuses batches like any other application.
 
 - **Search.** Uses your target roles, locations and work style. LinkedIn
   results are included when LinkedIn is connected.

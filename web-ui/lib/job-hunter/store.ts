@@ -567,3 +567,47 @@ export function updateJob(
 ): Promise<JobRecord | null> {
   return changeJob(username, id, job => { applyPatch(job, patch, logMsg); return true })
 }
+
+// ── small per-user state (e.g. the batch application queue) ──────────────────
+
+function stateName(name: string): string {
+  if (!/^[a-z0-9-]{1,40}$/.test(name)) throw new Error('Invalid state name')
+  return name
+}
+
+/** A named piece of per-user Job Hunter state, stored next to the jobs */
+export async function readJobState<T>(username: string, name: string, fallback: T): Promise<T> {
+  const db = jobDb(username)
+  if (!db) return readJson<T>(join(userDir(username), `state-${stateName(name)}.json`), fallback)
+  const row = db.prepare('SELECT value FROM state WHERE name = ?').get(stateName(name))
+  return row ? JSON.parse(String(row.value)) as T : fallback
+}
+
+/**
+ * Read-modify-write a named state atomically (one write transaction with
+ * jobs.db, so safe across processes). `change` returns the new value, or
+ * undefined to leave it as it is; the stored value is returned either way.
+ */
+export function updateJobState<T>(username: string, name: string, fallback: T, change: (current: T) => T | undefined): Promise<T> {
+  const db = jobDb(username)
+  const key = stateName(name)
+  if (db) {
+    return Promise.resolve(transaction(db, () => {
+      const row = db.prepare('SELECT value FROM state WHERE name = ?').get(key)
+      const current = row ? JSON.parse(String(row.value)) as T : fallback
+      const next = change(current)
+      if (next === undefined) return current
+      db.prepare('INSERT INTO state (name, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+        .run(key, JSON.stringify(next), new Date().toISOString())
+      return next
+    }))
+  }
+  return withLock(userDir(username), async () => {
+    const path = join(userDir(username), `state-${key}.json`)
+    const current = await readJson<T>(path, fallback)
+    const next = change(current)
+    if (next === undefined) return current
+    await writeJson(path, next)
+    return next
+  })
+}
