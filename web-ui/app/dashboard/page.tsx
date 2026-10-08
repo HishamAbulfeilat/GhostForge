@@ -85,6 +85,7 @@ interface DashboardData {
     result?: string
   }>
   warnings: string[]
+  panelsFetchedAt?: string
   error?: string
 }
 
@@ -674,12 +675,13 @@ export default function DashboardPage() {
     }
   }
 
-  const fetchData = useCallback(async () => {
+  // refresh=true skips the server's 60 s git/gh panel cache (refresh button)
+  const fetchData = useCallback(async (refresh = false) => {
     if (isFetching.current) return
     isFetching.current = true
     setLoading(true)
     try {
-      const res = await fetch('/api/dashboard')
+      const res = await fetch(refresh ? '/api/dashboard?refresh=1' : '/api/dashboard')
       if (res.status === 401) { router.push('/login'); return }
       const json = (await res.json()) as DashboardData
       setData(json)
@@ -771,10 +773,11 @@ export default function DashboardPage() {
           <LiveClock />
 
           <button type="button"
-            onClick={() => void fetchData()}
+            onClick={() => void fetchData(true)}
             disabled={loading}
             className="rounded border border-white/[0.06] bg-[#080d18] px-3 py-1 text-[10px] text-gray-400 transition hover:border-[#00A3E0]/40 hover:text-[#00A3E0] disabled:opacity-40"
-            title="Refresh dashboard"
+            title="Refresh dashboard (re-fetch GitHub and git panels)"
+            aria-label="Refresh dashboard"
           >
             <span className={loading ? 'inline-block animate-spin' : ''}>⟳</span>
           </button>
@@ -852,6 +855,7 @@ export default function DashboardPage() {
         {lastRefreshed && (
           <p className="text-end font-mono text-[10px] text-gray-700">
             last refresh: {lastRefreshed}
+            {data?.panelsFetchedAt && ` · GitHub/git panels as of ${new Date(data.panelsFetchedAt).toLocaleTimeString()}`}
           </p>
         )}
 

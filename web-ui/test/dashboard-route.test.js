@@ -39,6 +39,18 @@ const dependencies = {
   child_process: { exec: fakeExec },
 }
 
+function transpile(file) {
+  const compiled = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true },
+  }).outputText
+  const mod = new Module(file, module)
+  mod.filename = file
+  mod.paths = Module._nodeModulePaths(path.dirname(file))
+  mod._compile(compiled, file)
+  return mod.exports
+}
+dependencies['@/lib/swr-cache'] = transpile(path.resolve(__dirname, '../lib/swr-cache.ts'))
+
 const originalLoad = Module._load
 Module._load = function (request, parent, isMain) {
   if (Object.hasOwn(dependencies, request)) return dependencies[request]
@@ -102,4 +114,18 @@ test('scope=system returns only host metrics without spawning git or gh', async 
   assert.equal(body.system.ram.pct, 50)
   assert.equal(execStats.commands.length, 0)
   assert.equal(fetched.length, 0)
+})
+
+test('git/gh panels are cached between loads; ?refresh=1 re-runs them', async () => {
+  execStats.commands.length = 0
+  const first = await (await route.GET({})).json()
+  assert.equal(execStats.commands.length, 0, 'served from the cache filled by earlier tests')
+  assert.equal(first.panelsCached, true)
+  assert.ok(first.panelsFetchedAt)
+
+  const req = { nextUrl: new URL('http://localhost/api/dashboard?refresh=1') }
+  const fresh = await (await route.GET(req)).json()
+  assert.equal(fresh.panelsCached, false)
+  assert.equal(execStats.commands.length, 5, 'git log, git for-each-ref and three gh calls')
+  assert.ok(!execStats.commands.some(c => c.includes('xargs')), 'tag dates come from one for-each-ref call')
 })
