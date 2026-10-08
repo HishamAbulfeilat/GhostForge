@@ -58,6 +58,14 @@ test('CLI characters are marked so worlds can tell them from the runtime team', 
   assert.match(worldModel, /taskTitle/, 'rosters and furnaces need a label even when there is no bubble')
 })
 
+test('CLI characters keep a stable order so slots, sprites and desks do not reshuffle', () => {
+  // The snapshot is sorted by recent activity; the town/office adapters place
+  // characters by index, so worldAgents re-sorts by creation time, then id.
+  assert.match(worldModel, /\.sort\(\(a, b\) => \(\(Date\.parse\(a\.createdAt/)
+  const chat = fs.readFileSync(path.join(sharedDir, 'ChatBox.tsx'), 'utf8')
+  assert.match(chat, /\?\? latest/, 'the chat box defaults to the most recently active session')
+})
+
 test('Agent World exposes CLI sessions as a tab and in every world', () => {
   const switcher = fs.readFileSync(path.join(webRoot, 'app/agent-world/AgentWorldSwitcher.tsx'), 'utf8')
   const page = fs.readFileSync(path.join(webRoot, 'app/agent-world/page.tsx'), 'utf8')

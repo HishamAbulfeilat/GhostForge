@@ -34,8 +34,11 @@ export default function ChatBox({
     if (selectedId && claude.some(a => a.id === selectedId)) setTarget(selectedId)
   }, [selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Falls back to the first session when the chosen one has left the snapshot.
-  const current = claude.find(a => a.id === target) ?? claude[0]
+  // Falls back to the most recently active session when none is chosen or the
+  // chosen one has left the snapshot (agents come oldest first).
+  const latest = claude.reduce<WorldAgent | undefined>((best, a) =>
+    !best || (Date.parse(a.updatedAt ?? '') || 0) > (Date.parse(best.updatedAt ?? '') || 0) ? a : best, undefined)
+  const current = claude.find(a => a.id === target) ?? latest
   const lines = current ? log[current.id] ?? [] : []
 
   useEffect(() => {

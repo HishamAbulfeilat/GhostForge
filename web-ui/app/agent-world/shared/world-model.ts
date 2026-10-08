@@ -45,8 +45,12 @@ export const BREAK_AFTER_MS = 3 * 60_000
 export function worldAgents(world: World | undefined, scope: WorldScope, now = Date.now()): WorldAgent[] {
   if (!world) return []
   const horizon = now - 12 * 60 * 60_000
-  const picked = world.sessions.filter(s =>
-    s.status !== 'idle' || (scope === 'today' && Date.parse(s.updatedAt ?? '') >= horizon))
+  // Oldest first, then by id: the town and office adapters give characters
+  // their slot, sprite and desk by position, and the snapshot is sorted by
+  // recent activity, so its order would reshuffle them on every refresh.
+  const picked = world.sessions
+    .filter(s => s.status !== 'idle' || (scope === 'today' && Date.parse(s.updatedAt ?? '') >= horizon))
+    .sort((a, b) => ((Date.parse(a.createdAt ?? '') || 0) - (Date.parse(b.createdAt ?? '') || 0)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
   // Two sessions in one folder get "#2", "#3" so their name tags differ.
   const seen = new Map<string, number>()
