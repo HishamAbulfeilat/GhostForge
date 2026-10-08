@@ -125,13 +125,15 @@ export async function runAutopilot(
   // Prepare any remaining eligible matches the search didn't get to
   let prepared = search.prepared
   if (generate && remaining > 0) {
-    const ready = (await listJobs(username)).filter(j => j.status === 'ready' && eligible(j)).length
+    const ready = (await listJobs(username)).filter(j => j.status === 'ready' && !j.preparationWarning && eligible(j)).length
     const toPrepare = (await listJobs(username))
       .filter(j => j.status === 'found' && eligible(j))
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.max(0, remaining - ready))
     for (const j of toPrepare) {
-      try { await prepareJob(username, j.id, generate); prepared++ } catch { /* stays found */ }
+      try { await prepareJob(username, j.id, generate); prepared++ } catch (e) {
+        void auditLog({ level: 'warn', event: 'job_prepare_error', params: { username, jobId: j.id, error: String(e).slice(0, 200) } })
+      }
     }
   }
 
@@ -140,7 +142,7 @@ export async function runAutopilot(
   if (remaining > 0) {
     // "ready" includes jobs whose questions the user has since answered.
     const queue = (await listJobs(username))
-      .filter(j => j.status === 'ready' && eligible(j))
+      .filter(j => j.status === 'ready' && !j.preparationWarning && eligible(j))
       .sort((a, b) => b.score - a.score)
     queueLen = queue.length
     let budget = remaining
@@ -165,7 +167,10 @@ export async function runAutopilot(
   }
 
   // Explain the common "autopilot ran but applied to nothing" case.
-  const hint = remaining > 0 && queueLen === 0 && submitted === 0
+  const reviewDrafts = (await listJobs(username)).filter(j => j.status === 'ready' && j.preparationWarning).length
+  const hint = reviewDrafts > 0
+    ? ` ${reviewDrafts} basic draft(s) need your approval because AI writing was unavailable.`
+    : remaining > 0 && queueLen === 0 && submitted === 0
     ? ap.mode === 'safe'
       ? ' No matches on Lever/Greenhouse/Ashby — switch Autopilot to "Any site" or add company boards under Preferences → Companies.'
       : ' No new High-fit matches at your minimum score this time.'

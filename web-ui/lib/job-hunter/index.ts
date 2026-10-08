@@ -18,11 +18,13 @@ import { analyzeCv, extractCvText } from './cv'
 import { dealbreaker, matchesLocation, relevantTo, scoreJobs } from './match'
 import { linkedInSearchUrl, searchSources, type SourceReport } from './sources'
 import {
-  getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs,
+  getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs, withJobOperation,
   type JobProfile, type JobRecord, type ModelChoice,
 } from './store'
 import { applyToJob } from './apply'
-import { buildAnswers, missingApplicantFields, normalizeLabel, tailorResume, writeCoverLetter } from './writer'
+import { updateApplicationActivity } from './live'
+import { notifyJob } from './notifications'
+import { buildAnswers, missingApplicantFields, normalizeLabel, tailorResume, templateCoverLetter, writeCoverLetter } from './writer'
 
 export * from './store'
 export { linkedInSearchUrl } from './sources'
@@ -126,7 +128,9 @@ export async function runSearch(
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
     for (const job of queue) {
-      try { await prepareJob(username, job.id, generate); prepared++ } catch { /* stays in "found" */ }
+      try { await prepareJob(username, job.id, generate); prepared++ } catch (e) {
+        void auditLog({ level: 'warn', event: 'job_prepare_error', params: { username, jobId: job.id, error: String(e).slice(0, 200) } })
+      }
     }
   }
 
@@ -146,7 +150,11 @@ export async function runSearch(
 
 // ── prepare / approve ────────────────────────────────────────────────────────
 
-export async function prepareJob(username: string, id: string, generate?: Generate): Promise<JobRecord> {
+export function prepareJob(username: string, id: string, generate?: Generate): Promise<JobRecord> {
+  return withJobOperation(username, id, () => prepareJobMaterials(username, id, generate))
+}
+
+async function prepareJobMaterials(username: string, id: string, generate?: Generate): Promise<JobRecord> {
   generate ??= await userGenerator(username)
   const job = await getJob(username, id)
   if (!job) throw new Error('Job not found')
@@ -156,30 +164,37 @@ export async function prepareJob(username: string, id: string, generate?: Genera
     throw new Error(`This job is "${job.status}" — it can't be prepared`)
   }
   const profile = await getProfile(username)
-  if (!profile.cv) throw new Error('Upload your CV first')
+  if (!profile.cv?.text.trim()) throw new Error('Upload a CV with readable text first')
 
   await updateJob(username, id, {}, 'Preparing tailored CV and cover letter')
   let tailoredResume = ''
   let coverLetter = ''
+  let preparationWarning = ''
   try {
     tailoredResume = await tailorResume(profile, job, generate)
     coverLetter = await writeCoverLetter(profile, job, tailoredResume, generate)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    // The free anonymous gateway (Pollinations) rejects long CV/job payloads —
-    // say so plainly instead of the generic chain error so the fix is obvious.
-    throw new Error(
-      'Could not prepare this job: the free anonymous AI gateway rejected the long CV/job text. ' +
-      'Add a free key (Gemini, Groq, Cerebras or OpenRouter — all have free tiers) in Settings → AI Models, ' +
-      `or install/run Ollama locally. Details: ${msg.slice(0, 160)}`,
-    )
+    tailoredResume = profile.cv.text
+    coverLetter = templateCoverLetter(profile, job)
+    preparationWarning = 'AI writing was unavailable. This draft uses your original CV and a basic cover letter, not AI-tailored materials. Review it before approving; autopilot will not submit it. Retry AI tailoring when the anonymous service is available, or use a local Ollama/llama.cpp model (no account or key required). Your configured models remain available.'
+    await updateJob(username, id, {}, `${preparationWarning} AI error: ${msg.slice(0, 200)}`)
+    void auditLog({ level: 'warn', event: 'job_prepare_fallback', params: { username, jobId: id, error: msg.slice(0, 200) } })
   }
   const answers = buildAnswers(profile)
-  const updated = await updateJob(username, id, { tailoredResume, coverLetter, answers, status: 'ready' }, 'Ready for your approval')
+  const updated = await updateJob(username, id, { tailoredResume, coverLetter, answers, preparationWarning, status: 'ready' }, 'Ready for your approval')
   return updated!
 }
 
-export async function approveJob(
+export function approveJob(
+  username: string,
+  id: string,
+  opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean } = {},
+): Promise<{ job: JobRecord; message: string; missing: string[] }> {
+  return withJobOperation(username, id, () => applyApprovedJob(username, id, opts))
+}
+
+async function applyApprovedJob(
   username: string,
   id: string,
   opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean } = {},
@@ -189,13 +204,15 @@ export async function approveJob(
   if (job.status !== 'ready' && job.status !== 'needs_user' && job.status !== 'failed') {
     throw new Error(`This job is "${job.status}" — prepare it before approving`)
   }
+  if (!job.tailoredResume?.trim() || !job.coverLetter?.trim()) throw new Error('Prepare the application materials before approving')
+  if (opts.by === 'autopilot' && job.preparationWarning) throw new Error('This draft needs your review and approval because AI writing was unavailable')
   const profile: JobProfile = await getProfile(username)
   const missing = missingApplicantFields(profile)
   if (missing.length) throw new Error(`Fill in your ${missing.join(', ')} before applying`)
 
   const by = opts.by || 'user'
   const ap = profile.autopilot
-  await updateJob(username, id, { status: 'submitting' }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
+  await updateJob(username, id, { status: 'submitting', activity: updateApplicationActivity(username, id, 'Opening the application browser') }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
   void auditLog({ level: 'info', event: 'job_application_approved', params: { username, jobId: id, company: job.company, title: job.title, ats: job.ats, by } })
 
   // Laptop control on: a visible browser on this computer and screenshot-based
@@ -215,23 +232,30 @@ export async function approveJob(
       allowSubmit: opts.allowSubmit ?? by === 'user',
       linkedin: by === 'user' || (ap.linkedinEasyApply && Boolean(profile.linkedin?.connectedAt)),
       generate, vision,
+      log: message => {
+        void updateJob(username, id, { activity: updateApplicationActivity(username, id, message) }, message).catch(error => {
+          void auditLog({ level: 'warn', event: 'job_application_log_error', params: { username, jobId: id, error: String(error).slice(0, 200) } })
+        })
+      },
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    const failed = await updateJob(username, id, { status: 'failed' }, `Application could not run: ${msg.slice(0, 200)}`)
+    const failed = await updateJob(username, id, { status: 'failed', activity: updateApplicationActivity(username, id, msg, 'failed') }, `Application could not run: ${msg.slice(0, 200)}`)
     void auditLog({ level: 'warn', event: 'job_application_error', params: { username, jobId: id, error: msg.slice(0, 200), by } })
+    void notifyJob(username, id, { title: `Application failed: ${job.title}`, body: 'Application automation stopped. Open Job Hunter for the error and retry instructions.' })
     return { job: failed!, message: msg, missing: [] }
   }
   const updated = await updateJob(username, id, {
     status: result.status,
+    activity: updateApplicationActivity(username, id, result.message, result.status),
     questions: result.questions?.length ? result.questions : undefined,
     aiAnswers: result.aiAnswers?.length ? result.aiAnswers : job.aiAnswers,
   }, result.message)
   void auditLog({ level: 'info', event: 'job_application_result', params: { username, jobId: id, status: result.status, filled: result.filled.length, missing: result.missing.length, by } })
-  if (by === 'autopilot' && result.status !== 'failed') {
-    void notify(username, result.status === 'submitted'
+  if (result.status !== 'submitted' || by === 'autopilot') {
+    void notifyJob(username, id, result.status === 'submitted'
       ? { title: `Applied: ${job.title}`, body: `${job.company} — submitted by autopilot.` }
-      : { title: `Needs you: ${job.title}`, body: result.questions?.length ? `${result.questions.length} question(s) to answer once; autopilot continues on its next run.` : result.message.slice(0, 140) })
+      : { title: `Needs you: ${job.title}`, body: result.questions?.length ? `${result.questions.length} question(s) need your answers. Open Job Hunter to continue.` : result.message.slice(0, 140) })
   }
   return { job: updated!, message: result.message, missing: result.missing }
 }
@@ -242,20 +266,16 @@ async function visionModel(imageBase64: string, prompt: string): Promise<string>
   return (await generateVision({ imageBase64, prompt, maxTokens: 300 })).text
 }
 
-/** Push notification to the user's phone, when push is configured (never throws). */
-async function notify(username: string, payload: { title: string; body: string }) {
-  try {
-    const { sendToUser } = await import('../push')
-    await sendToUser(username, { ...payload, tag: 'job-hunter', url: '/jobs' })
-  } catch { /* push not configured */ }
-}
-
 /**
  * The user answers the questions an application stopped on. Answers are saved
  * to the profile (reused on every later form) and the job goes back to the
  * queue so it is retried.
  */
-export async function answerQuestions(username: string, id: string, answers: Record<string, string>): Promise<JobRecord> {
+export function answerQuestions(username: string, id: string, answers: Record<string, string>): Promise<JobRecord> {
+  return withJobOperation(username, id, () => saveQuestionAnswers(username, id, answers))
+}
+
+async function saveQuestionAnswers(username: string, id: string, answers: Record<string, string>): Promise<JobRecord> {
   const job = await getJob(username, id)
   if (!job) throw new Error('Job not found')
   const clean: Record<string, string> = {}
@@ -267,10 +287,10 @@ export async function answerQuestions(username: string, id: string, answers: Rec
   if (!Object.keys(clean).length) throw new Error('Answer at least one question')
   await saveProfile(username, { customAnswers: clean })
   const remaining = (job.questions || []).filter(q => !clean[normalizeLabel(q.label)])
-  const status = job.status === 'submitted' || job.status === 'dismissed' ? job.status : 'ready'
+  const status = job.status === 'submitted' || job.status === 'dismissed' ? job.status : remaining.length ? 'needs_user' : 'ready'
   return (await updateJob(username, id, { questions: remaining.length ? remaining : undefined, status }, `You answered ${Object.keys(clean).length} question(s); saved for future applications`))!
 }
 
-export async function dismissJob(username: string, id: string): Promise<JobRecord | null> {
-  return updateJob(username, id, { status: 'dismissed' }, 'Dismissed')
+export function dismissJob(username: string, id: string): Promise<JobRecord | null> {
+  return withJobOperation(username, id, () => updateJob(username, id, { status: 'dismissed' }, 'Dismissed'))
 }

@@ -30,6 +30,8 @@ export interface PendingQuestion { label: string; type: string; options: string[
 export interface AgentContext {
   profile: JobProfile
   job: JobRecord
+  /** Prepared CV file; falls back to the original upload when absent. */
+  resumePath?: string
   /** Cover letter as a file, for upload fields ('' when there is none) */
   coverPath: string
   generate: Generate | null
@@ -38,6 +40,7 @@ export interface AgentContext {
   /** Screenshot model for the computer-use fallback (only when the user allowed it) */
   vision?: Vision | null
   log?: (msg: string) => void
+  onPage?: (page: Page) => void
   maxSteps?: number
 }
 
@@ -291,7 +294,9 @@ Use "stop" for captchas, sign-in or account-creation pages, anything needing a p
 async function blocked(page: Page): Promise<string | null> {
   if (await page.locator(CAPTCHA).count().catch(() => 0)) return 'captcha'
   const url = page.url()
-  if (/\/(login|signin|sign-in|authwall|checkpoint|uas\/login)\b/i.test(url)) return 'login'
+  if (/\/(login|signin|sign-in|signup|sign-up|register|verify-email|verification|two-factor|mfa|authwall|checkpoint|uas\/login)\b/i.test(url)) return 'login'
+  if (await page.locator('input[autocomplete="one-time-code"]:visible').count()) return 'login'
+  if (await page.getByLabel(/verification code|one.?time (code|password)|authentication code|security code/i).filter({ visible: true }).count()) return 'login'
   const password = await page.locator('input[type="password"]:visible').count().catch(() => 0)
   if (password) return 'login'
   return null
@@ -332,18 +337,36 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
 
   // A site may open the form in a new tab; follow it.
   let current = page
-  page.context().on('page', p => { current = p })
+  const followed = new Set<Page>([page])
+  const followPage = (p: Page) => {
+    current = p
+    ctx.onPage?.(p)
+    if (!followed.has(p)) {
+      followed.add(p)
+      p.on('popup', followPage)
+    }
+  }
+  page.on('popup', followPage)
 
+  try {
   for (let step = 0; step < maxSteps; step++) {
     const pg = current
+    ctx.onPage?.(pg)
     await pg.waitForLoadState('domcontentloaded').catch(() => {})
     await pg.waitForTimeout(800)
     if (beforeSubmit !== null && isNewConfirmation(beforeSubmit, await bodyText(pg))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
     const wall = await blocked(pg)
-    if (wall === 'captcha') return outcome('needs_user', 'This form has a captcha. Solve it and press Submit; everything else is filled in.')
-    if (wall === 'login') return outcome('needs_user', `${new URL(pg.url()).hostname} wants you to sign in or create an account first. Sign in once in the GhostForge browser and the next attempt continues from there.`)
+    if (wall === 'captcha') return outcome('needs_user', 'This form has a captcha. Solve it in the application browser, then retry. Filling stopped before the captcha; the application has not been submitted.')
+    if (wall === 'login') return outcome('needs_user', `${new URL(pg.url()).hostname || 'This website'} requires sign-in, account creation or verification. Use account assistance for supported forms, or complete sign-in/registration/MFA yourself in the GhostForge browser, then use Open & fill again. The application has not been submitted.`)
 
     const fields = await scan(pg)
+    if (fields.some(f => f.kind === 'checkbox' && f.empty && /privacy|consent|agree|acknowledg|terms|certify|confirm (that )?(the )?information/i.test(f.label))) {
+      return outcome('needs_user', 'Terms, privacy consent or a certification require your review. Check the application browser and accept only if you agree, then retry. GhostForge did not accept terms or submit the application.')
+    }
+    if (/by (clicking|submitting|continuing).{0,120}(agree|accept|consent)|by (clicking|submitting|continuing).{0,120}terms/i.test(await bodyText(pg))) {
+      return outcome('needs_user', 'Submitting this form includes terms or privacy consent. Review and finish it yourself in the application browser. GhostForge did not accept terms or submit the application.')
+    }
+    ctx.log?.(`Filling application step ${step + 1}: ${fields.length} fields detected`)
     const btns = await buttons(pg)
 
     // Job page, not the form yet (at most a search or newsletter box): press the
@@ -366,19 +389,14 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
       if (f.kind === 'file') {
         if (!f.empty) { if (/resume|cv/i.test(f.label)) resumeUploaded = true; continue }
         const wantsCover = /cover/i.test(f.label)
-        const path = wantsCover ? ctx.coverPath : (/resume|cv|curriculum/i.test(f.label) || (!resumeUploaded && (f.required || fields.filter(x => x.kind === 'file').length === 1))) ? ctx.profile.cv?.filePath : ''
+        const path = wantsCover ? ctx.coverPath : (/resume|cv|curriculum/i.test(f.label) || (!resumeUploaded && (f.required || fields.filter(x => x.kind === 'file').length === 1))) ? (ctx.resumePath || ctx.profile.cv?.filePath) : ''
         if (path) {
           try { await loc(pg, f).setInputFiles(path); filled.push(wantsCover ? 'Cover letter upload' : 'Resume upload'); if (!wantsCover) resumeUploaded = true } catch { /* custom uploader */ }
         }
         continue
       }
       if (!f.empty && !f.invalid) continue
-      if (f.kind === 'checkbox') {
-        if (/privacy|consent|agree|acknowledg|terms|certify|confirm (that )?(the )?information/i.test(f.label)) {
-          if (await setField(pg, f, 'yes')) filled.push(f.label)
-        }
-        continue
-      }
+      if (f.kind === 'checkbox') continue
       if (f.kind === 'textarea' && ctx.job.coverLetter && /cover letter|additional information|anything else|message to (the )?(hiring|recruit)/i.test(f.label)) {
         if (await setField(pg, f, ctx.job.coverLetter)) { filled.push(f.label || 'Cover letter'); continue }
       }
@@ -389,7 +407,9 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
 
     // 2. Ask the AI for the rest (grounded in the CV); never for sensitive questions.
     const answerable = unknown.filter(f => !SENSITIVE.test(f.label) || /gender|race|ethnic|veteran|disabilit|sexual/i.test(f.label))
+    if (answerable.length && ctx.generate) ctx.log?.(`Waiting for AI to suggest CV-grounded answers for ${answerable.length} fields`)
     const ai = await aiAnswers(answerable, ctx)
+    ctx.log?.(`Filling application step ${step + 1}: checking required answers and uploads`)
     for (const f of unknown) {
       const v = ai.get(f.id)
       if (v && await setField(pg, f, v)) { filled.push(f.label); aiUsed.push({ label: f.label, value: v }) }
@@ -451,4 +471,7 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     return outcome('needs_user', 'The form uses a layout GhostForge could not finish on its own. It is pre-filled; finish it in the browser.')
   }
   return outcome('needs_user', 'The application has more steps than expected. It is pre-filled; finish it in the browser.')
+  } finally {
+    for (const tracked of followed) tracked.off('popup', followPage)
+  }
 }

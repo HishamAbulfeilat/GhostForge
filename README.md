@@ -22,7 +22,7 @@ GhostForge JARVIS is a desktop + web app that turns GitHub Copilot into a full A
 
 | Platform | Install |
 |----------|---------|
-| macOS (Apple Silicon) | [Download DMG](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
+| macOS (Apple Silicon / Intel) | [Download DMG](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
 | Windows | [Download Installer](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
 | Linux | [Download AppImage](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) |
 | Android | [Download APK](https://github.com/HishamAbulfeilat/GhostForge/releases/latest) (`GhostForge-JARVIS-<version>-android.apk`) |
@@ -39,10 +39,34 @@ GhostForge JARVIS is a desktop + web app that turns GitHub Copilot into a full A
 Every push to `main` builds the APK too: open the **Build Apps** run under
 *Actions* and download the `ghostforge-android` artifact. Releases are published
 when a `v*` tag is pushed, or by running **Build Apps** manually with
-`release_tag` set (e.g. `v5.3.1`). Without the `ANDROID_KEYSTORE_*` secrets the
+`release_tag` set (e.g. `v5.3.2`). Without the `ANDROID_KEYSTORE_*` secrets the
 APK is signed with the Android debug key — fine for sideloading, not for the
 Play Store (see [docs/SIGNING.md](docs/SIGNING.md)). To build locally:
 `cd electron-app && npx cap sync android && bash scripts/build-android.sh debug`.
+
+### Full studio on every device
+
+The desktop and Android installers are **clients**, not bundled Next.js
+servers. Run the GhostForge web server on a Mac, Windows or Linux computer
+(`cd web-ui && npm ci && npm run dev`), then connect to it. Desktop tries the
+configured or local server and shows a bundled connection screen if unavailable,
+so a fresh install no longer opens a blank window. The connection screen saves
+your server address and links directly to Job Hunter, agents, marketplace and
+settings. Only connect to a server you own and trust.
+
+On Android, tap **Studio** in the JARVIS header, enter the server's HTTPS
+address (or a LAN address for local testing), then choose **Job Hunter** or
+**Open studio**. Remote links open in the device browser, preserving the
+server's login/pairing flow and giving access to the same responsive web app.
+`localhost` on a phone means the phone, not your laptop. Use HTTPS for remote
+access and follow [device pairing](docs/REMOTE-ACCESS.md).
+
+Application filling, local AI and computer-control operations run on the
+server machine. Captchas, browser sign-ins and hardware permissions still need
+human action; mobile devices do not run desktop automation locally. Unsigned
+desktop installers can trigger OS trust warnings. A debug-signed Android APK
+is for sideloading; a stable signing keystore is required for seamless updates
+and Play Store publishing.
 
 ## Features
 

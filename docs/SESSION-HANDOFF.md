@@ -5,7 +5,72 @@ what is going on.** The top half is written by humans/lead agents; the
 `LIVE STATUS` block at the bottom is rewritten automatically by the boss every
 couple of minutes while the agent team runs.
 
-## ▶ START HERE — state at 2026-10-06 (Asia/Amman) — main is at e1840a87, PRs #13–#19 merged, agent team stopped, Job Hunter free-model default landed (uncommitted)
+## ▶ START HERE — state at 2026-10-07 (Asia/Amman) — main includes PRs #13–#20, agent team stopped, Job Hunter preparation/approval repaired
+
+**Current release work:** v5.3.2 adds a shared desktop/Android Studio
+connection screen, cross-platform startup/script fixes and stronger release
+validation. Full studio features require a running authenticated server;
+Android opens its browser and application automation runs on the server.
+Job Hunter refreshes status/progress, rejects overlapping operations on the
+same job, keeps partial answers in Needs you, and sends prompt-based CV/job
+requests correctly to Ollama. macOS test failures noted below are now fixed.
+Only `main` remains; do not recreate deleted agent branches without approval.
+See `CHANGELOG.md` and the GitHub release/build run for publication status.
+Local verification: root smoke passed, web 515 passed/one Windows-only skip,
+desktop 34 passed, MCP eight passed; React Doctor remains 81. Production
+high/critical audit gates passed (moderate mammoth-chain advisories remain).
+The first v5.3.2 build passed web production, macOS, Linux and Android; Windows
+revealed a lazy Electron-download assumption in its smoke test, now corrected
+by resolving the executable through Electron's own package API.
+
+**Follow-up Job Hunter fixes (on main, after v5.3.2):** job review now
+shows description, salary, dates, location, source, match reasons and posting/
+application links; source descriptions no longer truncate at 8,000 characters,
+and Lever's requirements lists are retained. Pollinations was incorrectly using
+the key-required `gen` gateway twice; it now uses the verified anonymous
+`text.pollinations.ai/openai` endpoint with private POSTs and 15-second pacing.
+Configured/local models remain available; local models precede anonymous
+fallback. Synthetic live CV and cover-letter writing both succeeded without
+an account/key; no real CV was sent and no application was submitted. Anonymous
+availability/length limits remain, so honest manually-approved fallback drafts
+are still necessary. These follow-up edits are not in the published v5.3.2
+installers. Full web regression: 524 passed, one Windows-only skip; typecheck
+and changed-file lint passed, React Doctor 81 with no changed findings.
+
+**Browser/batch follow-up:** application shutdown is now awaited inside the
+profile lock; retained windows/locks survive Next development module reloads.
+Profile-in-use errors no longer masquerade as missing Chrome/Edge. Lever/Ashby
+paths preserve query/hash, missing apply links fall back to the posting, and
+navigation failures are explicit. Real Chromium fixtures verified target
+navigation and retained-window reuse without real applications. The jobs page
+adds selected-job preparation and explicit batch review/confirmation followed
+by sequential single-job requests with per-job results. Keep the page open;
+this is not a durable queue. AI writing adds a third, smaller prompt attempt;
+unavailable models still generate labelled drafts, not false AI success.
+
+**Application monitor:** jobs now persist structured opening/filling/AI wait/
+submitting/login/captcha/question/blocker/result states. Review includes an
+opt-in, read-only three-second screenshot preview of the actual Playwright
+page, following popups. Preview is authenticated, owner-scoped, masked on input/
+editable fields and no-store; it is not saved to disk or interactive remote
+control. Sessions are process-local. Request-only account assistance now
+supports explicitly approved, origin-bound login forms and opening/filling
+same-origin signup forms. Passwords are not persisted or sent to AI; HTTPS/
+localhost transport, owner checks, rate limits and credential-safe errors are
+enforced. Signup submission/terms/MFA/captcha and LinkedIn remain manual.
+Cookies persist for later attempts; use Open & fill again after authenticating.
+Automatic registration is now an explicit per-origin option: open/fill/submit
+once on supported standard forms, pause for terms (including implicit consent),
+captcha/MFA/verification, unknown fields and unsupported flows. LinkedIn and
+Workday signup remain manual. Durable blockers show in-app and trigger phone
+push when configured; unavailable/failed delivery is reported, not hidden.
+The application agent no longer accepts legal/consent checkboxes. Confirmed
+account creation never marks a job Applied. No password vault was added.
+Verification: root smoke passed; web 551 passed with one Windows-only skip;
+isolated production build, typecheck and changed-file lint passed. React Doctor
+changed scope 81, with no introduced findings; same-tool full-snapshot
+baseline/current comparison showed no score regression. Browser fixtures used fictional credentials;
+no real website account was created and no real application was submitted.
 
 **Location:** the project is being moved to `C:\Users\User\Desktop\GhostForge\`
 (main repo `GhostForge\GhostForge-public`, worker worktrees `GhostForge\gf-*`,
@@ -124,12 +189,24 @@ Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). 
 
 ## Branches
 
-- `main` — protected; changes arrive only via the agent-team PR.
-- `feat/agent-boss` — this checkout; agent framework + everything integrated so far.
-- `agent/integration` — the boss's merge branch (worktree `../gf-integration`), PR → `main`.
-- `agent/<provider>/…` — per-worker branches, reset onto integration before each task.
+- `main` — the only current local and remote branch, per the user's request.
+- `agent/integration` and `fix/job-hunter-free-models` were deleted on
+  2026-10-07 after verifying both were ancestors of `main` (no unmerged commits).
+- The team is stopped. Restarting its workflow can recreate integration and
+  worker branches; the historical workflow instructions above describe that setup.
 
 ## History
+
+- **2026-10-07** — Verified `main` contains both remaining branch tips, deleted
+  the merged remote branches at the user's request, and repaired Job Hunter:
+  compact AI-writing retry, clearly labelled original-CV/basic-letter drafts
+  when AI is unavailable (manual approval only), automatic review opening,
+  accurate application-result notices, and prepared-CV DOCX uploads. Added
+  outage, approval-queue, UI, and real-browser upload/submission regressions.
+  The full web suite has three pre-existing macOS failures (temporary-path
+  canonicalization in agent/bridge tests and Bash 3.2 in the project wizard);
+  Job Hunter regressions, root smoke, typecheck and changed-file lint pass.
+  React Doctor changed-scope score is 81 with no new findings. — copilot
 
 - **2026-09-30** — PRs #6–#10 merged (marketplace source of truth, Mark-LV +
   OpenJarvis bridge, Job Hunter autopilot, workflows engine). Built the

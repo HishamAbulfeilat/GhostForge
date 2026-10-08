@@ -68,7 +68,7 @@ function jobKey(company: string, title: string, location: string): string {
 function make(job: Omit<RawJob, 'key' | 'ats' | 'description'> & { description: string }): RawJob {
   return {
     ...job,
-    description: stripHtml(job.description).slice(0, 8000),
+    description: stripHtml(job.description),
     ats: detectAts(job.applyUrl || job.url),
     key: jobKey(job.company, job.title, job.location),
   }
@@ -80,7 +80,7 @@ function make(job: Omit<RawJob, 'key' | 'ats' | 'description'> & { description: 
 interface MuseJob { name: string; contents?: string; publication_date?: string; locations?: Array<{ name: string }>; categories?: Array<{ name: string }>; refs?: { landing_page?: string }; company?: { name?: string } }
 interface RemoteOkJob { position?: string; company?: string; location?: string; tags?: string[]; salary_min?: number; salary_max?: number; url?: string; apply_url?: string; description?: string; date?: string }
 interface GreenhouseJob { id: number; title: string; company_name?: string; location?: { name?: string }; absolute_url: string; content?: string; first_published?: string; updated_at?: string }
-interface LeverPosting { text: string; categories?: { location?: string }; workplaceType?: string; hostedUrl: string; applyUrl?: string; descriptionPlain?: string; additionalPlain?: string; createdAt?: number }
+interface LeverPosting { text: string; categories?: { location?: string }; workplaceType?: string; hostedUrl: string; applyUrl?: string; descriptionPlain?: string; additionalPlain?: string; lists?: Array<{ text?: string; content?: string }>; createdAt?: number }
 interface JSearchJob { job_title: string; employer_name: string; job_publisher?: string; job_city?: string; job_state?: string; job_country?: string; job_is_remote?: boolean; job_min_salary?: number; job_max_salary?: number; job_salary_currency?: string; job_apply_link?: string; job_google_link?: string; job_description?: string; job_posted_at_datetime_utc?: string }
 
 async function remotive(term: string): Promise<RawJob[]> {
@@ -148,7 +148,8 @@ async function leverBoard(company: string): Promise<RawJob[]> {
   return data.map(j => make({
     source: `Lever (${company})`, title: j.text, company, location: j.categories?.location || '',
     remote: j.workplaceType === 'remote', salary: '', url: j.hostedUrl, applyUrl: j.applyUrl || `${j.hostedUrl}/apply`,
-    description: `${j.descriptionPlain || ''}\n${j.additionalPlain || ''}`, postedAt: j.createdAt ? new Date(j.createdAt).toISOString() : '',
+    description: [j.descriptionPlain, ...(j.lists || []).map(list => `${list.text || ''}\n${stripHtml(list.content || '')}`), j.additionalPlain].filter(Boolean).join('\n\n'),
+    postedAt: j.createdAt ? new Date(j.createdAt).toISOString() : '',
   }))
 }
 

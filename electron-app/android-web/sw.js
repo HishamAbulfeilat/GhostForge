@@ -1,7 +1,9 @@
-const CACHE_NAME = 'jarvis-mark-l-v1';
+const CACHE_NAME = 'jarvis-studio-v2';
 const PRECACHE = [
   '/',
   '/index.html',
+  '/studio.html',
+  '/studio.js',
 ];
 
 self.addEventListener('install', (event) => {
@@ -25,7 +27,8 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin || !PRECACHE.includes(url.pathname) || url.search) return;
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
@@ -37,7 +40,7 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => cached);
+        .catch(() => cached || Response.error());
 
       return cached || fetched;
     })

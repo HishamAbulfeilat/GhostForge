@@ -87,6 +87,30 @@ async function run(ctx) {
   }
 }
 
+test('agent uploads the prepared CV and cover letter, and submits only after approval', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const { prepareApplicationFiles } = require('../lib/job-hunter/apply.ts')
+  const ctx = await context('agent-upload')
+  ctx.job = { ...ctx.job, tailoredResume: '# Jane Example\nReal experience', coverLetter: 'Dear Hiring Manager,\nRegards, Jane Example' }
+  const files = await prepareApplicationFiles(ctx.job, ctx.profile, 'agent-upload')
+  const page = await browser.newPage()
+  try {
+    await page.setContent(`<!doctype html><html><body><form>
+      <label for="name">Full name *</label><input id="name" required>
+      <label for="cv">Resume *</label><input id="cv" type="file" required accept=".docx">
+      <label for="cover">Cover letter *</label><input id="cover" type="file" required>
+      <button type="button" onclick="document.body.innerHTML='<h1>Thank you for applying!</h1>'">Submit application</button>
+    </form></body></html>`)
+    const held = await runFormAgent(page, { ...ctx, ...files, generate: null, allowSubmit: false })
+    assert.equal(held.status, 'needs_user')
+    assert.equal(await page.locator('#name').inputValue(), 'Jane Example')
+    assert.equal(await page.locator('#cv').evaluate(el => el.files[0].name), 'tailored-cv.docx')
+    assert.equal(await page.locator('#cover').evaluate(el => el.files[0].name), 'cover-letter.txt')
+    const sent = await runFormAgent(page, { ...ctx, ...files, generate: null, allowSubmit: true })
+    assert.equal(sent.status, 'submitted')
+  } finally { await page.close() }
+})
+
 test('agent fills the first step, moves on, and hands unknown questions to the user', async t => {
   if (!browser) return t.skip('no Chromium available')
   const ctx = await context('agent-q')
@@ -142,6 +166,47 @@ test('agent never answers sensitive questions from the AI and stops at captchas'
   } finally {
     await page.close()
   }
+})
+
+test('agent never sends login or verification fields to AI and never submits an MFA form', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const ctx = await context('agent-auth')
+  let aiCalls = 0
+  ctx.generate = async () => { aiCalls++; return '[]' }
+  const page = await browser.newPage()
+  try {
+    for (const input of [
+      '<input type="password" aria-label="Password">',
+      '<input autocomplete="one-time-code" aria-label="Code">',
+      '<input aria-label="Verification code">',
+    ]) {
+      await page.setContent(`<form onsubmit="event.preventDefault();window.authSubmitted=true">${input}<button>Submit</button></form>`)
+      const result = await runFormAgent(page, { ...ctx, allowSubmit: true })
+      assert.equal(result.status, 'needs_user')
+      assert.match(result.message, /verification/)
+      assert.equal(aiCalls, 0)
+      assert.equal(await page.evaluate(() => window.authSubmitted || false), false)
+    }
+  } finally { await page.close() }
+})
+
+test('application agent pauses for terms instead of checking consent or submitting', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const ctx = await context('agent-terms')
+  const page = await browser.newPage()
+  try {
+    for (const consent of [
+      '<label><input type="checkbox" required id="terms">I agree to terms</label>',
+      '<p>By submitting you agree to our terms of service</p>',
+    ]) {
+      await page.setContent(`<form onsubmit="event.preventDefault();window.termsSubmitted=true"><input aria-label="Email" required>${consent}<button>Submit application</button></form>`)
+      const result = await runFormAgent(page, { ...ctx, allowSubmit: true })
+      assert.equal(result.status, 'needs_user')
+      assert.match(result.message, /terms/i)
+      assert.equal(await page.evaluate(() => window.termsSubmitted || false), false)
+      if (await page.locator('#terms').count()) assert.equal(await page.locator('#terms').isChecked(), false)
+    }
+  } finally { await page.close() }
 })
 
 test('parsePosting reads JobPosting JSON-LD, then falls back to meta tags', () => {
