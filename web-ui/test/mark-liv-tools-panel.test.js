@@ -10,7 +10,8 @@ const read = (...p) => fs.readFileSync(path.join(webUi, ...p), 'utf8')
 
 const panel = read('components', 'MarkLivToolsPanel.tsx')
 const route = read('app', 'api', 'mark-liv-tools', 'route.ts')
-const page = read('app', 'jarvis', 'page.tsx')
+// The JARVIS page mounts the panel from its Mark-L overlay component.
+const page = read('app', 'jarvis', '_components', 'MarkLOverlay.tsx')
 
 // Transpile the pure validator (and the risk table it imports) so it can be exercised directly.
 const out = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-markliv-tools-'))
