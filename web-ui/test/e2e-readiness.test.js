@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { readFileSync, existsSync } = require('node:fs')
+const { readFileSync, existsSync, readdirSync } = require('node:fs')
 const { join } = require('node:path')
 
 const WEB_UI = join(__dirname, '..')
@@ -10,6 +10,8 @@ const flows = [
   {
     name: 'JARVIS voice/chat',
     page: 'app/jarvis/page.tsx',
+    // The page is a thin shell; the client pieces live next to it.
+    components: 'app/jarvis/_components',
     endpoints: ['app/api/jarvis/route.ts', 'app/api/jarvis/models/route.ts', 'app/api/openjarvis/route.ts'],
     markers: ['fetch(\'/api/jarvis', 'OpenJarvisPanel', 'AgentDashboard'],
   },
@@ -30,7 +32,10 @@ const flows = [
 test('key web flows have a page, API route, and client wiring', () => {
   for (const flow of flows) {
     assert.ok(existsSync(join(WEB_UI, flow.page)), `${flow.name}: page is missing`)
-    const page = read(flow.page)
+    let page = read(flow.page)
+    if (flow.components) {
+      for (const file of readdirSync(join(WEB_UI, flow.components))) page += read(join(flow.components, file))
+    }
     for (const marker of flow.markers) {
       assert.match(page, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `${flow.name}: missing ${marker}`)
     }
