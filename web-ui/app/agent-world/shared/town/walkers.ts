@@ -50,15 +50,18 @@ function pickTarget(w: Walker): [number, number] {
  * slot one tile at a time (never through obstacles); everyone else stands at
  * their slot facing down. Returns the characters with live pose fields.
  * With `still` (prefers-reduced-motion) nobody walks: characters jump to
- * their slot and stand.
+ * their slot and stand. While `paused` (the scene is off screen) nothing
+ * moves and nothing re-renders.
  */
-export function useWalkers(players: AgentTownCharacter[], still = false): AgentTownCharacter[] {
+export function useWalkers(players: AgentTownCharacter[], still = false, paused = false): AgentTownCharacter[] {
   const walkers = useRef(new Map<string, Walker>())
   const [, setFrame] = useState(0)
   const playersRef = useRef(players)
   playersRef.current = players
   const stillRef = useRef(still)
   stillRef.current = still
+  const pausedRef = useRef(paused)
+  pausedRef.current = paused
 
   useEffect(() => {
     const map = walkers.current
@@ -74,6 +77,7 @@ export function useWalkers(players: AgentTownCharacter[], still = false): AgentT
 
   useEffect(() => {
     const timer = setInterval(() => {
+      if (pausedRef.current) return
       const now = Date.now()
       let changed = false
       for (const p of playersRef.current) {

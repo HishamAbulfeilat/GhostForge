@@ -15,8 +15,9 @@ async function requireAdminUser(request: NextRequest) {
 
 /**
  * Agent World chat box: POST { sessionId, message } -> { reply, isError }.
- * Resumes the Claude Code session headless in its own folder
- * (`claude -p --resume <id>`, message on stdin, no shell) and returns the reply.
+ * Resumes the Claude Code or Copilot CLI session headless in its own folder
+ * (`claude -p --resume <id>` / `copilot --resume <id>`, message on stdin, no
+ * shell) and returns the reply.
  * Only sessions in the current CLI snapshot can be messaged. Off with
  * GF_CLI_SESSIONS=0 or GF_CLI_CHAT=0.
  */

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { ATTENTION_LABEL, type Attention } from './status'
 import type { WorldAgent } from './world-model'
 
@@ -16,6 +16,26 @@ export function useReducedMotion(): boolean {
     return () => query.removeEventListener('change', sync)
   }, [])
   return reduced
+}
+
+/**
+ * False while the element is scrolled out of view, so a scene can stop
+ * rendering (IntersectionObserver; inside a frame it is measured against the
+ * top-level viewport). True when the observer is unavailable.
+ */
+export function useOnScreen(ref: RefObject<Element | null>, rootMargin = '64px'): boolean {
+  const [onScreen, setOnScreen] = useState(true)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(entries => {
+      const entry = entries[entries.length - 1]
+      if (entry) setOnScreen(entry.isIntersecting)
+    }, { rootMargin })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [ref, rootMargin])
+  return onScreen
 }
 
 /** Counts up every `ms`; bubbles use it to rotate their phrases. */

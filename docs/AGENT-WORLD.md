@@ -52,6 +52,17 @@ sessions. They come from `GET /api/agents/cli-sessions`, which requires
   Agent Office next to the runtime agents, each tagged with its source. Use the
   Live / Today toggle next to the world switcher to include sessions that
   finished recently.
+  A character's sprite comes from a hash of its session id, and its town slot
+  or office desk stays the same until that session leaves the view, so nobody
+  moves when another session comes or goes.
+- **Live updates**: the page opens `GET /api/agents/cli-sessions?stream=1`
+  (Server-Sent Events, same guards as the JSON route). The server watches the
+  transcript folders only while a page is connected and also rebuilds every
+  5 s; it sends a `world` event when the snapshot changed and a small
+  `heartbeat` event otherwise, so a session that newly needs you shows up within
+  about a second. Streams end after 10 minutes (the browser reconnects and is
+  authorised again) and at most 16 run at once. Polling every 10 s stays on as
+  the fallback whenever the stream is not delivering.
 - The collector (`web-ui/lib/cli-sessions.mjs`) reads `~/.claude/projects`
   transcripts and `~/.copilot/session-store.db` (read-only) on the server's
   machine. Transcripts are parsed incrementally from their last byte offset.
@@ -80,14 +91,16 @@ Features (both apps):
   session drawer.
 - **Needs-you badge** next to Refresh, with a list, and one browser
   notification when a session *newly* needs you (permission asked once).
-- **Chat box** (bottom corner): message a Claude Code session.
+- **Chat box** (bottom corner): message a Claude Code or Copilot CLI session.
   `POST /api/agents/cli-sessions/chat` `{ sessionId, message }` (admin_tools,
-  JSON, same-origin) runs `claude -p --resume <id> --output-format json` in the
-  session's folder with the message on stdin — no shell — and returns the
-  reply. Only sessions in the current snapshot can be messaged; Copilot sessions
-  cannot yet. Off with `GF_CLI_CHAT=0` (or `GF_CLI_SESSIONS=0`). `CLAUDE_BIN`
-  overrides the binary. The page still reads metadata only; the chat box shows
-  just what you typed and Claude's reply.
+  JSON, same-origin) runs `claude -p --resume <id> --output-format json` or
+  `copilot --resume <id> --silent --no-color` in the session's folder with the
+  message on stdin — no shell, never as an argument — and returns the reply.
+  Headless runs cannot answer permission prompts, so tools that need approval
+  are declined. Only sessions in the current snapshot can be messaged. Off with
+  `GF_CLI_CHAT=0` (or `GF_CLI_SESSIONS=0`). `CLAUDE_BIN` / `COPILOT_BIN`
+  override the binaries. The page still reads metadata only; the chat box shows
+  just what you typed and the reply.
 - **Agent Town** (a16z AI Town) and **Agent Office** (harishkotra/agent-office)
   — short rotating bubbles (≤ 6 words: current tool or state, never message
   text) through the upstream bubbles; Office cinematic camera follow on
@@ -97,9 +110,23 @@ Features (both apps):
   the can when Claude Code compacts.
 - **Minimap** on both scenes (positions read from the Pixi viewport / Phaser
   camera); click or drag to pan.
+- **Touch** in Agent Office: drag with one finger to pan, pinch to zoom (1×–3×,
+  the scene's wheel range). Panning stops any camera follow, like the arrow
+  keys. A short tap still selects an agent.
+- **Off-screen pause**: while a scene is scrolled out of view (status
+  columns, activity log, drawer below it) its Pixi ticker or Phaser loop, the
+  walkers, the bubble layout and the minimap stop, and resume when it scrolls
+  back.
 - **Ambience**: day/night tint from local time; sessions idle 3+ minutes walk
   to a break area. `prefers-reduced-motion` turns walking and animations off.
 - **Raw JSON** in the session drawer: the detail response as returned.
+- **Replay** in the session drawer: a scrubber (play, pause, drag, back to
+  live) over the session's last 200 recorded events (tool, subagent, prompt,
+  error, request and compaction names with times, never their content). While
+  you replay, that session's character in the scene shows the moment: working
+  with the event as its bubble, or on a break during a quiet stretch of 3+
+  minutes. Rosters, alerts and the chat box keep the live state. The detail
+  response carries the history as `replay` (oldest first).
 
 Agent Town's renderer (`@pixi/react` 7, as upstream AI Town ships it) needs
 React 18, but the App Router always runs Next's bundled React 19. So the scene

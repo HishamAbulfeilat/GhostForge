@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 import type { Viewport } from 'pixi-viewport'
 import type { AgentTownCharacter, SelectElement } from '../../../../vendor/ai-town/src/types'
 import Ambience, { AmbienceToggle } from '../Ambience'
-import { bubbleAt, useReducedMotion, useRotation, useStoredFlag } from '../hooks'
+import { bubbleAt, useOnScreen, useReducedMotion, useRotation, useStoredFlag } from '../hooks'
 import Minimap, { type MinimapState } from '../Minimap'
 import type { WorldAgent } from '../world-model'
 import { useWalkers } from './walkers'
@@ -38,6 +38,10 @@ export default function TownStage({
   const [ambience, setAmbience] = useStoredFlag('aw-ambience', true)
   const reduced = useReducedMotion()
   const tick = useRotation()
+  // Off screen (scrolled to the columns or the log): stop the Pixi ticker,
+  // the walkers, the bubble layout loop and the minimap.
+  const sceneRef = useRef<HTMLDivElement>(null)
+  const onScreen = useOnScreen(sceneRef)
   const byId = useMemo(() => new Map(agents.map(a => [a.id, a])), [agents])
 
   // Idle characters go on a break (with ambience on); upstream emoji bubbles show state.
@@ -52,7 +56,7 @@ export default function TownStage({
       return { ...p, ...(where ?? {}), emoji }
     })
   }, [players, byId, ambience])
-  const walking = useWalkers(placed, reduced)
+  const walking = useWalkers(placed, reduced, !onScreen)
   const walkingRef = useRef(walking)
   walkingRef.current = walking
 
@@ -60,6 +64,7 @@ export default function TownStage({
   const viewportRef = useRef<Viewport | undefined>()
   const bubbleRefs = useRef(new Map<string, HTMLSpanElement>())
   useEffect(() => {
+    if (!onScreen) return
     let frame = 0
     let lastWalking: AgentTownCharacter[] | undefined
     let lastCamera = ''
@@ -99,7 +104,7 @@ export default function TownStage({
     }
     frame = requestAnimationFrame(place)
     return () => cancelAnimationFrame(frame)
-  }, [])
+  }, [onScreen])
 
   const readMinimap = (): MinimapState | null => {
     const vp = viewportRef.current
@@ -128,9 +133,9 @@ export default function TownStage({
         {/* Hidden on phones: a wrapped second line would push GhostForge's framed scene past its iframe. */}
         <span className="hidden text-gf-muted sm:inline">Drag to pan, scroll to zoom, click a character for details.</span>
       </div>
-      <div className="relative">
+      <div ref={sceneRef} className="relative">
         <Suspense fallback={<div role="status" className="grid h-[min(70dvh,680px)] min-h-80 place-items-center rounded-xl border border-gf-line bg-gf-bar text-sm text-gf-muted">Loading AI Town…</div>}>
-          <Game players={walking} selectedId={selectedId} onSelect={onSelect} viewportRef={viewportRef} />
+          <Game players={walking} selectedId={selectedId} onSelect={onSelect} viewportRef={viewportRef} paused={!onScreen} />
         </Suspense>
         <Ambience enabled={ambience} />
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-[6] overflow-hidden rounded-xl">
@@ -150,7 +155,7 @@ export default function TownStage({
             )
           })}
         </div>
-        <Minimap read={readMinimap} onPan={(x, y) => viewportRef.current?.moveCenter(x, y)} label="AI Town minimap" />
+        <Minimap read={readMinimap} onPan={(x, y) => viewportRef.current?.moveCenter(x, y)} label="AI Town minimap" paused={!onScreen} />
       </div>
     </div>
   )

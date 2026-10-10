@@ -56,3 +56,12 @@ test('long tasks are clipped for the bubble', () => {
   })
   assert.ok(agents[0].thought.length <= 140)
 })
+
+test('with a slots memory, agents keep their desk when someone else leaves', () => {
+  const { adaptAgentOfficeSnapshot: adapt } = require('./agent-office-model.js')
+  const slots = new Map()
+  const first = adapt({ agents: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }, { slots })
+  const second = adapt({ agents: [{ id: 'c' }] }, { slots })
+  assert.deepEqual([second.agents[0].x, second.agents[0].y], [first.agents[2].x, first.agents[2].y])
+  assert.deepEqual(second.layout.map(d => d.id), ['desk-c'])
+})

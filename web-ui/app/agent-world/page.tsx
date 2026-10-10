@@ -22,6 +22,7 @@ import { useCliWorld, useNow } from './shared/api'
 import AttentionBadge from './shared/AttentionBadge'
 import ChatBox, { type ChatTraffic } from './shared/ChatBox'
 import { useAttention, useCompactions } from './shared/hooks'
+import { applyReplay, type Replay } from './shared/replay'
 import SessionDrawer from './shared/SessionDrawer'
 import StatusColumns from './shared/StatusColumns'
 import { worldAgents, type WorldAgent, type WorldScope } from './shared/world-model'
@@ -172,14 +173,17 @@ export default function AgentWorldPage() {
   const changeWorld = useCallback((view: AgentWorldView) => setWorld(view), [])
   // CLI sessions: a second, read-only picture of this machine's Claude Code and
   // Copilot sessions. They join every world as extra characters, marked `cli`.
-  const cli = useCliWorld(CLI_ENDPOINT, { refreshMs: 10_000 })
+  const cli = useCliWorld(CLI_ENDPOINT, { refreshMs: 10_000, streamUrl: `${CLI_ENDPOINT}?stream=1` })
   const now = useNow()
   const [cliScope, setCliScope] = useState<WorldScope>('live')
   const [cliSelected, setCliSelected] = useState<string>()
   const [traffic, setTraffic] = useState<ChatTraffic & { at: number }>()
   const cliWorld = cli.status === 'loaded' ? cli.world : undefined
   const cliAgents = useMemo<WorldAgent[]>(() => worldAgents(cliWorld, cliScope), [cliWorld, cliScope])
-  const cliCharacters = cliAgents as unknown as AgentWorldRecord[]
+  // The drawer's replay scrubber puts one character into a past moment, in the scenes only.
+  const [replay, setReplay] = useState<Replay>()
+  const sceneCliAgents = useMemo(() => applyReplay(cliAgents, replay), [cliAgents, replay])
+  const cliCharacters = sceneCliAgents as unknown as AgentWorldRecord[]
   // Everything recent, whatever the scope: chat targets, alerts, compactions.
   const cliRecent = useMemo(() => worldAgents(cliWorld, 'today'), [cliWorld])
   const compacting = useCompactions(cliRecent)
@@ -306,13 +310,13 @@ export default function AgentWorldPage() {
             {world === 'town' && (
               <>
                 <AiTownControls />
-                <TownWorld data={mergedData} boss={state.data.boss} cliAgents={cliAgents} selectedCliId={cliSelected} onSelectCli={setCliSelected} compacting={compacting} />
+                <TownWorld data={mergedData} boss={state.data.boss} cliAgents={cliAgents} sceneCliAgents={sceneCliAgents} selectedCliId={cliSelected} onSelectCli={setCliSelected} compacting={compacting} />
               </>
             )}
             {world === 'office' && (
               <>
                 <AgentOfficeControls />
-                <OfficeWorld data={mergedData} boss={state.data.boss} cliAgents={cliAgents} selectedCliId={cliSelected} onSelectCli={setCliSelected} compacting={compacting} traffic={traffic} />
+                <OfficeWorld data={mergedData} boss={state.data.boss} cliAgents={cliAgents} sceneCliAgents={sceneCliAgents} selectedCliId={cliSelected} onSelectCli={setCliSelected} compacting={compacting} traffic={traffic} />
                 <AgentOfficeMap sessions={state.officeSessions} emptyMessage="No sessions were reported by the available snapshots." />
               </>
             )}
@@ -361,6 +365,7 @@ export default function AgentWorldPage() {
         onClose={() => setCliSelected(undefined)}
         detailUrl={cliDetailUrl}
         compacting={!!cliSelected && compacting.has(cliSelected)}
+        onReplay={setReplay}
       />
     </main>
   )

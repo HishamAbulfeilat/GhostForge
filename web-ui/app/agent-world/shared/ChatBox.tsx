@@ -1,16 +1,24 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { providerLabel } from './format'
 import type { WorldAgent } from './world-model'
 
 export const CHAT_MAX_CHARS = 4000
 
-type Line = { role: 'you' | 'claude' | 'error'; text: string; at: number }
+type Line = { role: 'you' | 'agent' | 'error'; text: string; at: number }
 export type ChatTraffic = { sessionId: string; direction: 'sent' | 'received' | 'failed' }
 
+/** How the server resumes each provider's session (shown in the empty chat). */
+const RESUME: Record<WorldAgent['provider'], string> = {
+  'claude-code': 'claude -p --resume',
+  'copilot-cli': 'copilot --resume',
+}
+
 /**
- * Message a Claude Code session from any view. The server resumes the session
- * with `claude -p --resume <id>` in its folder and returns the reply. Only this
+ * Message a Claude Code or Copilot CLI session from any view. The server
+ * resumes the session headless in its folder (`claude -p --resume <id>` or
+ * `copilot --resume <id>`, message on stdin) and returns the reply. Only this
  * box's own messages are kept, in memory; transcripts are never read for it.
  */
 export default function ChatBox({
@@ -27,18 +35,19 @@ export default function ChatBox({
   const [pending, setPending] = useState<string>()
   const [log, setLog] = useState<Record<string, Line[]>>({})
   const listRef = useRef<HTMLOListElement>(null)
-  const claude = agents.filter(a => a.provider === 'claude-code')
+  // Both providers can be messaged.
+  const chattable = agents
 
   // Follow the selected session when it can be chatted with.
   useEffect(() => {
-    if (selectedId && claude.some(a => a.id === selectedId)) setTarget(selectedId)
+    if (selectedId && chattable.some(a => a.id === selectedId)) setTarget(selectedId)
   }, [selectedId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Falls back to the most recently active session when none is chosen or the
   // chosen one has left the snapshot (agents come oldest first).
-  const latest = claude.reduce<WorldAgent | undefined>((best, a) =>
+  const latest = chattable.reduce<WorldAgent | undefined>((best, a) =>
     !best || (Date.parse(a.updatedAt ?? '') || 0) > (Date.parse(best.updatedAt ?? '') || 0) ? a : best, undefined)
-  const current = claude.find(a => a.id === target) ?? latest
+  const current = chattable.find(a => a.id === target) ?? latest
   const lines = current ? log[current.id] ?? [] : []
 
   useEffect(() => {
@@ -64,7 +73,7 @@ export default function ChatBox({
       })
       const body = await r.json().catch(() => ({})) as { reply?: string; error?: string; isError?: boolean }
       if (!r.ok || body.error) throw new Error(body.error || `Chat request failed (${r.status})`)
-      add(id, { role: body.isError ? 'error' : 'claude', text: body.reply || '(empty reply)', at: Date.now() })
+      add(id, { role: body.isError ? 'error' : 'agent', text: body.reply || '(empty reply)', at: Date.now() })
       onTraffic?.({ sessionId: id, direction: 'received' })
     } catch (err) {
       add(id, { role: 'error', text: err instanceof Error ? err.message : 'Chat request failed.', at: Date.now() })
@@ -95,8 +104,8 @@ export default function ChatBox({
           aria-label="Session to message"
           className="min-w-0 flex-1 rounded-md border border-gf-line bg-gf-bar px-2 py-1 text-sm"
         >
-          {!claude.length && <option value="">No Claude Code sessions in view</option>}
-          {claude.map(a => <option key={a.id} value={a.id}>{a.name} · {a.taskTitle}</option>)}
+          {!chattable.length && <option value="">No sessions in view</option>}
+          {chattable.map(a => <option key={a.id} value={a.id}>{a.name} · {providerLabel(a.provider)} · {a.taskTitle}</option>)}
         </select>
         <button type="button" onClick={() => setOpen(false)} aria-label="Close chat"
           className="rounded-md border border-gf-line px-2 py-0.5 text-sm hover:border-gf-accent">×</button>
@@ -105,8 +114,8 @@ export default function ChatBox({
         {!lines.length && (
           <li className="text-xs text-gf-muted">
             {current
-              ? <>Messages go to <span className="font-semibold text-gf-ink">{current.name}</span> through <span className="font-mono">claude -p --resume</span>, in its folder, with that session&apos;s context. Replies show here only; nothing is read back from the transcript.</>
-              : 'Copilot CLI sessions cannot be messaged from here yet; pick a Claude Code session.'}
+              ? <>Messages go to <span className="font-semibold text-gf-ink">{current.name}</span> through <span className="font-mono">{RESUME[current.provider]}</span>, in its folder, with that session&apos;s context. Tools that need approval are declined. Replies show here only; nothing is read back from the session.</>
+              : 'No Claude Code or Copilot CLI session is in view.'}
           </li>
         )}
         {lines.map((line, i) => (
@@ -115,7 +124,7 @@ export default function ChatBox({
             {line.text}
           </li>
         ))}
-        {pending && pending === current?.id && <li className="text-xs text-gf-muted">Waiting for Claude…</li>}
+        {pending && pending === current?.id && <li className="text-xs text-gf-muted">Waiting for {providerLabel(current.provider)}…</li>}
       </ol>
       <form onSubmit={send} className="flex items-end gap-2 border-t border-gf-line p-3">
         <textarea

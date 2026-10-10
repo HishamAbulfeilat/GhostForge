@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import type { AgentWorldData, AgentWorldRecord } from '../agent-world-model'
 import type { ChatTraffic } from '../shared/ChatBox'
 import OfficeStage, { type OfficeModel } from '../shared/office/OfficeStage'
@@ -14,6 +14,8 @@ type OfficeWorldProps = {
   boss?: AgentWorldRecord
   /** CLI sessions among data.agents (shared Agent World characters). */
   cliAgents: WorldAgent[]
+  /** cliAgents as the scene shows them (a replayed moment applied); defaults to cliAgents. */
+  sceneCliAgents?: WorldAgent[]
   selectedCliId?: string
   onSelectCli: (id: string | undefined) => void
   compacting: Set<string>
@@ -24,9 +26,11 @@ type OfficeWorldProps = {
  * Agent Office: the shared Agent World office stage (same as the external
  * Agent World app) fed with GhostForge runtime agents plus CLI sessions.
  */
-export default function OfficeWorld({ data, boss, cliAgents, selectedCliId, onSelectCli, compacting, traffic }: OfficeWorldProps) {
+export default function OfficeWorld({ data, boss, cliAgents, sceneCliAgents = cliAgents, selectedCliId, onSelectCli, compacting, traffic }: OfficeWorldProps) {
+  // Desk per agent, kept between snapshots so nobody moves when someone else leaves.
+  const slots = useRef(new Map<string, number>())
   const model = useMemo(
-    () => adaptAgentOfficeSnapshot({ agents: data.agents, tasks: data.tasks, boss }) as OfficeModel,
+    () => adaptAgentOfficeSnapshot({ agents: data.agents, tasks: data.tasks, boss }, { slots: slots.current }) as OfficeModel,
     [data.agents, data.tasks, boss],
   )
   const cliIds = useMemo(() => new Set(cliAgents.map(a => a.id)), [cliAgents])
@@ -44,7 +48,7 @@ export default function OfficeWorld({ data, boss, cliAgents, selectedCliId, onSe
           <p className="mt-1 text-xs text-gf-muted">
             harishkotra/agent-office&apos;s office. Agents sit at desks with short thought bubbles; one that newly needs you gets the
             camera (cinematic mode); idle ones take a break in the Coffee &amp; Pantry. The boss works from the meeting room.
-            Click an agent to follow; arrow keys or WASD pan.
+            Click an agent to follow; arrow keys or WASD pan; on a touch screen drag to pan and pinch to zoom.
           </p>
         </div>
         <span className="rounded-full border border-gf-line2 px-2 py-1 text-xs text-gf-muted">
@@ -54,7 +58,7 @@ export default function OfficeWorld({ data, boss, cliAgents, selectedCliId, onSe
       <OfficeStage
         model={model}
         deskSlots={DESK_SLOTS}
-        agents={cliAgents}
+        agents={sceneCliAgents}
         selectedId={selectedCliId ?? runtimeId}
         onSelect={select}
         traffic={traffic}

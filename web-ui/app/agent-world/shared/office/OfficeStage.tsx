@@ -5,62 +5,25 @@ import { eventBus } from '../../../../vendor/agent-office/src/events'
 import type { AgentFields, LayoutItem, SnapshotOffice } from '../../../../vendor/agent-office/src/snapshot-room'
 import Ambience, { AmbienceToggle } from '../Ambience'
 import type { ChatTraffic } from '../ChatBox'
-import { bubbleAt, useReducedMotion, useRotation, useStoredFlag } from '../hooks'
+import { bubbleAt, useOnScreen, useReducedMotion, useRotation, useStoredFlag } from '../hooks'
 import Minimap, { type MinimapState } from '../Minimap'
 import { clipWords } from '../status'
 import type { WorldAgent } from '../world-model'
 import { startOfficeSession } from './office-session'
+import { inPantry, seatAgents, type Cell, type OfficeModel } from './seating'
+import { attachTouchControls, type TouchCamera } from './touch'
 
-export type OfficeAgent = AgentFields & { isBoss?: boolean; role?: string; status?: string }
-export type OfficeModel = { agents: OfficeAgent[]; layout: LayoutItem[] }
-type Cell = { x: number; y: number }
+export type { OfficeAgent, OfficeModel } from './seating'
 
 // The upstream floor is 40x40 cells of 16px. Coffee & Pantry = px 350-526,
 // i.e. cells 22-32; its door is on the west wall around cell y 26-27.
 const GRID = 40 * 16
-const inPantry = (s: Cell) => s.x >= 21 && s.x <= 33 && s.y >= 21 && s.y <= 33
 const PANTRY_DOOR: Cell[] = [{ x: 20, y: 27 }, { x: 23, y: 27 }]
 // Six cells apart so name tags do not overlap; more than six guests share spots.
 const BREAK_SPOTS: Cell[] = [25, 28, 31].flatMap((y, row) => [23, 29].map(x => ({ x: x + (row % 2) * 2, y })))
 const STEP_MS = 220
 const TALK_MS = 8000
 const DESKS_KEY = 'aw-office-desks'
-
-/** "gf-integration #3" -> "gf-integra…#3": fits a 128px desk spacing. */
-export function shortName(name: string, max = 13) {
-  const [base, n] = name.split(' #')
-  const suffix = n ? `#${n}` : ''
-  const room = max - suffix.length
-  return (base.length > room ? base.slice(0, room - 1) + '…' : base) + suffix
-}
-
-/**
- * The adapter's desks are 4 cells (64px) apart, narrower than the scene's
- * name tags. Re-seat everyone on every other desk (128px apart, none against
- * the west wall), skip desks
- * inside the pantry, apply desks the user dragged in layout-edit mode, and
- * drop desk labels (each agent already has a name tag).
- */
-export function seatAgents(model: OfficeModel, deskSlots: Cell[], moved: Record<string, Cell>) {
-  // x = 8, 16, 24, 32: 128px apart and clear of the west wall, so bubbles are not clipped.
-  const desks = deskSlots.filter(s => s.x % 8 === 0 && !inPantry(s))
-  const agents: OfficeAgent[] = []
-  const layout: LayoutItem[] = []
-  const seats = new Map<string, Cell>()
-  let next = 0, hidden = 0
-  for (const a of model.agents) {
-    if (a.isBoss) { agents.push(a); seats.set(a.id, { x: a.x, y: a.y }); continue }
-    const slot = desks[next++]
-    if (!slot) { hidden++; continue }
-    const id = `desk-${a.id}`
-    const desk = moved[id] ?? slot
-    layout.push({ id, type: 'desk', x: desk.x, y: desk.y })
-    const seat = { x: desk.x, y: desk.y + 2 }
-    seats.set(a.id, seat)
-    agents.push({ ...a, name: shortName(a.name), ...seat })
-  }
-  return { agents, layout, seats, hidden, capacity: desks.length }
-}
 
 /** Cells from `from` to `to`, one step at a time (x first), via waypoints. */
 function route(from: Cell, waypoints: Cell[]): Cell[] {
@@ -111,7 +74,9 @@ export default function OfficeStage({
     try { setMoved(JSON.parse(localStorage.getItem(DESKS_KEY) || '{}')) } catch { /* storage unavailable */ }
   }, [])
 
-  const seated = useMemo(() => seatAgents(model, deskSlots, moved), [model, deskSlots, moved])
+  // Desk per agent, kept between snapshots so nobody changes desk when someone else leaves.
+  const deskMemory = useRef(new Map<string, number>())
+  const seated = useMemo(() => seatAgents(model, deskSlots, moved, deskMemory.current), [model, deskSlots, moved])
 
   // Walk idle agents to the pantry and back, one cell per STEP_MS.
   useEffect(() => {
@@ -136,8 +101,16 @@ export default function OfficeStage({
     }
   }, [seated, byId, ambience, reduced])
 
+  // Off screen (scrolled to the columns or the log): the Phaser loop sleeps
+  // and the walkers and minimap stop.
+  const viewRef = useRef<HTMLDivElement>(null)
+  const onScreen = useOnScreen(viewRef)
+  const onScreenRef = useRef(onScreen)
+  onScreenRef.current = onScreen
+
   useEffect(() => {
     const t = setInterval(() => {
+      if (!onScreenRef.current) return
       let changed = false
       for (const w of walkers.current.values()) {
         const next = w.path.shift()
@@ -173,7 +146,7 @@ export default function OfficeStage({
   })
 
   const officeRef = useRef<SnapshotOffice | null>(null)
-  const gameRef = useRef<{ scene: { getScene(key: string): unknown } } | null>(null)
+  const gameRef = useRef<{ scene: { getScene(key: string): unknown }; loop: { sleep(): void; wake(): void } } | null>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef({ agents: sceneAgents, layout: seated.layout })
   sceneRef.current = { agents: sceneAgents, layout: seated.layout }
@@ -249,6 +222,7 @@ export default function OfficeStage({
           input: { keyboard: { capture: [] } },
         })
         gameRef.current = game
+        if (!onScreenRef.current) game.loop.sleep()
         return () => {
           gameRef.current = null
           // Stop first so the scene removes its window key handlers.
@@ -269,6 +243,12 @@ export default function OfficeStage({
       session.stop()
     }
   }, [])
+
+  useEffect(() => {
+    const loop = gameRef.current?.loop
+    if (onScreen) loop?.wake()
+    else loop?.sleep()
+  }, [onScreen])
 
   useEffect(() => {
     eventBus.dispatchEvent(new CustomEvent('cinematic-toggle', { detail: { enabled: cinematic } }))
@@ -303,12 +283,29 @@ export default function OfficeStage({
   }, [traffic]) // eslint-disable-line react-hooks/exhaustive-deps
 
   type SceneLike = {
-    cameras?: { main: { worldView: { x: number; y: number; width: number; height: number }; centerOn(x: number, y: number): void } }
+    cameras?: { main: TouchCamera & { worldView: { x: number; y: number; width: number; height: number }; centerOn(x: number, y: number): void } }
     agentSprites?: Map<string, { x: number; y: number }>
     followTarget?: unknown
     cinematicReleaseAt?: number
+    layoutEditMode?: boolean
+    layoutDragItemId?: string | null
   }
   const scene = () => gameRef.current?.scene.getScene('OfficeScene') as SceneLike | undefined
+
+  // Phones and tablets: drag to pan, pinch to zoom (the scene only has keys and the wheel).
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    return attachTouchControls(host, () => {
+      const s = gameRef.current?.scene.getScene('OfficeScene') as SceneLike | undefined
+      if (!s?.cameras) return null
+      return {
+        camera: s.cameras.main,
+        release: () => { s.followTarget = null; s.cinematicReleaseAt = 0 },
+        canPan: () => !(s.layoutEditMode && s.layoutDragItemId),
+      }
+    })
+  }, [])
   const readMinimap = (): MinimapState | null => {
     const s = scene()
     if (!s?.cameras) return null
@@ -354,15 +351,15 @@ export default function OfficeStage({
           )}
         </div>
         {sceneError && <p role="alert" className="mb-2 rounded-lg border border-gf-danger p-3 text-sm">{sceneError}</p>}
-        <div className="relative">
+        <div ref={viewRef} className="relative">
           <div
             ref={hostRef}
             role="img"
             aria-label="Agent Office pixel-art scene"
-            className="h-[min(70dvh,680px)] min-h-80 w-full overflow-hidden rounded-xl border border-gf-line bg-gf-bar"
+            className="h-[min(70dvh,680px)] min-h-80 w-full touch-none overflow-hidden rounded-xl border border-gf-line bg-gf-bar"
           />
           <Ambience enabled={ambience} />
-          <Minimap read={readMinimap} onPan={pan} label="Agent Office minimap" />
+          <Minimap read={readMinimap} onPan={pan} label="Agent Office minimap" paused={!onScreen} />
         </div>
         {seated.hidden > 0 && (
           <p role="status" className="mt-2 text-xs text-gf-muted">

@@ -65,7 +65,10 @@ export type SessionDetail = Session & {
   reasoningTokens?: number
   contentFiltered?: number
   subagentList: { id: string; type: string; depth: number; background: boolean; updatedAt?: string }[]
+  /** Newest first, the last 25. */
   events: SessionEvent[]
+  /** Oldest first, up to 200, for the replay scrubber (absent from older servers). */
+  replay?: SessionEvent[]
 }
 
 export type AgentGroup = {

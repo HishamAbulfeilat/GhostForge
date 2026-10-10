@@ -11,12 +11,15 @@ export default function Game({
   selectedId,
   onSelect,
   viewportRef,
+  paused = false,
 }: {
   players: AgentTownCharacter[]
   selectedId?: string
   onSelect: SelectElement
   // agent-world: lets the host read/pan the camera (minimap, bubbles)
   viewportRef?: MutableRefObject<Viewport | undefined>
+  // agent-world: stop the render loop while the scene is off screen
+  paused?: boolean
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -39,7 +42,7 @@ export default function Game({
   return (
     <div ref={hostRef} className="h-[min(70dvh,680px)] min-h-80 w-full overflow-hidden rounded-xl bg-[#7ab5ff]">
       {size.width > 0 && size.height > 0 && (
-        <Stage width={size.width} height={size.height} options={{ backgroundColor: 0x7ab5ff }}>
+        <Stage width={size.width} height={size.height} options={{ backgroundColor: 0x7ab5ff }} raf={!paused} renderOnComponentChange={!paused}>
           <PixiGame
             players={players}
             selectedId={selectedId}

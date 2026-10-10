@@ -13,7 +13,7 @@ Local deviations from upstream: a type-only cast in `src/components/PixiViewport
 replace the Convex/Clerk data layer with the GhostForge snapshot adapter. `src/types.ts`
 adds optional `orientation` / `isMoving` fields and `src/components/Player.tsx` passes
 them to the unchanged upstream `Character`, so characters walk as upstream does; the
-movement is driven by `app/agent-world/town/walkers.ts`.
+movement is driven by `app/agent-world/shared/town/walkers.ts`.
 
 Agent World additions (minimal, recorded here as upstream deviations):
 - `src/components/Game.tsx` and `src/components/PixiGame.tsx` accept an optional
@@ -21,3 +21,12 @@ Agent World additions (minimal, recorded here as upstream deviations):
   speech-bubble placement). Without it they behave exactly as upstream.
 - `src/types.ts` adds an optional `emoji`, and `src/components/Player.tsx` passes it
   to upstream `Character`'s existing `emoji` bubble (⏳ waiting, ⚠️ stalled, ☕ break).
+- `src/components/Character.tsx` gets its parsed `Spritesheet` from the new
+  `src/components/spritesheetCache.ts` instead of parsing one per character: one
+  sheet per (texture, frame data), reference counted, textures destroyed a
+  second after the last character using it unmounts (upstream never destroys
+  them). The rendering itself is unchanged.
+- `src/components/Game.tsx` accepts an optional `paused` and passes it to
+  `@pixi/react`'s own `Stage` props (`raf={!paused}`,
+  `renderOnComponentChange={!paused}`), so the host can stop the ticker while
+  the scene is scrolled off screen. Without it, behaviour is upstream's.
