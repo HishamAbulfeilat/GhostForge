@@ -1,0 +1,13 @@
+{
+  "fps": 30,
+  "scenes": [
+    { "id": "intro", "len": 120 },
+    { "id": "surfaces", "len": 150 },
+    { "id": "jarvis", "len": 180 },
+    { "id": "agents", "len": 180 },
+    { "id": "jobs", "len": 210 },
+    { "id": "market", "len": 150 },
+    { "id": "hosted", "len": 150 },
+    { "id": "outro", "len": 150 }
+  ]
+}
