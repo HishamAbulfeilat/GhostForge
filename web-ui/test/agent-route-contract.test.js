@@ -7,7 +7,7 @@ const ts = require('typescript')
 
 const routePath = path.resolve(__dirname, '../app/api/agents/route.ts')
 const routeSource = fs.readFileSync(routePath, 'utf8')
-const agentTeamApi = require('../lib/agent-team-api.js')
+const agentTeamApi = require('./load-ts').loadTs('lib/agent-team-api.ts')
 const state = { user: null, commands: [], connectorReads: 0, commandResult: { status: 0, stdout: 'mock output', stderr: '' } }
 const snapshotFixture = {
   snapshot: {

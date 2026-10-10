@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import HFModelCard, { type HFModel } from '@/components/HFModelCard'
+import InstallQueuePanel, { type QueueEntry } from '@/components/InstallQueuePanel'
 
 interface MarketplaceItem {
   id: string
@@ -292,6 +293,10 @@ function CommandsTab() {
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
   const [actionId, setActionId] = useState<string | null>(null)
+  // Consented installer queue: null = unavailable (hosted mode / no terminal permission)
+  const [queue, setQueue] = useState<QueueEntry[] | null>(null)
+  const [queueMessage, setQueueMessage] = useState('')
+  const [lastOutput, setLastOutput] = useState<{ id: string; ok: boolean; output: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -303,9 +308,36 @@ function CommandsTab() {
       setInstalled(new Set(data.installed ?? []))
     } catch { /* keep empty */ }
     setLoading(false)
+    try {
+      const res = await fetch('/api/marketplace/queue')
+      setQueue(res.ok ? ((await res.json()) as { queue: QueueEntry[] }).queue ?? [] : null)
+    } catch { setQueue(null) }
   }, [router])
 
   useEffect(() => { void load() }, [load])
+
+  const queueAction = useCallback(async (body: Record<string, unknown>) => {
+    const id = String(body.id)
+    setActionId(id)
+    setQueueMessage('')
+    try {
+      const res = await fetch('/api/marketplace/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json() as { error?: string; queue?: QueueEntry[]; installed?: string[]; output?: string; ok?: boolean }
+      if (data.queue) setQueue(data.queue)
+      if (data.installed) setInstalled(new Set(data.installed))
+      if (body.action === 'install') setLastOutput({ id, ok: Boolean(data.ok), output: data.output ?? data.error ?? '' })
+      else if (data.error) setQueueMessage(data.error)
+    } catch {
+      setQueueMessage('Install queue request failed')
+    }
+    setActionId(null)
+  }, [])
+
+  const queuedIds = new Set((queue ?? []).map(entry => entry.id))
 
   const toggle = useCallback(async (id: string, isInstalled: boolean) => {
     setActionId(id)
@@ -372,6 +404,23 @@ function CommandsTab() {
         <span className="text-[10px] text-gray-600">{filtered.length} items</span>
       </div>
 
+      {queue && (
+        <InstallQueuePanel
+          queue={queue}
+          busyId={actionId}
+          lastOutput={lastOutput}
+          onRemove={id => void queueAction({ action: 'remove', id })}
+          onInstall={(entry, authorized) => void queueAction({
+            action: 'install',
+            id: entry.id,
+            consent: { approved: true, command: entry.command, authorized },
+          })}
+        />
+      )}
+      {queueMessage && (
+        <p role="alert" className="mx-4 mb-3 rounded border border-amber-800/40 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">{queueMessage}</p>
+      )}
+
       <div className="px-4 pb-8 max-w-6xl mx-auto">
         {loading ? (
           <div role="status" className="flex h-40 items-center justify-center">
@@ -408,13 +457,21 @@ function CommandsTab() {
                       ))}
                     </div>
                   )}
+                  {queue && !isInstalled && item.install_command && (
+                    <button type="button" onClick={() => void queueAction({ action: 'enqueue', id: item.id })}
+                      disabled={isBusy || queuedIds.has(item.id)}
+                      title="Adds it to the install queue. Nothing runs until you approve the exact command."
+                      className="mt-auto rounded border border-amber-800/50 bg-amber-950/30 px-3 py-1.5 text-xs font-medium text-amber-200 transition hover:bg-amber-900/40 disabled:opacity-50">
+                      {queuedIds.has(item.id) ? 'In install queue' : 'Queue install'}
+                    </button>
+                  )}
                   <button type="button" onClick={() => toggle(item.id, isInstalled)} disabled={isBusy}
-                    className={`mt-auto rounded border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                    className={`${queue && !isInstalled && item.install_command ? '' : 'mt-auto '}rounded border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
                       isInstalled
                         ? 'border-red-800/50 bg-red-950/30 text-red-400 hover:bg-red-900/40'
                         : 'border-sky-800/50 bg-sky-950/30 text-sky-300 hover:bg-sky-900/40'
                     }`}>
-                    {isBusy ? '…' : isInstalled ? 'Remove' : 'Install'}
+                    {isBusy ? '…' : isInstalled ? 'Remove' : item.install_command ? 'Mark installed' : 'Install'}
                   </button>
                 </div>
               )

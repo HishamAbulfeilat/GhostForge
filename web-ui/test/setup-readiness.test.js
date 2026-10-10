@@ -65,3 +65,26 @@ test('setup page renders readiness only for admins, from the existing endpoints'
   assert.match(page, /fetchJson\('\/api\/bridge-status'\)/)
   assert.match(page, /fetchJson\('\/api\/models'\)/)
 })
+
+test('health: /api/health checks map onto readiness rows with their fix-it step', () => {
+  const { healthReadiness } = require('../app/setup/readiness.js')
+  assert.deepEqual(healthReadiness(null), [])
+  assert.deepEqual(healthReadiness({ error: 'Forbidden' }), [])
+  const rows = healthReadiness({ checks: [
+    { id: 'bridge', label: 'JARVIS bridge', status: 'ready', detail: 'responding' },
+    { id: 'ollama', label: 'Ollama', status: 'missing', detail: 'not installed', fix: 'Install Ollama' },
+    { id: 'voice', label: 'Voice', status: 'offline', detail: 'not answering', fix: 'Run start.sh' },
+    { id: 'gh', label: 'gh', status: 'error', detail: 'bad token', fix: 'gh auth login' },
+    { id: 'weird', label: 'x', status: 'unknown', detail: '' },
+  ] })
+  assert.deepEqual(rows.map(r => [r.id, r.state]), [
+    ['health-bridge', 'configured'], ['health-ollama', 'missing'], ['health-voice', 'unreachable'], ['health-gh', 'unreachable'],
+  ])
+  assert.equal(rows[1].action, 'Install Ollama')
+  assert.equal(rows[0].action, 'Nothing to do.')
+})
+
+test('setup checklist reads the shared /api/health contract', () => {
+  assert.match(page, /fetchJson\('\/api\/health\?fresh=1'\)/)
+  assert.match(page, /healthReadiness\(/)
+})

@@ -6,27 +6,69 @@
  * ╚═══════════════════════════════════════════════════════════╝
  */
 
-import { select, input, confirm, checkbox, search } from '@inquirer/prompts';
-import chalk from 'chalk';
-import boxen from 'boxen';
-import figlet from 'figlet';
-import Table from 'cli-table3';
-import ora from 'ora';
 import { execSync, spawn, spawnSync } from 'child_process';
 import { readFileSync, existsSync, readdirSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname, join } from 'path';
-import { homedir } from 'os';
+import { homedir, userInfo } from 'os';
 import { fileURLToPath } from 'url';
-import { filterMenuChoices, groupCommandChoices } from './lib/menu-search.js';
-import { readRecentCommands, rememberCommand } from './lib/recent-commands.js';
-import { applyEffectiveMarketplaceState } from './lib/marketplace-state.js';
-import { resolveInstallCommand, explainMissingCommand } from '../marketplace/install-commands.mjs';
-import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP } from './lib/platform-utils.js';
-import { askGFAI } from './lib/gfai-client.js';
-import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
+import { createRequire } from 'module';
 import { escapeAppleScriptString } from './lib/applescript.js';
-import { runTeamCommand, startAgentTeam } from './lib/agent-team.js';
 import { parseArgs as parseUsersArgs, request as requestUsersApi } from '../scripts/users.mjs';
+
+// `--version` is answered before any third-party module is loaded, so it
+// costs about as much as a bare `node` start.
+{
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  const argv = process.argv.slice(2);
+  if (argv.includes('--version') || argv.includes('-v')) {
+    const versionFile = resolve(root, 'VERSION');
+    console.log(existsSync(versionFile) ? readFileSync(versionFile, 'utf8').trim() : '4.0.0');
+    process.exit(0);
+  }
+}
+
+// Modules the first screen needs load in parallel. Modules only some screens
+// use (ora, cli-table3, the G.F.A.I. and llmfit clients) load on
+// first use through the loaders below.
+const [
+  { select, input, confirm, checkbox, search },
+  { default: chalk },
+  { default: boxen },
+  { default: figlet },
+  { filterMenuChoices, groupCommandChoices },
+  { readRecentCommands, rememberCommand },
+  { applyEffectiveMarketplaceState },
+  { resolveInstallCommand, explainMissingCommand },
+  { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP },
+  { runTeamCommand, startAgentTeam },
+] = await Promise.all([
+  import('@inquirer/prompts'),
+  import('chalk'),
+  import('boxen'),
+  import('figlet'),
+  import('./lib/menu-search.js'),
+  import('./lib/recent-commands.js'),
+  import('./lib/marketplace-state.js'),
+  import('../marketplace/install-commands.mjs'),
+  import('./lib/platform-utils.js'),
+  import('./lib/agent-team.js'),
+]);
+
+const requireCjs = createRequire(import.meta.url);
+let tableCtor;
+/** cli-table3 constructor, loaded on first use. */
+function loadTable() {
+  tableCtor ??= requireCjs('cli-table3');
+  return tableCtor;
+}
+let oraPromise;
+/** ora spinner factory, loaded on first use. */
+function loadOra() {
+  oraPromise ??= import('ora').then(mod => mod.default);
+  return oraPromise;
+}
+const loadGfaiClient = () => import('./lib/gfai-client.js');
+const loadLLMFitClient = () => import('./lib/llmfit-client.js');
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -137,10 +179,6 @@ function collabShareUrl(id, sharePath = `/jarvis?session=${encodeURIComponent(id
 }
 
 const cliArgs = process.argv.slice(2);
-if (cliArgs.includes('--version') || cliArgs.includes('-v')) {
-  console.log(VERSION);
-  process.exit(0);
-}
 
 // ── Device status + push notifications ──────────────────────────────────────
 
@@ -266,7 +304,7 @@ async function screenWorkflows() {
     if (workflows.length === 0) {
       console.log(T.muted('\n  No workflows found.'));
     } else {
-      const table = new Table({
+      const table = new (loadTable())({
         head: ['Workflow', 'ID', 'Status', 'Steps'],
         style: { head: ['cyan'] },
         colWidths: [32, 20, 14, 8],
@@ -463,7 +501,7 @@ async function screenN8n() {
     if (workflows.length === 0) {
       console.log(T.muted('\n  No workflows found in n8n.'));
     } else {
-      const table = new Table({
+      const table = new (loadTable())({
         head: ['Workflow', 'ID', 'Status'],
         style: { head: ['cyan'] },
         colWidths: [38, 28, 14],
@@ -608,7 +646,7 @@ async function screenWebhooks() {
     if (configured.length === 0) {
       console.log(T.muted('\n  No webhook triggers configured.'));
     } else {
-      const table = new Table({
+      const table = new (loadTable())({
         head: ['Trigger', 'Source', 'Event', 'Action'],
         style: { head: ['cyan'] },
         colWidths: [18, 18, 18, 30],
@@ -660,7 +698,7 @@ async function screenWebhooks() {
       if (logs.length === 0) {
         console.log(T.muted('\n  No webhook events found.'));
       } else {
-        const table = new Table({
+        const table = new (loadTable())({
           head: ['Source', 'Event', 'Received', 'Body'],
           style: { head: ['cyan'] },
           colWidths: [18, 18, 16, 40],
@@ -1128,7 +1166,7 @@ async function screenUsers() {
         Array.isArray(user.permissions) ? safeUsersText(user.permissions.join(', ') || 'none') : 'unknown',
         user.owner ? 'owner' : '',
       ]);
-      const table = new Table({
+      const table = new (loadTable())({
         head: ['Username', 'ID', 'Role', 'Status', 'Permissions', 'Owner'],
         style: { head: ['cyan'] },
         colWidths: [18, 18, 12, 12, 32, 8],
@@ -2466,7 +2504,7 @@ async function handleMarketplaceToolAction(action) {
 async function screenAgents() {
   sectionHeader('AI Agents', 'Specialized agents — tell Copilot "act as <agent>" or select below');
 
-  const table = new Table({
+  const table = new (loadTable())({
     head: [T.brand.bold('Agent'), T.brand.bold('Role'), T.brand.bold('Focus')],
     colWidths: [18, 10, 48],
     style: { border: ['cyan'] },
@@ -2553,7 +2591,7 @@ async function screenSetup() {
     const desc = await input({
       message: T.white('Describe your project (e.g. "React Native e-commerce app with auth, payments, TypeScript"):'),
     });
-    const spinner = ora({ text: T.accent('Starting AI-powered project setup...'), color: 'cyan' }).start();
+    const spinner = (await loadOra())({ text: T.accent('Starting AI-powered project setup...'), color: 'cyan' }).start();
     setTimeout(() => { spinner.stop(); runScript('scripts/create-project.sh', ['--ai', desc]); }, 1000);
   } else {
     const ok = await confirm({ message: T.white('This will run the interactive setup wizard. Continue?'), default: true });
@@ -2591,7 +2629,7 @@ async function screenTickets() {
   
     pageSize: 15,});
 
-  const spinner = ora({ text: T.accent(`Fetching ${provider} tickets...`), color: 'cyan' }).start();
+  const spinner = (await loadOra())({ text: T.accent(`Fetching ${provider} tickets...`), color: 'cyan' }).start();
   await new Promise(r => setTimeout(r, 1200));
   spinner.stop();
 
@@ -2601,7 +2639,7 @@ async function screenTickets() {
       const issues = JSON.parse(out);
       if (!issues.length) { console.log(T.success('\n  ✔  No open issues assigned to you!')); }
       else {
-        const table = new Table({
+        const table = new (loadTable())({
           head: [T.brand.bold('#'), T.brand.bold('Title'), T.brand.bold('Priority'), T.brand.bold('Labels')],
           colWidths: [6, 44, 12, 20],
           style: { border: ['cyan'] },
@@ -2699,7 +2737,7 @@ async function screenTest() {
     console.log(); showMdPreview('commands/test.md', 60); console.log();
   } else if (action === 'run') {
     const cwd = await input({ message: T.white('Project path:'), default: '.' });
-    const spinner = ora({ text: T.accent('Detecting test framework...'), color: 'cyan' }).start();
+    const spinner = (await loadOra())({ text: T.accent('Detecting test framework...'), color: 'cyan' }).start();
     await new Promise(r => setTimeout(r, 800));
     spinner.stop();
 
@@ -2871,7 +2909,7 @@ async function screenJarvis() {
 async function screenLLMFit() {
   sectionHeader('🧠  LLMFit — Hardware-Aware Model Recommender', 'Scores AI models against your RAM/CPU/GPU — powered by llmfit.axjns.dev');
 
-  const spinner = ora(T.muted('  Analyzing hardware and scoring models...')).start();
+  const spinner = (await loadOra())(T.muted('  Analyzing hardware and scoring models...')).start();
   let data = null;
   try {
     const { default: http } = await import('http');
@@ -2900,7 +2938,7 @@ async function screenLLMFit() {
   if (!data) {
     try {
       const raw = execSync('llmfit recommend -n 12 --json --no-dashboard', { encoding: 'utf8', timeout: 20000 });
-      data = normalizeLLMFitCLI(JSON.parse(raw));
+      data = (await loadLLMFitClient()).normalizeLLMFitCLI(JSON.parse(raw));
     } catch { /* handled below */ }
   }
 
@@ -2971,7 +3009,7 @@ async function screenMacCleanup() {
   sectionHeader('🧹  Mac Cleanup', 'Free RAM, clear temp files, kill zombie processes');
   console.log(T.muted('  Running cleanup via G.F.A.I. mac_cleanup tool...\n'));
 
-  const spinner = ora(T.muted('  Cleaning...')).start();
+  const spinner = (await loadOra())(T.muted('  Cleaning...')).start();
   try {
     const { default: http } = await import('http');
     const result = await new Promise((resolve) => {
@@ -3014,7 +3052,7 @@ async function screenModelSelect() {
   sectionHeader('🔄  Switch AI Model', 'Select which AI model G.F.A.I. will use');
 
   let availableModels = [];
-  const spinner = ora(T.muted('  Fetching available models...')).start();
+  const spinner = (await loadOra())(T.muted('  Fetching available models...')).start();
   try {
     const { default: http } = await import('http');
     availableModels = await new Promise((resolve) => {
@@ -3163,10 +3201,10 @@ async function screenGFAIChat(initialMessage = '') {
 
     history.push({ role: 'user', text: userInput });
 
-    const spinner = ora(T.muted('  G.F.A.I. thinking...')).start();
+    const spinner = (await loadOra())(T.muted('  G.F.A.I. thinking...')).start();
     let response;
     try {
-      response = await askGFAI({
+      response = await (await loadGfaiClient()).askGFAI({
         message: userInput,
         history: history.slice(-6).map(item => ({ role: item.role, content: item.text })),
         selectedProvider: _tuiSelectedModel.provider,
@@ -3233,7 +3271,7 @@ async function screenMacControl() {
 
   if (action === 'webui') {
     console.log(T.accent('\n  Opening http://localhost:3001/mac-control ...\n'));
-    try { execSync('open http://localhost:3001/mac-control 2>/dev/null || xdg-open http://localhost:3001/mac-control 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    crossPlatformOpen('http://localhost:3001/mac-control');
     await pressEnter();
     return;
   }
@@ -3400,7 +3438,7 @@ async function screenAppmorphy() {
       validate: v => v.includes('appmorphy.app') ? true : 'Must be an appmorphy.app URL',
     });
     console.log(T.accent(`\n  Opening ${statusUrl} ...\n`));
-    try { execSync(`open '${statusUrl}' 2>/dev/null || xdg-open '${statusUrl}' 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+    crossPlatformOpen(statusUrl);
     await pressEnter(); return;
   }
 
@@ -3432,7 +3470,7 @@ async function screenHealth() {
     default: false,
   });
 
-  const spinner = ora({ text: T.accent('Running health checks...'), color: 'cyan' }).start();
+  const spinner = (await loadOra())({ text: T.accent('Running health checks...'), color: 'cyan' }).start();
   await new Promise(r => setTimeout(r, 500));
   spinner.stop();
   runScriptSync('scripts/health-check.sh', shouldFix ? [target, '--fix'] : [target]);
@@ -3447,7 +3485,7 @@ async function screenProjects() {
     sectionHeader('🗂  Manage Projects', 'Registry of synced projects and toolkit status');
 
     const projects = getRegisteredProjects();
-    const table = new Table({
+    const table = new (loadTable())({
       head: [T.brand.bold('#'), T.brand.bold('Project Path'), T.brand.bold('Status'), T.brand.bold('Toolkit')],
       colWidths: [5, 50, 12, 12],
       style: { border: ['cyan'] },
@@ -3586,7 +3624,7 @@ async function screenReadme() {
 async function screenHelp() {
   sectionHeader('❓  Help & Quick Reference', 'How to use GhostForge');
 
-  const table = new Table({
+  const table = new (loadTable())({
     head: [T.brand.bold('Command'), T.brand.bold('Description')],
     colWidths: [22, 52],
     style: { border: ['cyan'] },
@@ -3629,7 +3667,7 @@ async function screenOpenProject() {
   });
 
   const target = projectPath.trim() || process.cwd();
-  const spinner = ora({
+  const spinner = (await loadOra())({
    text: T.accent(action === 'config' ? 'Initializing project config...' : 'Launching open-project wizard...'),
    color: 'cyan',
   }).start();
@@ -3648,17 +3686,52 @@ async function screenOpenProject() {
   await pressEnter();
 }
 
+const HEALTH_STATUS_TONE = {
+  ready: () => T.success.bold(' READY '),
+  missing: () => T.muted.bold(' MISSING '),
+  offline: () => T.warning.bold(' OFFLINE '),
+  error: () => T.danger.bold(' ERROR '),
+};
+
+/**
+ * "Health at a glance": the same checks GET /api/health serves to the web UI
+ * (web-ui/lib/health-core.mjs), run in-process so no session token is needed.
+ */
+async function printHealthAtAGlance() {
+  const { collectHealth, parseEnvFile } = await import('../web-ui/lib/health-core.mjs');
+  let envLocal = {};
+  try { envLocal = parseEnvFile(readFileSync(resolve(ROOT, 'web-ui/.env.local'), 'utf8')); } catch { /* optional */ }
+  const report = await collectHealth({ env: { ...envLocal, ...process.env }, webUiDir: resolve(ROOT, 'web-ui') });
+  const table = new (loadTable())({
+    head: [T.white.bold('Dependency'), T.white.bold('Status'), T.white.bold('Details / fix')],
+    colWidths: [30, 11, 52],
+    wordWrap: true,
+    style: { head: [], border: [] },
+  });
+  for (const check of report.checks) {
+    const detail = check.status === 'ready' ? T.success(check.detail) : `${T.white(check.detail)}\n${T.accent('Fix: ' + (check.fix || '—'))}`;
+    table.push([T.white(check.label) + (check.optional ? T.muted(' (optional)') : ''), HEALTH_STATUS_TONE[check.status](), detail]);
+  }
+  console.log(T.white.bold('  Health at a glance') + T.muted('  (same contract as /api/health)'));
+  console.log(table.toString());
+  console.log();
+  return report;
+}
+
 async function screenDoctor() {
   sectionHeader('🩺  GhostForge Doctor', 'Live health checks — services, AI keys, and required CLI tools');
+
+  try {
+    await printHealthAtAGlance();
+  } catch (error) {
+    console.log(T.warning(`  ⚠ Health at a glance unavailable: ${error.message}\n`));
+  }
 
   const checks = [];
   const addCheck = (label, status, detail, weight = 1) => checks.push({ label, status, detail, weight });
 
   const server = runShellCheck('curl -fsS --max-time 2 http://localhost:3001 >/dev/null');
   addCheck('Server :3001', server.ok ? 'pass' : 'fail', server.ok ? 'responding' : 'not reachable');
-
-  const ollama = runShellCheck('curl -fsS --max-time 2 http://localhost:11434/api/tags >/dev/null');
-  addCheck('Ollama :11434', ollama.ok ? 'pass' : 'warn', ollama.ok ? 'responding' : 'offline');
 
   const cliclick = runShellCheck('command -v cliclick');
   addCheck('cliclick', cliclick.ok ? 'pass' : 'fail', cliclick.ok ? cliclick.output : 'not installed');
@@ -3676,9 +3749,6 @@ async function screenDoctor() {
     || readEnvValueFromFile('web-ui/.env.local', 'GEMINI_API_KEY');
   addCheck('Gemini key', gemini ? 'pass' : 'warn', gemini ? `set (${gemini.length} chars)` : 'missing in web-ui/.env.local');
 
-  const gh = runShellCheck('command -v gh');
-  addCheck('GitHub CLI', gh.ok ? 'pass' : 'fail', gh.ok ? gh.output : 'not installed');
-
   const git = runShellCheck('command -v git');
   addCheck('Git CLI', git.ok ? 'pass' : 'fail', git.ok ? git.output : 'not installed');
 
@@ -3687,11 +3757,6 @@ async function screenDoctor() {
 
   const openInterpreter = runShellCheck('python3 -m interpreter --version 2>/dev/null');
   addCheck('open-interpreter', openInterpreter.ok ? 'pass' : 'warn', openInterpreter.ok ? `v${(openInterpreter.output.match(/\d+\.\d+\.\d+/) || ['?'])[0]}` : 'pip3 install open-interpreter');
-
-  const mkcertCheck = runShellCheck('command -v mkcert');
-  const mkcertTrusted = runShellCheck('security find-certificate -a -c "mkcert" /Library/Keychains/System.keychain 2>/dev/null | head -1');
-  addCheck('mkcert (HTTPS)', mkcertCheck.ok ? (mkcertTrusted.ok ? 'pass' : 'warn') : 'warn',
-    mkcertCheck.ok ? (mkcertTrusted.ok ? 'CA trusted system-wide' : '⚠ run: sudo mkcert -install') : 'brew install mkcert');
 
   const qwen3Check = runShellCheck('ollama list 2>/dev/null | grep -c qwen3');
   addCheck('qwen3:14b model', qwen3Check.output.trim() !== '0' && qwen3Check.ok ? 'pass' : 'warn',
@@ -3705,7 +3770,7 @@ async function screenDoctor() {
   addCheck('DESIGN.md', designMdCheck ? 'pass' : 'warn',
     designMdCheck ? 'design system template active ✓' : 'optional — ask JARVIS to apply a design template');
 
-  const doctorTable = new Table({
+  const doctorTable = new (loadTable())({
     head: [T.white.bold('Check'), T.white.bold('Status'), T.white.bold('Details')],
     colWidths: [24, 12, 40],
     wordWrap: true,
@@ -3743,7 +3808,11 @@ async function screenDoctor() {
     { padding: 1, borderColor: healthScore >= 85 ? '#22C55E' : healthScore >= 65 ? '#F59E0B' : '#EF4444', borderStyle: 'round' }
   ));
 
-  // Show mkcert hint if not trusted
+  // Show mkcert hint if its CA is not trusted (macOS keychain check)
+  const mkcertCheck = runShellCheck('command -v mkcert');
+  const mkcertTrusted = process.platform === 'darwin'
+    ? runShellCheck('security find-certificate -a -c "mkcert" /Library/Keychains/System.keychain 2>/dev/null | head -1')
+    : { ok: true };
   if (mkcertCheck.ok && !mkcertTrusted.ok) {
     console.log('\n' + boxen(
       T.warning.bold(' ⚠ HTTPS not trusted \n\n') +
@@ -3796,6 +3865,62 @@ async function screenVersion() {
 }
 
 // ─── Marketplace Screen ─────────────────────────────────────────────────────
+/** OS user name for audit records (never throws). */
+function userInfoName() {
+  try { return userInfo().username || 'unknown'; } catch { return 'unknown'; }
+}
+
+/**
+ * Show one queued install (exact command + source) and run it only after the
+ * user approves this specific item. Shared rules: marketplace/install-queue.mjs.
+ */
+async function reviewQueuedInstall(queue, ctx, entry) {
+  if (!entry) return;
+  console.log();
+  console.log(boxen(
+    T.white.bold(`${entry.name}\n\n`) +
+    T.muted('Source:  ') + T.white(entry.source) + (entry.url ? T.muted(`  (${entry.url})`) : '') + '\n' +
+    T.muted('Command: ') + T.cyan(entry.command) +
+    (entry.authorizedUseOnly ? '\n\n' + T.yellow('Dual-use tool: AUTHORIZED testing on systems you own or may assess only.') : '') +
+    (entry.lastError ? '\n\n' + T.danger(`Last attempt failed: ${entry.lastError.slice(-160)}`) : ''),
+    { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
+  ));
+  if (entry.stale) {
+    console.log(T.warning(`  ⚠ ${entry.reason}`));
+    if (await confirm({ message: 'Remove it from the queue?', default: true })) queue.dequeue(ctx, entry.id);
+    return;
+  }
+  const choice = await select({
+    message: T.white('What now?'),
+    choices: [
+      { name: T.success('▶  Approve and run this exact command'), value: 'run' },
+      { name: T.muted('⏸  Keep it queued'), value: 'keep' },
+      { name: T.danger('✖  Remove from queue'), value: 'remove' },
+    ],
+  });
+  if (choice === 'remove') { queue.dequeue(ctx, entry.id); console.log(T.muted('  Removed.')); return; }
+  if (choice !== 'run') return;
+  let authorized = false;
+  if (entry.authorizedUseOnly) {
+    authorized = await confirm({ message: 'I will only use this on systems I own or have written permission to test.', default: false });
+    if (!authorized) { console.log(T.muted('  Not installed. It stays in the queue.')); return; }
+  }
+  let command;
+  try {
+    command = queue.consentToInstall(ctx, entry.id, { approved: true, command: entry.command, authorized });
+  } catch (error) {
+    console.log(T.warning(`  ⚠ ${error.message}`));
+    return;
+  }
+  console.log(T.muted(`\n  Running: ${command}\n`));
+  // The command is the exact catalog string the user just approved; it uses
+  // shell syntax (a || b), and inherits the terminal so sudo prompts work.
+  const result = spawnSync(command, { shell: true, stdio: 'inherit', cwd: ROOT });
+  const ok = result.status === 0 && !result.error;
+  queue.recordInstallResult(ctx, entry.id, { ok, detail: ok ? '' : (result.error?.message || `exit code ${result.status}`) });
+  console.log(ok ? T.success(`\n  ✅ ${entry.name} installed.`) : T.danger(`\n  ✖ Install failed; it stays in the queue. Try manually: ${command}`));
+}
+
 async function screenMarketplace() {
   sectionHeader('🏪  Marketplace', 'Browse and install agents, commands, skills, plugins');
 
@@ -3808,6 +3933,8 @@ async function screenMarketplace() {
   // check-then-use (TOCTOU) race an existsSync guard would introduce.
   try { catalog = JSON.parse(readFileSync(catalogPath, 'utf8')); } catch {}
   try { registry = JSON.parse(readFileSync(registryPath, 'utf8')); } catch {}
+  // Unmodified catalog for the install queue (it applies the effective-set rule itself).
+  const queueCtx = { catalog: { items: [...(catalog.items || [])] }, registryFile: registryPath, actor: `tui:${userInfoName()}`, surface: 'tui' };
 
   // registry.json is the single source of truth for install state (shared with
   // the web UI). Seed it from any catalog items shipped as installed, minus any
@@ -3821,7 +3948,8 @@ async function screenMarketplace() {
     choices: [
       { name: T.accent.bold('📋  Browse All Items')    + T.muted(' — view full catalog by category'), value: 'browse' },
       { name: T.success.bold('🔍  Search Items')        + T.muted(' — search by name, tag, or category'), value: 'search' },
-      { name: T.brand.bold('⬇️   Install Item')         + T.muted(' — install from catalog or URL'), value: 'install' },
+      { name: T.brand.bold('⬇️   Install Item')         + T.muted(' — queue a tool, review its command, approve it'), value: 'install' },
+      { name: T.warning.bold('🧾  Install Queue')         + T.muted(' — review, approve or remove queued installs'), value: 'install-queue' },
       { name: T.warning.bold('🌐  Browse aitmpl.com')     + T.muted(' — open AI templates site'), value: 'aitmpl' },
       { name: T.cyan.bold('🔍  Open Source Discovery')   + T.muted(' — hidden gems & trending repos (opensourceprojects.dev)'), value: 'osp-dev' },
       { name: T.accent.bold('🧠  Hermes Agent')            + T.muted(' — self-improving AI agent by Nous Research'), value: 'hermes-agent' },
@@ -3903,7 +4031,7 @@ async function screenMarketplace() {
 
     const items = catChoice === '__all__' ? catalog.items : catalog.items.filter(i => i.category === catChoice);
     console.log();
-    const table = new Table({
+    const table = new (loadTable())({
       head: [T.accent.bold('Name'), T.white.bold('Type'), T.muted('Description'), T.success.bold('Status')],
       colWidths: [28, 12, 40, 12],
       style: { head: [], border: ['dim'] },
@@ -3962,27 +4090,25 @@ async function screenMarketplace() {
     if (itemChoice === '__cancel__') return;
     const item = catalog.items.find(i => i.id === itemChoice);
     if (item) {
+      const queue = await import('../marketplace/install-queue.mjs');
+      const plan = queue.planInstall(item);
       console.log();
-      console.log(T.brand.bold(`  Installing: ${item.name}...`));
-      // Never fall back to the POSIX command on Windows: execSync would hand a
-      // brew/apt one-liner to cmd.exe. No command for this platform means the
-      // item links out instead (see explainMissingCommand).
-      const platformInstallCommand = resolveInstallCommand(item);
-      if (platformInstallCommand) {
-        console.log(T.muted(`  Running: ${platformInstallCommand}`));
+      if (plan.reviewFirst) {
+        // CLAUDE.md security tooling policy: offensive suites are pointers only.
+        console.log(T.warning(`  ⚠ ${plan.reason}`));
+        if (item.url) console.log(T.accent(`  Upstream (review it yourself): ${item.url}`));
+        try { queue.enqueue(queueCtx, item.id); } catch { /* refused + audited */ }
+      } else if (plan.queueable) {
         try {
-          execSync(platformInstallCommand, { stdio: 'inherit', cwd: ROOT });
-          console.log(T.success(`\n  ✅ ${item.name} installed successfully!`));
-          item.installed = true;
-          // Persist to registry.json (source of truth shared with the web UI).
-          installedSet.add(item.id);
-          removedSet.delete(item.id);
-          registry.installed = [...installedSet];
-          registry.removed = [...removedSet];
-          writeFileSync(registryPath, JSON.stringify(registry, null, 2));
-        } catch {
-          console.log(T.danger(`\n  ✖ Installation failed. Try manually: ${platformInstallCommand}`));
+          const entry = queue.enqueue(queueCtx, item.id);
+          console.log(T.success(`  ➕ ${item.name} added to the install queue (nothing has run yet).`));
+          await reviewQueuedInstall(queue, queueCtx, entry);
+        } catch (error) {
+          console.log(T.warning(`  ⚠ ${error.message}`));
         }
+      } else if (item.install_command || item.install_command_windows) {
+        console.log(T.muted(`  ${plan.reason}`));
+        if (item.url) console.log(T.accent(`  Visit: ${item.url}`));
       } else if (item.url) {
         console.log(T.accent(`  Visit: ${item.url}`));
         console.log(T.muted('  (browser required for this item type)'));
@@ -3991,6 +4117,31 @@ async function screenMarketplace() {
       }
       await pressEnter();
     }
+  }
+
+  if (action === 'install-queue') {
+    const queue = await import('../marketplace/install-queue.mjs');
+    while (true) {
+      const entries = queue.listQueue(queueCtx);
+      if (entries.length === 0) {
+        console.log(T.muted('\n  The install queue is empty. Use "Install Item" to queue a tool.\n'));
+        break;
+      }
+      const pick = await select({
+        message: T.white.bold(`Install queue (${entries.length}) — pick one to review:`),
+        choices: [
+          ...entries.map(e => ({
+            name: `${e.stale ? T.warning('⚠ ') : ''}${T.white.bold(e.name)} ${T.muted('— ' + e.command.substring(0, 50))}${e.lastError ? T.danger('  (last attempt failed)') : ''}`,
+            value: e.id,
+          })),
+          { name: T.muted('← Back'), value: '__back__' },
+        ],
+        pageSize: 12,
+      });
+      if (pick === '__back__') break;
+      await reviewQueuedInstall(queue, queueCtx, entries.find(e => e.id === pick));
+    }
+    await pressEnter();
   }
 
   if (action === 'sec-devops') {
@@ -4262,7 +4413,7 @@ async function screenMarketplace() {
           { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
         ));
       } else if (paAction === 'github') {
-        try { execSync('open https://github.com/alibaba/page-agent 2>/dev/null || xdg-open https://github.com/alibaba/page-agent 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://github.com/alibaba/page-agent');
       }
     }
     console.log();
@@ -4292,7 +4443,7 @@ async function screenMarketplace() {
       { padding: 1, borderColor: '#EF4444', borderStyle: 'round' }
     ));
     console.log();
-    try { execSync('open https://app.strix.ai 2>/dev/null || xdg-open https://app.strix.ai 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    crossPlatformOpen('https://app.strix.ai');
     await pressEnter();
   }
 
@@ -4317,7 +4468,7 @@ async function screenMarketplace() {
       { padding: 1, borderColor: '#22D3EE', borderStyle: 'round' }
     ));
     console.log();
-    try { execSync('open https://github.com/rtk-ai/rtk 2>/dev/null || xdg-open https://github.com/rtk-ai/rtk 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    crossPlatformOpen('https://github.com/rtk-ai/rtk');
     await pressEnter();
   }
 
@@ -4355,9 +4506,9 @@ async function screenMarketplace() {
       ));
       console.log();
       if (htAction === 'install') {
-        try { execSync('open https://github.com/Z4nzu/hackingtool 2>/dev/null || xdg-open https://github.com/Z4nzu/hackingtool 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://github.com/Z4nzu/hackingtool');
       } else if (htAction === 'github') {
-        try { execSync('open https://github.com/Z4nzu/hackingtool 2>/dev/null || xdg-open https://github.com/Z4nzu/hackingtool 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://github.com/Z4nzu/hackingtool');
       }
     }
     await pressEnter();
@@ -4496,7 +4647,7 @@ async function screenMarketplace() {
         ));
         console.log();
         if (careerAction === 'install') {
-          try { execSync('open https://github.com/Zal4DW/career-helper 2>/dev/null || xdg-open https://github.com/Zal4DW/career-helper 2>/dev/null', { stdio: 'ignore' }); } catch {}
+          crossPlatformOpen('https://github.com/Zal4DW/career-helper');
         }
       }
     }
@@ -4536,7 +4687,7 @@ async function screenMarketplace() {
       if (subAction === 'install') {
         try { execSync('npm install -g @santifer/career-ops 2>/dev/null', { stdio: 'ignore' }); } catch {}
       } else if (subAction === 'github') {
-        try { execSync('open https://github.com/santifer/career-ops 2>/dev/null || xdg-open https://github.com/santifer/career-ops 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://github.com/santifer/career-ops');
       }
     }
     await pressEnter();
@@ -4576,9 +4727,9 @@ async function screenMarketplace() {
       ));
       console.log();
       if (subAction === 'github') {
-        try { execSync(`open ${ghUrl} 2>/dev/null || xdg-open ${ghUrl} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen(ghUrl);
       } else if (subAction === 'claude-design') {
-        try { execSync('open https://claude.ai/design 2>/dev/null || xdg-open https://claude.ai/design 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://claude.ai/design');
       }
     }
     await pressEnter();
@@ -4625,9 +4776,9 @@ async function screenMarketplace() {
         const { spawnSync } = await import('child_process');
         spawnSync('npx', ['impeccable', 'install'], { stdio: 'inherit', cwd: process.cwd() });
       } else if (impAction === 'docs') {
-        try { execSync('open https://impeccable.style 2>/dev/null || xdg-open https://impeccable.style 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://impeccable.style');
       } else if (impAction === 'github') {
-        try { execSync('open https://github.com/pbakaus/impeccable 2>/dev/null || xdg-open https://github.com/pbakaus/impeccable 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://github.com/pbakaus/impeccable');
       }
     }
     await pressEnter();
@@ -4673,7 +4824,7 @@ async function screenMarketplace() {
         const { spawnSync } = await import('child_process');
         spawnSync('claude', ['plugin', 'add', 'frontend-design'], { stdio: 'inherit', cwd: process.cwd() });
       } else if (fdAction === 'open') {
-        try { execSync('open https://claude.com/plugins/frontend-design 2>/dev/null || xdg-open https://claude.com/plugins/frontend-design 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://claude.com/plugins/frontend-design');
       }
     }
     await pressEnter();
@@ -4929,7 +5080,7 @@ async function screenMarketplace() {
         const { spawnSync } = await import('child_process');
         spawnSync('npx', ['playwright', 'show-report'], { stdio: 'inherit', cwd: process.cwd() });
       } else if (pwAction === 'docs') {
-        try { execSync('open https://playwright.dev 2>/dev/null || xdg-open https://playwright.dev 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://playwright.dev');
       }
     }
     await pressEnter();
@@ -5027,7 +5178,7 @@ async function screenMarketplace() {
           T.dim(`\n  ${url}`),
           { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
         ));
-        try { execSync(`open "${url}" 2>/dev/null || xdg-open "${url}" 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen(url);
       }
     }
     await pressEnter();
@@ -5065,7 +5216,7 @@ async function screenMarketplace() {
         ));
       } else if (orAction === 'dashboard') {
         console.log(T.accent('\n  Opening http://localhost:20128 ...\n'));
-        try { execSync('open http://localhost:20128 2>/dev/null || xdg-open http://localhost:20128 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('http://localhost:20128');
         console.log(T.muted('  (OmniRoute must be running first: npx omniroute)\n'));
       } else if (orAction === 'code') {
         console.log(boxen(
@@ -5109,7 +5260,7 @@ async function screenMarketplace() {
           T.muted('  Full list: https://omniroute.online'),
           { padding: 1, borderColor: 'green', borderStyle: 'round', title: ' 90+ Free Providers ' }
         ));
-        try { execSync('open https://omniroute.online 2>/dev/null || xdg-open https://omniroute.online 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://omniroute.online');
       }
     }
     await pressEnter();
@@ -5148,7 +5299,7 @@ async function screenMarketplace() {
           T.dim('  Releases: https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest'),
           { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
         ));
-        try { execSync('open https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest 2>/dev/null || xdg-open https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest');
       } else if (mtAction === 'install-win') {
         console.log(boxen(
           T.warning.bold(' 🎙️  Meetily — Install on Windows ') + '\n\n' +
@@ -5160,7 +5311,7 @@ async function screenMarketplace() {
           T.dim('  Releases: https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest'),
           { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
         ));
-        try { execSync('open https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest 2>/dev/null || xdg-open https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest');
       } else if (mtAction === 'arabic') {
         console.log(boxen(
           T.cyan.bold(' 🗣️  Meetily — Arabic Language Support ') + '\n\n' +
@@ -5217,7 +5368,7 @@ async function screenMarketplace() {
           { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
         ));
       } else if (mtAction === 'github') {
-        try { execSync('open https://github.com/Zackriya-Solutions/meetily 2>/dev/null || xdg-open https://github.com/Zackriya-Solutions/meetily 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://github.com/Zackriya-Solutions/meetily');
       }
     }
     await pressEnter();
@@ -5468,7 +5619,7 @@ async function screenMarketplace() {
         const { spawnSync } = await import('child_process');
         spawnSync('bash', [resolve(ROOT, 'scripts/setup-memory.sh'), 'install'], { stdio: 'inherit', cwd: process.cwd() });
       } else if (memAction === 'docs') {
-        try { execSync('open https://docs.claude-mem.ai 2>/dev/null || xdg-open https://docs.claude-mem.ai 2>/dev/null', { stdio: 'ignore' }); } catch {}
+        crossPlatformOpen('https://docs.claude-mem.ai');
       }
     }
     await pressEnter();
@@ -5573,7 +5724,7 @@ async function screenMarketplace() {
     }
 
     if (skillAction === 'awesome') {
-      try { execSync('open https://awesomeclaude.ai/awesome-claude-skills 2>/dev/null || xdg-open https://awesomeclaude.ai/awesome-claude-skills 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      crossPlatformOpen('https://awesomeclaude.ai/awesome-claude-skills');
       console.log(T.muted('\n  Opened: https://awesomeclaude.ai/awesome-claude-skills\n'));
       await pressEnter();
     }
@@ -5597,7 +5748,7 @@ async function screenMarketplace() {
         { padding: 1, borderColor: '#06B6D4', borderStyle: 'round' }
       ));
       console.log();
-      try { execSync('open https://github.com/oso95/scroll-world 2>/dev/null || xdg-open https://github.com/oso95/scroll-world 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      crossPlatformOpen('https://github.com/oso95/scroll-world');
       await pressEnter();
     }
 
@@ -5620,7 +5771,7 @@ async function screenMarketplace() {
         { padding: 1, borderColor: '#8B5CF6', borderStyle: 'round' }
       ));
       console.log();
-      try { execSync('open https://github.com/nextlevelbuilder/ui-ux-pro-max-skill 2>/dev/null || xdg-open https://github.com/nextlevelbuilder/ui-ux-pro-max-skill 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      crossPlatformOpen('https://github.com/nextlevelbuilder/ui-ux-pro-max-skill');
       await pressEnter();
     }
 
@@ -5641,7 +5792,7 @@ async function screenMarketplace() {
         { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
       ));
       console.log();
-      try { execSync('open https://skills.sh 2>/dev/null || xdg-open https://skills.sh 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      crossPlatformOpen('https://skills.sh');
       await pressEnter();
     }
 
@@ -5715,7 +5866,7 @@ async function screenMarketplace() {
         { padding: 1, borderColor: '#F59E0B', borderStyle: 'round' }
       ));
       console.log();
-      try { execSync('open https://github.com/arvindrk/extract-design-system 2>/dev/null || xdg-open https://github.com/arvindrk/extract-design-system 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      crossPlatformOpen('https://github.com/arvindrk/extract-design-system');
       await pressEnter();
     }
 
@@ -5739,12 +5890,12 @@ async function screenMarketplace() {
         { padding: 1, borderColor: '#22C55E', borderStyle: 'round' }
       ));
       console.log();
-      try { execSync('open https://claude.com/plugins/superpowers 2>/dev/null || xdg-open https://claude.com/plugins/superpowers 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      crossPlatformOpen('https://claude.com/plugins/superpowers');
       await pressEnter();
     }
 
     if (skillAction === 'open-skillsmp') {
-      try { execSync('open https://skillsmp.com 2>/dev/null || xdg-open https://skillsmp.com 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      crossPlatformOpen('https://skillsmp.com');
       console.log(T.muted('\n  Opened: https://skillsmp.com\n'));
       await pressEnter();
     }
@@ -5802,7 +5953,7 @@ async function screenMarketplace() {
   }
 
   if (action === 'refresh') {
-    const spinner = ora({ text: T.muted('  Fetching latest catalog from sources...'), color: 'blue' }).start();
+    const spinner = (await loadOra())({ text: T.muted('  Fetching latest catalog from sources...'), color: 'blue' }).start();
     await new Promise(r => setTimeout(r, 1500));
     spinner.succeed(T.success('  Catalog refreshed! (using local cache + sources.json)'));
     console.log(T.muted('\n  Tip: To add new sources, edit marketplace/sources.json\n'));
@@ -6032,7 +6183,7 @@ async function screenFreeModels() {
 
   if (action === 'test') {
     console.log();
-    const spinner = ora({ text: T.muted('  Testing connections...'), color: 'cyan' }).start();
+    const spinner = (await loadOra())({ text: T.muted('  Testing connections...'), color: 'cyan' }).start();
     const results = [];
 
     try {
@@ -6870,7 +7021,7 @@ async function screenCommandCenter() {
   const handleDest = async (dest) => {
     if (dest === 'integrations') await screenIntegrationsHub();
     else if (dest === 'chat')    await screenGFAIChat();
-    else if (dest === 'webui')   { try { execSync('open http://localhost:3001/jarvis 2>/dev/null', { stdio: 'ignore' }); } catch {} console.log(T.success('  ✓ Opened browser')); await new Promise(r=>setTimeout(r,1500)); }
+    else if (dest === 'webui')   { crossPlatformOpen('http://localhost:3001/jarvis'); console.log(T.success('  ✓ Opened browser')); await new Promise(r=>setTimeout(r,1500)); }
     else if (dest === 'model')   await screenModelSelect();
     else if (dest === 'llmfit')  await screenLLMFit();
     else if (dest === 'cleanup') await screenMacCleanup();
@@ -6886,7 +7037,7 @@ async function screenCommandCenter() {
     else if (dest === 'tickets') await screenTickets();
     else if (dest === 'env-check') await screenEnvCheck();
     else if (dest === 'maccontrol') await screenMacControl();
-    else if (dest === 'remote')  { console.log(T.cyan('\n  Opening remote: http://localhost:3001/remote\n')); try { execSync('open http://localhost:3001/remote 2>/dev/null', { stdio: 'ignore' }); } catch {} await pressEnter(); }
+    else if (dest === 'remote')  { console.log(T.cyan('\n  Opening remote: http://localhost:3001/remote\n')); crossPlatformOpen('http://localhost:3001/remote'); await pressEnter(); }
     else if (dest === 'deviceinstall') await screenDeviceInstall();
     else if (dest === 'device-status') await screenDeviceStatus();
     else if (dest === 'collaboration') await screenCollaboration();
@@ -6921,9 +7072,9 @@ async function screenCommandCenter() {
     }
 
     // Otherwise: send to JARVIS as a chat message
-    const spinner = ora(T.muted('  G.F.A.I. thinking...')).start();
+    const spinner = (await loadOra())(T.muted('  G.F.A.I. thinking...')).start();
     try {
-      const resp = await askGFAI({
+      const resp = await (await loadGfaiClient()).askGFAI({
         message: inp,
         selectedProvider: _tuiSelectedModel.provider,
         selectedModel: _tuiSelectedModel.id,
@@ -7241,7 +7392,7 @@ async function screenFreeAPIs() {
     { name: 'jsrepl.io (code)',  models: 'JS/TS/Python/HTML sandbox',        limit: 'Unlimited free', url: 'jsrepl.io',           key: 'None needed',        status: '✓ free' },
   ];
 
-  const table = new Table({
+  const table = new (loadTable())({
     head: [T.cyan('Provider'), T.white('Models'), T.muted('Limit'), T.success('Status')],
     colWidths: [22, 28, 20, 12],
     style: { head: [], border: ['cyan'] },
@@ -7290,7 +7441,7 @@ async function screenFreeAPIs() {
       message: T.white('Choose provider:'),
       choices: freeApis.filter(a => !a.url.includes('localhost')).map(a => ({ name: T.white(a.name), value: a.url })),
     });
-    try { execSync(`open https://${picked} 2>/dev/null`, { stdio: 'ignore' }); } catch {}
+    crossPlatformOpen(`https://${picked}`);
     console.log(T.success(`\n  ✓ Opened https://${picked}\n`));
     await pressEnter();
   } else if (action === 'addkey') {
@@ -7408,7 +7559,7 @@ async function screenIntegrationsHub() {
       }
       await pressEnter();
     } else if (dsAction === 'open') {
-      try { execSync('open https://platform.deepseek.com/ 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      crossPlatformOpen('https://platform.deepseek.com/');
       await pressEnter();
     }
     return;
@@ -7504,7 +7655,7 @@ async function screenIntegrationsHub() {
         } catch { console.log(T.danger('\n  Docker error. Make sure Docker Desktop is running.\n')); }
       }
     } else {
-      try { execSync('open http://localhost:3100 2>/dev/null', { stdio: 'ignore' }); } catch {}
+      crossPlatformOpen('http://localhost:3100');
       console.log(T.success('\n  ✓ Opened Vane in browser\n'));
     }
     await pressEnter(); return;
@@ -7583,7 +7734,7 @@ async function screenDesignResources() {
     }]);
 
     if (site.trim()) {
-      const spinner = ora(`Fetching ${site} DESIGN.md...`).start();
+      const spinner = (await loadOra())(`Fetching ${site} DESIGN.md...`).start();
       try {
         const { execFileSync } = await import('child_process');
         // argv array, no shell: the site slug and the destination path are
@@ -7712,7 +7863,7 @@ async function screenVigolium() {
   if (action === 'back') return;
 
   if (action === 'install') {
-    const spinner = ora('Installing @vigolium/vigolium via npm...').start();
+    const spinner = (await loadOra())('Installing @vigolium/vigolium via npm...').start();
     try {
       const { execFileSync } = await import('child_process');
       // npm is a .cmd shim on Windows: execFileSync('npm') is ENOENT and

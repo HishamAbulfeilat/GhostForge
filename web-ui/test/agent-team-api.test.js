@@ -1,10 +1,8 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
-const Module = require('node:module')
 const os = require('node:os')
 const path = require('node:path')
-const ts = require('typescript')
 
 const {
   AGENT_SESSION_CONNECTOR_MAX_BYTES,
@@ -14,7 +12,9 @@ const {
   readRequestJsonWithLimit,
   normalizeSessionConnectorConfig,
   readConnectorSnapshot,
-} = require('../lib/agent-team-api.js')
+} = require('./load-ts').loadTs('lib/agent-team-api.ts')
+
+const loadTypeScriptAgentTeamApi = () => require('./load-ts').loadTs('lib/agent-team-api.ts')
 
 test('resolveWorkspaceRoot blocks symlink escapes', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-agent-team-'))
@@ -314,43 +314,6 @@ function mockJsonResponse(payload, status = 200) {
   })
 }
 
-function loadTypeScriptAgentTeamApi() {
-  const apiPath = path.resolve(__dirname, '../lib/agent-team-api.ts')
-  const source = fs.readFileSync(apiPath, 'utf8')
-  const compiled = ts.transpileModule(source, {
-    compilerOptions: {
-      esModuleInterop: true,
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2020,
-    },
-  }).outputText
-  const loaded = new Module(apiPath, module)
-  loaded.filename = apiPath
-  loaded.paths = Module._nodeModulePaths(path.dirname(apiPath))
-  loaded._compile(compiled, apiPath)
-  return loaded.exports
-}
-
-test('TypeScript and JavaScript connector snapshot adapters stay behaviorally aligned', async t => {
-  const { root } = createConnectorWorkspace({
-    agents: { worker: { state: 'working', provider: 'copilot' } },
-    tasks: [{ id: 'T-11', title: 'Real task', status: 'todo' }],
-  })
-  const previousFetch = global.fetch
-  const heartbeat = new Date().toISOString()
-  global.fetch = async () => mockJsonResponse({
-    heartbeat,
-    agents: [{ id: 'remote-agent', state: 'idle' }],
-    tasks: [{ id: 'T-remote', title: 'Remote task' }],
-    sessions: [{ id: 'remote-session', name: 'Remote session', secret: 'must-not-leak' }],
-    events: [{ ts: heartbeat, type: 'heartbeat' }],
-  })
-  t.after(() => { global.fetch = previousFetch })
-  const config = { id: 'remote', source: 'cloud', allow: true, url: 'https://remote.example/snapshot' }
-  const jsSummary = await readConnectorSnapshot(config, root)
-  const tsSummary = await loadTypeScriptAgentTeamApi().readConnectorSnapshot(config, root)
-  assert.deepEqual(tsSummary, jsSummary)
-})
 
 test('local connector reflects runtime state and reports dead processes offline', async () => {
   const { root } = createConnectorWorkspace({

@@ -5,8 +5,11 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { getCurrentUser, isAuthorizedRequest } from '@/lib/auth'
+import { computeDigest, readSeen, runsToNotify, snapshot, writeSeen, type Digest, type DigestInput } from '@/lib/dashboard-digest'
+import { isPushConfigured, sendToUser } from '@/lib/push'
 import { getCPU, getRAM, getDisk, getBattery, type MetricStat, type BatteryStat } from '@/lib/system-info'
+import { createSwrCache } from '@/lib/swr-cache'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,6 +27,7 @@ interface DashboardIssue {
 }
 
 interface DashboardRun {
+  id: string
   icon: string
   name: string
   branch: string
@@ -96,11 +100,14 @@ interface DashboardData {
   activity: string[]
   version: string
   timestamp: string
+  panelsFetchedAt: string
+  panelsCached: boolean
   system: DashboardSystem
   services: DashboardService[]
   ai: DashboardAI
   audit: DashboardAuditEntry[]
   warnings: string[]
+  digest: Digest | null
   error?: string
 }
 
@@ -149,6 +156,7 @@ function parseRuns(raw: string): DashboardRun[] {
       conclusion: string
       updatedAt: string
       headBranch: string
+      databaseId?: number
     }>
     return runs.map(run => {
       const icon =
@@ -160,6 +168,7 @@ function parseRuns(raw: string): DashboardRun[] {
               ? '🔄'
               : '⚪'
       return {
+        id: run.databaseId ? String(run.databaseId) : `${run.name ?? ''}:${run.headBranch ?? ''}:${run.updatedAt ?? ''}`,
         icon,
         name: (run.name ?? '').substring(0, 28),
         branch: (run.headBranch ?? '').substring(0, 18),
@@ -197,14 +206,12 @@ function parsePRs(raw: string): DashboardPR[] {
   }
 }
 
-function parseReleases(raw: string, dateRaw: string): DashboardRelease[] {
-  const tags = raw.split('\n').filter(Boolean)
-  const dates = dateRaw.split('\n').filter(Boolean)
-  return tags.slice(0, 8).map((tag, index) => ({
-    tag,
-    date: (dates[index] ?? '').substring(0, 10),
-    msg: 'Release',
-  }))
+/** `git for-each-ref` lines: "<tag> <YYYY-MM-DD>". */
+function parseReleases(raw: string): DashboardRelease[] {
+  return raw.split('\n').filter(Boolean).slice(0, 8).map(line => {
+    const [tag, date = ''] = line.trim().split(/\s+/)
+    return { tag, date: date.substring(0, 10), msg: 'Release' }
+  })
 }
 
 function parseActivity(raw: string): string[] {
@@ -292,6 +299,74 @@ function readEnvLocal(): Record<string, string> {
   }
 }
 
+// ── GitHub + git panels: stale-while-revalidate cache ──────────────────────
+// Every dashboard load (and its 60 s auto-refresh) used to spawn ~9 git/gh
+// processes and make 3 GitHub API calls. Serve the cached copy straight away
+// and refresh it in the background once it is older than PANELS_TTL_MS;
+// ?refresh=1 (the dashboard's refresh button) waits for a fresh copy.
+const PANELS_TTL_MS = 60_000
+
+interface PanelsRaw {
+  activityRaw: string
+  tagsRaw: string
+  issuesRaw: string
+  runsRaw: string
+  prsRaw: string
+}
+
+const panelsCache = createSwrCache<PanelsRaw>(PANELS_TTL_MS)
+
+async function fetchPanels(githubEnabled: boolean, ghEnv: NodeJS.ProcessEnv): Promise<PanelsRaw> {
+  const [activityRaw, tagsRaw, issuesRaw, runsRaw, prsRaw] = await Promise.all([
+    runCommand('git log --oneline -20 --no-merges 2>/dev/null'),
+    // One process for tags + dates (was: one `git log` per tag through xargs)
+    runCommand("git for-each-ref --sort=-version:refname --count=8 --format='%(refname:short) %(creatordate:short)' refs/tags 2>/dev/null"),
+    githubEnabled
+      ? runCommand('gh issue list --assignee @me --json number,title,labels,state,updatedAt --limit 15 2>/dev/null', ghEnv)
+      : Promise.resolve(''),
+    githubEnabled
+      ? runCommand('gh run list --limit 12 --json name,status,conclusion,updatedAt,headBranch,databaseId 2>/dev/null', ghEnv)
+      : Promise.resolve(''),
+    githubEnabled
+      ? runCommand('gh pr list --json number,title,author,reviewDecision --limit 12 2>/dev/null', ghEnv)
+      : Promise.resolve(''),
+  ])
+  return { activityRaw, tagsRaw, issuesRaw, runsRaw, prsRaw }
+}
+
+function digestInput(panels: PanelsRaw): DigestInput {
+  return {
+    runs: parseRuns(panels.runsRaw),
+    prs: parsePRs(panels.prsRaw),
+    releases: parseReleases(panels.tagsRaw),
+  }
+}
+
+/**
+ * "Since you were away": compare the current panels with what this user last
+ * dismissed. The first visit records a baseline. New CI failures are pushed
+ * once per run when push is configured (fire-and-forget).
+ */
+async function buildDigest(username: string, input: DigestInput): Promise<Digest> {
+  const seen = await readSeen(username)
+  if (!seen) {
+    await writeSeen(username, snapshot(input, null)).catch(() => {})
+    return computeDigest(null, input)
+  }
+  const toNotify = runsToNotify(seen, input)
+  if (toNotify.length && isPushConfigured()) {
+    const names = toNotify.map(r => `${r.name} (${r.branch})`).slice(0, 3).join(', ')
+    void sendToUser(username, {
+      title: `CI failed: ${toNotify.length} run${toNotify.length === 1 ? '' : 's'}`,
+      body: names,
+      tag: 'dashboard-ci-failure',
+      url: '/dashboard',
+    }).catch(() => {})
+    await writeSeen(username, { ...seen, notifiedRuns: [...seen.notifiedRuns, ...toNotify.map(r => r.id)].slice(-200) }).catch(() => {})
+  }
+  return computeDigest(seen, input)
+}
+
 export async function GET(req: NextRequest) {
   const hostedBlock = hostedGuard(req)
   if (hostedBlock) return hostedBlock
@@ -314,10 +389,11 @@ export async function GET(req: NextRequest) {
   const githubEnabled = Boolean(process.env.GITHUB_TOKEN)
   const ghEnv = githubEnabled ? { ...process.env, GH_TOKEN: process.env.GITHUB_TOKEN } : process.env
 
-  // Everything below is independent I/O, so run it all at once: the three gh
-  // calls used to run one after another after the rest, each with a 12 s
-  // timeout, which put up to ~36 s on top of every dashboard load.
-  const [bridgeHealth, ollamaHealth, activityRaw, tagsRaw, tagDatesRaw, issuesRaw, runsRaw, prsRaw] = await Promise.all([
+  const refresh = req.nextUrl?.searchParams.get('refresh') === '1'
+
+  // Everything below is independent I/O, so run it all at once. The git/gh
+  // panels come from the stale-while-revalidate cache above.
+  const [bridgeHealth, ollamaHealth, panels] = await Promise.all([
     checkUrl('http://localhost:4747/health', 1500),
     fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1500) })
       .then(async res => ({
@@ -326,19 +402,12 @@ export async function GET(req: NextRequest) {
         models: res.ok ? ((await res.json()) as { models?: Array<{ name: string }> }).models ?? [] : [],
       }))
       .catch(() => ({ ok: false, status: undefined, models: [] as Array<{ name: string }> })),
-    runCommand('git log --oneline -20 --no-merges 2>/dev/null'),
-    runCommand('git tag -l --sort=-version:refname 2>/dev/null | head -8'),
-    runCommand("git tag -l --sort=-version:refname 2>/dev/null | head -8 | xargs -I{} git log -1 --format=%ai {} 2>/dev/null | cut -c1-10"),
-    githubEnabled
-      ? runCommand('gh issue list --assignee @me --json number,title,labels,state,updatedAt --limit 15 2>/dev/null', ghEnv)
-      : Promise.resolve(''),
-    githubEnabled
-      ? runCommand('gh run list --limit 12 --json name,status,conclusion,updatedAt,headBranch 2>/dev/null', ghEnv)
-      : Promise.resolve(''),
-    githubEnabled
-      ? runCommand('gh pr list --json number,title,author,reviewDecision --limit 12 2>/dev/null', ghEnv)
-      : Promise.resolve(''),
+    panelsCache.get(githubEnabled ? 'gh' : 'local', () => fetchPanels(githubEnabled, ghEnv), refresh),
   ])
+  const { activityRaw, tagsRaw, issuesRaw, runsRaw, prsRaw } = panels.value
+
+  const user = await getCurrentUser(req).catch(() => null)
+  const digest = user ? await buildDigest(user.username, digestInput(panels.value)).catch(() => null) : null
 
   const ollamaModels = ollamaHealth.models.map(model => model.name)
   const fishAudio = Boolean(process.env.FISH_AUDIO_API_KEY || envLocal.FISH_AUDIO_API_KEY)
@@ -384,10 +453,12 @@ export async function GET(req: NextRequest) {
     issues: parseIssues(issuesRaw),
     runs: parseRuns(runsRaw),
     prs: parsePRs(prsRaw),
-    releases: parseReleases(tagsRaw, tagDatesRaw),
+    releases: parseReleases(tagsRaw),
     activity: parseActivity(activityRaw),
     version,
     timestamp: new Date().toISOString(),
+    panelsFetchedAt: new Date(panels.fetchedAt).toISOString(),
+    panelsCached: panels.cached,
     system: {
       cpu: getCPU(),
       ram: getRAM(),
@@ -414,7 +485,30 @@ export async function GET(req: NextRequest) {
     },
     audit: readRecentAudit(),
     warnings,
+    digest,
   }
 
   return NextResponse.json(data)
+}
+
+/**
+ * POST { action: 'seen' } — dismiss the "since you were away" digest: record
+ * the panels as they are now (from the cache) as this user's baseline.
+ */
+export async function POST(req: NextRequest) {
+  const hostedBlock = hostedGuard(req)
+  if (hostedBlock) return hostedBlock
+  const user = await getCurrentUser(req)
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json().catch(() => null) as { action?: string } | null
+  if (body?.action !== 'seen') return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+
+  const githubEnabled = Boolean(process.env.GITHUB_TOKEN)
+  const ghEnv = githubEnabled ? { ...process.env, GH_TOKEN: process.env.GITHUB_TOKEN } : process.env
+  const panels = await panelsCache.get(githubEnabled ? 'gh' : 'local', () => fetchPanels(githubEnabled, ghEnv))
+  const input = digestInput(panels.value)
+  const previous = await readSeen(user.username)
+  await writeSeen(user.username, snapshot(input, previous))
+  return NextResponse.json({ ok: true, digest: computeDigest(snapshot(input, previous), input) })
 }

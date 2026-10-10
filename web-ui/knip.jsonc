@@ -20,22 +20,6 @@
     // voice UI quick actions). Both are live, just for different
     // consumers/runtimes.
     "lib/quick-actions.ts",
-    // Same .js/.ts twin pattern as quick-actions, twice over: knip
-    // resolves `@/lib/agent-team-api` to the CommonJS `.js` twin, so it
-    // never sees the `.ts` twin's importers and reports the `.ts` as
-    // orphaned. Both twins are live and both are covered by tests —
-    //   .ts  → app/api/agents/route.ts, app/api/agents/templates/route.ts,
-    //          app/api/snippets/route.ts, app/agents/builder/**, and
-    //          test/agent-team-api.test.js (which requires the .js)
-    //   .js  → test/agent-team-api.test.js via require('../lib/agent-team-api.js')
-    // Verified: moving lib/agent-team-api.js aside makes this .ts drop
-    // off the report, which proves the mask rather than deadness.
-    "lib/agent-team-api.ts",
-    // Same twin pattern; `app/api/agents/templates/route.ts` imports the
-    // `.ts` through `@/lib/agent-workflow-templates`, while
-    // test/agent-workflow-templates{,-api}.test.js require the `.js`
-    // directly. Verified the same way.
-    "lib/agent-workflow-templates.ts",
     // Loaded by test/command-palette-access.test.js, which passes the
     // path as a *string* to the a11y harness (renderPage(FIXTURE, ...)).
     // It is a real React page (wraps CommandPalette in AccessProvider),

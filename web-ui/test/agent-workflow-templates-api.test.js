@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const Module = require('node:module')
 const path = require('node:path')
 const ts = require('typescript')
-const { AgentWorkflowTemplateError } = require('../lib/agent-workflow-templates.js')
+const { AgentWorkflowTemplateError } = require('./load-ts').loadTs('lib/agent-workflow-templates.ts')
 
 const routePath = path.resolve(__dirname, '../app/api/agents/templates/route.ts')
 const routeSource = fs.readFileSync(routePath, 'utf8')

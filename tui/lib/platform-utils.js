@@ -60,25 +60,41 @@ function crossPlatformCopy(text) {
 }
 
 /**
- * Cross-platform URL opener
- * @param {string} url - URL to open
+ * Build the argv used to open a URL in the default browser, without a shell.
+ * Only http(s) URLs are accepted, so a value read from user input or config
+ * cannot be turned into a local file, app launch or shell command.
+ * @param {string} url
+ * @param {string} [platform]
+ * @returns {{cmd: string, args: string[]} | null}
+ */
+function openCommandFor(url, platform = process.platform) {
+  let parsed;
+  try {
+    parsed = new URL(String(url));
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  const href = parsed.href;
+  if (platform === 'darwin') return { cmd: 'open', args: [href] };
+  // rundll32 takes the URL as a plain argument; `cmd /c start` would parse
+  // `&`, `|` and `^` in the URL as shell syntax.
+  if (platform === 'win32') return { cmd: 'rundll32', args: ['url.dll,FileProtocolHandler', href] };
+  return { cmd: 'xdg-open', args: [href] };
+}
+
+/**
+ * Cross-platform URL opener (argv-based, no shell interpolation)
+ * @param {string} url - http(s) URL to open
  * @returns {boolean} - Success status
  */
 function crossPlatformOpen(url) {
+  const command = openCommandFor(url);
+  if (!command) return false;
   try {
-    if (process.platform === 'darwin') {
-      // macOS
-      const open = spawnSync('open', [url]);
-      return open.status === 0 || open.status === null;
-    } else if (process.platform === 'win32') {
-      // Windows
-      const start = spawnSync('cmd', ['/c', 'start', '', url], { shell: true });
-      return start.status === 0 || start.status === null;
-    } else {
-      // Linux and other Unix-like
-      const xdgOpen = spawnSync('xdg-open', [url]);
-      return xdgOpen.status === 0 || xdgOpen.status === null;
-    }
+    const result = spawnSync(command.cmd, command.args, { stdio: 'ignore', timeout: 10_000, windowsHide: true });
+    if (result.error) return false;
+    return result.status === 0 || result.status === null;
   } catch (error) {
     console.warn('URL open failed:', error.message);
     return false;
@@ -512,6 +528,7 @@ function crossPlatformCapOpen(platform) {
 export {
   crossPlatformCopy,
   crossPlatformOpen,
+  openCommandFor,
   crossPlatformAlert,
   getLocalIP,
   crossPlatformSysInfo,
