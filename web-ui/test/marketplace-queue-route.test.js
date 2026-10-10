@@ -71,7 +71,18 @@ try {
 
 test.after(() => fs.rmSync(home, { recursive: true, force: true }))
 
-const post = body => route.POST({ json: async () => body })
+const ORIGIN = 'http://localhost:3001'
+// origin null = no Origin header
+const request = (json, origin = ORIGIN) => ({ json, headers: { get: name => (name === 'origin' ? origin : null) }, nextUrl: { origin: ORIGIN } })
+const post = (body, origin) => route.POST(request(async () => body, origin))
+
+test('queue changes from another origin, or without an Origin header, are refused before anything runs', async () => {
+  for (const origin of ['http://localhost:5173', 'https://evil.example', null]) {
+    const res = await post({ action: 'install', id: 'gitleaks', consent: { approved: true, command: 'echo gitleaks' } }, origin)
+    assert.equal(res.status, 403, String(origin))
+  }
+  assert.equal(spawned.length, 0)
+})
 
 test('hosted mode and users without the terminal permission are refused', async () => {
   hosted = new FakeResponse({ error: 'hosted' }, 403)
@@ -130,5 +141,5 @@ test('a failed install stays queued with its output', async () => {
 
 test('invalid bodies are rejected', async () => {
   assert.equal((await post({ action: 'install-all' })).status, 400)
-  assert.equal((await route.POST({ json: async () => { throw new Error('bad') } })).status, 400)
+  assert.equal((await route.POST(request(async () => { throw new Error('bad') }))).status, 400)
 })

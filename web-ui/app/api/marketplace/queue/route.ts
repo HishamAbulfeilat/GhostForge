@@ -93,6 +93,11 @@ export async function POST(req: NextRequest) {
   if (hostedBlock) return hostedBlock
   const access = await requirePermission(req, 'terminal')
   if (access instanceof NextResponse) return access
+  // Installs run host commands: refuse anything but a same-origin browser request.
+  // SameSite cookies don't cover other apps on another localhost port (same site).
+  if (req.headers.get('origin') !== req.nextUrl.origin) {
+    return NextResponse.json({ error: 'Marketplace queue changes require a same-origin request.' }, { status: 403 })
+  }
 
   let body: { action?: string; id?: string; consent?: { approved?: boolean; command?: string; authorized?: boolean } }
   try {
