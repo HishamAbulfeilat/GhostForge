@@ -4,11 +4,13 @@ import { answerQuestions, approveJob, dismissJob, generatorFor, getProfile, list
 import { addJobByUrl, connectLinkedIn, disconnectLinkedIn } from '@/lib/job-hunter/intake'
 import { keyedSources } from '@/lib/job-hunter/sources'
 import { runAutopilot, startAutopilotScheduler, submittedToday } from '@/lib/job-hunter/autopilot'
+import { cancelApplyBatch, getApplyBatch, runApplyBatch, startApplyBatch } from '@/lib/job-hunter/batch'
+import { startFollowUpReminders, updatePipeline } from '@/lib/job-hunter/pipeline'
 import { hostedUnavailableResponse, isHostedMode } from '@/lib/hosted'
 import { runWithAIUser } from '@/lib/providers'
 
 // Hosted mode: no browser automation on the host (form filling, LinkedIn sign-in)
-const HOSTED_BLOCKED_ACTIONS = new Set(['approve', 'autopilot', 'answer', 'linkedin-connect', 'linkedin-disconnect'])
+const HOSTED_BLOCKED_ACTIONS = new Set(['approve', 'batch-apply', 'batch-cancel', 'autopilot', 'answer', 'linkedin-connect', 'linkedin-disconnect'])
 
 export const dynamic = 'force-dynamic'
 // Searching, tailoring and form filling can take a few minutes
@@ -19,8 +21,10 @@ export async function GET(req: NextRequest) {
   const user = await requirePermission(req, 'job_hunter')
   if (user instanceof NextResponse) return user
   // Idempotent: makes sure autopilot runs even if instrumentation didn't start it
-  if (!isHostedMode()) startAutopilotScheduler()
-  const [jobs, profile] = await Promise.all([listJobs(user.username), getProfile(user.username)])
+  if (!isHostedMode()) { startAutopilotScheduler(); startFollowUpReminders() }
+  const [jobs, profile, batch] = await Promise.all([listJobs(user.username), getProfile(user.username), getApplyBatch(user.username)])
+  // A confirmed batch keeps going on the server; restart its worker if this server was restarted
+  if (!isHostedMode() && batch?.state === 'running') void runApplyBatch(user.username)
   return NextResponse.json({
     jobs: jobs.filter(j => j.status !== 'dismissed').sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
     ready: { hasCv: Boolean(profile.cv), missing: missingApplicantFields(profile), titles: profile.preferences.titles },
@@ -28,6 +32,7 @@ export async function GET(req: NextRequest) {
     autopilot: { ...profile.autopilot, submittedToday: submittedToday(profile.autopilot) },
     linkedin: { connected: Boolean(profile.linkedin?.connectedAt), connectedAt: profile.linkedin?.connectedAt || null },
     sources: { linkedInViaJSearch: keyedSources().jsearch, keyed: keyedSources() },
+    batch,
   })
 }
 
@@ -36,6 +41,11 @@ export async function GET(req: NextRequest) {
  *   search   run the pipeline (sources → match → score → auto-prepare top fits)
  *   prepare  tailor CV + cover letter for one job
  *   approve  fill (and where safe, submit) the application — the user's one click
+ *   batch-apply  { items: [{ id, confirmResubmit? }] } — queue the reviewed, confirmed
+ *            applications; the server applies to them one at a time, even after the tab closes
+ *   batch-cancel  stop the batch after the application in progress
+ *   pipeline { id, stage?, followUpAt?, followUpInDays?, notes? } — track a sent application
+ *            (applied/screening/interview/offer/rejected); entered by hand, no mailbox reading
  *   dismiss  hide a job
  *   answer   { id, answers: { label: value } } — answer the questions an application stopped on
  *   add-url  { url } — add any job by link (LinkedIn, careers page, ATS)
@@ -45,7 +55,7 @@ export async function POST(req: NextRequest) {
   const user = await requirePermission(req, 'job_hunter')
   if (user instanceof NextResponse) return user
 
-  let body: { action?: string; id?: string; terms?: string[]; autoPrepare?: number; answers?: Record<string, string>; url?: string }
+  let body: JobAction
   try {
     body = await req.json()
   } catch {
@@ -57,7 +67,13 @@ export async function POST(req: NextRequest) {
   return runWithAIUser(user.id, () => runAction(user.username, body))
 }
 
-async function runAction(username: string, body: { action?: string; id?: string; terms?: string[]; autoPrepare?: number; answers?: Record<string, string>; url?: string; confirmResubmit?: boolean }) {
+type JobAction = {
+  action?: string; id?: string; terms?: string[]; autoPrepare?: number; answers?: Record<string, string>; url?: string
+  confirmResubmit?: boolean; items?: Array<{ id?: unknown; confirmResubmit?: unknown }>
+  stage?: unknown; followUpAt?: unknown; followUpInDays?: unknown; notes?: unknown
+}
+
+async function runAction(username: string, body: JobAction) {
   const user = { username }
   try {
     switch (body.action) {
@@ -72,6 +88,18 @@ async function runAction(username: string, body: { action?: string; id?: string;
       case 'approve':
         if (!body.id) return NextResponse.json({ error: 'Job id required' }, { status: 400 })
         return NextResponse.json(await approveJob(user.username, body.id, { confirmResubmit: body.confirmResubmit === true }))
+      case 'batch-apply': {
+        if (!Array.isArray(body.items)) return NextResponse.json({ error: 'items required' }, { status: 400 })
+        const items = body.items.map(item => ({ id: String(item?.id ?? ''), confirmResubmit: item?.confirmResubmit === true }))
+        return NextResponse.json({ batch: await startApplyBatch(user.username, items) })
+      }
+      case 'pipeline': {
+        if (!body.id) return NextResponse.json({ error: 'Job id required' }, { status: 400 })
+        const { stage, followUpAt, followUpInDays, notes } = body
+        return NextResponse.json({ job: await updatePipeline(user.username, String(body.id), { stage, followUpAt, followUpInDays, notes }) })
+      }
+      case 'batch-cancel':
+        return NextResponse.json({ batch: await cancelApplyBatch(user.username) })
       case 'autopilot':
         // "Run now": one full autopilot pass, even if not due (or switched off)
         return NextResponse.json({ report: await runAutopilot(user.username, { force: true }) })

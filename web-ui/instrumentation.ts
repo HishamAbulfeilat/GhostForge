@@ -17,6 +17,13 @@ export async function register() {
     } else {
       const { startAutopilotScheduler } = await import('./lib/job-hunter/autopilot')
       startAutopilotScheduler()
+      // Confirmed batch applications continue after a restart
+      if (process.env.NODE_ENV !== 'test') {
+        const { resumeApplyBatches } = await import('./lib/job-hunter/batch')
+        void resumeApplyBatches().catch(() => {})
+        const { startFollowUpReminders } = await import('./lib/job-hunter/pipeline')
+        startFollowUpReminders()
+      }
     }
   }
 }

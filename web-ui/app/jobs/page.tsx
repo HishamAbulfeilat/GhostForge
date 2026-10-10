@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ApplicantData, AutopilotSettings, JobPreferences, JobRecord, ModelChoice } from '@/lib/job-hunter/store'
 import { CvImprover } from '@/components/career/CvImprover'
 import { GithubProfileSetup } from '@/components/career/GithubProfileSetup'
+import { ApplicationPipeline, PipelineBadges, followUpDue } from '@/components/jobs/ApplicationPipeline'
 import type { ApplicationActivity } from '@/lib/job-hunter/live'
 import type { AccountMode } from '@/lib/job-hunter/accounts'
+import type { ApplyBatch } from '@/lib/job-hunter/batch'
 
 // Layout and tokens follow the "GhostForge Job Hunter & Setup" Claude Design canvas.
 
@@ -83,6 +85,9 @@ export default function JobsPage() {
   const [batchReview, setBatchReview] = useState(false)
   const [batchProgress, setBatchProgress] = useState('')
   const [batchResults, setBatchResults] = useState<Array<{ id: string; title: string; status: string; message: string }>>([])
+  // Confirmed applications run on the server (lib/job-hunter/batch.ts), so they continue after this tab closes
+  const [serverBatch, setServerBatch] = useState<ApplyBatch | null>(null)
+  const [batchResubmit, setBatchResubmit] = useState<Record<string, boolean>>({})
   const fileRef = useRef<HTMLInputElement>(null)
   const operationRef = useRef(false)
 
@@ -104,10 +109,11 @@ export default function JobsPage() {
 
   const load = useCallback(async () => {
     const [j, p] = await Promise.all([
-      api<{ jobs: JobRecord[]; sources: { linkedInViaJSearch: boolean; keyed?: { jsearch: boolean; adzuna: boolean; usajobs: boolean; reed: boolean } }; model: ModelChoice | null; autopilot: AutopilotSettings & { submittedToday: number }; linkedin?: { connected: boolean; connectedAt: string | null } }>('/api/jobs'),
+      api<{ jobs: JobRecord[]; sources: { linkedInViaJSearch: boolean; keyed?: { jsearch: boolean; adzuna: boolean; usajobs: boolean; reed: boolean } }; model: ModelChoice | null; autopilot: AutopilotSettings & { submittedToday: number }; linkedin?: { connected: boolean; connectedAt: string | null }; batch?: ApplyBatch | null }>('/api/jobs'),
       api<{ profile: ProfileView }>('/api/jobs/profile'),
     ])
     setJobs(j.jobs)
+    setServerBatch(j.batch ?? null)
     setJsearch(j.sources.linkedInViaJSearch)
     setKeyed(j.sources.keyed || null)
     setModel(j.model)
@@ -209,18 +215,21 @@ export default function JobsPage() {
     setBatchReview(false)
     setBatchIds(ids => ids.includes(id) ? ids.filter(value => value !== id) : [...ids, id])
   }
-  const runBatch = (action: 'prepare' | 'approve') => run(`batch:${action}`, async () => {
-    if (!batchJobs.length || (action === 'approve' && !batchCanApply)) throw new Error('Prepare all selected jobs before confirming applications.')
+  // Jobs whose Submit was pressed before need their own "it was not sent" tick (as in a single review)
+  const batchNeedsResubmit = batchJobs.filter(job => job.submitPressedAt && !batchResubmit[job.id])
+  const serverBatchRunning = serverBatch?.state === 'running'
+  const prepareBatch = () => run('batch:prepare', async () => {
+    if (!batchJobs.length) throw new Error('Select jobs to prepare.')
     const queue = [...batchJobs]
     setBatchReview(false)
     setBatchResults([])
     const results: Array<{ id: string; title: string; status: string; message: string }> = []
     // One persistent browser profile and anonymous-model quota serve the whole batch.
     for (const [index, job] of queue.entries()) {
-      setBatchProgress(`${action === 'prepare' ? 'Preparing' : 'Applying'} ${index + 1}/${queue.length}: ${job.title} at ${job.company}`)
+      setBatchProgress(`Preparing ${index + 1}/${queue.length}: ${job.title} at ${job.company}`)
       try {
         const result = await api<{ job: JobRecord; message?: string }>('/api/jobs', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id: job.id }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'prepare', id: job.id }),
         })
         results.push({ id: job.id, title: `${job.title} at ${job.company}`, status: result.job.status,
           message: result.message || result.job.preparationWarning || 'Prepared for review; not submitted.' })
@@ -232,12 +241,30 @@ export default function JobsPage() {
     }
     setBatchProgress('')
     await load()
-    setBatchIds(action === 'prepare' ? queue.map(job => job.id) : [])
+    setBatchIds(queue.map(job => job.id))
     const failed = results.filter(result => result.status === 'failed').length
-    const submitted = results.filter(result => result.status === 'submitted').length
-    setNotice({ tone: failed ? 'error' : 'info', text: action === 'prepare'
-      ? `Preparation finished: ${results.length - failed} prepared, ${failed} failed. Review the materials before applying.`
-      : `Batch finished: ${submitted} submitted, ${results.filter(result => result.status === 'needs_user').length} need you, ${failed} failed. See each result below.` })
+    setNotice({ tone: failed ? 'error' : 'info', text: `Preparation finished: ${results.length - failed} prepared, ${failed} failed. Review the materials before applying.` })
+  })
+  const confirmBatch = () => run('batch:approve', async () => {
+    if (!batchCanApply) throw new Error('Prepare all selected jobs before confirming applications.')
+    if (batchNeedsResubmit.length) throw new Error('Confirm or remove the applications whose Submit was already pressed.')
+    const { batch } = await api<{ batch: ApplyBatch }>('/api/jobs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'batch-apply', items: batchJobs.map(job => ({ id: job.id, ...(job.submitPressedAt && batchResubmit[job.id] ? { confirmResubmit: true } : {}) })) }),
+    })
+    setServerBatch(batch)
+    setBatchReview(false)
+    setBatchResults([])
+    setBatchIds([])
+    setBatchResubmit({})
+    await load()
+    setNotice({ tone: 'info', text: `Applying to ${batch.items.length} confirmed ${batch.items.length === 1 ? 'job' : 'jobs'} on the server, one at a time. You can close this page; progress and results appear here.` })
+  })
+  const cancelServerBatch = () => run('batch:cancel', async () => {
+    const { batch } = await api<{ batch: ApplyBatch | null }>('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'batch-cancel' }) })
+    setServerBatch(batch)
+    await load()
+    setNotice({ tone: 'info', text: 'Batch cancelled. An application already in progress finishes; the rest are not started.' })
   })
 
   const answer = (id: string, answers: Record<string, string>) => run(`answer:${id}`, async () => {
@@ -296,6 +323,8 @@ export default function JobsPage() {
     applied: jobs.filter(j => j.status === 'submitted'),
   }), [jobs])
 
+  const followUps = lists.applied.filter(followUpDue).length
+
   const stats = [
     { label: 'Matches in your locations', value: lists.all.length, tone: 'text-gf-ink' },
     { label: 'Waiting for your approval', value: jobs.filter(j => j.status === 'ready').length, tone: 'text-gf-accent-ink' },
@@ -331,7 +360,8 @@ export default function JobsPage() {
         <GithubProfileSetup />
       ) : job ? (
         <Review job={job} busy={busy} onBack={() => setSelected(null)} onAnswer={answers => void answer(job.id, answers)}
-          onApprove={confirmResubmit => void act('approve', job.id, confirmResubmit ? { confirmResubmit } : {})} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)} />
+          onApprove={confirmResubmit => void act('approve', job.id, confirmResubmit ? { confirmResubmit } : {})} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)}
+          onPipelineSaved={() => void load().catch(() => {})} />
       ) : (
         <div className="grid gap-6 px-4 py-6 lg:grid-cols-[400px_minmax(0,1fr)] lg:px-8 lg:py-7">
           <aside className="flex flex-col gap-4">
@@ -463,10 +493,10 @@ export default function JobsPage() {
 
             <section aria-label="Multiple job applications" className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-5">
               <h2 className="font-display text-base font-semibold">Apply to multiple jobs</h2>
-              <p className="text-sm text-gf-muted">Select jobs below. Prepare selected jobs first, then review the exact applications and explicitly confirm. Jobs run one at a time. Keep this page open until the batch finishes.</p>
+              <p className="text-sm text-gf-muted">Select jobs below. Prepare selected jobs first (keep this page open while preparing), then review the exact applications and explicitly confirm. Confirmed applications run on the server one at a time and continue if you close this page.</p>
               <div className="flex flex-wrap gap-3">
                 <span className="self-center text-sm">{batchJobs.length} selected</span>
-                <button type="button" disabled={Boolean(busy) || !batchJobs.length} onClick={() => void runBatch('prepare')}
+                <button type="button" disabled={Boolean(busy) || !batchJobs.length} onClick={() => void prepareBatch()}
                   className="min-h-11 rounded-xl border border-gf-line2 px-4 text-sm disabled:opacity-60">Prepare / retry AI for selected</button>
                 <button type="button" disabled={Boolean(busy) || !batchCanApply} onClick={() => setBatchReview(true)}
                   className="min-h-11 rounded-xl bg-gf-accent px-4 text-sm font-semibold text-gf-bg disabled:opacity-60">Review selected applications</button>
@@ -480,8 +510,18 @@ export default function JobsPage() {
                   <p className="text-sm">Confirmation authorizes submission for exactly the jobs listed below. Captchas, sign-ins and unknown answers still stop for you. Review each CV, letter and answers, including any non-AI draft warnings.</p>
                   {batchJobs.map(job => (
                     <details key={job.id} className="rounded-lg border border-gf-line p-3">
-                      <summary className="cursor-pointer text-sm font-semibold">{job.title} at {job.company} · {job.location || 'Location not provided'}{job.preparationWarning ? ' · Non-AI draft: review required' : ''}</summary>
+                      <summary className="cursor-pointer text-sm font-semibold">{job.title} at {job.company} · {job.location || 'Location not provided'}{job.preparationWarning ? ' · Non-AI draft: review required' : ''}{job.submitPressedAt ? ' · Submit already pressed: confirm below' : ''}</summary>
                       {job.preparationWarning && <p className="my-3 text-sm text-gf-warn">{job.preparationWarning}</p>}
+                      {job.submitPressedAt && (
+                        <div className="my-3 flex flex-col gap-2 text-sm text-gf-warn">
+                          <span>Submit was already pressed for this application on {postingDate(job.submitPressedAt)}, so it may have been sent. Check your email or the website before applying again.</span>
+                          <label className="flex items-center gap-2 text-slate-200">
+                            <input type="checkbox" checked={Boolean(batchResubmit[job.id])} onChange={e => setBatchResubmit(v => ({ ...v, [job.id]: e.target.checked }))} className="size-4"
+                              aria-label={`I checked: ${job.title} at ${job.company} was not sent. Fill and submit it again.`} />
+                            I checked: it was not sent. Fill and submit it again.
+                          </label>
+                        </div>
+                      )}
                       <p className="my-3 whitespace-pre-wrap break-words text-sm">{job.description || 'Description not provided'}</p>
                       <h4 className="mt-3 font-semibold">{job.preparationWarning ? 'Original CV' : 'Tailored CV'}</h4>
                       <pre className="whitespace-pre-wrap break-words text-sm">{job.tailoredResume}</pre>
@@ -492,17 +532,20 @@ export default function JobsPage() {
                     </details>
                   ))}
                   <div className="flex flex-wrap gap-3">
-                    <button type="button" disabled={Boolean(busy) || !batchCanApply} onClick={() => void runBatch('approve')}
+                    <button type="button" disabled={Boolean(busy) || !batchCanApply || batchNeedsResubmit.length > 0 || serverBatchRunning} onClick={() => void confirmBatch()}
                       className="min-h-11 rounded-xl bg-gf-accent px-4 text-sm font-semibold text-gf-bg disabled:opacity-60">Confirm & apply to {batchJobs.length} selected jobs</button>
                     <button type="button" onClick={() => setBatchReview(false)} className="min-h-11 px-3 text-sm">Cancel batch approval</button>
                   </div>
+                  {serverBatchRunning && <p className="text-sm text-gf-warn">A batch is still running. Wait for it to finish or cancel it before confirming another.</p>}
+                  {batchNeedsResubmit.length > 0 && <p className="text-sm text-gf-warn">Tick &quot;I checked: it was not sent&quot; for {batchNeedsResubmit.map(job => job.title).join(', ')}, or remove {batchNeedsResubmit.length === 1 ? 'it' : 'them'} from the selection.</p>}
                 </div>
               )}
               {batchResults.length > 0 && (
-                <ul aria-label="Batch application results" className="flex flex-col gap-2">
+                <ul aria-label="Batch preparation results" className="flex flex-col gap-2">
                   {batchResults.map(result => <li key={result.id} className="text-sm"><strong>{result.title}</strong> · {STATUS_VIEW[result.status]?.label || result.status}: {result.message}</li>)}
                 </ul>
               )}
+              {serverBatch && <BatchProgress batch={serverBatch} busy={busy} onCancel={() => void cancelServerBatch()} />}
             </section>
 
             <section className="flex min-h-0 flex-col rounded-2xl border border-gf-line bg-gf-surface">
@@ -515,7 +558,7 @@ export default function JobsPage() {
                     </button>
                   ))}
                 </div>
-                <span className="text-sm text-gf-muted">{tab === 'all' ? 'Sorted by fit' : 'Newest first'}</span>
+                <span className="text-sm text-gf-muted">{tab === 'all' ? 'Sorted by fit' : 'Newest first'}{tab === 'applied' && followUps ? ` · ${followUps} follow-up${followUps === 1 ? '' : 's'} due` : ''}</span>
               </div>
               {lists[tab].length === 0 ? (
                 <p className="px-5 py-10 text-center text-sm text-gf-muted">
@@ -548,6 +591,7 @@ export default function JobsPage() {
                             <span className="font-mono capitalize">{j.ats}</span>
                             <VerifyBadge job={j} />
                           </span>
+                          {j.pipeline && <PipelineBadges job={j} />}
                           {j.reasons && <span className="text-sm text-slate-300">{j.reasons}</span>}
                           {j.activity && <span className="text-sm text-sky-200">{j.activity.phase}: {j.activity.message}</span>}
                           {j.description && <span className="line-clamp-2 whitespace-pre-line text-sm text-gf-muted">{j.description}</span>}
@@ -616,9 +660,52 @@ function postingDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 10)
 }
 
-function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }: {
+const BATCH_ITEM_VIEW: Record<string, { label: string; style: string }> = {
+  queued:     { label: 'Queued',     style: 'text-gf-muted' },
+  running:    { label: 'Applying…',  style: 'text-sky-200' },
+  submitted:  { label: 'Applied',    style: 'text-gf-ok' },
+  needs_user: { label: 'Needs you',  style: 'text-gf-warn' },
+  failed:     { label: 'Failed',     style: 'text-red-300' },
+  skipped:    { label: 'Not sent',   style: 'text-gf-warn' },
+  cancelled:  { label: 'Cancelled',  style: 'text-gf-muted' },
+}
+
+/** Progress of the confirmed batch the server is working through (refreshed by the 10 s poll) */
+function BatchProgress({ batch, busy, onCancel }: { batch: ApplyBatch; busy: string; onCancel: () => void }) {
+  const running = batch.state === 'running'
+  const finished = batch.items.filter(i => !['queued', 'running'].includes(i.state)).length
+  const current = batch.items.find(i => i.state === 'running')
+  return (
+    <div role="region" aria-label="Batch applications on the server" className="flex flex-col gap-2 rounded-xl border border-gf-line p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-semibold">{running ? 'Applying on the server' : batch.state === 'cancelled' ? 'Last batch (cancelled)' : 'Last batch (finished)'}</h3>
+        {running && (
+          <button type="button" onClick={onCancel} disabled={Boolean(busy)} className="min-h-11 rounded-xl border border-gf-line2 px-4 text-sm disabled:opacity-60">Cancel remaining</button>
+        )}
+      </div>
+      <p role="status" className="text-sm text-sky-200">
+        {running
+          ? `${finished} of ${batch.items.length} done${current ? `. Applying to ${current.title} at ${current.company}` : ''}. You can close this page.`
+          : `${finished} of ${batch.items.length} handled.`}
+      </p>
+      <ul aria-label="Batch application results" className="flex flex-col gap-1.5">
+        {batch.items.map(item => {
+          const view = BATCH_ITEM_VIEW[item.state] || BATCH_ITEM_VIEW.queued
+          return (
+            <li key={item.id} className="break-words text-sm">
+              <strong>{item.title} at {item.company}</strong> · <span className={view.style}>{view.label}</span>{item.message && item.state !== 'running' ? `: ${item.message}` : ''}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
+function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer, onPipelineSaved }: {
   job: JobRecord; busy: string; onBack: () => void; onApprove: (confirmResubmit: boolean) => void; onPrepare: () => void; onDismiss: () => void
   onAnswer: (answers: Record<string, string>) => void
+  onPipelineSaved?: () => void
 }) {
   const sv = STATUS_VIEW[job.status] || STATUS_VIEW.found
   const prepared = Boolean(job.tailoredResume)
@@ -726,6 +813,8 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
           {job.preparationWarning}
         </div>
       )}
+
+      {job.status === 'submitted' && <ApplicationPipeline key={`pipeline-${job.id}`} job={job} disabled={Boolean(busy)} onSaved={onPipelineSaved} />}
 
       <ApplicationMonitor key={job.id} job={job} applying={approving} />
 

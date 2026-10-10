@@ -75,16 +75,40 @@ screen. Connect to your running GhostForge server and sign in or pair the
 device. CV storage, model requests and browser automation run on that server,
 not inside the Android APK.
 
+### After you apply
+
+Open an application in **Applied** to track what happens next under
+**After applying**: the stage (Applied, Screening, Interview, Offer,
+Rejected), a follow-up day and notes. **Follow up in 7 days** sets the day
+for you. On that day you get one reminder through the usual Job Hunter
+notifications (push when set up), and the job card shows **Follow up now**
+until you change the stage or the day. Offers and rejections get no
+reminders. Everything here is entered by you: GhostForge never reads your
+mailbox. Stage changes are kept in a short history and in the job's log.
+
 ## Ways in
 
 **Multiple jobs:** use the checkboxes in a job list, then **Prepare / retry AI
 for selected**. This only prepares; it never submits. After preparation, choose
 **Review selected applications**, inspect every CV/letter/answer and any
 non-AI warnings, then **Confirm & apply** to authorize those exact jobs.
-Applications run sequentially with individual submitted/needs-you/failed
-results, and one failure does not hide the others. Keep the page open until
-the batch finishes; it is not a durable background queue. No jobs are selected
-or approved automatically.
+A job whose Submit was already pressed needs its own "I checked: it was not
+sent" tick in that review.
+
+Confirmed applications run **on the server**, one at a time, so you can
+confirm ten applications from your phone and close the app. The queue is
+saved with your data and continues after a server restart. **Apply to multiple
+jobs** shows progress and each result (applied, needs you, failed, not sent)
+from any device, and each running job shows its live activity as usual.
+**Cancel remaining** stops the batch after the application in progress.
+Each job goes through the same checks as a single approval. A job is
+skipped, not sent, if its CV, letter or answers changed after you confirmed,
+if Submit was pressed for it after you confirmed, or if it is already being
+submitted. An application that was in progress when GhostForge stopped is
+handed to you to check, never re-run. Only one batch runs at a time. Preparing
+several jobs still runs in the page, so keep it open while preparing. No
+jobs are selected or approved automatically, autopilot never confirms a
+batch, and hosted mode refuses batches like any other application.
 
 - **Search.** Uses your target roles, locations and work style. LinkedIn
   results are included when LinkedIn is connected.
@@ -251,6 +275,26 @@ What autopilot does on its own, and what it leaves to you:
 Autopilot runs on the machine that hosts GhostForge. You don't have to sit at
 it: pair your phone (see [Remote access](REMOTE-ACCESS.md)) to check results,
 answer questions or take over a stuck application.
+
+## Where your data is stored
+
+Each user's Job Hunter data lives in `~/.ghostforge/jobs/<user>/`: the CV
+and settings in `profile.json`, and jobs with their application state in
+`jobs.db`, a SQLite database (Node's built-in `node:sqlite`, Node.js 22.13 or
+newer; no extra package). Each job is one row, so updating one application
+(for example a live log line) no longer rewrites every job, and two GhostForge
+server processes on the same folder can't lose each other's changes. Starting
+an operation on a job (prepare, apply, answer, dismiss) is refused while
+another process is running one on the same job; an operation left by a
+process that died is taken over.
+
+The first start after updating moves an existing `jobs.json` into `jobs.db`
+in one step and keeps the old file as `jobs.json.migrated-<time>.bak`. An
+unreadable `jobs.json` is kept as `jobs.json.unreadable-<time>.bak`. Nothing
+is deleted. On an older Node.js without `node:sqlite` (or with
+`JOB_HUNTER_STORE=json`), jobs stay in `jobs.json` as before; once `jobs.db`
+exists, that setup reports an error instead of showing an empty list. The
+Python bridge's `/api/jobs` reads and updates `jobs.db` too.
 
 Browser data, including the LinkedIn and Workday sign-ins, lives per user in
 `~/.ghostforge/jobs/<user>/browser`. Set `JOB_HUNTER_BROWSER` to use a

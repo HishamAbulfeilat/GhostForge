@@ -235,23 +235,33 @@ function batchRoutes(state) {
   const endpoints = routes({ job: baseJob, actions: [] })
   endpoints['/api/jobs'] = async (_url, init) => {
     if (init?.method === 'POST') {
-      const { action, id } = JSON.parse(init.body)
-      state.actions.push({ action, id })
+      const body = JSON.parse(init.body)
+      const { action, id } = body
+      state.actions.push(action.startsWith('batch-') ? { action, items: body.items } : { action, id })
       state.active++
       state.maxActive = Math.max(state.maxActive, state.active)
       await new Promise(resolve => setTimeout(resolve, 5))
+      state.active--
+      if (action === 'batch-apply') {
+        // The server queues the confirmed jobs; nothing is applied in the browser
+        state.batch = { id: 'b1', state: 'running', createdAt: '', updatedAt: '', worker: null,
+          items: body.items.map(item => { const job = state.jobs.find(j => j.id === item.id); return { id: job.id, title: job.title, company: job.company, materials: 'x', confirmResubmit: Boolean(item.confirmResubmit), state: 'queued' } }) }
+        return { batch: state.batch }
+      }
+      if (action === 'batch-cancel') {
+        state.batch = { ...state.batch, state: 'cancelled', items: state.batch.items.map(i => i.state === 'queued' ? { ...i, state: 'cancelled', message: 'Cancelled before it started' } : i) }
+        return { batch: state.batch }
+      }
       const job = state.jobs.find(item => item.id === id)
       if (action === 'prepare') Object.assign(job, { status: 'ready', tailoredResume: 'Original CV', coverLetter: 'Basic letter', preparationWarning: 'AI writing was unavailable. Review the original CV.' })
-      if (action === 'approve') job.status = id === 'job2' ? 'failed' : 'submitted'
-      state.active--
-      return { job, message: action === 'approve' ? id === 'job2' ? 'Synthetic browser failure' : 'Confirmed submission' : undefined }
+      return { job }
     }
-    return { jobs: state.jobs, sources: { linkedInViaJSearch: false }, model: null, autopilot: { enabled: false }, linkedin: { connected: false } }
+    return { jobs: state.jobs, sources: { linkedInViaJSearch: false }, model: null, autopilot: { enabled: false }, linkedin: { connected: false }, batch: state.batch || null }
   }
   return endpoints
 }
 
-test('multiple applications require exact selection and review confirmation, run sequentially and show each result', async () => {
+test('multiple applications require exact selection and review confirmation, then run on the server', async () => {
   const state = { jobs: [1, 2, 3].map(n => ({ ...baseJob, id: `job${n}`, title: `Engineer ${n}`, status: 'ready', tailoredResume: `CV ${n}`, coverLetter: `Letter ${n}`, preparationWarning: n === 2 ? 'Original-CV draft requires review' : '' })), actions: [], active: 0, maxActive: 0 }
   const page = await renderPage('jobs/page.tsx', batchRoutes(state))
   try {
@@ -268,15 +278,52 @@ test('multiple applications require exact selection and review confirmation, run
     assert.deepEqual(state.actions, [])
     await page.click(el => text(el) === 'Review selected applications')
     await page.click(el => text(el) === 'Confirm & apply to 2 selected jobs')
-    for (let i = 0; i < 10 && state.actions.length < 2; i++) await page.settle()
     await require('react').act(async () => { await new Promise(resolve => setTimeout(resolve, 40)) })
     await page.settle()
-    assert.deepEqual(state.actions, [{ action: 'approve', id: 'job1' }, { action: 'approve', id: 'job2' }])
-    assert.equal(state.maxActive, 1)
-    const results = page.document.querySelector('[aria-label="Batch application results"]')
-    assert.match(results.textContent, /Confirmed submission/)
-    assert.match(results.textContent, /Synthetic browser failure/)
-    assert.match(page.document.querySelector('[role="alert"]').textContent, /1 submitted.*1 failed/)
+    // One request hands exactly the confirmed jobs to the server queue; the tab never approves them itself
+    assert.deepEqual(state.actions, [{ action: 'batch-apply', items: [{ id: 'job1' }, { id: 'job2' }] }])
+    const progress = page.document.querySelector('[aria-label="Batch applications on the server"]')
+    assert.match(progress.textContent, /0 of 2 done.*You can close this page/)
+    assert.match(page.document.querySelector('[aria-label="Batch application results"]').textContent, /Engineer 1 at Acme · Queued/)
+    assert.match(page.document.body.textContent, /Applying to 2 confirmed jobs on the server, one at a time/)
+  } finally { await page.unmount() }
+})
+
+test('a batch running on the server shows its progress after the page is reopened, and can be cancelled', async () => {
+  const state = { jobs: [1, 2, 3].map(n => ({ ...baseJob, id: `job${n}`, title: `Engineer ${n}`, status: n === 1 ? 'submitted' : n === 2 ? 'submitting' : 'ready', tailoredResume: 'CV', coverLetter: 'Letter' })), actions: [], active: 0, maxActive: 0 }
+  state.batch = { id: 'b1', state: 'running', createdAt: '', updatedAt: '', worker: null, items: [
+    { id: 'job1', title: 'Engineer 1', company: 'Acme', materials: 'x', confirmResubmit: false, state: 'submitted', message: 'Confirmed submission' },
+    { id: 'job2', title: 'Engineer 2', company: 'Acme', materials: 'x', confirmResubmit: false, state: 'running', message: 'Applying' },
+    { id: 'job3', title: 'Engineer 3', company: 'Acme', materials: 'x', confirmResubmit: false, state: 'queued' },
+  ] }
+  const page = await renderPage('jobs/page.tsx', batchRoutes(state))
+  try {
+    const progress = page.document.querySelector('[aria-label="Batch applications on the server"]')
+    assert.match(progress.textContent, /1 of 3 done\. Applying to Engineer 2 at Acme/)
+    assert.match(progress.textContent, /Engineer 1 at Acme · Applied: Confirmed submission/)
+    await page.click(el => text(el) === 'Cancel remaining')
+    assert.deepEqual(state.actions.map(a => a.action), ['batch-cancel'])
+    assert.match(progress.textContent, /Last batch \(cancelled\)/)
+    assert.match(progress.textContent, /Engineer 3 at Acme · Cancelled/)
+  } finally { await page.unmount() }
+})
+
+test('batch confirmation needs a per-job "it was not sent" tick when Submit was already pressed', async () => {
+  const state = { jobs: [1, 2].map(n => ({ ...baseJob, id: `job${n}`, title: `Engineer ${n}`, status: n === 1 ? 'needs_user' : 'ready', tailoredResume: 'CV', coverLetter: 'Letter', submitPressedAt: n === 1 ? '2026-10-01T10:00:00.000Z' : undefined })), actions: [], active: 0, maxActive: 0 }
+  const page = await renderPage('jobs/page.tsx', batchRoutes(state))
+  try {
+    await page.click(el => el.getAttribute('aria-label') === 'Select Engineer 1 at Acme')
+    await page.click(el => el.getAttribute('aria-label') === 'Select Engineer 2 at Acme')
+    await page.click(el => text(el) === 'Review selected applications')
+    const confirm = () => [...page.document.querySelectorAll('button')].find(el => text(el) === 'Confirm & apply to 2 selected jobs')
+    assert.equal(confirm().disabled, true, 'blocked until the pressed job is checked')
+    assert.match(page.document.querySelector('[aria-label="Confirm selected applications"]').textContent, /Submit was already pressed/)
+    await page.click(el => el.getAttribute('aria-label') === 'I checked: Engineer 1 at Acme was not sent. Fill and submit it again.')
+    assert.equal(confirm().disabled, false)
+    await page.click(el => text(el) === 'Confirm & apply to 2 selected jobs')
+    await require('react').act(async () => { await new Promise(resolve => setTimeout(resolve, 40)) })
+    await page.settle()
+    assert.deepEqual(state.actions, [{ action: 'batch-apply', items: [{ id: 'job1', confirmResubmit: true }, { id: 'job2' }] }])
   } finally { await page.unmount() }
 })
 
@@ -295,5 +342,62 @@ test('bulk preparation never approves and requires review of fallback drafts bef
     assert.equal(state.maxActive, 1)
     assert.equal([...page.document.querySelectorAll('button')].find(el => text(el) === 'Review selected applications').disabled, false)
     assert.equal(page.document.querySelector('[aria-label="Confirm selected applications"]'), null)
+  } finally { await page.unmount() }
+})
+
+test('a sent application tracks stage, follow-up and notes by hand, and shows them on its card', async () => {
+  const state = { job: { ...baseJob, status: 'submitted', tailoredResume: 'CV', coverLetter: 'Letter' }, actions: [] }
+  const endpoints = routes(state)
+  const jobsHandler = endpoints['/api/jobs']
+  endpoints['/api/jobs'] = (url, init) => {
+    if (init?.method === 'POST' && JSON.parse(init.body).action === 'pipeline') {
+      const body = JSON.parse(init.body)
+      state.actions.push(body)
+      const p = state.job.pipeline || { stage: 'applied' }
+      state.job = { ...state.job, pipeline: {
+        ...p, ...(body.stage ? { stage: body.stage } : {}), ...(body.notes !== undefined ? { notes: body.notes } : {}),
+        ...(body.followUpInDays ? { followUpAt: '2000-01-01' } : body.followUpAt ? { followUpAt: body.followUpAt } : {}),
+      } }
+      return { job: state.job }
+    }
+    return jobsHandler(url, init)
+  }
+  const page = await renderPage('jobs/page.tsx', endpoints)
+  try {
+    await page.click(el => text(el).startsWith('Applied'))
+    await page.click(el => text(el) === 'View')
+    const panel = page.document.querySelector('[aria-label="Application pipeline"]')
+    assert.ok(panel, 'shown for a sent application')
+    assert.match(panel.textContent, /never reads your email/)
+    // Only the new panel is checked here; page-level rules (landmarks, region) belong to the page tests
+    const { violations } = await page.window.axe.run(panel, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa'] } })
+    assert.equal(violations.length, 0, `pipeline panel axe violations: ${violations.map(v => v.id).join(', ')}`)
+    await page.click(el => text(el) === 'Follow up in 7 days')
+    assert.deepEqual(state.actions, [{ action: 'pipeline', id: 'job1', followUpInDays: 7 }])
+    assert.match(panel.textContent, /Reminder set for 7 days/)
+    assert.match(panel.textContent, /Follow-up due/, 'a past follow-up day is flagged')
+    const interview = panel.querySelector('input[type="radio"][value="interview"]')
+    await require('react').act(async () => { interview.dispatchEvent(new page.window.MouseEvent('click', { bubbles: true })) })
+    const notes = panel.querySelector('textarea')
+    await require('react').act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(notes), 'value').set
+      setter.call(notes, 'Call with the team lead')
+      notes.dispatchEvent(new page.window.Event('input', { bubbles: true }))
+    })
+    await page.click(el => text(el) === 'Save')
+    assert.deepEqual(state.actions[1], { action: 'pipeline', id: 'job1', stage: 'interview', followUpAt: '2000-01-01', notes: 'Call with the team lead' })
+    await page.click(el => text(el) === '← Back to jobs')
+    assert.match(page.document.body.textContent, /Interview/)
+    assert.match(page.document.body.textContent, /Follow up now/)
+    assert.match(page.document.body.textContent, /1 follow-up due/)
+  } finally { await page.unmount() }
+})
+
+test('the pipeline is not offered before an application is sent', async () => {
+  const state = { job: { ...baseJob, status: 'ready', tailoredResume: 'CV', coverLetter: 'Letter' }, actions: [] }
+  const page = await renderPage('jobs/page.tsx', routes(state))
+  try {
+    await page.click(el => text(el) === 'Review & approve')
+    assert.equal(page.document.querySelector('[aria-label="Application pipeline"]'), null)
   } finally { await page.unmount() }
 })
