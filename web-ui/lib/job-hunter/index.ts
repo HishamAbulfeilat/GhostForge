@@ -13,14 +13,14 @@
  * the limits and sites the user switched on (see autopilot.ts).
  */
 import { createHash } from 'crypto'
-import { generateWithFallback } from '../ai'
+import { generateWithFallback, leadsWithKeylessModel } from '../ai'
 import { auditLog } from '../audit'
 import { analyzeCv, extractCvText } from './cv'
-import { dealbreaker, heuristicScore, matchesLocation, relevantTo, scoreJobs } from './match'
+import { KEYLESS_SCORE_BATCH, SCORE_BATCH, dealbreaker, heuristicScore, matchesLocation, relevantTo, scoreJobs } from './match'
 import { linkedInSearchUrl, searchSources, type SourceReport } from './sources'
 import {
   claimJob, getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs, withJobOperation,
-  type JobProfile, type JobRecord, type ModelChoice,
+  type JobPreferences, type JobProfile, type JobRecord, type ModelChoice,
 } from './store'
 import { applyToJob } from './apply'
 import { updateApplicationActivity } from './live'
@@ -44,6 +44,19 @@ export function generatorFor(model: ModelChoice | null): Generate {
     { system: opts.system, prompt: opts.prompt, maxTokens: opts.maxTokens },
     { task: 'tools', preferFree: !model, ...(model ? { activeProvider: model.provider, activeModel: model.model } : {}) },
   )).text
+}
+
+const KEYLESS_PROVIDERS = new Set(['ollama', 'llamacpp', 'llama.cpp', 'pollinations'])
+
+/**
+ * Listings per AI scoring request. Anonymous calls are spaced 15 s apart and
+ * local models are slow per request, so they get fewer, larger batches.
+ */
+export async function scoringBatchSize(model: ModelChoice | null, leadsKeyless: typeof leadsWithKeylessModel = leadsWithKeylessModel): Promise<number> {
+  if (model) return KEYLESS_PROVIDERS.has(model.provider) ? KEYLESS_SCORE_BATCH : SCORE_BATCH
+  // Automatic mode: keyed free tiers come first when configured, else local, then anonymous
+  const keyless = await leadsKeyless({ task: 'tools', preferFree: true }).catch(() => false)
+  return keyless ? KEYLESS_SCORE_BATCH : SCORE_BATCH
 }
 
 /** Default generator (free models first — no API key required) */
@@ -95,6 +108,8 @@ export interface SearchResult {
   /** Listings removed or flagged by the real-jobs screen (stale, no valid link, scam signals) */
   dropped: ScreenReport
   linkedin: Array<{ term: string; location: string; url: string }>
+  /** Identity keys of the listings this search kept and scored (used by the digest) */
+  keys: string[]
 }
 
 /** What an AI fit score depends on besides the listing: the CV, the preferences and the model */
@@ -109,10 +124,16 @@ function scoreSignature(basis: string, job: { title: string; company: string; lo
 
 export async function runSearch(
   username: string,
-  opts: { terms?: string[]; autoPrepare?: number; generate?: Generate | null; includeLinkedIn?: boolean; fetcher?: Fetcher } = {},
+  opts: {
+    terms?: string[]; autoPrepare?: number; generate?: Generate | null; includeLinkedIn?: boolean; fetcher?: Fetcher
+    /** A saved search's own locations, work style and company boards (the rest of the preferences still apply) */
+    preferences?: Partial<Pick<JobPreferences, 'locations' | 'remote' | 'companies' | 'titles'>>
+  } = {},
 ): Promise<SearchResult> {
-  const profile = await getProfile(username)
-  if (!profile.cv) throw new Error('Upload your CV first')
+  const stored = await getProfile(username)
+  if (!stored.cv) throw new Error('Upload your CV first')
+  // A saved search overrides only its own fields; the profile seen by scoring uses them too
+  const profile: JobProfile = opts.preferences ? { ...stored, preferences: { ...stored.preferences, ...opts.preferences } } : stored
   const terms = (opts.terms?.length ? opts.terms : profile.preferences.titles).map(t => t.trim()).filter(Boolean)
   if (!terms.length) throw new Error('Add at least one target job title to search for')
   const generate = opts.generate === undefined ? generatorFor(profile.model) : opts.generate
@@ -144,7 +165,8 @@ export async function runSearch(
     toScore.push({ job, sig, rank: heuristicScore(job, profile).score })
   }
   const candidates = toScore.sort((a, b) => b.rank - a.rank).slice(0, 60)
-  const scores = await scoreJobs(candidates.map(c => c.job), profile, generate)
+  const batchSize = generate && candidates.length > SCORE_BATCH ? await scoringBatchSize(profile.model) : SCORE_BATCH
+  const scores = await scoreJobs(candidates.map(c => c.job), profile, generate, { batchSize })
   let newSkips = 0
   const scored = [
     // New Skip listings are bounded like scored ones, so a scam-heavy feed can't flood the list
@@ -186,6 +208,7 @@ export async function runSearch(
     report,
     dropped,
     linkedin: terms.slice(0, 3).flatMap(term => places.slice(0, 2).map(location => ({ term, location, url: linkedInSearchUrl(term, location) }))),
+    keys: scored.map(j => j.key),
   }
 }
 

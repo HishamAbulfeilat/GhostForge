@@ -50,7 +50,10 @@ tried first. Paid models are never silently selected in automatic free mode.
 Anonymous calls use POST with `private: true`, not prompts in URLs, but CV
 text still goes to the provider. Requests are spaced at least 15 seconds apart
 per server process to respect the anonymous tier's limit, including CV and
-cover-letter calls. Rate-limit failures get one paced retry. Select a local
+cover-letter calls. Rate-limit failures get one paced retry. Fit scoring therefore sends up to 18
+listings per request (with shorter excerpts) when the first model is
+anonymous or local, instead of 8 for keyed models, so a search finishes
+two to three times faster without a key. Select a local
 model to keep it on your server:
 install Ollama, run `ollama pull qwen2.5:7b` (or a model your machine supports),
 start `ollama serve`, and select it in Job Hunter. No account/key is required,
@@ -86,6 +89,20 @@ until you change the stage or the day. Offers and rejections get no
 reminders. Everything here is entered by you: GhostForge never reads your
 mailbox. Stage changes are kept in a short history and in the job's log.
 
+### Interview prep
+
+A prepared application's review has an **Interview prep** panel. **Prepare for
+the interview** writes the questions this job's interviewer is likely to ask,
+with talking points and STAR examples (situation, task, action, result) taken
+from your CV and the job description. It uses your own uploaded CV as the only
+source of facts. Each example must quote the CV line it comes from; an example
+whose quote isn't in your CV, or that names a number found in neither your CV
+nor the posting, is dropped, and the question says what your CV doesn't show
+instead. The panel also lists the job's requirements your CV doesn't show.
+Without a model, it builds a labelled basic outline: one question per
+requirement line, with the matching CV lines quoted unchanged. Preparing it
+never changes the application's status or submits anything.
+
 ## Ways in
 
 **Multiple jobs:** use the checkboxes in a job list, then **Prepare / retry AI
@@ -116,6 +133,27 @@ batch, and hosted mode refuses batches like any other application.
   Workday, Greenhouse and so on. The page's own `JobPosting` data is read,
   scored and queued.
 
+## Saved searches and the digest
+
+Under **Saved searches & digest** on `/jobs`, **Save current search** keeps the
+roles, locations, work style and company boards from **What to look for** (up
+to 10 searches). **Use** loads one back into the form; **In digest** includes
+or skips it.
+
+Turn on **Digest of new High-fit jobs** to have GhostForge check every saved
+search on a schedule (every 24 hours by default; 1 to 168) and announce the
+new High-fit jobs at or above the digest's minimum score (default 70) once:
+one phone notification per digest when push is set up on a device, and the
+**Latest digest** list on `/jobs`, where each job opens its review. With no
+saved search, your main search is checked. **Check saved searches now** runs
+it at once.
+
+A digest only searches and scores, so it works with autopilot off. It never
+prepares, approves or submits anything. Possible scams, closed postings and
+jobs you dismissed or already applied to are never announced. The CV,
+must-haves, dealbreakers and salary floor from your main preferences apply to
+every saved search. No email is sent: GhostForge has no email channel.
+
 ## Where jobs come from
 
 Only official public APIs and feeds are used. Nothing behind a login is
@@ -135,11 +173,17 @@ scraped, and LinkedIn is never scraped.
 Put keys in `web-ui/.env.local`, never in code. The Sources card on `/jobs`
 shows which keyed sources are connected. Feed responses are cached for an hour,
 so several search terms or runs don't hit a feed repeatedly. A source that is
-down is skipped and named under Sources. A listing the AI already scored keeps
+down is skipped and named under Sources. A feed that rate-limits GhostForge,
+fails with a server error or times out is skipped for the next 12 minutes
+instead of being asked again for every search term, and at most two requests
+per feed host run at once. A listing the AI already scored keeps
 its score until your CV, preferences, model or the listing itself changes, so
 repeated searches and autopilot runs don't re-score it. Scam-flagged and
 dealbreaker listings are marked Skip without asking the AI. Up to 60 new
-listings are AI-scored per run, best keyword matches first.
+listings are AI-scored per run, best keyword matches first. The AI reads each
+listing's requirements, qualifications and "you have" sections, with its
+title and location, rather than the first lines of the description, which are
+often company boilerplate.
 
 "Everywhere" therefore means these boards plus any company whose ATS board you
 add, plus any job you paste by link. Sites with no public API (most company
@@ -204,6 +248,11 @@ The form agent (`web-ui/lib/job-hunter/agent.ts`) drives a real browser:
 4. **Moves through multi-step forms.** It presses Next / Continue / Review,
    including LinkedIn's dialog and its "Select an option" placeholders.
 5. **Submits only when allowed.** Otherwise it stops with everything filled in.
+   Submit is pressed once. If no confirmation appears, it is pressed again
+   only after the site rejected a field and the agent corrected it. A
+   computer-use click that may have sent the form (the model says so, the
+   control reads like Submit or Send, or the page navigated) counts as a
+   pressed Submit too.
 6. **Asks you what it couldn't answer.** These questions appear on the job card
    (and as a push notification when VAPID keys are set). Answer once: the job
    goes back in the queue for autopilot's next run, and every later

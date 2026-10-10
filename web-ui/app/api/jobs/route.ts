@@ -6,6 +6,8 @@ import { keyedSources } from '@/lib/job-hunter/sources'
 import { runAutopilot, startAutopilotScheduler, submittedToday } from '@/lib/job-hunter/autopilot'
 import { cancelApplyBatch, getApplyBatch, runApplyBatch, startApplyBatch } from '@/lib/job-hunter/batch'
 import { startFollowUpReminders, updatePipeline } from '@/lib/job-hunter/pipeline'
+import { runDigest } from '@/lib/job-hunter/digest'
+import { prepareInterview } from '@/lib/job-hunter/interview'
 import { hostedUnavailableResponse, isHostedMode } from '@/lib/hosted'
 import { runWithAIUser } from '@/lib/providers'
 
@@ -49,6 +51,8 @@ export async function GET(req: NextRequest) {
  *   dismiss  hide a job
  *   answer   { id, answers: { label: value } } — answer the questions an application stopped on
  *   add-url  { url } — add any job by link (LinkedIn, careers page, ATS)
+ *   interview { id } — likely interview questions and talking points from a prepared application (CV facts only)
+ *   digest   run the saved searches now and announce new High-fit jobs (never prepares or submits)
  *   linkedin-connect / linkedin-disconnect — sign in to LinkedIn once in the GhostForge browser
  */
 export async function POST(req: NextRequest) {
@@ -103,6 +107,13 @@ async function runAction(username: string, body: JobAction) {
       case 'autopilot':
         // "Run now": one full autopilot pass, even if not due (or switched off)
         return NextResponse.json({ report: await runAutopilot(user.username, { force: true }) })
+      case 'interview': {
+        if (!body.id) return NextResponse.json({ error: 'Job id required' }, { status: 400 })
+        const { model } = await getProfile(user.username)
+        return NextResponse.json({ job: await prepareInterview(user.username, body.id, generatorFor(model)) })
+      }
+      case 'digest':
+        return NextResponse.json({ report: await runDigest(user.username, { force: true }) })
       case 'answer':
         if (!body.id || !body.answers || typeof body.answers !== 'object') return NextResponse.json({ error: 'Job id and answers required' }, { status: 400 })
         return NextResponse.json({ job: await answerQuestions(user.username, body.id, body.answers) })

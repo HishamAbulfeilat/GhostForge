@@ -401,3 +401,88 @@ test('the pipeline is not offered before an application is sent', async () => {
     assert.equal(page.document.querySelector('[aria-label="Application pipeline"]'), null)
   } finally { await page.unmount() }
 })
+
+
+test('saved searches and the digest: save, check now and open a digest job, never preparing or applying', async () => {
+  const state = { job: { ...baseJob }, actions: [], puts: [] }
+  const endpoints = routes(state)
+  const view = { ...profile, savedSearches: [], digest: { enabled: false, intervalHours: 24, minScore: 70 } }
+  endpoints['/api/jobs/profile'] = (_url, init) => {
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(init.body)
+      state.puts.push(body)
+      if (body.savedSearches) view.savedSearches = body.savedSearches.map((s, i) => ({ ...s, id: s.id || `s${i}` }))
+      if (body.digest) view.digest = { ...view.digest, ...body.digest }
+      return { ok: true }
+    }
+    return { profile: view }
+  }
+  const jobsRoute = endpoints['/api/jobs']
+  endpoints['/api/jobs'] = (url, init) => {
+    if (init?.method === 'POST' && JSON.parse(init.body).action === 'digest') {
+      state.actions.push('digest')
+      view.digest = { ...view.digest, lastRunAt: '2026-10-08T08:00:00Z', lastResult: '1 search checked: 1 new High-fit job.', lastDigest: { at: '2026-10-08T08:00:00Z', jobs: [{ id: 'job1', title: 'Engineer', company: 'Acme', score: 90, search: 'Engineer · Remote' }] } }
+      return { report: { ran: true, searches: 1, newJobs: [{}] } }
+    }
+    return jobsRoute(url, init)
+  }
+  const page = await renderPage('jobs/page.tsx', endpoints)
+  try {
+    const card = () => page.document.querySelector('[aria-label="Saved searches and digest"]')
+    assert.ok(card())
+    await page.click(el => text(el) === 'Save current search')
+    assert.deepEqual(state.puts[0].savedSearches.map(s => [s.titles, s.locations, s.remote, s.enabled]), [[['Engineer'], ['Remote'], 'remote', true]])
+    assert.match(card().textContent, /Engineer · Remote · remote/)
+    await page.click(el => el.getAttribute('role') === 'switch' && /Digest/.test(text(el)))
+    assert.deepEqual(state.puts[1], { digest: { enabled: true } })
+    await page.click(el => text(el) === 'Check saved searches now')
+    assert.deepEqual(state.actions, ['digest'])
+    assert.match(page.document.body.textContent, /Nothing was prepared or submitted/)
+    const digest = page.document.querySelector('[aria-label="Latest digest"]')
+    assert.match(digest.textContent, /Engineer at Acme · 90/)
+    await page.click(el => el.closest('[aria-label="Latest digest"]') && text(el) === 'Engineer at Acme')
+    assert.ok([...page.document.querySelectorAll('h1')].some(h => text(h) === 'Engineer'), 'opens the job review')
+    assert.deepEqual(state.actions, ['digest'], 'no prepare or approve from the digest')
+  } finally { await page.unmount() }
+})
+
+test('interview prep shows CV-grounded examples and gaps for a prepared application, without applying', async () => {
+  const state = { job: { ...baseJob, status: 'ready', tailoredResume: 'CV', coverLetter: 'Letter' }, actions: [] }
+  const endpoints = routes(state)
+  const jobsRoute = endpoints['/api/jobs']
+  endpoints['/api/jobs'] = (url, init) => {
+    if (init?.method === 'POST' && JSON.parse(init.body).action === 'interview') {
+      state.actions.push('interview')
+      state.job = { ...state.job, interviewPrep: { ai: true, createdAt: '', gaps: ['Kubernetes operations'], questions: [
+        { question: 'Walk me through the checkout rebuild.', why: 'The role asks for React', points: ['Rebuilt the checkout in React'],
+          star: { situation: 'Slow checkout', task: 'Speed it up', action: 'Rebuilt it in React', result: 'Faster pages' }, evidence: 'Rebuilt the checkout in React' },
+        { question: 'How have you run Kubernetes?', why: '', points: [], gap: 'Your CV does not show a specific example for this.' },
+      ] } }
+      return { job: state.job }
+    }
+    return jobsRoute(url, init)
+  }
+  const page = await renderPage('jobs/page.tsx', endpoints)
+  try {
+    await page.click(el => text(el) === 'Review & approve')
+    const panel = () => page.document.querySelector('[aria-label="Interview prep"]')
+    assert.ok(panel())
+    await page.click(el => text(el) === 'Prepare for the interview')
+    assert.deepEqual(state.actions, ['interview'])
+    assert.match(panel().textContent, /Walk me through the checkout rebuild/)
+    assert.match(panel().textContent, /From your CV: .Rebuilt the checkout in React/)
+    assert.match(panel().textContent, /Your CV does not show a specific example/)
+    assert.match(panel().textContent, /Kubernetes operations/)
+    assert.ok([...page.document.querySelectorAll('button')].some(el => text(el) === 'Prepare again'))
+  } finally { await page.unmount() }
+})
+
+test('interview prep is offered only once an application is prepared', async () => {
+  const state = { job: { ...baseJob }, actions: [] }
+  const page = await renderPage('jobs/page.tsx', routes(state))
+  try {
+    await page.click(el => text(el).startsWith('All matches'))
+    await page.click(el => text(el).includes('Engineer') && text(el).includes('Acme'))
+    assert.equal(page.document.querySelector('[aria-label="Interview prep"]'), null)
+  } finally { await page.unmount() }
+})

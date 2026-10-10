@@ -493,3 +493,64 @@ test('regression: a closed-sounding sentence in the description is not a closed 
     assert.ok(!outcome.closed)
   } finally { await page.close() }
 })
+
+// ── computer use and Submit ─────────────────────────────────────────────────
+
+/** A fake vision model that clicks the centre of `selector` and reports `submit` */
+function clicker(page, selector, submit) {
+  const calls = []
+  const vision = async () => {
+    const box = await page.locator(selector).boundingBox()
+    calls.push(selector)
+    return box ? JSON.stringify({ action: 'click', x: box.x + box.width / 2, y: box.y + box.height / 2, submit, why: 'test' }) : '{"action":"stop"}'
+  }
+  return { vision, calls }
+}
+
+// The form's own control is a bare <div> the DOM agent can't read, so computer use acts.
+// The click reveals a normal Submit button afterwards.
+const VISION_FORM = (label, onclick) => `<form><label for="fn">First name *</label><input id="fn" required>
+  <div id="custom" style="display:inline-block;padding:8px;border:1px solid" onclick="${onclick};document.getElementById('later').style.display='inline-block'">${label}</div>
+  <button type="button" id="later" style="display:none" onclick="window.__clicks = (window.__clicks || 0) + 1">Submit application</button></form>`
+
+test('regression: a computer-use click that may have sent the form blocks a later Submit press', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const page = await browser.newPage()
+  try {
+    await page.setContent(VISION_FORM('Send it', 'window.__custom = (window.__custom || 0) + 1'))
+    page.waitForFunction = async () => { throw new Error('timeout') }
+    const { vision, calls } = clicker(page, '#custom', false)
+    const out = await runFormAgent(page, { ...(await ctxFor()), vision })
+    assert.equal(calls.length, 1)
+    assert.equal(await page.evaluate(() => window.__custom), 1, 'computer use pressed the custom control')
+    assert.equal(await page.evaluate(() => window.__clicks || 0), 0, 'GhostForge did not press Submit afterwards')
+    assert.equal(out.status, 'needs_user', JSON.stringify(out))
+    assert.equal(out.submitPressed, true)
+    assert.match(out.message, /did not press it again/)
+  } finally { await page.close() }
+})
+
+test('computer use reporting a submit click counts as a pressed Submit even when the control text is neutral', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const page = await browser.newPage()
+  try {
+    await page.setContent(VISION_FORM('Continue', 'window.__custom = 1'))
+    page.waitForFunction = async () => { throw new Error('timeout') }
+    const { vision } = clicker(page, '#custom', true)
+    const out = await runFormAgent(page, { ...(await ctxFor()), vision })
+    assert.equal(await page.evaluate(() => window.__clicks || 0), 0)
+    assert.equal(out.status, 'needs_user', JSON.stringify(out))
+  } finally { await page.close() }
+})
+
+test('a computer-use click on a neutral control does not block the real Submit', async t => {
+  if (!browser) return t.skip('no Chromium available')
+  const page = await browser.newPage()
+  try {
+    await page.setContent(VISION_FORM('Show the rest of the form', 'window.__custom = 1').replace('window.__clicks = (window.__clicks || 0) + 1', `window.__clicks = 1; ${THANKS}`))
+    const { vision } = clicker(page, '#custom', false)
+    const out = await runFormAgent(page, { ...(await ctxFor()), vision })
+    assert.equal(out.status, 'submitted', JSON.stringify(out))
+    assert.equal(await page.evaluate(() => window.__clicks), 1)
+  } finally { await page.close() }
+})

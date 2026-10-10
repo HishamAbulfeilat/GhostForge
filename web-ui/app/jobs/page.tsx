@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ApplicantData, AutopilotSettings, JobPreferences, JobRecord, ModelChoice } from '@/lib/job-hunter/store'
+import type { ApplicantData, AutopilotSettings, DigestSettings, JobPreferences, JobRecord, ModelChoice, SavedSearch } from '@/lib/job-hunter/store'
 import { CvImprover } from '@/components/career/CvImprover'
 import { GithubProfileSetup } from '@/components/career/GithubProfileSetup'
 import { ApplicationPipeline, PipelineBadges, followUpDue } from '@/components/jobs/ApplicationPipeline'
@@ -16,6 +16,8 @@ interface ProfileView {
   applicant: ApplicantData
   preferences: JobPreferences
   customAnswers: Record<string, string>
+  savedSearches?: SavedSearch[]
+  digest?: DigestSettings
 }
 
 interface SearchResult {
@@ -273,6 +275,12 @@ export default function JobsPage() {
     setNotice({ tone: 'info', text: 'Saved. These answers are reused on future applications. Answer every remaining question to return this job to the approval queue.' })
   })
 
+  const interviewPrep = (id: string) => run(`interview:${id}`, async () => {
+    const { job: updated } = await api<{ job: JobRecord }>('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'interview', id }) })
+    await load()
+    setNotice({ tone: 'info', text: updated.interviewPrep?.warning || 'Interview prep is ready. Every example comes from your CV; gaps are listed instead of invented.' })
+  })
+
   const addByUrl = () => run('add-url', async () => {
     const { job } = await api<{ job: JobRecord }>('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add-url', url: jobUrl }) })
     setJobUrl('')
@@ -308,6 +316,29 @@ export default function JobsPage() {
       text: report.ran
         ? `Autopilot found ${report.found} jobs, prepared ${report.prepared} and submitted ${report.submitted}${report.needsUser ? ` (${report.needsUser} need you)` : ''}.`
         : report.reason || 'Autopilot did not run',
+    })
+  })
+
+  const saveSearches = (savedSearches: SavedSearch[], message: string) => run('saved', async () => {
+    await api('/api/jobs/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ savedSearches }) })
+    await load()
+    setNotice({ tone: 'info', text: message })
+  })
+
+  const saveDigest = (digest: Partial<DigestSettings>, message?: string) => run('digest', async () => {
+    await api('/api/jobs/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ digest }) })
+    await load()
+    if (message) setNotice({ tone: 'info', text: message })
+  })
+
+  const runDigestNow = () => run('digest-run', async () => {
+    const { report } = await api<{ report: { ran: boolean; reason?: string; newJobs?: unknown[]; searches?: number } }>('/api/jobs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'digest' }),
+    })
+    await load()
+    setNotice({
+      tone: report.ran ? 'info' : 'error',
+      text: report.ran ? `Digest checked ${report.searches} search(es): ${report.newJobs?.length || 0} new High-fit job(s). Nothing was prepared or submitted.` : report.reason || 'The digest did not run',
     })
   })
 
@@ -359,7 +390,7 @@ export default function JobsPage() {
       ) : section === 'github' ? (
         <GithubProfileSetup />
       ) : job ? (
-        <Review job={job} busy={busy} onBack={() => setSelected(null)} onAnswer={answers => void answer(job.id, answers)}
+        <Review job={job} busy={busy} onBack={() => setSelected(null)} onAnswer={answers => void answer(job.id, answers)} onInterview={() => void interviewPrep(job.id)}
           onApprove={confirmResubmit => void act('approve', job.id, confirmResubmit ? { confirmResubmit } : {})} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)}
           onPipelineSaved={() => void load().catch(() => {})} />
       ) : (
@@ -418,6 +449,16 @@ export default function JobsPage() {
                 Best matches are prepared automatically — tailored CV, cover letter and form answers — then wait for your approval, unless autopilot is on.
               </p>
             </section>
+
+            {profile && (
+              <SavedSearchesCard searches={profile.savedSearches || []} digest={profile.digest} busy={busy} jobs={jobs}
+                current={{ titles: splitList(roles), locations: splitList(places), remote, companies: splitList(companies) }}
+                onSave={(list, message) => void saveSearches(list, message)}
+                onUse={s => { setRoles(s.titles.join(', ')); setPlaces(s.locations.join(', ')); setRemote(s.remote); setCompanies(s.companies.join(', ')); setNotice({ tone: 'info', text: `Loaded "${s.name}". Find matching jobs to search it now.` }) }}
+                onDigest={(d, message) => void saveDigest(d, message)}
+                onRunNow={() => void runDigestNow()}
+                onOpen={id => setSelected(id)} />
+            )}
 
             <form className="flex flex-col gap-2.5 rounded-2xl border border-gf-line bg-gf-surface p-5" onSubmit={e => { e.preventDefault(); if (jobUrl.trim()) void addByUrl() }}>
               <label htmlFor="jh-url" className="font-display text-sm font-semibold">Add a job by link</label>
@@ -702,10 +743,11 @@ function BatchProgress({ batch, busy, onCancel }: { batch: ApplyBatch; busy: str
   )
 }
 
-function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer, onPipelineSaved }: {
+function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer, onPipelineSaved, onInterview }: {
   job: JobRecord; busy: string; onBack: () => void; onApprove: (confirmResubmit: boolean) => void; onPrepare: () => void; onDismiss: () => void
   onAnswer: (answers: Record<string, string>) => void
   onPipelineSaved?: () => void
+  onInterview: () => void
 }) {
   const sv = STATUS_VIEW[job.status] || STATUS_VIEW.found
   const prepared = Boolean(job.tailoredResume)
@@ -889,7 +931,147 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer, 
           </div>
         </section>
       </div>
+
+      {prepared && <InterviewPanel job={job} busy={busy} onGenerate={onInterview} />}
     </div>
+  )
+}
+
+/** Likely interview questions and STAR talking points, only from the CV */
+function InterviewPanel({ job, busy, onGenerate }: { job: JobRecord; busy: string; onGenerate: () => void }) {
+  const prep = job.interviewPrep
+  const working = busy === `interview:${job.id}`
+  return (
+    <section aria-label="Interview prep" className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-display text-lg font-semibold">Interview prep</h2>
+        <button type="button" onClick={onGenerate} disabled={Boolean(busy)}
+          className="min-h-11 rounded-xl border border-gf-line2 px-4 text-sm font-semibold disabled:opacity-60">
+          {working ? 'Preparing questions…' : prep ? 'Prepare again' : 'Prepare for the interview'}
+        </button>
+      </div>
+      <p className="text-sm text-gf-muted">Likely questions from this job description, with talking points and STAR examples taken only from your CV. When your CV doesn&apos;t show something, it says so instead of inventing an answer.</p>
+      {prep?.warning && <p role="status" className="rounded-xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-gf-warn">{prep.warning}</p>}
+      {prep && (
+        <ol className="flex flex-col gap-3">
+          {prep.questions.map((q, i) => (
+            <li key={i} className="flex flex-col gap-1.5 rounded-xl border border-gf-line p-4 text-sm">
+              <strong>{q.question}</strong>
+              {q.why && <span className="text-xs text-gf-muted">{q.why}</span>}
+              {q.points.length > 0 && <ul className="flex list-disc flex-col gap-0.5 ps-5">{q.points.map(p => <li key={p}>{p}</li>)}</ul>}
+              {q.star && (
+                <dl className="grid gap-1 rounded-lg bg-gf-raised p-3 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-x-3">
+                  {([['Situation', q.star.situation], ['Task', q.star.task], ['Action', q.star.action], ['Result', q.star.result]] as const).map(([label, value]) => value ? (
+                    <div key={label} className="contents">
+                      <dt className="font-semibold">{label}</dt><dd>{value}</dd>
+                    </div>
+                  ) : null)}
+                </dl>
+              )}
+              {q.evidence && <span className="text-xs text-gf-muted">From your CV: &ldquo;{q.evidence}&rdquo;</span>}
+              {q.gap && <span className="text-gf-warn">{q.gap}</span>}
+            </li>
+          ))}
+        </ol>
+      )}
+      {!!prep?.gaps.length && (
+        <div className="flex flex-col gap-1 text-sm">
+          <span className="font-semibold">Your CV doesn&apos;t show</span>
+          <ul className="flex list-disc flex-col gap-0.5 ps-5 text-gf-warn">{prep.gaps.map(g => <li key={g}>{g}</li>)}</ul>
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** Saved searches and the new-jobs digest (never prepares or submits) */
+function SavedSearchesCard({ searches, digest, busy, jobs, current, onSave, onUse, onDigest, onRunNow, onOpen }: {
+  searches: SavedSearch[]
+  digest?: DigestSettings
+  busy: string
+  jobs: JobRecord[]
+  current: Pick<SavedSearch, 'titles' | 'locations' | 'remote' | 'companies'>
+  onSave: (list: SavedSearch[], message: string) => void
+  onUse: (s: SavedSearch) => void
+  onDigest: (d: Partial<DigestSettings>, message?: string) => void
+  onRunNow: () => void
+  onOpen: (id: string) => void
+}) {
+  const saving = busy === 'saved'
+  const canSave = current.titles.length > 0 && searches.length < 10
+  const saveCurrent = () => {
+    const name = `${current.titles.join(', ')} · ${current.locations.join(', ') || 'anywhere'}${current.remote !== 'any' ? ` · ${current.remote}` : ''}`.slice(0, 80)
+    onSave([...searches, { id: '', name, ...current, enabled: true }], `Saved "${name}".`)
+  }
+  const known = new Set(jobs.map(j => j.id))
+  return (
+    <section aria-label="Saved searches and digest" className="flex flex-col gap-3 rounded-2xl border border-gf-line bg-gf-surface p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="font-display text-sm font-semibold">Saved searches &amp; digest</h2>
+        <button type="button" onClick={saveCurrent} disabled={!canSave || saving}
+          className="min-h-9 rounded-lg border border-gf-line2 px-3 text-sm disabled:opacity-60">Save current search</button>
+      </div>
+      {searches.length === 0 ? (
+        <p className="text-xs text-gf-muted">Save a few searches (role, location, work style, company boards). The digest checks each one and sends you new High-fit jobs, without autopilot.</p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {searches.map(s => (
+            <li key={s.id} className="flex flex-col gap-1.5 rounded-xl border border-gf-line p-3 text-sm">
+              <span className="font-semibold">{s.name}</span>
+              <span className="text-xs text-gf-muted">{s.titles.join(', ')} · {s.locations.join(', ') || 'any location'} · {s.remote}{s.companies.length ? ` · ${s.companies.length} board(s)` : ''}</span>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex min-h-9 items-center gap-2 text-xs">
+                  <input type="checkbox" checked={s.enabled} disabled={saving} className="size-4"
+                    onChange={e => onSave(searches.map(x => x.id === s.id ? { ...x, enabled: e.target.checked } : x), e.target.checked ? `"${s.name}" is in the digest.` : `"${s.name}" is left out of the digest.`)} />
+                  In digest
+                </label>
+                <button type="button" onClick={() => onUse(s)} className="min-h-9 text-xs text-sky-300 hover:text-sky-200">Use</button>
+                <button type="button" disabled={saving} onClick={() => onSave(searches.filter(x => x.id !== s.id), `Deleted "${s.name}".`)}
+                  className="min-h-9 text-xs text-gf-muted hover:text-gf-ink disabled:opacity-60">Delete</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {digest && (
+        <div className="flex flex-col gap-2.5 rounded-xl border border-gf-line p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold">Digest of new High-fit jobs</span>
+            <button type="button" role="switch" aria-checked={digest.enabled} disabled={busy === 'digest'}
+              onClick={() => onDigest({ enabled: !digest.enabled }, digest.enabled ? 'The digest is off.' : `The digest is on: every ${digest.intervalHours} hours. It only searches; nothing is prepared or submitted.`)}
+              className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${digest.enabled ? 'bg-gf-accent' : 'bg-gf-line2'}`}>
+              <span className="sr-only">Digest</span>
+              <span className={`absolute top-1 h-5 w-5 rounded-full bg-gf-bg transition-all ${digest.enabled ? 'start-6' : 'start-1'}`} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <NumberSetting id="jh-dg-every" label="Every (hours)" value={digest.intervalHours} min={1} max={168} onCommit={v => onDigest({ intervalHours: v })} />
+            <NumberSetting id="jh-dg-score" label="Min score" value={digest.minScore} min={50} max={100} onCommit={v => onDigest({ minScore: v })} />
+          </div>
+          {digest.lastRunAt && <span className="text-xs text-gf-muted">Last digest {new Date(digest.lastRunAt).toLocaleString()}: {digest.lastResult}</span>}
+          <button type="button" onClick={onRunNow} disabled={busy === 'digest-run'}
+            className="min-h-11 rounded-xl border border-gf-line2 text-sm font-semibold disabled:opacity-60">
+            {busy === 'digest-run' ? 'Checking searches…' : 'Check saved searches now'}
+          </button>
+          {!!digest.lastDigest?.jobs.length && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs uppercase tracking-[0.06em] text-gf-muted">New on {new Date(digest.lastDigest.at).toLocaleDateString()}</span>
+              <ul aria-label="Latest digest" className="flex flex-col gap-1">
+                {digest.lastDigest.jobs.map(e => (
+                  <li key={e.id} className="text-sm">
+                    {known.has(e.id)
+                      ? <button type="button" onClick={() => onOpen(e.id)} className="text-start text-sky-300 hover:text-sky-200">{e.title} at {e.company}</button>
+                      : <span>{e.title} at {e.company}</span>}
+                    <span className="text-gf-muted"> · {e.score}{e.search ? ` · ${e.search}` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <span className="text-xs text-gf-muted">One phone notification per digest when push is set up on a device; the list always appears here. No email is sent. With no saved search, your main search is used.</span>
+        </div>
+      )}
+    </section>
   )
 }
 

@@ -222,6 +222,8 @@ const route = load('../app/api/jobs/route.ts', {
     cancelApplyBatch: async username => { routeCalls.push({ action: 'cancel', username }); return null },
     getApplyBatch: async () => null, runApplyBatch: async () => {},
   },
+  '@/lib/job-hunter/digest': { runDigest: async () => ({}) },
+  '@/lib/job-hunter/interview': { prepareInterview: async () => ({}) },
   '@/lib/job-hunter/pipeline': {
     startFollowUpReminders: () => {},
     updatePipeline: async (username, id, patch) => { routeCalls.push({ action: 'pipeline', username, id, patch }); return { id } },

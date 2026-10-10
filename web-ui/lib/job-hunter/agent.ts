@@ -391,27 +391,50 @@ Return ONLY JSON: [{"i": <index>, "value": "<answer or ASK>"}]`,
   return out
 }
 
-/** Computer-use fallback: one screenshot → one action. Returns false when it can't help. */
-async function visionStep(page: Page, ctx: AgentContext, goal: string): Promise<boolean> {
-  if (!ctx.vision) return false
+/** Control text that may send an application when clicked */
+const SUBMIT_LIKE = /\b(submit|send|apply|finish|complete|confirm|done)\b/i
+
+/**
+ * Computer-use fallback: one screenshot → one action. `acted` is false when it
+ * can't help. `maybeSubmit` is true when the action might have sent the
+ * application: the model says the control submits, the clicked control reads
+ * like Submit (or can't be read), or the click navigated the page.
+ */
+export async function visionStep(page: Page, ctx: AgentContext, goal: string): Promise<{ acted: boolean; maybeSubmit: boolean }> {
+  const none = { acted: false, maybeSubmit: false }
+  if (!ctx.vision) return none
   const shot = (await page.screenshot({ type: 'jpeg', quality: 60 })).toString('base64')
   const vp = page.viewportSize() || { width: 1280, height: 800 }
   const raw = await ctx.vision(shot, `You are operating a web browser to complete a job application for ${ctx.profile.applicant.firstName} ${ctx.profile.applicant.lastName} (job: ${ctx.job.title} at ${ctx.job.company}). Goal: ${goal}
 The screenshot is ${vp.width}x${vp.height} pixels. Reply with ONLY JSON, one action:
-{"action":"click","x":<px>,"y":<px>,"why":"..."} | {"action":"type","text":"...","why":"..."} | {"action":"scroll","why":"..."} | {"action":"stop","why":"..."}
+{"action":"click","x":<px>,"y":<px>,"submit":<true if this control may submit or send the application, else false>,"why":"..."} | {"action":"type","text":"...","why":"..."} | {"action":"scroll","why":"..."} | {"action":"stop","why":"..."}
 Use "stop" for captchas, sign-in or account-creation pages, anything needing a password, or questions you can't answer from the application itself. Never type facts that aren't the applicant's.`).catch(() => '')
-  const act = extractJson<{ action?: string; x?: number; y?: number; text?: string; why?: string }>(raw)
-  if (!act?.action || act.action === 'stop') return false
+  const act = extractJson<{ action?: string; x?: number; y?: number; text?: string; why?: string; submit?: boolean }>(raw)
+  if (!act?.action || act.action === 'stop') return none
   ctx.log?.(`Computer use: ${act.action}${act.why ? ` (${String(act.why).slice(0, 80)})` : ''}`)
+  let maybeSubmit = false
   if (act.action === 'click' && Number.isFinite(act.x) && Number.isFinite(act.y)) {
-    await page.mouse.click(Math.max(0, Math.min(vp.width - 1, Number(act.x))), Math.max(0, Math.min(vp.height - 1, Number(act.y))))
+    const x = Math.max(0, Math.min(vp.width - 1, Number(act.x))), y = Math.max(0, Math.min(vp.height - 1, Number(act.y)))
+    // What is under the pointer: the nearest clickable control's text (null when it can't be read)
+    const target = await page.evaluate(([px, py]) => {
+      const el = document.elementFromPoint(px, py)
+      if (!el) return null
+      const control = el.closest('button, a, input, [role="button"], [onclick], label') || el
+      return ((control as HTMLInputElement).value || control.textContent || control.getAttribute('aria-label') || '').trim().slice(0, 200)
+    }, [x, y] as const).catch(() => null)
+    const urlBefore = page.url()
+    await page.mouse.click(x, y)
+    await page.waitForTimeout(1500)
+    maybeSubmit = act.submit === true || target === null || SUBMIT_LIKE.test(target) || page.url() !== urlBefore
+    return { acted: true, maybeSubmit }
   } else if (act.action === 'type' && act.text) {
-    await page.keyboard.type(String(act.text).slice(0, 500))
+    // No line breaks: Enter in a form field can submit it
+    await page.keyboard.type(String(act.text).replace(/[\r\n]+/g, ' ').slice(0, 500))
   } else if (act.action === 'scroll') {
     await page.mouse.wheel(0, 600)
-  } else return false
+  } else return none
   await page.waitForTimeout(1500)
-  return true
+  return { acted: true, maybeSubmit }
 }
 
 async function blocked(page: Page): Promise<string | null> {
@@ -458,7 +481,7 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
   const outcome = (status: AgentOutcome['status'], message: string, missing: string[] = [], questions: PendingQuestion[] = []): AgentOutcome =>
     ({ status, message, filled, missing, questions, aiAnswers: aiUsed, submitPressed: beforeSubmit !== null })
   let errorsAfterSubmit = 0
-  // GhostForge's own Submit click happened (not computer use's)
+  // Submit was pressed: by GhostForge, or possibly by a computer-use click
   let pressedSubmit = false
 
   // A site may open the form in a new tab; follow it.
@@ -660,8 +683,12 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
 
       // 5. Stuck: let computer use try, else hand over.
       const beforeVision = await bodyText(pg)
-      if (visionTries < 6 && await visionStep(pg, ctx, 'reach and complete the application form, then stop before any final submit you are unsure about')) {
+      const vision = visionTries < 6 ? await visionStep(pg, ctx, 'reach and complete the application form, then stop before any final submit you are unsure about') : null
+      if (vision?.acted) {
         beforeSubmit ??= beforeVision // computer use may have pressed Submit itself
+        // A click that may have sent the application counts as a pressed Submit: a later
+        // Submit press needs a corrected field first, like after GhostForge's own press
+        if (vision.maybeSubmit) pressedSubmit = true
         visionTries++
         continue
       }

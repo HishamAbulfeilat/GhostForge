@@ -122,6 +122,46 @@ export function dealbreaker(job: Pick<RawJob, 'title' | 'company' | 'description
   return null
 }
 
+/** A heading that opens a requirements-like section ("Requirements", "What you'll bring", "You have") */
+const REQ_HEADING = /^(?:#+\s*)?(?:(?:minimum|basic|preferred|key|required|desired)\s+)?(?:requirements?|qualifications?|skills(?: (?:and|&) experience)?|must[- ]haves?|nice[- ]to[- ]haves?|bonus(?: points)?|about you|who you are|your (?:profile|skills|experience|background)|what (?:you(?:'|’)?ll|you will|you) (?:bring|need|have)|you (?:have|bring|will have|should have)|you(?:'|’)?(?:ll|d) (?:have|bring|be)|what we(?:'|’)?re looking for|we(?:'|’)?re looking for|ideal candidate|experience (?:and|&) skills|requirements (?:and|&) skills|the ideal candidate)\b[^.!?]{0,40}:?$/i
+/** A heading that closes one (benefits, company blurb, how to apply…) */
+const OTHER_HEADING = /^(?:#+\s*)?(?:benefits|perks|what we offer|we offer|our offer|about (?:us|the company|the team)|compensation|salary|how to apply|equal opportunity|eeo|diversity|why (?:join|work)|life at|our (?:values|culture|mission)|responsibilities|what you(?:'|’)?ll do|what you will do|the role|role overview|your role|day to day|in this role)\b[^.!?]{0,40}:?$/i
+/** A line that reads like a requirement even without a heading */
+const REQ_LINE = /\b(\d+\+?\s*(?:years?|yrs)|experience (?:with|in|building|leading)|proficien|knowledge of|familiar(?:ity)? with|degree in|bachelor|master'?s|must have|required|strong (?:understanding|background|knowledge)|hands-on)\b/i
+
+/**
+ * The requirements, qualifications and "you have" parts of a description.
+ * Many listings open with company boilerplate, so the first characters are a
+ * poor summary of what the job asks for. Falls back to requirement-like lines,
+ * then to the start of the description.
+ */
+export function requirementsExcerpt(description: string, max = 1200): string {
+  const lines = String(description || '').split(/\n+/).map(l => l.trim()).filter(Boolean)
+  const picked: string[] = []
+  let inSection = false
+  for (const line of lines) {
+    // Headings are short and not bullets: "Requirements:", "What you'll bring"
+    const short = line.length <= 80 && !/^[-•*·▪●–]/.test(line) && (line.endsWith(':') || line.split(/\s+/).length <= 6)
+    if (short && REQ_HEADING.test(line)) { inSection = true; continue }
+    if (short && OTHER_HEADING.test(line)) { inSection = false; continue }
+    if (inSection) picked.push(line)
+  }
+  const chosen = picked.length ? picked : lines.filter(l => REQ_LINE.test(l))
+  const text = (chosen.length ? chosen : lines).join('\n')
+  return text.slice(0, max)
+}
+
+/**
+ * What the AI scorer reads of a description: the requirements first, then (when
+ * they are short) the start of the description for context.
+ */
+export function scoringExcerpt(description: string, max = 1200): string {
+  const text = String(description || '')
+  const req = requirementsExcerpt(text, max)
+  if (req.length >= max * 0.6 || text.trim().startsWith(req)) return req.length >= max * 0.6 ? req : text.trim().slice(0, max)
+  return `${req}\n…\n${text.trim().slice(0, Math.max(0, max - req.length - 3))}`.trim()
+}
+
 const STOP = new Set('and the for with you our are will that this from your have team work role able years experience strong using including their about into more such other what who we they them all can not but its has was were also any per etc'.split(' '))
 
 function keywords(text: string): Set<string> {
@@ -166,8 +206,16 @@ export function extractJson<T>(text: string): T | null {
 
 type Generate = (opts: { system?: string; prompt?: string; maxTokens?: number }) => Promise<string>
 
-/** AI fit scoring in small batches; falls back to the heuristic per batch */
-export async function scoreJobs(jobs: RawJob[], profile: JobProfile, generate: Generate | null): Promise<Scored[]> {
+/** Listings per scoring request: 8 for keyed models; up to 20 compact excerpts for anonymous or local ones */
+export const SCORE_BATCH = 8
+export const KEYLESS_SCORE_BATCH = 18
+
+/**
+ * AI fit scoring in batches; falls back to the heuristic per batch. A large
+ * batch (anonymous or local models, see KEYLESS_SCORE_BATCH) uses shorter
+ * excerpts, and is retried in normal-size batches if the model rejects it.
+ */
+export async function scoreJobs(jobs: RawJob[], profile: JobProfile, generate: Generate | null, opts: { batchSize?: number } = {}): Promise<Scored[]> {
   const out: Scored[] = jobs.map(j => heuristicScore(j, profile))
   if (!generate || !profile.cv?.text) return out
 
@@ -182,20 +230,31 @@ Return ONLY a JSON array: [{"i": <index>, "fit": "High"|"Medium"|"Low"|"Skip", "
 
   const context = `CANDIDATE CV:\n${profile.cv.text.slice(0, 6000)}\n\nPREFERENCES:\nTarget roles: ${prefs.titles.join(', ') || 'any'}\nLocations: ${prefs.locations.join(', ') || 'any'} (remote: ${prefs.remote})\nMust-haves: ${prefs.mustHaves.join(', ') || 'none'}\nNice-to-haves: ${prefs.niceToHaves.join(', ') || 'none'}\nDealbreakers: ${prefs.dealbreakers.join(', ') || 'none'}${prefs.minSalary ? `\nMinimum salary: ${prefs.minSalary}` : ''}`
 
-  const BATCH = 8
-  for (let start = 0; start < jobs.length; start += BATCH) {
-    const batch = jobs.slice(start, start + BATCH)
-    const listing = batch.map((j, k) => `[${k}] ${j.title} at ${j.company} — ${j.location}${j.salary ? ` — ${j.salary}` : ''}\n${j.description.slice(0, 1200)}`).join('\n\n')
+  const scoreBatch = async (start: number, batch: RawJob[], excerpt: number) => {
+    // The requirements say more about fit than the opening lines, which are often company boilerplate
+    const listing = batch.map((j, k) => `[${k}] ${j.title} at ${j.company} — ${j.location}${j.remote ? ' (remote)' : ''}${j.salary ? ` — ${j.salary}` : ''}\n${scoringExcerpt(j.description, excerpt)}`).join('\n\n')
+    const text = await generate({ system, prompt: `${context}\n\nJOBS:\n${listing}`, maxTokens: Math.max(1200, batch.length * 120) })
+    const parsed = extractJson<Array<{ i: number; fit: Fit; score: number; reasons: string }>>(text)
+    if (!Array.isArray(parsed)) throw new Error('No JSON array in the scoring reply')
+    for (const r of parsed) {
+      if (typeof r?.i !== 'number' || r.i < 0 || r.i >= batch.length) continue
+      if (!['High', 'Medium', 'Low', 'Skip'].includes(r.fit)) continue
+      out[start + r.i] = { fit: r.fit, score: Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))), reasons: String(r.reasons || '').slice(0, 300), ai: true }
+    }
+  }
+
+  const size = Math.max(1, Math.min(20, Math.round(opts.batchSize ?? SCORE_BATCH)))
+  const excerpt = size > SCORE_BATCH ? 600 : 1200
+  for (let start = 0; start < jobs.length; start += size) {
+    const batch = jobs.slice(start, start + size)
     try {
-      const text = await generate({ system, prompt: `${context}\n\nJOBS:\n${listing}`, maxTokens: 1200 })
-      const parsed = extractJson<Array<{ i: number; fit: Fit; score: number; reasons: string }>>(text)
-      for (const r of parsed || []) {
-        if (typeof r?.i !== 'number' || r.i < 0 || r.i >= batch.length) continue
-        if (!['High', 'Medium', 'Low', 'Skip'].includes(r.fit)) continue
-        out[start + r.i] = { fit: r.fit, score: Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))), reasons: String(r.reasons || '').slice(0, 300), ai: true }
-      }
+      await scoreBatch(start, batch, excerpt)
     } catch {
-      // keep heuristic scores for this batch
+      // A large batch can hit a length limit: try normal-size batches once; otherwise keep heuristic scores
+      if (batch.length <= SCORE_BATCH) continue
+      for (let i = 0; i < batch.length; i += SCORE_BATCH) {
+        await scoreBatch(start + i, batch.slice(i, i + SCORE_BATCH), excerpt).catch(() => {})
+      }
     }
   }
   return out

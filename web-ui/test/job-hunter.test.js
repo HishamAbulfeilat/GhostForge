@@ -135,6 +135,101 @@ test('the salary floor compares yearly pay: monthly and weekly salaries are annu
   assert.equal(match.salaryMax('USD 90000-120000'), 120000)
 })
 
+test('AI scoring reads the requirements, not the company boilerplate that opens a listing', async () => {
+  const boilerplate = 'Acme was founded in 1999 and builds delightful products for customers worldwide. '.repeat(20)
+  const job = { key: 'k', source: 's', title: 'Platform Engineer', company: 'Acme', location: 'Berlin', remote: true, salary: '', url: '', applyUrl: '', ats: 'other', postedAt: '', trust: 'board',
+    description: `${boilerplate}\nRequirements:\n- 5+ years of Rust in production\n- Kubernetes operations\nBenefits:\nFree lunch` }
+  let prompt = ''
+  const profile = { cv: { text: 'Rust engineer' }, preferences: { titles: ['Platform Engineer'], locations: [], remote: 'any', minSalary: null, mustHaves: [], niceToHaves: [], dealbreakers: [], companies: [] } }
+  await match.scoreJobs([job], profile, async opts => { prompt = opts.prompt; return '[]' })
+  assert.match(prompt, /5\+ years of Rust in production/)
+  assert.match(prompt, /Kubernetes operations/)
+  assert.match(prompt, /\(remote\)/)
+  assert.doesNotMatch(prompt, /Free lunch/)
+  // Short requirements are padded with the start of the description for context
+  const short = match.scoringExcerpt('We build maps.\nRequirements:\n- Go\nAbout us\nMore text', 200)
+  assert.match(short, /^- Go\n…\nWe build maps/)
+  // No requirements section or requirement-like lines: the description as before
+  assert.equal(match.scoringExcerpt('Plain text about a job', 1200), 'Plain text about a job')
+})
+
+test('anonymous and local models score in bigger batches, with a fallback to normal batches', async () => {
+  const jobs = Array.from({ length: 30 }, (_, i) => ({ key: `k${i}`, source: 's', title: `Engineer ${i}`, company: 'Acme', location: '', remote: false, salary: '', url: '', applyUrl: '', ats: 'other', postedAt: '', trust: 'board', description: 'Requirements:\n- Go' }))
+  const profile = { cv: { text: 'Go engineer' }, preferences: { titles: [], locations: [], remote: 'any', minSalary: null, mustHaves: [], niceToHaves: [], dealbreakers: [], companies: [] } }
+  const sizes = []
+  const answer = async opts => {
+    const n = (String(opts.prompt).match(/^\[\d+\]/gm) || []).length
+    sizes.push(n)
+    return JSON.stringify(Array.from({ length: n }, (_, i) => ({ i, fit: 'Medium', score: 60, reasons: 'ok' })))
+  }
+  await match.scoreJobs(jobs, profile, answer)
+  assert.deepEqual(sizes, [8, 8, 8, 6], 'keyed models keep batches of 8')
+  sizes.length = 0
+  const big = await match.scoreJobs(jobs, profile, answer, { batchSize: match.KEYLESS_SCORE_BATCH })
+  assert.deepEqual(sizes, [18, 12])
+  assert.ok(big.every(s => s.ai))
+  // A provider that rejects the large prompt: the batch is retried in batches of 8
+  sizes.length = 0
+  const picky = await match.scoreJobs(jobs, profile, async opts => {
+    if ((String(opts.prompt).match(/^\[\d+\]/gm) || []).length > 8) throw new Error('prompt too long')
+    return answer(opts)
+  }, { batchSize: 18 })
+  assert.deepEqual(sizes, [8, 8, 2, 8, 4])
+  assert.ok(picky.every(s => s.ai && s.score === 60))
+
+  const jh = require('../lib/job-hunter/index.ts')
+  assert.equal(await jh.scoringBatchSize({ provider: 'ollama', model: 'qwen2.5:7b' }), match.KEYLESS_SCORE_BATCH)
+  assert.equal(await jh.scoringBatchSize({ provider: 'pollinations', model: 'openai' }), match.KEYLESS_SCORE_BATCH)
+  assert.equal(await jh.scoringBatchSize({ provider: 'groq', model: 'llama' }), match.SCORE_BATCH)
+  assert.equal(await jh.scoringBatchSize(null, async () => true), match.KEYLESS_SCORE_BATCH, 'automatic mode starting at a keyless model')
+  assert.equal(await jh.scoringBatchSize(null, async () => false), match.SCORE_BATCH, 'automatic mode with a free-tier key')
+  assert.equal(await jh.scoringBatchSize(null, async () => { throw new Error('probe failed') }), match.SCORE_BATCH)
+})
+
+test('a feed that rate-limits or fails is skipped for a while, and each host gets at most two requests at once', async () => {
+  const realFetch = globalThis.fetch
+  const calls = {}
+  let inFlight = 0, maxInFlight = 0
+  let himalayasStatus = 429
+  globalThis.fetch = async url => {
+    const u = new URL(String(url))
+    calls[u.hostname] = (calls[u.hostname] || 0) + 1
+    if (u.hostname === 'himalayas.app') return new Response('slow down', { status: himalayasStatus })
+    if (u.hostname === 'remotive.com') {
+      inFlight++; maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise(resolve => setTimeout(resolve, 30))
+      inFlight--
+      return new Response(JSON.stringify({ jobs: [] }), { status: 200 })
+    }
+    if (u.hostname === 'jobicy.com') return new Response('down', { status: 503 })
+    return new Response('not found', { status: 404 })
+  }
+  try {
+    sources.clearSourceCache()
+    const prefs = { titles: [], locations: [], remote: 'remote', minSalary: null, mustHaves: [], niceToHaves: [], dealbreakers: [], companies: [] }
+    const terms = ['alpha', 'beta', 'gamma', 'delta', 'epsilon']
+    const { report } = await sources.searchSources(prefs, terms)
+    assert.equal(calls['himalayas.app'], 1, 'after a 429 the other terms skip Himalayas instead of asking again')
+    assert.equal(report.filter(r => /^Himalayas/.test(r.source) && r.error).length, 5, 'each skipped term still reports the problem')
+    assert.ok(report.some(r => /skipped: failed in the last 12 minutes/.test(r.error || '')))
+    assert.equal(calls['remotive.com'], 5)
+    assert.ok(maxInFlight <= 2, `at most two requests in flight per host (saw ${maxInFlight})`)
+    assert.equal(calls['jobicy.com'], 2, 'a 5xx is remembered per URL, so other URLs on the host are still tried')
+
+    // Within the window, a new search does not ask the failing host again
+    await sources.searchSources(prefs, ['alpha'])
+    assert.equal(calls['himalayas.app'], 1)
+    // After a refresh (or the window passing) it is tried again
+    sources.clearSourceCache()
+    himalayasStatus = 200
+    await sources.searchSources(prefs, ['alpha'])
+    assert.equal(calls['himalayas.app'], 2)
+  } finally {
+    globalThis.fetch = realFetch
+    sources.clearSourceCache()
+  }
+})
+
 test('HTML entities decode once (no double unescaping)', () => {
   assert.equal(sources.stripHtml('<p>A &amp;lt;b&amp;gt; tag &amp; more</p>'), 'A &lt;b&gt; tag & more')
   assert.equal(sources.stripHtml('x &lt; y'), 'x < y')

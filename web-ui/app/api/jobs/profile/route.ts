@@ -3,6 +3,8 @@ import { requirePermission } from '@/lib/access'
 import { getProfile, importCv, saveProfile, type ApplicantData, type AutopilotSettings, type JobPreferences, type ModelChoice } from '@/lib/job-hunter'
 import { MAX_CV_BYTES } from '@/lib/job-hunter/cv'
 import { BOARD_ATS } from '@/lib/job-hunter/sources'
+import { cleanSavedSearches } from '@/lib/job-hunter/digest'
+import type { DigestSettings, SavedSearch } from '@/lib/job-hunter/store'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
@@ -22,6 +24,8 @@ export async function GET(req: NextRequest) {
       ...p,
       // The full CV text stays server-side; the UI only needs a preview
       cv: p.cv ? { fileName: p.cv.fileName, uploadedAt: p.cv.uploadedAt, preview: p.cv.text.slice(0, 600), length: p.cv.text.length } : null,
+      // The announced-job list is bookkeeping, not settings
+      digest: p.digest ? { ...p.digest, sentKeys: undefined } : p.digest,
     },
   })
 }
@@ -34,6 +38,7 @@ export async function PUT(req: NextRequest) {
   let body: {
     applicant?: Partial<ApplicantData>; preferences?: Partial<JobPreferences>; customAnswers?: Record<string, string>
     model?: ModelChoice | null; autopilot?: Partial<AutopilotSettings>
+    savedSearches?: SavedSearch[]; digest?: Partial<DigestSettings>
   }
   try {
     body = await req.json()
@@ -97,6 +102,22 @@ export async function PUT(req: NextRequest) {
       ...(a.linkedinEasyApply !== undefined ? { linkedinEasyApply: a.linkedinEasyApply === true } : {}),
       ...(a.linkedinDailyLimit !== undefined ? { linkedinDailyLimit: clamp(a.linkedinDailyLimit, 1, 15, current.linkedinDailyLimit) } : {}),
       ...(a.laptopControl !== undefined ? { laptopControl: a.laptopControl === true } : {}),
+    }
+  }
+  if (body.savedSearches !== undefined) patch.savedSearches = cleanSavedSearches(body.savedSearches)
+  if (body.digest && typeof body.digest === 'object') {
+    const d = body.digest
+    const n = (v: unknown, min: number, max: number) => {
+      const x = Math.round(Number(v))
+      return Number.isFinite(x) ? Math.min(max, Math.max(min, x)) : undefined
+    }
+    // Only the user's settings: run results and the announced-job list are server-side
+    const intervalHours = d.intervalHours !== undefined ? n(d.intervalHours, 1, 168) : undefined
+    const minScore = d.minScore !== undefined ? n(d.minScore, 50, 100) : undefined
+    patch.digest = {
+      ...(d.enabled !== undefined ? { enabled: d.enabled === true } : {}),
+      ...(intervalHours !== undefined ? { intervalHours } : {}),
+      ...(minScore !== undefined ? { minScore } : {}),
     }
   }
   const profile = await saveProfile(user.username, patch)

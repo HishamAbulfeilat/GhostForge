@@ -17,7 +17,9 @@
  *   Reed (UK)            REED_API_KEY
  *
  * Feed-wide responses are cached for an hour so several search terms (and
- * autopilot runs) don't hammer the same feed; every source fails soft.
+ * autopilot runs) don't hammer the same feed; every source fails soft. A feed
+ * that rate-limits, fails or times out is skipped for 12 minutes, and at most
+ * two requests per host are in flight at once.
  */
 import { dedupeKey, type Ats, type JobPreferences, type Trust } from './store'
 import { ownerEnv } from '../hosted'
@@ -47,13 +49,65 @@ const TIMEOUT = 15_000
 const CACHE_TTL = 60 * 60_000
 const cache = new Map<string, { at: number; body: Promise<unknown> }>()
 
-/** Forget cached feed responses (tests, or a manual refresh) */
-export function clearSourceCache(): void { cache.clear() }
+/**
+ * Short-lived negative cache: a feed that just rate-limited us (429), failed
+ * (5xx) or timed out is skipped for a while, so several search terms don't
+ * each wait out the timeout. Rate limits and timeouts apply to the whole host;
+ * a 5xx only to that URL (one company's board can be down alone).
+ */
+const FAILURE_TTL = 12 * 60_000
+const failing = new Map<string, { until: number; error: string }>()
+
+/** Requests in flight per host, so one feed isn't hit by every worker at once */
+const PER_HOST = 2
+const hostSlots = new Map<string, { active: number; waiting: Array<() => void> }>()
+
+/** Forget cached feed responses and recent failures (tests, or a manual refresh) */
+export function clearSourceCache(): void { cache.clear(); failing.clear() }
+
+async function withHostSlot<T>(host: string, run: () => Promise<T>): Promise<T> {
+  let slot = hostSlots.get(host)
+  if (!slot) hostSlots.set(host, slot = { active: 0, waiting: [] })
+  // A finishing request hands its slot straight to the next waiter, so the limit holds
+  if (slot.active >= PER_HOST) await new Promise<void>(resolve => slot!.waiting.push(resolve))
+  else slot.active++
+  try {
+    return await run()
+  } finally {
+    const next = slot.waiting.shift()
+    if (next) next()
+    else if (--slot.active === 0) hostSlots.delete(host)
+  }
+}
 
 async function fetchText(url: string, headers: Record<string, string> = {}): Promise<string> {
-  const res = await fetch(url, { headers: { ...UA, ...headers }, signal: AbortSignal.timeout(TIMEOUT) })
-  if (!res.ok) throw new Error(`${new URL(url).hostname} returned ${res.status}`)
-  return res.text()
+  const host = new URL(url).hostname
+  const now = Date.now()
+  for (const key of [host, url]) {
+    const f = failing.get(key)
+    if (f && f.until > now) throw new Error(`${f.error} (skipped: failed in the last ${Math.round(FAILURE_TTL / 60_000)} minutes)`)
+    if (f) failing.delete(key)
+  }
+  return withHostSlot(host, async () => {
+    let res: Response
+    try {
+      res = await fetch(url, { headers: { ...UA, ...headers }, signal: AbortSignal.timeout(TIMEOUT) })
+    } catch (e) {
+      if (e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+        const error = `${host} timed out`
+        failing.set(host, { until: Date.now() + FAILURE_TTL, error })
+        throw new Error(error)
+      }
+      throw e
+    }
+    if (!res.ok) {
+      const error = `${host} returned ${res.status}`
+      if (res.status === 429) failing.set(host, { until: Date.now() + FAILURE_TTL, error })
+      else if (res.status >= 500) failing.set(url, { until: Date.now() + FAILURE_TTL, error })
+      throw new Error(error)
+    }
+    return res.text()
+  })
 }
 
 /** GET with a one-hour cache per URL (failed requests are not cached) */
