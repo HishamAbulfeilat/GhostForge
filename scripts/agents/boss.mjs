@@ -906,11 +906,19 @@ export class Boss {
     const health = healthScore(this.intWt)
     const wasOk = new Set(this.lastHealth.checks.filter(c => c.ok).map(c => c.id))
     const broke = health.checks.filter(c => !c.ok && !c.skipped && wasOk.has(c.id))
-    if (broke.length || health.score < this.lastHealth.score) {
+    // Only a check that was green and is now red is a regression. A bare score
+    // drop is not: scoreOf drops skipped checks from both sides, so a toolchain
+    // that becomes uninstalled (or comes back) re-weights the total and moves the
+    // score without breaking anything. Rolling back a merge for that burns the
+    // worker's attempts on a phantom failure.
+    if (broke.length) {
       git(this.intWt, 'reset', '--hard', 'HEAD~1') // undo our own merge commit on the boss's branch
       this.bounce(task, agentId, `Health regressed ${this.lastHealth.score} → ${health.score}. Broken checks:\n` +
         broke.map(c => `### ${c.label}\n${tail(c.output, 1200)}`).join('\n'))
       return
+    }
+    if (health.score < this.lastHealth.score) {
+      this.log(`${task.id}: score ${this.lastHealth.score} → ${health.score} with no check broken — merged anyway`)
     }
     this.lastHealth = health
     this.merges++
