@@ -1,6 +1,7 @@
 // Unit tests for the agent team (run: node --test scripts/agents/agents.test.mjs).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -9,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { routeModel, classifyTask, KIND_TIER, workerRoute } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
-import { Boss, declaredDependencies, descendantPids, describeGitError, diffImports, lastJSON, pickTask, releaseOrphanedTasks, reviewDiff, shouldRestartBoss, stagePrompt, unresolvableImports } from './boss.mjs'
+import { Boss, declaredDependencies, descendantPids, describeGitError, diffImports, lastJSON, pickTask, releaseOrphanedTasks, reviewDiff, shouldSkipReview, shouldRestartBoss, stagePrompt, unresolvableImports } from './boss.mjs'
 import { scoreOf, checks, needsDeps, pythonProbe, BRIDGE_TEST_MODULES } from './health.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -371,15 +372,19 @@ test('pickTask skips tasks with incomplete dependencies or an active hold cooldo
 test('a security review with no verdict is held (no attempt burned); other kinds rely on health checks', async () => {
   const stub = {
     cfg: { boss: { review: true }, cooldownMinutes: 10 },
-    log() {}, intWt: fs.mkdtempSync(path.join(os.tmpdir(), 'gf-hold-')),
+    log() {}, say() {}, bounce() {}, reviewVerdicts: new Map(),
+    intWt: fs.mkdtempSync(path.join(os.tmpdir(), 'gf-hold-')),
     readonlyRun: async () => ({ output: 'no json here', code: 0 }),
   }
   const { execFileSync } = await import('node:child_process')
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
+  // head~1..head so the diff is non-empty and reaches the model (an empty diff is
+  // now short-circuited by shouldSkipReview, which is covered by its own test).
+  const base = execFileSync('git', ['rev-parse', 'HEAD~1'], { cwd: root, encoding: 'utf8' }).trim()
   const review = Boss.prototype.review.bind(stub)
-  assert.deepEqual(await review({ id: 'T-1', kind: 'security', title: 't', area: [] }, 'a', head, head), { approve: false, hold: true })
-  assert.deepEqual(await review({ id: 'T-2', kind: 'feature', title: 't', area: [] }, 'a', head, head), { approve: true })
+  assert.deepEqual(await review({ id: 'T-1', kind: 'security', title: 't', area: [] }, 'a', base, head), { approve: false, hold: true })
+  assert.deepEqual(await review({ id: 'T-2', kind: 'feature', title: 't', area: [] }, 'a', base, head), { approve: true })
 
   const updates = []
   const holder = {
@@ -593,4 +598,41 @@ test('descendantPids walks the whole process tree, not just direct children', ()
   assert.ok(!kids.has(600), 'never includes an unrelated process')
   assert.ok(!kids.has(200), 'excludes the root itself')
   assert.deepEqual(descendantPids(600, table), new Set(), 'a leaf has no descendants')
+})
+
+// -- Jev-style decision gate: skip model calls that are not needed ------------
+
+test('shouldSkipReview rejects an empty diff without a model call', () => {
+  const g = shouldSkipReview({ kind: 'feature' }, '', new Map())
+  assert.equal(g.skip, true)
+  assert.equal(g.approve, false, 'nothing to review means reject')
+  assert.match(g.reason, /empty/)
+})
+
+test('shouldSkipReview reuses the verdict for an identical diff', () => {
+  const seen = new Map()
+  // A real verdict would have been recorded by review(); simulate one.
+  const diff = '--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-old\n+new\n'
+  const hash = crypto.createHash('sha256').update(diff).digest('hex')
+  seen.set(hash, { approve: true, taskId: 'T-100' })
+  const g = shouldSkipReview({ kind: 'feature' }, diff, seen)
+  assert.equal(g.skip, true)
+  assert.equal(g.approve, true, 'reuses the recorded verdict')
+  assert.match(g.reason, /T-100/)
+})
+
+test('shouldSkipReview auto-approves a trivial docs/chore diff and still reviews code', () => {
+  const tiny = '--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-a\n+b\n'
+  const g1 = shouldSkipReview({ kind: 'docs' }, tiny, new Map())
+  assert.equal(g1.skip, true)
+  assert.equal(g1.approve, true, 'a one-line README fix needs no model')
+  assert.match(g1.reason, /trivial/)
+
+  // A code change of the same size is NOT auto-approved.
+  const g2 = shouldSkipReview({ kind: 'feature' }, tiny, new Map())
+  assert.equal(g2.skip, false, 'code always reaches the reviewer')
+
+  // A large docs diff still reaches the reviewer.
+  const big = Array.from({ length: 40 }, (_, i) => `+line ${i}`).join('\n')
+  assert.equal(shouldSkipReview({ kind: 'docs' }, big, new Map()).skip, false)
 })

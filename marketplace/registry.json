@@ -21,7 +21,8 @@
     "tasteskill-integration",
     "free-llm-apis",
     "security-audit",
-    "copilot-commit-message"
+    "copilot-commit-message",
+    "claude-switch-token-optimizer"
   ],
   "custom_agents": [],
   "custom_models": []

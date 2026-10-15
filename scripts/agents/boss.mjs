@@ -260,6 +260,39 @@ export function releaseOrphanedTasks(tasks, state, now = Date.now()) {
   return released
 }
 
+/** Stable hash of a diff, so an unchanged diff reuses its verdict. */
+function hashDiff(diff) {
+  return crypto.createHash('sha256').update(diff).digest('hex')
+}
+
+/**
+ * Jev-style decision gate: decide whether a model call is needed at all,
+ * *before* spending tokens on one. TypeSafe's Jev model exists because sending a
+ * small decision to a big text model is the most expensive way to get an answer.
+ * These are the same decisions, made deterministically and for free:
+ *
+ *   - reject an empty diff without a review model call
+ *   - reuse a verdict when the diff is byte-identical to one already reviewed
+ *   - auto-approve a trivial diff (docs/chore under a few lines): the health
+ *     checks are the real gate, and a model review adds nothing at that size
+ *
+ * @returns {{skip: true, approve: boolean, reason: string} | {skip: false}}
+ */
+export function shouldSkipReview(task, diff, previousVerdicts = new Map()) {
+  if (!diff || !diff.trim()) {
+    return { skip: true, approve: false, reason: 'the diff is empty — there is nothing to review' }
+  }
+  const seen = previousVerdicts.get(hashDiff(diff))
+  if (seen) {
+    return { skip: true, approve: seen.approve, reason: `identical diff already reviewed (${seen.taskId}) — reusing that verdict` }
+  }
+  const lines = diff.split('\n').length
+  if ((task.kind === 'docs' || task.kind === 'chore') && lines <= 6) {
+    return { skip: true, approve: true, reason: `trivial ${task.kind} diff (${lines} lines) — health checks are the real gate` }
+  }
+  return { skip: false }
+}
+
 /** Next todo task for an agent: allowed owner, no area overlap with busy tasks, preferring its strengths. */
 export function pickTask(tasks, agentId, strengths = [], now = Date.now()) {
   const busy = tasks.filter(t => t.status === 'in-progress' || t.status === 'review')
@@ -570,6 +603,9 @@ export class Boss {
     this.state = Object.fromEntries(this.agents.map(([id]) => [id, { state: 'idle', task: null, model: null, cooldownUntil: null }]))
     this.merges = 0
     this.lastHealth = null // last quick health on integration — the regression baseline
+    // diff hash -> { approve, taskId }: an unchanged diff reuses its verdict
+    // instead of paying for another review model call.
+    this.reviewVerdicts = new Map()
     this.lastFullAt = 0
     this.planning = false
     this.prUrl = null
@@ -973,9 +1009,15 @@ export class Boss {
   async review(task, agentId, base, head) {
     if (!this.cfg.boss.review) return { approve: true }
     const { stat, diff, lines } = reviewDiff(ROOT, base, head)
-    // Deterministic hallucination gate — runs before the model review so a
-    // worker inventing a package or importing a missing file is rejected on the
-    // spot, with the evidence named, instead of failing a later typecheck.
+    // Deterministic gate first — an empty, already-reviewed or trivially small
+    // diff never reaches the review model, saving a whole model call per task.
+    const gate = shouldSkipReview(task, diff, this.reviewVerdicts)
+    if (gate.skip) {
+      this.log(`${task.id} review skipped: ${gate.reason}`)
+      this.say(agentId, `${task.id} review skipped — ${gate.reason}`)
+      if (!gate.approve) this.bounce(task, agentId, `Boss review skipped: ${gate.reason}`)
+      return { approve: gate.approve }
+    }
     const bad = unresolvableImports(diffImports(diff), ROOT)
     if (bad.undeclared.length || bad.missing.length) {
       const detail = [
@@ -1005,6 +1047,11 @@ export class Boss {
       }
       this.log(`review of ${task.id} unparseable — relying on health checks`)
       return { approve: true }
+    }
+    // Remember it so an identical diff on a retry costs no model call.
+    this.reviewVerdicts.set(hashDiff(diff), { approve: verdict.approve, taskId: task.id })
+    if (this.reviewVerdicts.size > 100) {
+      for (const k of [...this.reviewVerdicts.keys()].slice(0, 50)) this.reviewVerdicts.delete(k)
     }
     return verdict
   }
