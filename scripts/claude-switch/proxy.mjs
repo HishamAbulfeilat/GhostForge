@@ -9,9 +9,13 @@
 // Each served reply is tagged with which provider/model answered (see BANNER_RE
 // in translate.mjs) and the choice is recorded in state.json as `last`, so
 // `claude-mode status` always shows what actually ran.
+// Health-aware routing: providers sorted by latency*success-rate, so the
+// free chain prefers whichever provider is responding best right now.
+// New endpoints: /__switch/status (with health), /__switch/health (all providers).
 // Bound to 127.0.0.1 only. Never logs headers or bodies.
 import http from 'node:http'
 import https from 'node:https'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,6 +31,36 @@ const state = () => ({ mode: 'auto', proCooldownUntil: 0, ...readJSON(STATE, {})
 const saveState = patch => fs.writeFileSync(STATE, JSON.stringify({ ...state(), ...patch }, null, 2))
 const log = msg => { try { fs.appendFileSync(LOG, `[${new Date().toISOString()}] ${msg}\n`) } catch { /* disk full etc. */ } }
 const providerCooldown = new Map() // provider -> epoch ms
+
+// ── Provider health monitoring ────────────────────────────────────────────────
+// Tracks per-provider latency, success rate, and last-checked timestamp so the
+// free chain can prefer providers that are actually responding well right now.
+const providerHealth = new Map() // provider -> { latencyMs, successes, failures, lastCheck }
+
+function recordHealth(name, latencyMs, ok) {
+  const h = providerHealth.get(name) ?? { latencyMs: 0, successes: 0, failures: 0, lastCheck: 0 }
+  h.latencyMs = h.latencyMs ? Math.round(h.latencyMs * 0.7 + latencyMs * 0.3) : latencyMs
+  if (ok) h.successes++; else h.failures++
+  h.lastCheck = Date.now()
+  providerHealth.set(name, h)
+}
+
+/** Failures as a fraction of attempts (0 when never tried) — drives sortByHealth. */
+const failureRate = name => {
+  const h = providerHealth.get(name)
+  if (!h) return 0
+  const total = h.successes + h.failures
+  return total > 0 ? h.failures / total : 0
+}
+
+/** Sort chain providers by health score (lower = better): failure rate only.
+ *  Latency is deliberately NOT part of the score: the chain order is already
+ *  quality-ranked, and demoting a good-but-slower model in favour of a fast weak
+ *  one made `deep` requests fall through to the weakest model in the pool.
+ *  A provider that is failing sinks; healthy providers keep their ranked order. */
+function sortByHealth(chain) {
+  return [...chain].sort((a, b) => failureRate(a) - failureRate(b))
+}
 
 const HOP = new Set(['host', 'connection', 'content-length', 'transfer-encoding', 'keep-alive', 'proxy-connection', 'upgrade'])
 
@@ -82,6 +116,61 @@ function keyFor(name, p) {
   return p.key || (p.keyEnv && process.env[p.keyEnv]) || ''
 }
 
+// ── Response cache ────────────────────────────────────────────────────────────
+// Free providers meter by requests/day, and the agent team re-sends near-identical
+// prompts constantly — task prompts, reviews, health checks — so an identical
+// request burns another slice of an already-exhausted quota. Cache the answer and
+// replay it for free. Only non-streaming, non-tool-calling replies are cached:
+// a cached tool call would silently change what the agent does next.
+const CACHE_FILE = path.join(DIR, 'response-cache.json')
+const cacheCfg = () => ({ enabled: true, ttlMs: 3600_000, maxEntries: 200, ...(cfg().responseCache ?? {}) })
+let cache = readJSON(CACHE_FILE, {})
+let cacheStats = { hits: 0, misses: 0, saved: 0 } // saved = provider calls avoided
+
+function cacheKey(oa) {
+  // Keyed on the request only, NOT the provider: the round-robin rotation picks a
+  // different provider each call, so including it would make identical requests
+  // miss every time. The provider/model that answered is stored alongside.
+  return crypto.createHash('sha256').update(JSON.stringify([
+    oa.messages, oa.tools ?? null, oa.tool_choice ?? null,
+    oa.max_tokens ?? null, oa.temperature ?? null, oa.stop ?? null,
+  ])).digest('hex')
+}
+
+function cacheGet(key) {
+  const c = cacheCfg()
+  if (!c.enabled) return null
+  const hit = cache[key]
+  if (!hit) return null
+  if (Date.now() - hit.at > c.ttlMs) { delete cache[key]; return null }
+  return hit
+}
+
+function cachePut(key, openaiResponse, provider, model) {
+  const c = cacheCfg()
+  if (!c.enabled) return
+  cache[key] = { at: Date.now(), openai: openaiResponse, provider, model }
+  // Drop the oldest entries past the cap so the file stays bounded.
+  const keys = Object.keys(cache)
+  if (keys.length > c.maxEntries) {
+    keys.sort((a, b) => cache[a].at - cache[b].at)
+    for (const k of keys.slice(0, keys.length - c.maxEntries)) delete cache[k]
+  }
+  try {
+    const tmp = `${CACHE_FILE}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(cache))
+    fs.renameSync(tmp, CACHE_FILE)
+  } catch { /* disk full etc. — caching is best-effort */ }
+}
+
+/** True when a reply is safe to replay later (no tool calls the agent would act on). */
+const cacheableReply = (oa, j) => {
+  if (oa.stream) return false
+  const msg = j?.choices?.[0]?.message ?? {}
+  if ((msg.tool_calls ?? []).length) return false
+  return true
+}
+
 // Bumped on every free-mode call and used to rotate which provider is tried
 // first (see `serveFree`). Several concurrent agents (boss.mjs's worker swarm
 // plus your own interactive session) all share this one proxy; always trying
@@ -90,13 +179,124 @@ function keyFor(name, p) {
 // concurrent requests across openrouter/kilo/llm7/pollinations instead.
 let rrCounter = 0
 
+/** Serve a single provider/model slot (used for per-agent model pinning). */
+async function serveFreeSingle(name, p, key, model, body, res, why) {
+  const slot = `${name}/${model}`
+  const startedAt = Date.now()
+  const oa = toOpenAI(body, model)
+  if (oa.tools && !(p.keepMcpTools ?? cfg().keepMcpTools)) {
+    oa.tools = oa.tools.filter(t => !t.function.name.startsWith('mcp__'))
+    if (!oa.tools.length) { delete oa.tools; delete oa.tool_choice }
+  }
+  if (oa.max_tokens) oa.max_tokens = Math.min(oa.max_tokens, p.maxTokens ?? 8192)
+  let r
+  try {
+    r = await fetch(p.baseURL.replace(/\/$/, '') + '/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(key && { authorization: `Bearer ${key}` }) },
+      body: JSON.stringify(oa),
+      signal: AbortSignal.timeout(p.timeoutMs ?? 300_000),
+    })
+  } catch (e) {
+    providerCooldown.set(name, Date.now() + 60_000)
+    sendError(res, 529, 'overloaded_error', `claude-switch: ${slot} failed (${e.name})`)
+    return
+  }
+  if (!r.ok) {
+    const detail = (await r.text().catch(() => '')).slice(0, 160).replace(/\s+/g, ' ')
+    log(`free ${slot} -> ${r.status} ${detail}`)
+    if (r.status === 401) { providerCooldown.set(key ? name : slot, Date.now() + (key ? 3600_000 : 24 * 3600_000)) }
+    if (r.status === 403) { providerCooldown.set(slot, Date.now() + 3600_000) }
+    if (r.status === 400 && /not a valid model|model_not_found|does not exist|maximum context length/i.test(detail)) {
+      providerCooldown.set(slot, Date.now() + 24 * 3600_000)
+    }
+    const after = Number(r.headers.get('retry-after') || detail.match(/retry.after\D{0,4}(\d+)/i)?.[1])
+    const wait = r.status === 429 ? (after > 0 ? after * 1000 : 120_000) : 30_000
+    const quota = r.status === 429 && /quota/i.test(detail)
+    providerCooldown.set(quota ? name : slot, Date.now() + wait)
+    sendError(res, r.status === 429 ? 429 : 502, 'api_error', `claude-switch: ${slot} -> ${r.status} ${detail}`)
+    return
+  }
+  const banner = `⟦claude-switch: ${why} → ${name}/${model}⟧`
+  // Serve from cache before spending a request on the provider.
+  if (!oa.stream) {
+    const hit = cacheGet(cacheKey(oa))
+    if (hit) {
+      cacheStats.hits++
+      cacheStats.saved++
+      log(`cache hit ${name}/${model} (${why}) — provider call avoided`)
+      saveState({ last: { via: 'cache', provider: name, model, why, at: Date.now() } })
+      recordHealth(name, 0, true)
+      res.writeHead(200, { 'content-type': 'application/json', 'x-claude-switch-cache': 'hit' })
+      return res.end(JSON.stringify(fromOpenAI(hit.openai, body.model, `⟦claude-switch: cached → ${name}/${model}⟧`)))
+    }
+    cacheStats.misses++
+  }
+  if (!oa.stream) {
+    const j = await r.json().catch(() => null)
+    const msg = j?.choices?.[0]?.message ?? {}
+    const hasContent = !!msg.content || (msg.tool_calls ?? []).some(c => c.function?.name) || !!(msg.reasoning || msg.reasoning_content)
+    if (!j || !hasContent) {
+      providerCooldown.set(slot, Date.now() + 60_000)
+      sendError(res, 529, 'overloaded_error', `claude-switch: ${slot} returned an empty reply`)
+      return
+    }
+    log(`${why} -> free ${name}/${model}`)
+    saveState({ last: { via: 'free', provider: name, model, why, at: Date.now() } })
+    recordHealth(name, Date.now() - startedAt, true)
+    if (cacheableReply(oa, j)) cachePut(cacheKey(oa), j, name, model)
+    res.writeHead(200, { 'content-type': 'application/json' })
+    return res.end(JSON.stringify(fromOpenAI(j, body.model, banner)))
+  }
+  const t = streamTranslator(body.model, banner)
+  const dec = new TextDecoder()
+  let sse = ''
+  try {
+    for await (const chunk of r.body) sse += t.push(dec.decode(chunk, { stream: true }))
+  } catch (e) { log(`free ${slot} stream broke: ${e.message}`) }
+  sse += t.end()
+  if (!t.hadContent()) {
+    providerCooldown.set(slot, Date.now() + 60_000)
+    sendError(res, 529, 'overloaded_error', `claude-switch: ${slot} returned an empty stream`)
+    return
+  }
+  log(`${why} -> free ${name}/${model} (stream)`)
+  saveState({ last: { via: 'free', provider: name, model, why, at: Date.now() } })
+  res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+  res.write(sse)
+  return res.end()
+}
+
 /** Try each provider in `chain` until one answers; write an Anthropic-format response. */
-async function serveFree(chain, body, res, why) {
+async function serveFree(chain, body, res, why, agentName) {
   const c = cfg()
   const { forceModel } = state()
   const tried = []
-  const offset = chain.length ? rrCounter++ % chain.length : 0
-  const rotated = [...chain.slice(offset), ...chain.slice(0, offset)]
+  // Per-agent model pinning: if config.agentModels[agentName] exists, use only
+  // that provider+model instead of the full chain. This is how the boss assigns
+  // specific free models to specific workers.
+  if (agentName) {
+    const agentCfg = c.agentModels?.[agentName]
+    if (agentCfg) {
+      const p = c.providers?.[agentCfg.provider]
+      if (p && p.enabled !== false) {
+        const key = keyFor(agentCfg.provider, p)
+        if (!p.needsKey || key) {
+          return await serveFreeSingle(agentCfg.provider, p, key, agentCfg.model, body, res, why)
+        }
+        tried.push(`${agentCfg.provider}: no key`)
+      } else {
+        tried.push(`${agentCfg.provider}: not configured`)
+      }
+      sendError(res, 529, 'overloaded_error', `claude-switch: agent '${agentName}' provider unavailable (${tried.join('; ')})`)
+      return
+    }
+  }
+  // Health-aware ordering: sort by latency*success-rate, then round-robin within
+  // the sorted order so the best-performing providers get tried first.
+  const healthSorted = sortByHealth(chain)
+  const offset = healthSorted.length ? rrCounter++ % healthSorted.length : 0
+  const rotated = [...healthSorted.slice(offset), ...healthSorted.slice(0, offset)]
   // Expand providers into (provider, model) slots: a provider with `models: [...]`
   // gets one slot per model, so one rate-limited model doesn't sink the provider.
   const slots = []
@@ -118,6 +318,7 @@ async function serveFree(chain, body, res, why) {
     const slot = `${name}/${model}`
     if ((providerCooldown.get(name) ?? 0) > Date.now()) continue // provider went down mid-loop
     if ((providerCooldown.get(slot) ?? 0) > Date.now()) { tried.push(`${slot}: cooling down`); continue }
+    const startedAt = Date.now()
     const oa = toOpenAI(body, model)
     // MCP tool schemas can be most of a Claude Code request (hundreds of KB);
     // free models choke on them and they burn free daily token quotas.
@@ -126,6 +327,21 @@ async function serveFree(chain, body, res, why) {
       if (!oa.tools.length) { delete oa.tools; delete oa.tool_choice }
     }
     if (oa.max_tokens) oa.max_tokens = Math.min(oa.max_tokens, p.maxTokens ?? 8192)
+    // Cache check before the provider call: an identical request must not cost
+    // another slice of an exhausted free daily quota.
+    if (!oa.stream) {
+      const hit = cacheGet(cacheKey(oa))
+      if (hit) {
+        cacheStats.hits++
+        cacheStats.saved++
+        log(`cache hit ${name}/${model} (${why}) — provider call avoided`)
+        saveState({ last: { via: 'cache', provider: name, model, why, at: Date.now() } })
+        recordHealth(name, 0, true)
+        res.writeHead(200, { 'content-type': 'application/json', 'x-claude-switch-cache': 'hit' })
+        return res.end(JSON.stringify(fromOpenAI(hit.openai, body.model, `⟦claude-switch: cached → ${name}/${model}⟧`)))
+      }
+      cacheStats.misses++
+    }
     let r
     try {
       r = await fetch(p.baseURL.replace(/\/$/, '') + '/chat/completions', {
@@ -134,7 +350,7 @@ async function serveFree(chain, body, res, why) {
         body: JSON.stringify(oa),
         signal: AbortSignal.timeout(p.timeoutMs ?? 300_000),
       })
-    } catch (e) { tried.push(`${name}: ${e.name}`); providerCooldown.set(name, Date.now() + 60_000); continue }
+    } catch (e) { tried.push(`${name}: ${e.name}`); providerCooldown.set(name, Date.now() + 60_000); recordHealth(name, Date.now() - startedAt, false); continue }
     if (!r.ok) {
       const detail = (await r.text().catch(() => '')).slice(0, 160).replace(/\s+/g, ' ')
       tried.push(`${slot}: ${r.status}`)
@@ -185,6 +401,8 @@ async function serveFree(chain, body, res, why) {
       }
       log(`${why} -> free ${name}/${model}`)
       saveState({ last: { via: 'free', provider: name, model, why, at: Date.now() } })
+      recordHealth(name, Date.now() - startedAt, true)
+      if (cacheableReply(oa, j)) cachePut(cacheKey(oa), j, name, model)
       res.writeHead(200, { 'content-type': 'application/json' })
       return res.end(JSON.stringify(fromOpenAI(j, body.model, banner)))
     }
@@ -206,6 +424,7 @@ async function serveFree(chain, body, res, why) {
     }
     log(`${why} -> free ${name}/${model} (stream)`)
     saveState({ last: { via: 'free', provider: name, model, why, at: Date.now() } })
+    recordHealth(name, Date.now() - startedAt, true)
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
     res.write(sse)
     return res.end()
@@ -244,7 +463,31 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.url === '/__switch/status') {
       res.writeHead(200, { 'content-type': 'application/json' })
-      return res.end(JSON.stringify({ ...state(), providerCooldown: Object.fromEntries(providerCooldown) }))
+      return res.end(JSON.stringify({ ...state(), providerCooldown: Object.fromEntries(providerCooldown), providerHealth: Object.fromEntries(providerHealth), cache: { ...cacheStats, entries: Object.keys(cache).length, ...cacheCfg() } }))
+    }
+    if (req.url === '/__switch/cache' && req.method === 'DELETE') {
+      const n = Object.keys(cache).length
+      cache = {}
+      try { fs.rmSync(CACHE_FILE, { force: true }) } catch { /* already gone */ }
+      cacheStats = { hits: 0, misses: 0, saved: 0 }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      return res.end(JSON.stringify({ cleared: n }))
+    }
+    if (req.url === '/__switch/health') {
+      // Lightweight provider health check — tests each provider with a tiny request
+      const c = cfg()
+      const results = {}
+      const chain = c.freeChain ?? Object.keys(c.providers ?? {}).filter(n => n !== 'omniroute')
+      await Promise.all(chain.map(async name => {
+        const p = c.providers?.[name]
+        if (!p || p.enabled === false) { results[name] = { status: 'disabled' }; return }
+        const key = keyFor(name, p)
+        if (p.needsKey && !key) { results[name] = { status: 'no-key' }; return }
+        const h = providerHealth.get(name)
+        results[name] = h ? { status: 'ok', ...h } : { status: 'untested' }
+      }))
+      res.writeHead(200, { 'content-type': 'application/json' })
+      return res.end(JSON.stringify(results, null, 2))
     }
     const body = await readBody(req)
     const isMessages = req.method === 'POST' && req.url.split('?')[0] === '/v1/messages'
@@ -256,8 +499,14 @@ const server = http.createServer(async (req, res) => {
     // this for its workers so Pro is kept for the boss): "free" or "free:<tier>".
     const route = String(req.headers['x-claude-switch-route'] ?? '').trim().toLowerCase()
     delete req.headers['x-claude-switch-route'] // never forward it to Anthropic
+    // Per-agent model pinning: boss.mjs workers send x-claude-switch-agent: <name>;
+    // the proxy looks up config.agentModels[name] and routes to that exact provider/model.
+    const agent = String(req.headers['x-claude-switch-agent'] ?? '').trim().toLowerCase()
+    delete req.headers['x-claude-switch-agent'] // never forward it to Anthropic
     const routeFree = route === 'free' || route.startsWith('free:')
-    const useFree = mode === 'free' || !!cfg().providers?.[mode] || proResting || routeFree
+    // 'best' is the same chain as 'free' but ordered by measured provider health,
+    // which `serveFree` already does — so it behaves identically to free here.
+    const useFree = mode === 'free' || mode === 'best' || !!cfg().providers?.[mode] || proResting || routeFree
 
     if (useFree && isCount) {
       res.writeHead(200, { 'content-type': 'application/json' })
@@ -266,8 +515,8 @@ const server = http.createServer(async (req, res) => {
     if (useFree && isMessages) {
       const b = json()
       if (!b) return sendError(res, 400, 'invalid_request_error', 'claude-switch: body is not JSON')
-      if (routeFree && !cfg().providers?.[mode]) return await serveFree(tierChain(route.slice(5)), b, res, `worker ${route}`)
-      return await serveFree(chainFor(mode), b, res, proResting ? 'pro limit (until ' + new Date(proCooldownUntil).toLocaleTimeString() + ')' : `mode ${mode}`)
+      if (routeFree && !cfg().providers?.[mode]) return await serveFree(tierChain(route.slice(5)), b, res, `worker ${route}`, agent)
+      return await serveFree(chainFor(mode), b, res, proResting ? 'pro limit (until ' + new Date(proCooldownUntil).toLocaleTimeString() + ')' : `mode ${mode}`, agent)
     }
 
     let up
@@ -276,7 +525,7 @@ const server = http.createServer(async (req, res) => {
       const b = isMessages && mode === 'auto' && json()
       if (!b) throw e
       log(`Anthropic unreachable (${e.message}) -> free for this request`)
-      return await serveFree(chainFor('free'), b, res, 'anthropic unreachable')
+      return await serveFree(chainFor('free'), b, res, 'anthropic unreachable', agent)
     }
     if ((up.statusCode === 529 || up.statusCode >= 500) && isMessages && mode === 'auto') {
       // Overloaded / outage: fall back for this request only, no cooldown.
@@ -284,7 +533,7 @@ const server = http.createServer(async (req, res) => {
       if (b) {
         up.resume()
         log(`Anthropic ${up.statusCode} -> free for this request`)
-        return await serveFree(chainFor('free'), b, res, `anthropic ${up.statusCode}`)
+        return await serveFree(chainFor('free'), b, res, `anthropic ${up.statusCode}`, agent)
       }
     }
     if (up.statusCode === 429 && isMessages && mode === 'auto') {
@@ -293,7 +542,7 @@ const server = http.createServer(async (req, res) => {
       saveState({ proCooldownUntil: until })
       log(`Claude Pro limit hit (429) -> free models until ${new Date(until).toISOString()}`)
       const b = json()
-      if (b) return await serveFree(chainFor('free'), b, res, 'pro limit just hit')
+      if (b) return await serveFree(chainFor('free'), b, res, 'pro limit just hit', agent)
     }
     if (isMessages && up.statusCode < 400) {
       const b = json()

@@ -1,45 +1,97 @@
 {
   "port": 3457,
   "anthropicBaseURL": "https://api.anthropic.com",
+  "$note": "Free chain order + models verified live 2026-10-15 by `claude-mode probe`. `modelQuality` is an explicit 0-100 rating for how good each model is at agentic coding work; `claude-mode probe --apply` re-orders the chain so the highest-quality model that is currently answering goes first (latency breaks ties). Edit the ratings to taste. `responseCache` replays identical requests for free so an exhausted daily quota is not burned twice. `openrouter/typesafe/jev-router` (quality 90) is parked last on purpose: it is a paid meta-router (~$0.34/M) that only becomes usable once OpenRouter credits exist, and its low quality-per-cost makes it a last resort.",
   "freeChain": [
-    "openrouter",
-    "omniroute",
-    "gemini",
-    "groq",
-    "cerebras",
-    "nvidia",
-    "mistral",
+    "ovhcloud",
     "kilo",
     "llm7",
+    "openrouter",
+    "gemini",
     "pollinations"
   ],
   "tierChains": {
     "deep": [
-      "gemini",
-      "openrouter",
       "kilo",
       "llm7",
+      "ovhcloud",
+      "openrouter",
+      "gemini",
       "pollinations"
     ],
     "balanced": [
       "kilo",
-      "gemini",
-      "openrouter",
       "llm7",
-      "pollinations"
+      "ovhcloud",
+      "gemini",
+      "pollinations",
+      "openrouter"
     ],
     "fast": [
-      "kilo",
-      "pollinations",
       "llm7",
-      "openrouter",
-      "gemini"
+      "ovhcloud",
+      "gemini",
+      "pollinations",
+      "kilo",
+      "openrouter"
     ]
+  },
+  "modelQuality": {
+    "gemini/gemini-3.6-flash": 95,
+    "ovhcloud/qwen3.5-397b-a17b": 92,
+    "kilo/nvidia/nemotron-3-super-120b-a12b:free": 88,
+    "llm7/DeepSeek-V4-Flash-0731": 86,
+    "gemini/gemini-3.5-flash": 85,
+    "kilo/poolside/laguna-s-2.1:free": 82,
+    "llm7/codestral-latest": 79,
+    "ovhcloud/qwen3.8-27b": 76,
+    "llm7/minimax-m2.7": 75,
+    "openrouter/inclusionai/ling-3.1-flash": 73,
+    "openrouter/typesafe/jev-router": 90,
+    "llm7/GLM-5.3-Flash": 72,
+    "ovhcloud/meta-llama-3_3-70b-instruct": 70,
+    "gemini/gemini-3.5-flash-lite": 69,
+    "pollinations/openai-fast": 55
+  },
+  "agentModels": {
+    "boss": {
+      "provider": "gemini",
+      "model": "gemini-3.6-flash"
+    },
+    "claude": {
+      "provider": "gemini",
+      "model": "gemini-3.6-flash"
+    },
+    "claude-2": {
+      "provider": "kilo",
+      "model": "nvidia/nemotron-3-super-120b-a12b:free"
+    },
+    "claude-3": {
+      "provider": "llm7",
+      "model": "DeepSeek-V4-Flash-0731"
+    },
+    "copilot": {
+      "provider": "llm7",
+      "model": "DeepSeek-V4-Flash-0731"
+    },
+    "copilot-2": {
+      "provider": "pollinations",
+      "model": "openai-fast"
+    },
+    "copilot-3": {
+      "provider": "omniroute",
+      "model": "auto"
+    }
   },
   "providers": {
     "gemini": {
       "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
-      "model": "gemini-2.5-flash",
+      "model": "gemini-3.6-flash",
+      "models": [
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite"
+      ],
       "needsKey": true,
       "keyEnv": "GEMINI_API_KEY",
       "maxTokens": 65536,
@@ -67,7 +119,11 @@
       "needsKey": true,
       "keyEnv": "OPENROUTER_API_KEY",
       "maxTokens": 16384,
-      "key": ""
+      "key": "",
+      "models": [
+        "inclusionai/ling-3.1-flash",
+        "typesafe/jev-router"
+      ]
     },
     "nvidia": {
       "baseURL": "https://integrate.api.nvidia.com/v1",
@@ -118,17 +174,76 @@
     "kilo": {
       "baseURL": "https://api.kilo.ai/api/openrouter",
       "models": [
-        "kilo-auto/free",
         "nvidia/nemotron-3-super-120b-a12b:free",
-        "qwen/qwen3.8-27b:free",
-        "stepfun/step-3.7-flash:free",
         "poolside/laguna-s-2.1:free"
       ],
       "needsKey": false,
       "keyEnv": "KILO_API_KEY",
       "maxTokens": 16384,
       "key": ""
+    },
+    "ovhcloud": {
+      "baseURL": "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+      "models": [
+        "qwen3.5-397b-a17b",
+        "meta-llama-3_3-70b-instruct",
+        "qwen3.8-27b"
+      ],
+      "needsKey": false,
+      "maxTokens": 16384,
+      "key": ""
+    },
+    "cohere": {
+      "baseURL": "https://api.cohere.com/v1/openai",
+      "models": [
+        "command-a-218b",
+        "command-a-111b",
+        "command-r-plus",
+        "command-r"
+      ],
+      "needsKey": true,
+      "keyEnv": "COHERE_API_KEY",
+      "maxTokens": 16384,
+      "key": ""
+    },
+    "zai": {
+      "baseURL": "https://open.bigmodel.cn/api/paas/v4",
+      "models": [
+        "glm-4.7-flash",
+        "glm-4.5-flash"
+      ],
+      "needsKey": true,
+      "keyEnv": "ZAI_API_KEY",
+      "maxTokens": 16384,
+      "key": ""
+    },
+    "huggingface": {
+      "baseURL": "https://router.huggingface.co/v1",
+      "models": [
+        "meta-llama-3.1-8b-instruct",
+        "google/gemma-3-4b-it",
+        "phi-4"
+      ],
+      "needsKey": true,
+      "keyEnv": "HUGGINGFACE_API_KEY",
+      "maxTokens": 8192,
+      "key": ""
+    },
+    "siliconflow": {
+      "baseURL": "https://api.siliconflow.cn/v1",
+      "models": [
+        "Qwen/Qwen3-8B"
+      ],
+      "needsKey": true,
+      "keyEnv": "SILICONFLOW_API_KEY",
+      "maxTokens": 16384,
+      "key": ""
     }
   },
-  "keepMcpTools": false
+  "keepMcpTools": false,
+  "responseCache": {
+    "enabled": true,
+    "ttlMs": 3600000,
+    "maxEntries": 200
+  }
 }
