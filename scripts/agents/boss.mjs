@@ -334,6 +334,79 @@ export function sh(cmd, args, cwd, timeout = 15 * 60_000) {
   return { ok: !r.error && r.status === 0, out: `${r.stdout ?? ''}${r.stderr ?? ''}${err}`.trim() }
 }
 
+// ── Hallucination checks ─────────────────────────────────────────────────────
+// Free-model workers invent things. Two failure modes burned real attempts here:
+//   1. importing a package that is not a dependency (`react-window`'s
+//      `FixedSizeList` — the module wasn't even installed) → typecheck fails
+//   2. importing a file that does not exist → build fails
+// Both are checked deterministically on the diff, so the boss rejects them
+// before spending a model review, and reports them as hallucinations.
+
+const ASSET_EXT = /\.(css|scss|sass|less|styl|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|eot|md|txt|csv|wasm)$/i
+const SKIP_SPEC = /^(node:|virtual:|@\/|~|\?)/
+const RESOLVE_EXT = ['', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.json', '.d.ts', '/index.ts', '/index.tsx', '/index.js', '/index.mjs', '/index.json']
+
+/** Every import/require the diff adds, paired with the file it appears in
+ *  (a relative import resolves against its own file's directory). */
+export function diffImports(diff = '') {
+  const out = []
+  let file = ''
+  for (const line of String(diff).split('\n')) {
+    const header = line.match(/^\+\+\+\s+(?:b\/)?(.+?)\s*$/)
+    if (header) { file = header[1]; continue }
+    if (!line.startsWith('+') || line.startsWith('+++')) continue
+    // Skip commented-out code inside added lines.
+    const code = line.slice(1).trim()
+    if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) continue
+    for (const m of line.matchAll(/from\s+['"]([^'"]+)['"]/g)) out.push({ file, spec: m[1] })
+    for (const m of line.matchAll(/\bimport\s+['"]([^'"]+)['"]/g)) out.push({ file, spec: m[1] })
+    for (const m of line.matchAll(/\brequire\(\s*['"]([^'"]+)['"]\s*\)/g)) out.push({ file, spec: m[1] })
+    for (const m of line.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g)) out.push({ file, spec: m[1] })
+  }
+  return out.filter(({ spec }) => spec && !SKIP_SPEC.test(spec) && !ASSET_EXT.test(spec))
+}
+
+/** Union of dependencies declared by the repo's package.json files. */
+export function declaredDependencies(cwd = ROOT) {
+  const files = ['package.json', 'web-ui/package.json', 'electron-app/package.json', 'tui/package.json', 'mcp/package.json', 'cli/package.json']
+  const out = new Set()
+  for (const f of files) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(cwd, f), 'utf8'))
+      for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+        for (const name of Object.keys(pkg[field] ?? {})) out.add(name)
+      }
+    } catch { /* no such package.json — normal for most dirs */ }
+  }
+  return out
+}
+
+/**
+ * Which added imports cannot resolve in `cwd`.
+ * @param {{file: string, spec: string}[]|string[]} imports  from diffImports()
+ * @returns {{undeclared: string[], missing: string[]}}
+ *   undeclared — a bare package that is not a declared dependency and not in node_modules
+ *   missing    — a relative import whose file does not exist
+ */
+export function unresolvableImports(imports = [], cwd = ROOT, deps = declaredDependencies()) {
+  const undeclared = [], missing = []
+  const moduleDirs = ['', 'web-ui', 'electron-app', 'tui', 'mcp', 'cli'].map(d => path.join(cwd, d, 'node_modules'))
+  for (const entry of imports) {
+    const spec = typeof entry === 'string' ? entry : entry?.spec
+    const from = (typeof entry === 'object' && entry?.file) ? path.dirname(path.resolve(cwd, entry.file)) : cwd
+    if (!spec || SKIP_SPEC.test(spec) || ASSET_EXT.test(spec)) continue
+    if (spec.startsWith('.')) {
+      const base = path.resolve(from, spec)
+      if (!RESOLVE_EXT.some(ext => fs.existsSync(base + ext))) missing.push(`${spec} (in ${typeof entry === 'object' ? entry.file : '.'})`)
+      continue
+    }
+    const pkg = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0]
+    if (deps.has(pkg) || moduleDirs.some(dir => fs.existsSync(path.join(dir, pkg)))) continue
+    undeclared.push(spec)
+  }
+  return { undeclared: [...new Set(undeclared)], missing: [...new Set(missing)] }
+}
+
 function killTree(child) {
   if (IS_WIN) spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
   else child.kill('SIGTERM')
@@ -594,8 +667,33 @@ export class Boss {
       agent: attempts >= 2 ? 'any' : task.agent,
       lastFailure: tail(reason, 4000),
     })
-    this.say(agentId, `${task.id} ${blocked ? `BLOCKED after ${attempts} attempts` : 'bounced'}: ${tail(reason, 600)}`)
+    this.say(agentId, `${task.id} ${blocked ? `BLOCKED after ${attempts} attempts` : 'bounced'} (attempt ${attempts}/${this.cfg.maxAttempts}): ${tail(reason, 600)}`)
     this.log(`${task.id} ${blocked ? 'blocked' : 'bounced'} (${agentId}): ${tail(reason, 300)}`)
+    // A task that ran out of attempts is a real blocker: tell everyone, and name
+    // what would unblock it, so the user sees it without digging through logs.
+    if (blocked) {
+      const unblock = this.unblockHint(reason)
+      this.say('all', `🚧 BLOCKER ${task.id} — ${task.title}\nAgent ${agentId} failed ${attempts} attempts.\nLast failure: ${tail(reason, 700)}\nTo unblock: ${unblock}`)
+      this.log(`BLOCKER reported for ${task.id}: ${unblock}`)
+    }
+  }
+
+  /** What would actually unblock a task, from its failure text. */
+  unblockHint(reason = '') {
+    const r = String(reason)
+    if (/HALLUCINATION|undeclared package|does not exist/i.test(r)) {
+      return 'the worker invented an import. Fix the named imports to modules that exist (or add the dependency), then re-queue.'
+    }
+    if (/index\.lock|File exists/i.test(r)) {
+      return 'a stale git lock. Delete .git/worktrees/*/index.lock in the repo (no git command running), then re-queue.'
+    }
+    if (/ENOBUFS/i.test(r)) return 'a git command overflowed. Boss maxBuffer is now 256 MiB; re-queue and watch for new errors.'
+    if (/Connection refused/i.test(r)) return 'the claude-switch proxy was down. Run: node ~/.claude-switch/claude-mode.mjs start'
+    if (/Health regressed/i.test(r)) return 'the change broke a check. Run node scripts/agents/health.mjs in the worktree and fix the named check.'
+    if (/Merge conflict/i.test(r)) return 'two agents touched the same lines. Re-queue on top of the latest integration branch.'
+    if (/rate.?limit|429/i.test(r)) return 'provider is rate-limited. Add another provider key or wait for the reset.'
+    if (/permission|EACCES/i.test(r)) return 'a filesystem permission problem — check the named path.'
+    return 'review the last failure and decide whether it is code, config, or needs a human decision.'
   }
 
   /**
@@ -750,6 +848,19 @@ export class Boss {
   async review(task, agentId, base, head) {
     if (!this.cfg.boss.review) return { approve: true }
     const { stat, diff, lines } = reviewDiff(ROOT, base, head)
+    // Deterministic hallucination gate — runs before the model review so a
+    // worker inventing a package or importing a missing file is rejected on the
+    // spot, with the evidence named, instead of failing a later typecheck.
+    const bad = unresolvableImports(diffImports(diff), ROOT)
+    if (bad.undeclared.length || bad.missing.length) {
+      const detail = [
+        ...bad.undeclared.map(s => `imports undeclared package: ${s} (not in package.json and not installed)`),
+        ...bad.missing.map(s => `imports a file that does not exist: ${s}`),
+      ].join('\n- ')
+      this.say(agentId, `🚨 HALLUCINATION in ${task.id} (${agentId}):\n- ${detail}\nFix the imports to what actually exists, or add the dependency, then redo.`)
+      this.log(`${task.id} hallucination rejected (${agentId}): ${detail}`)
+      return { approve: false, issues: [`HALLUCINATION: ${detail}`] }
+    }
     const content = [
       'You are the lead reviewer ("boss") of an autonomous agent team on the GhostForge repo.',
       `Review ${agentId}'s change for task ${task.id}: **${task.title}** (area: ${task.area.join(', ') || 'whole repo'}).`,

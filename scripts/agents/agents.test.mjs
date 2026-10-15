@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { routeModel, classifyTask, KIND_TIER, workerRoute } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
-import { Boss, describeGitError, lastJSON, pickTask, reviewDiff, shouldRestartBoss, stagePrompt } from './boss.mjs'
+import { Boss, declaredDependencies, describeGitError, diffImports, lastJSON, pickTask, reviewDiff, shouldRestartBoss, stagePrompt, unresolvableImports } from './boss.mjs'
 import { scoreOf, checks, needsDeps, pythonProbe, BRIDGE_TEST_MODULES } from './health.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -485,4 +485,60 @@ test('workerRoute keeps Pro for deep work and sends other Claude work to free mo
   assert.deepEqual(workerRoute('claude', { tier: 'deep' }), { env: {}, needsPro: true }, 'deep work stays on Pro and is flagged')
   assert.deepEqual(workerRoute('copilot', { tier: 'balanced' }), { env: {}, needsPro: false }, 'only Claude workers go through claude-switch')
   assert.deepEqual(workerRoute('claude', { tier: 'balanced' }, { workersOnFree: false }), { env: {}, needsPro: false }, 'team.json can turn it off')
+})
+
+// -- Hallucination detection --------------------------------------------------
+
+test('diffImports reads only added import lines and ignores assets', () => {
+  const diff = [
+    '--- a/web-ui/app/x.tsx',
+    '+++ b/web-ui/app/x.tsx',
+    '+import { FixedSizeList } from "react-window"',
+    '+import styles from "./x.css"',
+    "+import { useState } from 'react'",
+    '-import { old } from "./gone.ts"',
+    '+const lazy = await import("./later.ts")',
+    '+// import { fake } from "nowhere"',
+  ].join('\n')
+  const specs = diffImports(diff)
+  const names = specs.map(s => s.spec)
+  assert.ok(names.includes('react-window'), 'catches a real added import')
+  assert.ok(names.includes('react'))
+  assert.ok(names.includes('./later.ts'), 'catches dynamic imports')
+  assert.ok(specs.every(s => s.file === 'web-ui/app/x.tsx'), 'records the importing file')
+  assert.ok(!names.includes('./x.css'), 'skips asset imports')
+  assert.ok(!names.includes('./gone.ts'), 'ignores removed imports')
+  assert.ok(!names.includes('nowhere'), 'ignores commented-out imports')
+})
+
+test('unresolvableImports resolves relative imports against their own file', () => {
+  const deps = new Set(['react', 'next'])
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gf-halluc-'))
+  fs.mkdirSync(path.join(tmp, 'web-ui/app'), { recursive: true })
+  fs.writeFileSync(path.join(tmp, 'web-ui/app/real.tsx'), 'export const a = 1\n')
+  const bad = unresolvableImports(
+    [
+      { file: 'web-ui/app/x.tsx', spec: 'react-window' },
+      { file: 'web-ui/app/x.tsx', spec: './real' },
+      { file: 'web-ui/app/x.tsx', spec: './missing' },
+      { file: 'web-ui/app/x.tsx', spec: 'node:fs' },
+      { file: 'web-ui/app/x.tsx', spec: '@/lib/x' },
+      { file: 'web-ui/app/x.tsx', spec: './real.css' },
+    ],
+    tmp,
+    deps,
+  )
+  assert.deepEqual(bad.undeclared, ['react-window'], 'invented package reported')
+  assert.equal(bad.missing.length, 1, 'one missing file reported')
+  assert.match(bad.missing[0], /^\.\/missing \(in web-ui\/app\/x\.tsx\)$/, 'names the missing file and its importer')
+  assert.ok(!bad.undeclared.includes('react'), 'declared deps pass')
+  fs.rmSync(tmp, { recursive: true, force: true })
+})
+
+test('the real repo resolves every import its own source uses', () => {
+  // Guards the checker against false positives on this codebase.
+  const deps = declaredDependencies(ROOT)
+  assert.ok(deps.has('next'), 'reads web-ui package.json')
+  const bad = unresolvableImports(['next/link', 'node:test', '@/lib/auth'], ROOT, deps)
+  assert.deepEqual(bad, { undeclared: [], missing: [] })
 })

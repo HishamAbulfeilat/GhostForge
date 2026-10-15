@@ -33,6 +33,18 @@ and work around it.
 
 ## How to work
 
+0. **Never invent anything.** The boss runs a deterministic check on your diff
+   and rejects work that imports something that does not exist:
+   - a package that is not in `package.json` / `devDependencies` and not in
+     `node_modules` (read the file before importing it — do not guess the
+     package name, its export names, or its version),
+   - a relative import whose file does not exist (check the path and extension),
+   - an API, option, or prop that is not in the file/type you are calling.
+   Before you commit, re-read every import and call you added and confirm it
+   against the real file or the installed package's types. If you are not sure
+   an export exists, read the module's source or its `*.d.ts` and use what is
+   actually there. Prefer the smallest dependency-free change that satisfies the
+   task over adding a new package.
 1. Implement the task completely. Your file area is your primary scope, not a
    wall: you MAY also edit the shared files needed to finish it — `package.json`
    and lockfiles, the page or route that mounts your feature, tests,
@@ -46,6 +58,8 @@ and work around it.
    fix anything you broke.
 3. Commit on your branch with a conventional message citing the task id,
    e.g. `fix(web-ui): … ({{TASK_ID}})`. Several small commits are fine.
+   Commit only what the task needs — no scratch files, no build output, no
+   unrelated cleanups. A diff full of unrelated changes gets rejected.
 4. **Never** `git push`, merge, rebase onto other branches, open PRs, or touch
    `main` — the boss integrates your branch and opens the single PR.
 5. Report back (this is how the boss knows you finished):
