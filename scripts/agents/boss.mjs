@@ -236,6 +236,30 @@ export function bossModelFor(kind, diffLines, boss = {}) {
   return boss.reviewModel
 }
 
+/**
+ * A task left `in-progress` by a worker that died (boss crash, killed process,
+ * a hung pipe) never gets picked up again: the agent is idle, so the tick skips
+ * it, and the task is invisible to `pickTask` forever. Re-home any in-progress
+ * task whose owner is not mid-run back to `todo` so it can be retried.
+ */
+export function releaseOrphanedTasks(tasks, state, now = Date.now()) {
+  let released = 0
+  for (const t of tasks) {
+    if (t.status !== 'in-progress' || !t.owner) continue
+    const st = state[t.owner]
+    // These states mean this boss still has that agent's run in flight.
+    if (st && (st.state === 'working' || st.state === 'starting' || st.state === 'waiting-merge')) continue
+    t.status = 'todo'
+    t.owner = null
+    t.agent = 'any' // the original assignee is gone or idle — let any agent retry
+    t.lastFailure = st
+      ? `Worker stopped without reporting (last activity ${t.updatedAt ?? 'unknown'}). Re-queued.`
+      : `Owner "${t.owner ?? '?'}" is not a configured agent. Re-queued for any worker.`
+    released++
+  }
+  return released
+}
+
 /** Next todo task for an agent: allowed owner, no area overlap with busy tasks, preferring its strengths. */
 export function pickTask(tasks, agentId, strengths = [], now = Date.now()) {
   const busy = tasks.filter(t => t.status === 'in-progress' || t.status === 'review')
@@ -633,16 +657,36 @@ export class Boss {
       out.write(`\n=== ${new Date().toISOString()} ${cmd} [${model}] (${mode}) in ${cwd}\n`)
       let buf = ''
       let timedOut = false
+      let settled = false
       const child = spawn(cmd, IS_WIN ? args.map(winQuote) : args, {
         cwd, shell: IS_WIN, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
         env: { ...process.env, GF_AGENT_STATE: this.dir, ...providerEnv, ...env },
       })
+      // Resolve exactly once. 'close' is not enough on its own: the CLI is run
+      // through a shell on Windows and its own child processes can outlive it, so
+      // the pipe stays open and 'close' never fires — which used to hang the boss
+      // on `await` forever (a task stuck in-progress for hours, no timeout). The
+      // timer therefore resolves the promise itself after killing the tree.
+      const finish = (code, timeout = timedOut) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        try { child.stdout?.destroy() } catch { /* already gone */ }
+        try { child.stderr?.destroy() } catch { /* already gone */ }
+        try { out.end() } catch { /* already gone */ }
+        resolve({ code, output: buf, timedOut: timeout })
+      }
+      const timer = setTimeout(() => {
+        timedOut = true
+        killTree(child)
+        buf += `\n[boss] killed the agent after ${Math.round(timeoutMs / 60000)} min timeout`
+        finish(null, true)
+      }, timeoutMs)
       const onData = d => { const s = d.toString(); out.write(s); buf = (buf + s).slice(-40_000) }
       child.stdout.on('data', onData)
       child.stderr.on('data', onData)
-      const timer = setTimeout(() => { timedOut = true; killTree(child) }, timeoutMs)
-      child.on('error', e => { buf += `\n${e.message}` })
-      child.on('close', code => { clearTimeout(timer); out.end(); resolve({ code, output: buf, timedOut }) })
+      child.on('error', e => { buf += `\n${e.message}`; finish(null) })
+      child.on('close', code => finish(code))
     })
   }
 
@@ -1053,6 +1097,8 @@ export class Boss {
     if (depBlocked) this.log(`blocked ${depBlocked} task(s) with unavailable dependencies`)
     const released = releaseStuckTasks(board.tasks, this.state, now)
     if (released) this.log(`released ${released} task(s) pinned to an unavailable agent`)
+    const orphans = releaseOrphanedTasks(board.tasks, this.state, now)
+    if (orphans) this.log(`re-queued ${orphans} orphaned in-progress task(s) (worker stopped without reporting)`)
     saveBoard(this.dir, board)
     for (const [id, a] of this.agents) {
       const st = this.state[id]

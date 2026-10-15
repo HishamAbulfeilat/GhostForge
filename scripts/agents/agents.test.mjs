@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { routeModel, classifyTask, KIND_TIER, workerRoute } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
-import { Boss, declaredDependencies, describeGitError, diffImports, lastJSON, pickTask, reviewDiff, shouldRestartBoss, stagePrompt, unresolvableImports } from './boss.mjs'
+import { Boss, declaredDependencies, describeGitError, diffImports, lastJSON, pickTask, releaseOrphanedTasks, reviewDiff, shouldRestartBoss, stagePrompt, unresolvableImports } from './boss.mjs'
 import { scoreOf, checks, needsDeps, pythonProbe, BRIDGE_TEST_MODULES } from './health.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -541,4 +541,38 @@ test('the real repo resolves every import its own source uses', () => {
   assert.ok(deps.has('next'), 'reads web-ui package.json')
   const bad = unresolvableImports(['next/link', 'node:test', '@/lib/auth'], ROOT, deps)
   assert.deepEqual(bad, { undeclared: [], missing: [] })
+})
+
+test('releaseOrphanedTasks re-homes tasks whose worker died', () => {
+  const now = Date.now()
+  const tasks = [
+    { id: 'T-001', status: 'in-progress', owner: 'claude', updatedAt: new Date(now - 3 * 3600_000).toISOString() },
+    { id: 'T-002', status: 'in-progress', owner: 'ghost' },
+    { id: 'T-003', status: 'in-progress', owner: 'claude-2' },
+  ]
+  // claude is idle (its run died); claude-2 is mid-run and must be left alone.
+  const state = { 'claude': { state: 'idle' }, 'claude-2': { state: 'working' } }
+  const released = releaseOrphanedTasks(tasks, state, now)
+  assert.equal(released, 2)
+  assert.equal(tasks[0].status, 'todo', 'idle owner -> todo')
+  assert.equal(tasks[0].owner, null)
+  assert.equal(tasks[0].agent, 'any', 'a released task is open to any worker')
+  assert.match(tasks[0].lastFailure, /Worker stopped without reporting/)
+  assert.equal(tasks[1].status, 'todo', 'unknown owner -> todo')
+  assert.equal(tasks[1].agent, 'any')
+  assert.match(tasks[1].lastFailure, /is not a configured agent/)
+  assert.equal(tasks[2].status, 'in-progress', 'a live run is left alone')
+  assert.equal(tasks[2].owner, 'claude-2')
+})
+
+test('releaseOrphanedTasks ignores todo, done and blocked tasks', () => {
+  const tasks = [
+    { id: 'T-004', status: 'todo', owner: null },
+    { id: 'T-005', status: 'done', owner: 'claude' },
+    { id: 'T-006', status: 'blocked', owner: 'claude' },
+  ]
+  assert.equal(releaseOrphanedTasks(tasks, { claude: { state: 'idle' } }), 0)
+  assert.equal(tasks[0].status, 'todo')
+  assert.equal(tasks[1].status, 'done')
+  assert.equal(tasks[2].status, 'blocked')
 })
