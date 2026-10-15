@@ -449,6 +449,82 @@ export function strayNeedle(worktree) {
   return path.resolve(worktree) + path.sep
 }
 
+/** Snapshot of (pid, parent pid) for every process on the machine. */
+function processTable() {
+  if (!IS_WIN) {
+    const r = spawnSync('ps', ['-eo', 'pid=,ppid='], { encoding: 'utf8', timeout: 15_000 })
+    return r.stdout.split('\n').map(l => l.trim().split(/\s+/)).filter(p => p.length >= 2)
+      .map(([pid, ppid]) => ({ pid: Number(pid), ppid: Number(ppid) })).filter(p => Number.isFinite(p.pid) && Number.isFinite(p.ppid))
+  }
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress'],
+    { encoding: 'utf8', windowsHide: true, timeout: 30_000 })
+  try {
+    const parsed = JSON.parse(r.stdout || '[]')
+    const list = Array.isArray(parsed) ? parsed : [parsed]
+    return list.map(p => ({ pid: Number(p.ProcessId), ppid: Number(p.ParentProcessId) }))
+      .filter(p => Number.isFinite(p.pid) && Number.isFinite(p.ppid))
+  } catch { return [] }
+}
+
+/**
+ * Every process whose ancestry leads back to `rootPid`.
+ *
+ * This exists because killStrays' command-line match cannot see agent MCP
+ * servers: the CLI starts them as `cmd /d /s /c <name>` (e.g. `rea mcp`,
+ * `desktop-commander`, `mcp-server-github`), and those command lines carry no
+ * worktree path — so a finished worker left ~600 MB of them resident between
+ * runs. Walking the real parent/child tree is the only reliable way to reap them.
+ */
+export function descendantPids(rootPid, table) {
+  const byParent = new Map()
+  for (const p of table) {
+    const list = byParent.get(p.ppid) ?? []
+    list.push(p.pid)
+    byParent.set(p.ppid, list)
+  }
+  const out = new Set()
+  const root = Number(rootPid)
+  const stack = [root]
+  while (stack.length) {
+    const pid = stack.pop()
+    for (const child of byParent.get(pid) ?? []) {
+      if (out.has(child)) continue
+      out.add(child)
+      stack.push(child)
+    }
+  }
+  out.delete(root)
+  return out
+}
+
+/** True when a pid is still running. */
+const pidAlive = pid => { try { process.kill(Number(pid), 0); return true } catch { return false } }
+
+/**
+ * Track `rootPid`'s process tree while a worker runs, then kill whatever is
+ * left once it exits. The interval is cleared as soon as the run ends, so this
+ * costs one cheap `ps`/CIM call every few seconds per active worker.
+ */
+function watchProcessTree(rootPid, onExit) {
+  const seen = new Set()
+  const collect = () => {
+    if (!pidAlive(rootPid)) return
+    try { for (const pid of descendantPids(rootPid, processTable())) seen.add(pid) } catch { /* transient */ }
+  }
+  collect()
+  const timer = setInterval(collect, 3000)
+  return () => {
+    clearInterval(timer)
+    collect()
+    for (const pid of seen) {
+      if (pid === process.pid || !pidAlive(pid)) continue
+      try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+    }
+    onExit?.()
+  }
+}
+
 function killStrays(worktree) {
   const needle = strayNeedle(worktree)
   const r = IS_WIN
@@ -671,6 +747,10 @@ export class Boss {
         if (settled) return
         settled = true
         clearTimeout(timer)
+        // Reap the worker's whole process tree: the agent CLI starts its MCP
+        // servers as `cmd /d /s /c <name>`, so killStrays' path match cannot see
+        // them and they used to survive the run (~600 MB leaked per worker).
+        try { stopWatch() } catch { /* watcher never started */ }
         try { child.stdout?.destroy() } catch { /* already gone */ }
         try { child.stderr?.destroy() } catch { /* already gone */ }
         try { out.end() } catch { /* already gone */ }
@@ -682,6 +762,7 @@ export class Boss {
         buf += `\n[boss] killed the agent after ${Math.round(timeoutMs / 60000)} min timeout`
         finish(null, true)
       }, timeoutMs)
+      const stopWatch = watchProcessTree(child.pid)
       const onData = d => { const s = d.toString(); out.write(s); buf = (buf + s).slice(-40_000) }
       child.stdout.on('data', onData)
       child.stderr.on('data', onData)

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { routeModel, classifyTask, KIND_TIER, workerRoute } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
-import { Boss, declaredDependencies, describeGitError, diffImports, lastJSON, pickTask, releaseOrphanedTasks, reviewDiff, shouldRestartBoss, stagePrompt, unresolvableImports } from './boss.mjs'
+import { Boss, declaredDependencies, descendantPids, describeGitError, diffImports, lastJSON, pickTask, releaseOrphanedTasks, reviewDiff, shouldRestartBoss, stagePrompt, unresolvableImports } from './boss.mjs'
 import { scoreOf, checks, needsDeps, pythonProbe, BRIDGE_TEST_MODULES } from './health.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -575,4 +575,22 @@ test('releaseOrphanedTasks ignores todo, done and blocked tasks', () => {
   assert.equal(tasks[0].status, 'todo')
   assert.equal(tasks[1].status, 'done')
   assert.equal(tasks[2].status, 'blocked')
+})
+
+test('descendantPids walks the whole process tree, not just direct children', () => {
+  // boss -> shell -> claude CLI -> cmd -> MCP server (deepest descendant)
+  const table = [
+    { pid: 100, ppid: 1 },    // boss
+    { pid: 200, ppid: 100 },  // shell the boss spawned
+    { pid: 300, ppid: 200 },  // claude CLI
+    { pid: 400, ppid: 300 },  // cmd /d /s /c mcp-server-github
+    { pid: 500, ppid: 400 },  // the node MCP server itself
+    { pid: 600, ppid: 1 },    // unrelated process
+  ]
+  const kids = descendantPids(200, table)
+  assert.ok(kids.has(300) && kids.has(400) && kids.has(500), 'finds grandchildren and deeper')
+  assert.ok(!kids.has(100), 'never includes an ancestor (the boss)')
+  assert.ok(!kids.has(600), 'never includes an unrelated process')
+  assert.ok(!kids.has(200), 'excludes the root itself')
+  assert.deepEqual(descendantPids(600, table), new Set(), 'a leaf has no descendants')
 })
