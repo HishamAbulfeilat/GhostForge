@@ -254,6 +254,20 @@ export function pickTask(tasks, agentId, strengths = [], now = Date.now()) {
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const tail = (s = '', n = 3000) => (s.length > n ? '…' + s.slice(-n) : s)
 
+/**
+ * The useful part of a failed npm command's output. On EUSAGE (e.g. lockfile
+ * out of sync with package.json) npm prints the real reason first and then the
+ * command's full usage text, so the tail only showed option help such as
+ * "Include the workspace root…" — keep the reason and drop the usage dump.
+ */
+export function npmFailureSummary(out = '', n = 500) {
+  if (!/\bcode EUSAGE\b/.test(out)) return tail(out, n)
+  const lines = out.split(/\r?\n/)
+  const usage = lines.findIndex((l) => /^npm error (Usage:|npm ci\s*$|Clean install)/.test(l))
+  const reason = (usage > 0 ? lines.slice(0, usage) : lines).join('\n').trim()
+  return reason.length > n ? reason.slice(0, n) + '…' : reason
+}
+
 // Large diffs/logs exceed Node's 1 MiB default and fail with ENOBUFS.
 export const MAX_BUFFER = 256 * 1024 * 1024
 
@@ -494,7 +508,7 @@ export class Boss {
     this.log(`installing web-ui deps in ${wt}…`)
     const r = sh('npm', ['ci', '--no-audit', '--no-fund'], path.join(wt, 'web-ui'))
     if (r.ok) fs.writeFileSync(stamp, hash)
-    else this.log(`npm ci failed in ${wt}: ${tail(r.out, 500)}`)
+    else this.log(`npm ci failed in ${wt}: ${npmFailureSummary(r.out)}`)
   }
 
   setup() {

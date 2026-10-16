@@ -331,8 +331,12 @@ export function upsertJobs(
   for (const f of found) {
     const existing = byKey.get(f.key)
     if (existing) {
-      // Refresh listing details but never clobber application progress
-      Object.assign(existing, { ...f, status: existing.status, updatedAt: now })
+      // Merge: keep higher score, preserve status and progress
+      if (f.score > existing.score) {
+        Object.assign(existing, { ...f, status: existing.status, updatedAt: now })
+      } else {
+        existing.updatedAt = now
+      }
       continue
     }
     const record: JobRecord = { ...f, id: randomUUID().slice(0, 8), status: 'found', log: [{ at: now, msg: `Found on ${f.source}` }], createdAt: now, updatedAt: now }

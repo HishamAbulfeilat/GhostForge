@@ -3,7 +3,8 @@
  *
  * 1. Location filter — keep jobs in the user's preferred locations (or remote
  *    jobs open to them).
- * 2. Dealbreakers / salary floor — mark Skip immediately.
+ * 2. Salary floor — listings below the minimum are dropped before scoring;
+ *    dealbreakers mark Skip immediately.
  * 3. Fit score — the AI rates each job against the CV using the Proficiently
  *    rubric (High / Medium / Low / Skip). Without a model, a keyword-overlap
  *    heuristic is used instead so search still works offline.
@@ -92,15 +93,19 @@ function salaryMax(s: string): number | null {
   return nums.length ? Math.max(...nums) : null
 }
 
+/** True when the listing states a salary whose top end is below the user's minimum. Unstated salaries pass. */
+export function belowMinSalary(job: Pick<RawJob, 'salary'>, prefs: Pick<JobPreferences, 'minSalary'>): boolean {
+  if (!prefs.minSalary) return false
+  const max = salaryMax(job.salary)
+  return max !== null && max < prefs.minSalary
+}
+
 /** Hard rules from preferences.md in the Proficiently rubric */
 export function dealbreaker(job: Pick<RawJob, 'title' | 'company' | 'description' | 'salary'>, prefs: JobPreferences): string | null {
   const hay = norm(`${job.title} ${job.company} ${job.description}`)
   const hit = prefs.dealbreakers.map(norm).find(d => d && hay.includes(d))
   if (hit) return `Dealbreaker: ${hit}`
-  if (prefs.minSalary) {
-    const max = salaryMax(job.salary)
-    if (max !== null && max < prefs.minSalary) return `Salary ${job.salary} is below your minimum`
-  }
+  if (belowMinSalary(job, prefs)) return `Salary ${job.salary} is below your minimum`
   return null
 }
 
