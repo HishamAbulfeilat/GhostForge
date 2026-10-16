@@ -252,33 +252,21 @@ Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). 
 ## LIVE STATUS
 
 <!-- LIVE-STATUS:START -->
-_Auto-updated by the boss (pid 37428) at 2026-10-16T15:13:54.877Z._
+_Auto-updated by the boss (pid 38820) at 2026-10-16T22:55:50.012Z._
 
 **Phase 4:** Production-perfect on every surface: every GhostForge feature works end to end and is reachable from the web UI, the TUI, the terminal CLI and JARVIS (feature parity — record gaps in docs/FEATURE-MATRIX.md and close them); the Electron desktop app builds and runs on Windows, macOS and Linux and the Android (Capacitor) app builds, with CI proving it; security hardened (fix every real finding from CodeQL, npm audit, secret/dependency scanners and security reviews); the Agentic OS dashboard (/agents) shows each agent's progress, the todo/in-progress/review/done/blocked board, messages, health and history; accessible, RTL-safe, polished UI. Keep going until every check is green, then keep improving.
 
-**Health:** 67/100 · **merges this run:** 2 · **PR:** none yet · **boss:** claude
+**Health:** 67/100 · **merges this run:** 3 · **PR:** none yet · **boss:** claude
 
-**Board:** todo 16 · in-progress 1 · review 0 · done 221 · blocked 28
+**Board:** todo 0 · in-progress 1 · review 0 · done 225 · blocked 40
 
 **Agents**
-- **claude** (claude): working on T-259
+- **claude** (claude): working on T-271
 
 **In progress / review**
-- T-259 [feature] Agent World: focus-agent mode — selecting an agent card filters the world view and lists to that agent only, with a clear control to exit — claude
+- T-271 [performance] Web UI: deduplicate identical in-flight API requests within one second and serve the cached response to the second caller — claude
 
 **Next up (todo)**
-- T-200 [docs] Docs: close the JARVIS/bridge gaps in docs/FEATURE-MATRIX.md — 18 rows where the bridge is the only ❌
-- T-237 [docs] Document mark-l-bridge server endpoints in README
-- T-257 [performance] Job Hunter: run every job source query in parallel with a per-source timeout so one slow source cannot stall the search
-- T-258 [performance] Agent World: poll every 30s while the tab is visible and 60s while hidden, using the visibilitychange event
-- T-260 [feature] Agent World: per-agent activity timeline showing the tasks that agent started, completed or failed in the last hour, from the snapshot history
-- T-261 [feature] Agent World: show cumulative API cost per agent for today and this week, derived from the boss token records, next to each agent card
-- T-262 [feature] Agent World: keyboard shortcuts — 1/2/3 to switch worlds, / to focus the agent search, Escape to close the session drawer
-- T-263 [feature] Agent World: export the current snapshot as a downloadable JSON file for debugging
-- T-264 [performance] Agent World: wrap the agent-world list and scene components in React.memo so a snapshot refresh does not re-render unchanged rows
-- T-265 [feature] Agents dashboard: show a live progress indicator per in-progress task (elapsed time, files touched, commits on its branch)
-- T-266 [feature] Agents dashboard: estimate remaining time per task from elapsed time and task size, and show an expected finish time for the queue
-- T-267 [feature] Agents dashboard: add a per-agent activity stream of the last hour (tasks started, completed, blocked)
 
 **Blocked (needs a human or a fresh approach)**
 - T-173 [chore] Untrack stale tui/node_modules from git (gitignored but 4221 files still tracked): 
@@ -288,6 +276,7 @@ _Auto-updated by the boss (pid 37428) at 2026-10-16T15:13:54.877Z._
 - T-196 [chore] CI: build web-ui, run the mcp and tui suites, add a commit status, and audit middleware PROTECTED_PREFIXES: 
 - T-197 [bugfix] Give every git spawn an explicit maxBuffer so a 1 MiB default cannot silently ENOBUFS: 
 - T-198 [bugfix] Boss: find and fix the real ENOBUFS, then land the tui/node_modules untracking that has failed 3x: 
+- T-200 [docs] Docs: close the JARVIS/bridge gaps in docs/FEATURE-MATRIX.md — 18 rows where the bridge is the only ❌: …rked ❌ now reference the new bridge paths, and the test suite now checks each of these endpoints for a successful response. This completes the documentation and verification for all bridge‑only gaps. 
 - T-201 [feature] Web: add a baseline accessibility check and fix the violations it finds: Boss review rejected the change: - HALLUCINATION: imports undeclared package: @axe-core/playwright (not in package.json and not installed)
 - T-208 [chore] Untrack stale tui/node_modules from git (retry after T-190/T-202 ENOBUFS fixes) and make root tests reject tracked node_modules: 
 - T-217 [chore] Untrack stale tui/node_modules from git (retry T-208 now that the boss self-restarts with maxBuffer'd git) and make root tests reject tracked node_modules: 
@@ -298,6 +287,7 @@ _Auto-updated by the boss (pid 37428) at 2026-10-16T15:13:54.877Z._
 - T-234 [chore] Fix tui/node_modules git tracking issue to prevent ENOBUFS errors: 
 - T-235 [feature] Implement voice input and output for JARVIS: Finished without committing anything. I keep getting validation errors because my JSON strings not properly escaped. I need to produce exact JSON with no escapes needed? Let's just try simple:  
 - T-236 [feature] Implement push notifications for JARVIS: …ubtests (node:internal/test_runner/test:744:7) {     generatedMessage: true,     code: 'ERR_ASSERTION',     actual: 'Error: spawn echo ENOENT',     expected: 'aliased',     operator: 'strictEqual'   }
+- T-237 [docs] Document mark-l-bridge server endpoints in README: …hout committing anything. and confirms that every path appears somewhere in the Markdown table.   This guarantees that future changes to `server.py` will be reflected in the repository documentation. 
 - T-238 [docs] Correct stale CHANGELOG claims: …ubtests (node:internal/test_runner/test:744:7) {     generatedMessage: true,     code: 'ERR_ASSERTION',     actual: 'Error: spawn echo ENOENT',     expected: 'aliased',     operator: 'strictEqual'   }
 - T-241 [bugfix] Fix failing health check: web-ui unit tests (JARVIS tools, job hunter…): …inimal, stays within the `web-ui` area, and follows all conventions: No new packages are added, no logic is introduced outside the hook, and the patch keeps the test harness working on all platforms. 
 - T-245 [test] Cross-platform Electron build: verify electron-builder.yml covers all 5 platforms (win/mac/linux/android/ios), fix platform-specific build issues, ensure native deps (sharp, playwright) work cross-platform, and add headless smoke test: …22m  context.getAncestors is not a function Occurred while linting C:\Users\User\Desktop\GhostForge\gf-integration\web-ui\app\agent-world\AgentWorldSwitcher.tsx:17 Rule: "@next/next/no-duplicate-head"
@@ -309,28 +299,38 @@ _Auto-updated by the boss (pid 37428) at 2026-10-16T15:13:54.877Z._
 - T-251 [feature] Web UI: virtualize job list (react-window) for >50 jobs, React.memo on JobHunterWidget, and API request deduplication (1s window): 
 - T-254 [feature] Job Hunter: add a 'jobs stats' command showing applications submitted this week and month, response rate, and top companies: …hout committing anything. (no final answer; model's reasoning follows) We hit output token limit. Need to continue. We'll add route file content. Then commit. Let's produce Write calls for each file. 
 - T-255 [feature] Job Hunter: track interview stages per job (interviewing/offered/rejected with dates) and show them on the job card and CLI: …/state/tasks/T-255-claude.md and .agent-sync/state/ecc-context.md, then follow task instructions exactly. The T-255-claude.md file presumably contains instructions for this task. Let's read it fully. 
+- T-258 [performance] Agent World: poll every 30s while the tab is visible and 60s while hidden, using the visibilitychange event: … Edit 2: replace the entire useEffect snippet replacing POLL_INTERVAL_MS usage? We'll commit replacing the effect with new code.  Old string we captured. New string as earlier.  Let's perform Edit 1. 
+- T-259 [feature] Agent World: focus-agent mode — selecting an agent card filters the world view and lists to that agent only, with a clear control to exit: …l answer; model's reasoning follows) We need to read the file .agent-sync/state/tasks/T-259-claude.md and .agent-sync/state/ecc-context.md. These files likely instruct the assistant. Let's read them. 
+- T-260 [feature] Agent World: per-agent activity timeline showing the tasks that agent started, completed or failed in the last hour, from the snapshot history: …ed inside JSX ; need to import recordText earlier it's imported. Good.  We also used const name = ...; ensure the code inside .map is correct.  Let's output final assistant response with edit calls.  
+- T-261 [feature] Agent World: show cumulative API cost per agent for today and this week, derived from the boss token records, next to each agent card: …ybe displayed near footer of header? Add. Provide strings.  Implement editing: In page where render AgentStation, just after the <span className="mt-3 block ..."> we can add new <div>.  Let's patch.  
+- T-262 [feature] Agent World: keyboard shortcuts — 1/2/3 to switch worlds, / to focus the agent search, Escape to close the session drawer: Boss review rejected the change: - HALLUCINATION: imports a file that does not exist: ./ShortcutHandler (in web-ui/app/agent-world/page.tsx)
+- T-264 [performance] Agent World: wrap the agent-world list and scene components in React.memo so a snapshot refresh does not re-render unchanged rows: …s not done and the import is unused - Prop references passed to DataList/SourceList may change on every snapshot refresh, so memo may not prevent re-renders; the worker should verify or stabilise them
+- T-265 [feature] Agents dashboard: show a live progress indicator per in-progress task (elapsed time, files touched, commits on its branch): … to modify the    API routes, the model, and the referenced `AgentKanbanBoard` component.  Let me know whether I should proceed with the UI placeholder or wait for the backend changes to be approved. 
+- T-267 [feature] Agents dashboard: add a per-agent activity stream of the last hour (tasks started, completed, blocked): Boss review rejected the change: - HALLUCINATION: imports a file that does not exist: ./AgentActivityStream (in web-ui/app/agents/AgentKanbanBoard.tsx)
+- T-268 [feature] Agents dashboard: show resource usage per agent today (tokens, requests, estimated cost) from the state records: Blocked on missing per‑agent usage metrics from the state snapshot API. Awaiting backend modification. 
+- T-269 [performance] Web UI: keep the job list responsive past 50 jobs by rendering only the visible slice using the installed UI toolkit (no new dependencies): …container is not mounted; fixed 120px rows clip taller content - Duplicated STATUS_VIEW/FIT_STYLE and replaced postingDate() with toISOString (throws on invalid dates) - No tests or build verification
 
 **Recently done**
-- T-231 [test] Bridge tests: pytest coverage for the read-only snippets, changelog, setup-status, code-health and resource-catalog endpoints — claude-3
-- T-232 [security] Bridge: separate review of readJsonBody drain-past-cap change (MAX_DRAIN_BYTES) that landed inside T-230 commit 5d32cd6 — claude
-- T-239 [bugfix] Fix failing health check: Root smoke test (TUI parse, marketplace JSON) — claude
-- T-240 [bugfix] Fix failing health check: web-ui unit tests (JARVIS tools, job hunter…) — claude-2
 - T-242 [bugfix] Fix failing health check: web-ui npm audit (no high/critical) — claude
 - T-243 [bugfix] Fix failing health check: Electron desktop app tests (incl. headless launch) — claude
 - T-244 [bugfix] Fix failing health check: web-ui production build — claude
 - T-252 [feature] Job Hunter: deduplicate jobs found from multiple sources, merging them into the highest-scoring existing job instead of adding duplicates — claude
 - T-253 [feature] Job Hunter: filter out jobs below the configured minimum salary before scoring them, and report how many were filtered — claude
 - T-256 [feature] Job Hunter: pick a cover letter template by job type (engineering, design, product) and use it as the structure for the AI-written letter — claude
+- T-257 [performance] Job Hunter: run every job source query in parallel with a per-source timeout so one slow source cannot stall the search — claude
+- T-263 [feature] Agent World: export the current snapshot as a downloadable JSON file for debugging — claude
+- T-266 [feature] Agents dashboard: estimate remaining time per task from elapsed time and task size, and show an expected finish time for the queue — claude
+- T-270 [performance] Web UI: memoize JobHunterWidget and its list row so unrelated state changes do not re-render the whole job list — claude
 - T-272 [bugfix] Boss: npm ci in gf-integration fails ('Include the workspace root when workspaces are enabled'); fix the web-ui deps install invocation in scripts/agents/boss.mjs — claude
 - T-273 [bugfix] web-ui ESLint crashes (context.getAncestors is not a function): eslint-config-next@14 is incompatible with eslint 9 — move to a version that supports ESLint 9 flat config without reintroducing high/critical prod audit findings — claude
 
 **Latest messages**
-- 2026-10-16T14:07 boss → all: …ut token limit. Need to continue. We'll add route file content. Then commit. Let's produce Write calls for each file.  To unblock: review the last failure and decide whether it is code, config, or needs a human decision.
-- 2026-10-16T14:20 boss → claude: … Finished without committing anything. (no final answer; model's reasoning follows) Tool called Search missing; we had Search tool earlier. Might need functions.Search. Yes there's Search tool under functions. Use that. 
-- 2026-10-16T14:22 boss → claude: …ed without committing anything. (no final answer; model's reasoning follows) We attempted to edit intake.ts but string may not match due to line endings or spaces. Let's open part of intake.ts near interface definition. 
-- 2026-10-16T14:27 boss → claude: … to read .agent-sync/state/tasks/T-255-claude.md and .agent-sync/state/ecc-context.md, then follow task instructions exactly. The T-255-claude.md file presumably contains instructions for this task. Let's read it fully. 
-- 2026-10-16T14:27 boss → all: …k instructions exactly. The T-255-claude.md file presumably contains instructions for this task. Let's read it fully.  To unblock: review the last failure and decide whether it is code, config, or needs a human decision.
-- 2026-10-16T14:29 boss → claude: T-256 bounced (attempt 1/3): Finished without committing anything. search needed.Search maybe for template. 
-- 2026-10-16T14:55 boss → all: …T-256 merged from claude (health 67/100): Job Hunter: pick a cover letter template by job type (engineering, design, product) and use it as the structure for the AI-written letter.  Files: web-ui/lib/job-hunter/writer.ts
-- 2026-10-16T14:59 boss → claude: … mode — selecting an agent card filters the world view and lists to that agent only, with a clear control to exit". File area: web-ui/app/agent-world. So we need to implement this in web-ui. Investigate current folder.  
+- 2026-10-16T21:44 boss → claude: …e part of the task is not done and the import is unused - Prop references passed to DataList/SourceList may change on every snapshot refresh, so memo may not prevent re-renders; the worker should verify or stabilise them
+- 2026-10-16T21:44 boss → all: …t may change on every snapshot refresh, so memo may not prevent re-renders; the worker should verify or stabilise them To unblock: review the last failure and decide whether it is code, config, or needs a human decision.
+- 2026-10-16T21:48 boss → claude: … it is stored in   `C:\Users\User\Desktop\GhostForge\gf-claude\.agent-sync\state\tasks\T-269-claude.md`.    Let me know if you’d like to move forward with a plan, or if you need any other details from past observations. 
+- 2026-10-16T22:03 boss → claude: …sn't positioned at the scroll position - Unused useEffect import and containerRef; no real use of the installed UI toolkit - Component isn't mounted anywhere and has no tests, so responsiveness past 50 jobs is unverified
+- 2026-10-16T22:27 boss → claude: …e and missed if the container is not mounted; fixed 120px rows clip taller content - Duplicated STATUS_VIEW/FIT_STYLE and replaced postingDate() with toISOString (throws on invalid dates) - No tests or build verification
+- 2026-10-16T22:27 boss → all: …_VIEW/FIT_STYLE and replaced postingDate() with toISOString (throws on invalid dates) - No tests or build verification To unblock: review the last failure and decide whether it is code, config, or needs a human decision.
+- 2026-10-16T22:43 boss → all: ✅ T-270 merged from claude (health 67/100): Web UI: memoize JobHunterWidget and its list row so unrelated state changes do not re-render the whole job list.  Files: web-ui/components/JobHunterWidget.tsx
+- 2026-10-16T22:44 boss → claude: …nal answer; model's reasoning follows) We need to read that file. Path is C:\Users\User\Desktop\GhostForge\gf-claude\.agent-sync\state\tasks\T-271-claude.md. Use escape properly. Also file exists maybe. Let's try again. 
 <!-- LIVE-STATUS:END -->
