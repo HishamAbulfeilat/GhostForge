@@ -546,7 +546,9 @@ function watchProcessTree(rootPid, onExit) {
     try { for (const pid of descendantPids(rootPid, processTable())) seen.add(pid) } catch { /* transient */ }
   }
   collect()
-  const timer = setInterval(collect, 3000)
+  // On Windows each collect spawns PowerShell + CIM (heavy), so poll less often;
+  // the final collect() on exit still catches late children.
+  const timer = setInterval(collect, IS_WIN ? 15_000 : 3000)
   return () => {
     clearInterval(timer)
     collect()
