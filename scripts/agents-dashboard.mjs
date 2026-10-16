@@ -326,7 +326,7 @@ function renderFree(d) {
     rows.push(el('tr', '', '<td>' + esc(q.project) + '</td><td>' + esc(t.id) + '</td><td>' + esc(t.status) + '</td><td>' + esc(t.model || (cur && cur.task === t.id ? cur.model : '')) + '</td><td>' + esc(t.title) + '</td>'))
   if (!rows.length) rows.push(el('tr', '', '<td colspan="5" class="hint">No free-worker tasks queued.</td>'))
   $('free-rows').replaceChildren(...rows)
-  $('free-log').textContent = f.log.join('\n')
+  $('free-log').textContent = f.log.join('\\n')
 }
 
 function renderMessages(d) {

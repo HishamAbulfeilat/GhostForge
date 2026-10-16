@@ -252,33 +252,33 @@ Claude Code leads (boss reviewer/planner = Claude Opus, hourly lead check-ins). 
 ## LIVE STATUS
 
 <!-- LIVE-STATUS:START -->
-_Auto-updated by the boss (pid 28632) at 2026-10-16T00:40:17.799Z._
+_Auto-updated by the boss (pid 37428) at 2026-10-16T15:13:54.877Z._
 
 **Phase 4:** Production-perfect on every surface: every GhostForge feature works end to end and is reachable from the web UI, the TUI, the terminal CLI and JARVIS (feature parity — record gaps in docs/FEATURE-MATRIX.md and close them); the Electron desktop app builds and runs on Windows, macOS and Linux and the Android (Capacitor) app builds, with CI proving it; security hardened (fix every real finding from CodeQL, npm audit, secret/dependency scanners and security reviews); the Agentic OS dashboard (/agents) shows each agent's progress, the todo/in-progress/review/done/blocked board, messages, health and history; accessible, RTL-safe, polished UI. Keep going until every check is green, then keep improving.
 
-**Health:** 67/100 · **merges this run:** 1 · **PR:** none yet · **boss:** claude
+**Health:** 67/100 · **merges this run:** 2 · **PR:** none yet · **boss:** claude
 
-**Board:** todo 20 · in-progress 1 · review 0 · done 217 · blocked 26
+**Board:** todo 16 · in-progress 1 · review 0 · done 221 · blocked 28
 
 **Agents**
-- **claude** (claude): working on T-253
+- **claude** (claude): working on T-259
 
 **In progress / review**
-- T-253 [feature] Job Hunter: filter out jobs below the configured minimum salary before scoring them, and report how many were filtered — claude
+- T-259 [feature] Agent World: focus-agent mode — selecting an agent card filters the world view and lists to that agent only, with a clear control to exit — claude
 
 **Next up (todo)**
 - T-200 [docs] Docs: close the JARVIS/bridge gaps in docs/FEATURE-MATRIX.md — 18 rows where the bridge is the only ❌
 - T-237 [docs] Document mark-l-bridge server endpoints in README
-- T-254 [feature] Job Hunter: add a 'jobs stats' command showing applications submitted this week and month, response rate, and top companies
-- T-255 [feature] Job Hunter: track interview stages per job (interviewing/offered/rejected with dates) and show them on the job card and CLI
-- T-256 [feature] Job Hunter: pick a cover letter template by job type (engineering, design, product) and use it as the structure for the AI-written letter
 - T-257 [performance] Job Hunter: run every job source query in parallel with a per-source timeout so one slow source cannot stall the search
 - T-258 [performance] Agent World: poll every 30s while the tab is visible and 60s while hidden, using the visibilitychange event
-- T-259 [feature] Agent World: focus-agent mode — selecting an agent card filters the world view and lists to that agent only, with a clear control to exit
 - T-260 [feature] Agent World: per-agent activity timeline showing the tasks that agent started, completed or failed in the last hour, from the snapshot history
 - T-261 [feature] Agent World: show cumulative API cost per agent for today and this week, derived from the boss token records, next to each agent card
 - T-262 [feature] Agent World: keyboard shortcuts — 1/2/3 to switch worlds, / to focus the agent search, Escape to close the session drawer
 - T-263 [feature] Agent World: export the current snapshot as a downloadable JSON file for debugging
+- T-264 [performance] Agent World: wrap the agent-world list and scene components in React.memo so a snapshot refresh does not re-render unchanged rows
+- T-265 [feature] Agents dashboard: show a live progress indicator per in-progress task (elapsed time, files touched, commits on its branch)
+- T-266 [feature] Agents dashboard: estimate remaining time per task from elapsed time and task size, and show an expected finish time for the queue
+- T-267 [feature] Agents dashboard: add a per-agent activity stream of the last hour (tasks started, completed, blocked)
 
 **Blocked (needs a human or a fresh approach)**
 - T-173 [chore] Untrack stale tui/node_modules from git (gitignored but 4221 files still tracked): 
@@ -307,12 +307,10 @@ _Auto-updated by the boss (pid 28632) at 2026-10-16T00:40:17.799Z._
 - T-249 [feature] Agent World: keyboard shortcuts (1/2/3 worlds, / search, Esc), export snapshot as JSON, and React.memo to prevent unnecessary re-renders: 
 - T-250 [feature] Agents dashboard: add real-time progress bars, ETA per task, completion forecast, per-agent activity stream, and resource usage to /agents: 
 - T-251 [feature] Web UI: virtualize job list (react-window) for >50 jobs, React.memo on JobHunterWidget, and API request deduplication (1s window): 
+- T-254 [feature] Job Hunter: add a 'jobs stats' command showing applications submitted this week and month, response rate, and top companies: …hout committing anything. (no final answer; model's reasoning follows) We hit output token limit. Need to continue. We'll add route file content. Then commit. Let's produce Write calls for each file. 
+- T-255 [feature] Job Hunter: track interview stages per job (interviewing/offered/rejected with dates) and show them on the job card and CLI: …/state/tasks/T-255-claude.md and .agent-sync/state/ecc-context.md, then follow task instructions exactly. The T-255-claude.md file presumably contains instructions for this task. Let's read it fully. 
 
 **Recently done**
-- T-224 [fix] Bridge server: reject a null JSON body on /copilot and /execute (uncaught TypeError kills the process) — claude
-- T-225 [fix] Bridge server: cap readJsonBody by bytes, not characters (a multi-byte body can exceed MAX_BODY_BYTES by 4x and also grows a string unbounded before the check) — claude
-- T-226 [feature] JARVIS bridge: token-auth read-only tickets, Azure DevOps and estimate endpoints; close that FEATURE-MATRIX row — claude
-- T-229 [feature] Web: admin-only projects page to list, open and scaffold projects, closing the partial Web cell — claude-3
 - T-231 [test] Bridge tests: pytest coverage for the read-only snippets, changelog, setup-status, code-health and resource-catalog endpoints — claude-3
 - T-232 [security] Bridge: separate review of readJsonBody drain-past-cap change (MAX_DRAIN_BYTES) that landed inside T-230 commit 5d32cd6 — claude
 - T-239 [bugfix] Fix failing health check: Root smoke test (TUI parse, marketplace JSON) — claude
@@ -321,14 +319,18 @@ _Auto-updated by the boss (pid 28632) at 2026-10-16T00:40:17.799Z._
 - T-243 [bugfix] Fix failing health check: Electron desktop app tests (incl. headless launch) — claude
 - T-244 [bugfix] Fix failing health check: web-ui production build — claude
 - T-252 [feature] Job Hunter: deduplicate jobs found from multiple sources, merging them into the highest-scoring existing job instead of adding duplicates — claude
+- T-253 [feature] Job Hunter: filter out jobs below the configured minimum salary before scoring them, and report how many were filtered — claude
+- T-256 [feature] Job Hunter: pick a cover letter template by job type (engineering, design, product) and use it as the structure for the AI-written letter — claude
+- T-272 [bugfix] Boss: npm ci in gf-integration fails ('Include the workspace root when workspaces are enabled'); fix the web-ui deps install invocation in scripts/agents/boss.mjs — claude
+- T-273 [bugfix] web-ui ESLint crashes (context.getAncestors is not a function): eslint-config-next@14 is incompatible with eslint 9 — move to a version that supports ESLint 9 flat config without reintroducing high/critical prod audit findings — claude
 
 **Latest messages**
-- 2026-10-15T23:24 boss → all: …he current implementation of the voicebox feature and make the necessary changes to implement the voice-clone screen.  To unblock: review the last failure and decide whether it is code, config, or needs a human decision.
-- 2026-10-15T23:34 boss → claude: … or missing dependencies), no additional code changes are needed. The feature matrix can now be updated to reflect the “✅” status for *Voice input (STT)* and *Voice output (TTS)* in the Web UI and Terminal CLI surfaces. 
-- 2026-10-15T23:41 boss → claude: …mary for the boss**   `node scripts/agents/team.mjs done T-235 --agent claude "Voice input (STT) and voice output (TTS) are already fully implemented across the web UI and API endpoints. No code changes are necessary."` 
-- 2026-10-15T23:49 boss → claude: …3 attempts (attempt 3/3): Finished without committing anything. I keep getting validation errors because my JSON strings not properly escaped. I need to produce exact JSON with no escapes needed? Let's just try simple:  
-- 2026-10-15T23:49 boss → all: …se my JSON strings not properly escaped. I need to produce exact JSON with no escapes needed? Let's just try simple:   To unblock: review the last failure and decide whether it is code, config, or needs a human decision.
-- 2026-10-15T23:59 boss → all: … T-252 merged from claude (health 67/100): Job Hunter: deduplicate jobs found from multiple sources, merging them into the highest-scoring existing job instead of adding duplicates.  Files: web-ui/lib/job-hunter/store.ts
-- 2026-10-16T00:17 boss → claude: T-253 bounced (attempt 1/3): Health regressed 67 → 44. Broken checks: ### web-ui TypeScript typecheck lib/job-hunter/index.ts(146,3): error TS1005: ',' expected.
-- 2026-10-16T00:19 boss → claude: …ommitting anything. (no final answer; model's reasoning follows) We need to filter out jobs below minimum salary for scoring. Need to read min salary config; probably in profile preferences or store. Search for setting. 
+- 2026-10-16T14:07 boss → all: …ut token limit. Need to continue. We'll add route file content. Then commit. Let's produce Write calls for each file.  To unblock: review the last failure and decide whether it is code, config, or needs a human decision.
+- 2026-10-16T14:20 boss → claude: … Finished without committing anything. (no final answer; model's reasoning follows) Tool called Search missing; we had Search tool earlier. Might need functions.Search. Yes there's Search tool under functions. Use that. 
+- 2026-10-16T14:22 boss → claude: …ed without committing anything. (no final answer; model's reasoning follows) We attempted to edit intake.ts but string may not match due to line endings or spaces. Let's open part of intake.ts near interface definition. 
+- 2026-10-16T14:27 boss → claude: … to read .agent-sync/state/tasks/T-255-claude.md and .agent-sync/state/ecc-context.md, then follow task instructions exactly. The T-255-claude.md file presumably contains instructions for this task. Let's read it fully. 
+- 2026-10-16T14:27 boss → all: …k instructions exactly. The T-255-claude.md file presumably contains instructions for this task. Let's read it fully.  To unblock: review the last failure and decide whether it is code, config, or needs a human decision.
+- 2026-10-16T14:29 boss → claude: T-256 bounced (attempt 1/3): Finished without committing anything. search needed.Search maybe for template. 
+- 2026-10-16T14:55 boss → all: …T-256 merged from claude (health 67/100): Job Hunter: pick a cover letter template by job type (engineering, design, product) and use it as the structure for the AI-written letter.  Files: web-ui/lib/job-hunter/writer.ts
+- 2026-10-16T14:59 boss → claude: … mode — selecting an agent card filters the world view and lists to that agent only, with a clear control to exit". File area: web-ui/app/agent-world. So we need to implement this in web-ui. Investigate current folder.  
 <!-- LIVE-STATUS:END -->
