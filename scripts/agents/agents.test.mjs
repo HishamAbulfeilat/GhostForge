@@ -10,7 +10,7 @@ import { routeModel, classifyTask, KIND_TIER, workerRoute } from './lib/models.m
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
 import { Boss, describeGitError, lastJSON, pickTask, reviewDiff, shouldRestartBoss, stagePrompt } from './boss.mjs'
-import { scoreOf, checks, needsDeps, pythonProbe, BRIDGE_TEST_MODULES } from './health.mjs'
+import { scoreOf, checks, needsDeps, pythonProbe, run, BRIDGE_TEST_MODULES } from './health.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -266,6 +266,15 @@ test('each added check is a real suite runner for the surface its label claims',
   for (const id of ['mcp-tests', 'tui-tests', 'electron-tests', 'bridge-tests']) {
     assert.ok(find(id).weight > 0, `${id} counts toward the score`)
   }
+})
+
+test('a check that fails without printing anything still says why', () => {
+  // T-244: `next build` died silently on the boss host and the board task got
+  // empty notes. The exit code must reach the task instead.
+  const r = run(process.execPath, ['-e', 'process.exit(3)'], ROOT)
+  assert.equal(r.ok, false)
+  assert.match(r.output, /failed with no output \(exit code 3, signal none\)/)
+  assert.equal(run(process.execPath, ['-e', 'console.log("hi")'], ROOT).output, 'hi')
 })
 
 test('pythonProbe reports an importable interpreter and names what is missing otherwise', () => {
