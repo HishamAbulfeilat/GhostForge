@@ -14,6 +14,7 @@ import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import os from 'node:os'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const STATE = path.join(ROOT, '.agent-sync', 'state')
@@ -21,6 +22,8 @@ const PORT = Number(process.env.PORT || process.env.GF_DASHBOARD_PORT || 3460)
 const LOG_TAIL_BYTES = 24 * 1024 // enough for ~40 log lines
 const MSG_TAIL_LINES = 30
 
+const FREE = path.join(os.homedir(), '.free-worker')
+const SWITCH = path.join(os.homedir(), '.claude-switch')
 const readJSON = (f, fallback) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return fallback } }
 const mtime = f => { try { return fs.statSync(f).mtimeMs } catch { return 0 } }
 
@@ -75,6 +78,20 @@ function collectState() {
     board: { total: tasks.length, byStatus: countBy(tasks, 'status'), tasks },
     messages,
     log,
+    free: collectFree(),
+  }
+}
+
+// Free-worker (opencode free models on Jorcord / vinylcut / agent-world) + claude-switch routing.
+function collectFree() {
+  const cfg = readJSON(path.join(FREE, 'config.json'), { projects: [] })
+  const queues = (cfg.projects ?? []).map(p => ({ project: p.name, tasks: readJSON(path.join(FREE, `queue-${p.name}.json`), []).map(({ prompt, ...t }) => t) }))
+  return {
+    status: readJSON(path.join(FREE, 'status.json'), {}),
+    loopAlive: isAlive(Number(readJSON(path.join(FREE, 'loop.pid'), 0))),
+    queues,
+    log: tailBytes(path.join(FREE, 'worker.log')).slice(-25).reverse(),
+    switchState: readJSON(path.join(SWITCH, 'state.json'), {}),
   }
 }
 
@@ -179,6 +196,17 @@ const PAGE = `<!doctype html>
         <tbody id="board-rows"></tbody>
       </table>
     </div>
+  </section>
+
+  <section>
+    <h2>Free workers <span class="hint" id="free-sub"></span></h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th style="width:150px">Project</th><th style="width:70px">ID</th><th style="width:90px">Status</th><th style="width:220px">Model</th><th>Task</th></tr></thead>
+        <tbody id="free-rows"></tbody>
+      </table>
+    </div>
+    <pre id="free-log"></pre>
   </section>
 
   <section>
@@ -287,6 +315,20 @@ function renderBoard(d) {
   $('board-rows').replaceChildren(...rows)
 }
 
+function renderFree(d) {
+  const f = d.free; if (!f) return
+  const cur = f.status.current
+  $('free-sub').textContent = (f.loopAlive ? 'loop running' : 'loop stopped') +
+    (cur ? ' · now: ' + cur.project + ' ' + cur.task + ' on ' + cur.model : '') +
+    ' · claude-switch: ' + (f.switchState.mode || '?') + (f.switchState.lastModel ? ' (' + f.switchState.lastModel + ')' : '')
+  const rows = []
+  for (const q of f.queues) for (const t of q.tasks)
+    rows.push(el('tr', '', '<td>' + esc(q.project) + '</td><td>' + esc(t.id) + '</td><td>' + esc(t.status) + '</td><td>' + esc(t.model || (cur && cur.task === t.id ? cur.model : '')) + '</td><td>' + esc(t.title) + '</td>'))
+  if (!rows.length) rows.push(el('tr', '', '<td colspan="5" class="hint">No free-worker tasks queued.</td>'))
+  $('free-rows').replaceChildren(...rows)
+  $('free-log').textContent = f.log.join('\n')
+}
+
 function renderMessages(d) {
   if (!d.messages.length) { $('messages').replaceChildren(el('div', 'hint', 'No messages yet.')); return }
   $('messages').replaceChildren(...d.messages.map(m => {
@@ -309,7 +351,7 @@ async function refresh() {
     const r = await fetch('/api/state', { cache: 'no-store' })
     const d = await r.json()
     if (d.error) { $('sub').textContent = 'error: ' + d.error; return }
-    renderHeader(d); renderOverview(d); renderAgents(d); renderBoard(d); renderMessages(d); renderLog(d)
+    renderHeader(d); renderOverview(d); renderAgents(d); renderBoard(d); renderMessages(d); renderFree(d); renderLog(d)
     if (d.log) renderLog(d)
   } catch (e) { $('sub').textContent = 'offline — retrying' }
 }
