@@ -26,6 +26,7 @@ export interface RawJob {
 
 const UA = { 'User-Agent': 'GhostForge-JobHunter/1.0 (+https://github.com/HishamAbulfeilat/GhostForge)' }
 const TIMEOUT = 15_000
+const SOURCE_TIMEOUT = 30_000 // 30 seconds per source timeout
 
 async function getJson<T>(url: string, headers: Record<string, string> = {}): Promise<T> {
   const res = await fetch(url, { headers: { ...UA, ...headers }, signal: AbortSignal.timeout(TIMEOUT) })
@@ -217,7 +218,18 @@ export async function searchSources(prefs: JobPreferences, terms: string[]): Pro
     tasks.push({ source: `Lever ${c}`, run: () => leverBoard(c) })
   }
 
-  const settled = await Promise.allSettled(tasks.map(t => t.run()))
+  // Run each task with a timeout to prevent slow sources from stalling the search
+  const settled = await Promise.allSettled(
+    tasks.map(async (t) => {
+      return Promise.race([
+        t.run(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Source ${t.source} timed out after ${SOURCE_TIMEOUT}ms`)), SOURCE_TIMEOUT)
+        )
+      ])
+    })
+  )
+
   const report: SourceReport[] = []
   const byKey = new Map<string, RawJob>()
   settled.forEach((r, i) => {
@@ -227,7 +239,11 @@ export async function searchSources(prefs: JobPreferences, terms: string[]): Pro
     } else {
       // A company slug only exists on one ATS — a 404 there is expected, not an error
       const msg = r.reason instanceof Error ? r.reason.message : String(r.reason)
-      if (!/returned 404/.test(msg)) report.push({ source: tasks[i].source, count: 0, error: msg.slice(0, 120) })
+      if (!/returned 404/.test(msg) && !msg.includes('timed out')) {
+        report.push({ source: tasks[i].source, count: 0, error: msg.slice(0, 120) })
+      } else if (msg.includes('timed out')) {
+        report.push({ source: tasks[i].source, count: 0, error: msg })
+      }
     }
   })
   return { jobs: [...byKey.values()], report }
