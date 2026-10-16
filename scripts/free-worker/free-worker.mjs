@@ -24,7 +24,10 @@ const LOCK = path.join(HOME, 'loop.pid')
 const STOP = path.join(HOME, 'STOP')
 const OPENCODE_CONFIG = path.join(HOME, 'opencode.json')
 const TASK_TIMEOUT = 30 * 60_000
-const IDLE_SLEEP = 10 * 60_000
+// How long the loop waits before re-checking the queues when it has no work.
+// Kept short so a task queued from the dashboard starts within ~a minute; the
+// idle check only reads three small queue files, so the cost is negligible.
+const IDLE_SLEEP = 45_000
 const INTEGRATION = 'free/integration'
 
 const log = msg => { const line = `[${new Date().toISOString()}] ${msg}`; console.log(line); fs.appendFileSync(LOG, line + '\n') }

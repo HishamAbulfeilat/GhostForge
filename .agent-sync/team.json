@@ -7,7 +7,8 @@
     "planModel": "opus",
     "deepReviewOverLines": 600,
     "review": true,
-    "fallback": null
+    "fallback": null,
+    "config": { "mcpConfig": ".mcp.json", "strictMcp": true }
   },
   "integration": {
     "branch": "agent/integration",
@@ -31,6 +32,7 @@
         "feature"
       ],
       "role": "lead engineer: security, architecture, hard bugs",
+      "config": { "mcpConfig": ".mcp.json", "strictMcp": true },
       "models": {
         "deep": "opus",
         "balanced": "opus",
@@ -132,6 +134,7 @@
       "worktree": "../gf-claude-2",
       "branch": "agent/claude/work-2",
       "role": "feature engineer",
+      "config": { "mcpConfig": ".mcp.json", "strictMcp": true },
       "models": {
         "deep": "opus",
         "balanced": "sonnet",
@@ -152,6 +155,7 @@
       "worktree": "../gf-claude-3",
       "branch": "agent/claude/work-3",
       "role": "docs, chores and quick fixes",
+      "config": { "mcpConfig": ".mcp.json", "strictMcp": true },
       "models": {
         "deep": "opus",
         "balanced": "sonnet",

@@ -8,14 +8,21 @@
 
 /** `mode`: 'work' (edits allowed) or 'readonly' (boss review/planning). */
 export const PROVIDERS = {
-  claude: ({ prompt, model, mode }) => ({
+  claude: ({ prompt, model, mode, config = {} }) => ({
     cmd: 'claude',
     args: [
       '-p', prompt,
       ...(model && model !== 'auto' ? ['--model', model] : []),
+      // Trim MCP fan-out. `--strict-mcp-config` makes the run load only the
+      // servers in --mcp-config, so each headless worker skips the global and
+      // plugin MCP servers (the reverse-engineering server alone is ~240 MB per
+      // run) it would otherwise start for a plain repo task. --mcp-config is
+      // kept last so its variadic value can never swallow a later flag.
+      ...(config.strictMcp ? ['--strict-mcp-config'] : []),
       ...(mode === 'readonly'
         ? ['--permission-mode', 'plan']
         : ['--permission-mode', 'bypassPermissions', '--disallowedTools', 'Bash(git push:*)', 'Bash(gh pr merge:*)']),
+      ...(config.mcpConfig ? ['--mcp-config', ...(Array.isArray(config.mcpConfig) ? config.mcpConfig : [String(config.mcpConfig)])] : []),
     ],
   }),
 

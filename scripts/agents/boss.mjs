@@ -546,9 +546,10 @@ function watchProcessTree(rootPid, onExit) {
     try { for (const pid of descendantPids(rootPid, processTable())) seen.add(pid) } catch { /* transient */ }
   }
   collect()
-  // On Windows each collect spawns PowerShell + CIM (heavy), so poll less often;
-  // the final collect() on exit still catches late children.
-  const timer = setInterval(collect, IS_WIN ? 15_000 : 3000)
+  // On Windows each collect spawns PowerShell + CIM to enumerate the whole
+  // process table (heavy). We poll less often; the final collect() on exit still
+  // catches every live descendant, which is what actually prevents MCP leaks.
+  const timer = setInterval(collect, IS_WIN ? 45_000 : 5000)
   return () => {
     clearInterval(timer)
     collect()
@@ -577,6 +578,21 @@ function readOr(file, fallback = null, encoding = 'utf8') {
 
 function fill(template, vars) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? '')
+}
+
+/**
+ * Resolve an agent's MCP config. `mcpConfig` paths in team.json are relative to
+ * the repo root, but workers run from their own worktree, so make them absolute.
+ * Declaring an mcpConfig also turns on --strict-mcp-config by default.
+ */
+function mcpConfigOf(raw = {}) {
+  const cfg = { ...raw }
+  if (cfg.mcpConfig) {
+    const list = Array.isArray(cfg.mcpConfig) ? cfg.mcpConfig : [cfg.mcpConfig]
+    cfg.mcpConfig = list.map(p => (path.isAbsolute(p) ? p : path.resolve(ROOT, p)))
+    if (cfg.strictMcp === undefined) cfg.strictMcp = true
+  }
+  return cfg
 }
 
 /** Stage a runtime prompt in the checkout that will execute it. */
@@ -929,7 +945,7 @@ export class Boss {
           provider: a.provider, model: route.model, mode: 'work', cwd: wt,
           prompt: `Read the file .agent-sync/state/tasks/${task.id}-${agentId}.md and .agent-sync/state/ecc-context.md, then follow the task instructions exactly. Repository rules override supplementary ECC guidance. Work in the current directory.`,
           logFile: path.join(this.dir, 'logs', `${agentId}.log`),
-          config: a.config ?? a.providerConfig ?? {},
+          config: mcpConfigOf(a.config ?? a.providerConfig ?? {}),
           env: { GF_AGENT: agentId, ...wr.env }, timeoutMs: this.cfg.taskTimeoutMinutes * 60_000,
         })
       } finally {
@@ -995,14 +1011,14 @@ export class Boss {
       // it for cooldownMinutes and let the fallback (e.g. Copilot) boss instead.
       const primaryCooling = this.bossCooldownUntil && Date.parse(this.bossCooldownUntil) > Date.now()
       if (!primaryCooling || !boss.fallback) {
-        const run = await this.runAgent({ ...opts, provider: boss.provider, model, config: boss.config ?? boss.providerConfig ?? {} })
+        const run = await this.runAgent({ ...opts, provider: boss.provider, model, config: mcpConfigOf(boss.config ?? boss.providerConfig ?? {}) })
         if (!boss.fallback || (run.code === 0 && lastJSON(run.output))) return run
         if (run.code !== 0 || RATE_LIMIT_RE.test(run.output)) {
           this.bossCooldownUntil = new Date(Date.now() + this.cfg.cooldownMinutes * 60_000).toISOString()
         }
         this.log(`boss ${boss.provider} gave no usable verdict (exit ${run.code}) — falling back to ${boss.fallback}`)
       }
-      return await this.runAgent({ ...opts, provider: boss.fallback, model: boss.fallbackModel ?? 'auto', config: boss.fallbackConfig ?? {} })
+      return await this.runAgent({ ...opts, provider: boss.fallback, model: boss.fallbackModel ?? 'auto', config: mcpConfigOf(boss.fallbackConfig ?? {}) })
     } finally {
       clearECCContext(eccFile)
     }
