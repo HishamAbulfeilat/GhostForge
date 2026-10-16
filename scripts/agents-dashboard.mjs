@@ -113,8 +113,11 @@ function sampleProcesses() {
   })
 }
 
-// First readable user line of a Claude transcript, cached by mtime.
+// First readable prompt line of a Claude transcript, cached by mtime. Headless
+// boss/worker sessions enqueue their prompt as the very first line
+// (`queue-operation`), while interactive sessions start with a `user` message.
 function firstUserText(fp) {
+  const clean = s => String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
   let fd
   try {
     const size = fs.statSync(fp).size
@@ -125,10 +128,13 @@ function firstUserText(fp) {
     for (const line of buf.toString('utf8').split(/\r?\n/)) {
       if (!line.trim()) continue
       let o; try { o = JSON.parse(line) } catch { continue }
+      if (o.type === 'queue-operation' && typeof o.content === 'string') {
+        const s = clean(o.content); if (s.length > 3) return s.slice(0, 100)
+      }
+      if (typeof o.summary === 'string' && o.summary.trim()) return clean(o.summary).slice(0, 100)
       if (o.type && o.type !== 'user') continue
       const c = o.message?.content
-      let s = typeof c === 'string' ? c : Array.isArray(c) ? (c.find(x => x && x.type === 'text')?.text || '') : ''
-      s = String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      const s = clean(typeof c === 'string' ? c : Array.isArray(c) ? (c.find(x => x && x.type === 'text')?.text || '') : '')
       if (s.length > 8) return s.slice(0, 100)
     }
   } catch { /* ignore */ } finally { if (fd !== undefined) try { fs.closeSync(fd) } catch { /* ignore */ } }
