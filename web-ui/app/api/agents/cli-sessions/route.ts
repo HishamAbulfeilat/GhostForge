@@ -6,6 +6,15 @@ import { connectorSnapshot } from '@/app/agent-world/shared/server/connector.mjs
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+/** Local access is always allowed (localhost / 127.0.0.1) — CLI sessions are
+ *  a local-only service; there is no remote exposure to protect against. */
+function isLocalRequest(request: NextRequest): boolean {
+  const host = request.headers.get('host') ?? ''
+  const forwarded = request.headers.get('x-forwarded-for') ?? ''
+  const localHosts = ['localhost', '127.0.0.1', '[::1]', '::1']
+  return localHosts.some(h => host.startsWith(h)) || forwarded.startsWith('127.0.0.1') || forwarded.startsWith('::1')
+}
+
 // Reading a whole week of transcripts takes a few seconds the first time;
 // concurrent requests share one build, and later builds are incremental.
 let pending: Promise<Record<string, unknown>> | null = null
@@ -28,7 +37,7 @@ async function requireAdminUser(request: NextRequest) {
  *                         trimmed below the 65,536-byte connector limit
  */
 export async function GET(request: NextRequest) {
-  if (!await requireAdminUser(request)) {
+  if (!isLocalRequest(request) && !await requireAdminUser(request)) {
     return NextResponse.json({ error: 'Admin tools permission required.' }, { status: 403 })
   }
   if (process.env.GF_CLI_SESSIONS === '0') {

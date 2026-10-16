@@ -46,7 +46,7 @@ type PageState =
   | { status: 'error'; message: string }
   | { status: 'redirecting' }
 
-const POLL_INTERVAL_MS = 15_000
+const POLL_INTERVAL_MS = 30_000
 
 function timestamp(record: AgentWorldRecord): string {
   const value = record.heartbeat ?? record.ts ?? record.timestamp

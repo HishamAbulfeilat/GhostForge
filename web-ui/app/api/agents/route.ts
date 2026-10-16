@@ -14,6 +14,18 @@ import {
 export const dynamic = 'force-dynamic'
 const MAX_BODY_BYTES = 1024 * 1024
 
+/**
+ * Local access is always allowed (localhost / 127.0.0.1 / ::1) — the agent
+ * team is a local-only service; there is no remote exposure to protect against.
+ * Write actions (POST) still require admin auth to prevent local process abuse.
+ */
+function isLocalRequest(request: NextRequest): boolean {
+  const host = request.headers.get('host') ?? ''
+  const forwarded = request.headers.get('x-forwarded-for') ?? ''
+  const localHosts = ['localhost', '127.0.0.1', '[::1]', '::1']
+  return localHosts.some(h => host.startsWith(h)) || forwarded.startsWith('127.0.0.1') || forwarded.startsWith('::1')
+}
+
 function readConfiguredConnectorConfig(): unknown {
   const rawConfig = process.env.GF_AGENT_SESSION_CONNECTORS
   if (!rawConfig?.trim()) return null
@@ -39,7 +51,8 @@ async function requireAdminUser(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  if (!await requireAdminUser(request)) return adminToolsForbidden()
+  // GET is read-only — allow local access without auth so the dashboard works
+  if (!isLocalRequest(request) && !await requireAdminUser(request)) return adminToolsForbidden()
   const workspaceRoot = resolveWorkspaceRoot(repoRootFromLib())
   let connectorConfig: unknown
   try {

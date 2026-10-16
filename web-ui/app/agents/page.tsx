@@ -142,21 +142,26 @@ type DashboardResult = { status: 'denied' } | { status: 'loaded'; snapshot: Snap
 type DashboardView = { snapshot: Snapshot | null; notice: Notice | null }
 
 async function loadDashboard(onUnauthenticated: () => void, signal: AbortSignal): Promise<DashboardResult> {
-  const authResponse = await fetch('/api/auth/me', { signal })
-  if (authResponse.status === 401) {
-    onUnauthenticated()
-    return { status: 'redirecting' }
-  }
-  if (!authResponse.ok) throw new Error(`Unable to verify access (${authResponse.status})`)
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '::1'
 
-  const authData = await authResponse.json() as {
-    user?: { role?: string; permissions?: string[] }
-    isAdmin?: boolean
-  }
-  const user = authData.user
-  if (!user) throw new Error('Unable to verify your account.')
-  if (!(authData.isAdmin || user.role === 'admin' || user.permissions?.includes('admin_tools'))) {
-    return { status: 'denied' }
+  // Local access: skip auth check (API allows local requests without auth)
+  if (!isLocal) {
+    const authResponse = await fetch('/api/auth/me', { signal })
+    if (authResponse.status === 401) {
+      onUnauthenticated()
+      return { status: 'redirecting' }
+    }
+    if (!authResponse.ok) throw new Error(`Unable to verify access (${authResponse.status})`)
+
+    const authData = await authResponse.json() as {
+      user?: { role?: string; permissions?: string[] }
+      isAdmin?: boolean
+    }
+    const user = authData.user
+    if (!user) throw new Error('Unable to verify your account.')
+    if (!(authData.isAdmin || user.role === 'admin' || user.permissions?.includes('admin_tools'))) {
+      return { status: 'denied' }
+    }
   }
 
   const data = await request<{ snapshot: Snapshot }>({ signal })

@@ -119,7 +119,7 @@
     },
     "claude-2": {
       "provider": "claude",
-      "enabled": true,
+      "enabled": false,
       "strengths": [
         "feature",
         "bugfix",
@@ -140,7 +140,7 @@
     },
     "claude-3": {
       "provider": "claude",
-      "enabled": true,
+      "enabled": false,
       "strengths": [
         "docs",
         "chore",
@@ -176,9 +176,9 @@
     "autoMerge": false,
     "title": "Agent team: GhostForge improvements"
   },
-  "tickSeconds": 20,
+  "tickSeconds": 60,
   "taskTimeoutMinutes": 60,
   "maxAttempts": 3,
-  "cooldownMinutes": 20,
-  "fullHealthEveryMinutes": 30
+  "cooldownMinutes": 10,
+  "fullHealthEveryMinutes": 120
 }
