@@ -21,6 +21,8 @@
     "test:awesome-llm-apps": "node --test scripts/awesome-llm-apps.test.mjs"
   },
   "dependencies": {
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.5.28",
     "node-pty": "^1.1.0",
     "ws": "^8.21.1"
   }
