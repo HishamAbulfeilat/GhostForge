@@ -103,10 +103,14 @@ async function cycle(cfg) {
     if (!task) continue
     task.status = 'running'; writeJson(queueFile(project.name), q)
     const outcome = runTask(project, task, cfg)
-    task.attempts = (task.attempts ?? 0) + 1
-    task.status = outcome === 'skipped' ? 'todo' : outcome === 'failed' && task.attempts < 2 ? 'todo' : outcome
-    task.finished = new Date().toISOString()
-    writeJson(queueFile(project.name), q)
+    // re-read: tasks may have been added while this one ran, and writing the stale copy would drop them
+    const fresh = readJson(queueFile(project.name), [])
+    const t = fresh.find(x => x.id === task.id) ?? task
+    t.attempts = (t.attempts ?? 0) + 1
+    t.status = outcome === 'skipped' ? 'todo' : outcome === 'failed' && t.attempts < 2 ? 'todo' : outcome
+    t.finished = new Date().toISOString()
+    if (task.model) t.model = task.model
+    writeJson(queueFile(project.name), fresh)
     setStatus({ current: null, last: { project: project.name, task: task.id, outcome } })
     worked ||= outcome !== 'skipped'
   }
@@ -123,7 +127,8 @@ if (cmd === 'status') {
 } else if (cmd === 'add') {
   const [name, title, prompt, tier] = rest
   const q = readJson(queueFile(name), [])
-  q.push({ id: `${name.slice(0, 2).toUpperCase()}-${String(q.length + 1).padStart(3, '0')}`, title, prompt: prompt || title, tier: tier || 'hard', status: 'todo' })
+  const next = Math.max(0, ...q.map(t => Number(t.id.split('-')[1]) || 0)) + 1
+  q.push({ id: `${name.slice(0, 2).toUpperCase()}-${String(next).padStart(3, '0')}`, title, prompt: prompt || title, tier: tier || 'hard', status: 'todo' })
   writeJson(queueFile(name), q); console.log('queued')
 } else if (cmd === 'once') {
   await cycle(cfg)
