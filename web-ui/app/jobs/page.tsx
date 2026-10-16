@@ -19,6 +19,7 @@ interface ProfileView {
 interface SearchResult {
   found: number
   matched: number
+  salaryFiltered: number
   added: number
   prepared: number
   report: Array<{ source: string; count: number; error?: string }>
@@ -160,7 +161,7 @@ export default function JobsPage() {
     setLastSearch(result)
     await load()
     setTab(result.prepared ? 'waiting' : 'all')
-    setNotice({ tone: 'info', text: `Found ${result.found} jobs, ${result.matched} in your locations, ${result.added} new. ${result.prepared} prepared for your approval.` })
+    setNotice({ tone: 'info', text: `Found ${result.found} jobs, ${result.matched} in your locations${result.salaryFiltered ? ` (${result.salaryFiltered} below your minimum salary, skipped)` : ''}, ${result.added} new. ${result.prepared} prepared for your approval.` })
   })
 
   const act = (action: 'prepare' | 'approve' | 'dismiss', id: string) => run(`${action}:${id}`, async () => {

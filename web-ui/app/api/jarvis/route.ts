@@ -855,7 +855,7 @@ end tell`
         if (!profile.cv) return 'Upload your CV on the Jobs page first, then I can search.'
         const terms = params.terms ? String(params.terms).split(',').map(t => t.trim()).filter(Boolean) : undefined
         const r = await jh.runSearch(username, { terms, autoPrepare: 3 })
-        return `Found ${r.found} jobs, ${r.matched} in your locations (${r.added} new). ${r.prepared} applications are prepared and waiting for your approval on the Jobs page.`
+        return `Found ${r.found} jobs, ${r.matched} in your locations (${r.added} new${r.salaryFiltered ? `, ${r.salaryFiltered} below your minimum salary skipped` : ''}). ${r.prepared} applications are prepared and waiting for your approval on the Jobs page.`
       }
       const jobs = await jh.listJobs(username)
       const ready = jobs.filter(j => j.status === 'ready')
