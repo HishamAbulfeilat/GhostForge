@@ -32,6 +32,7 @@ const TASK_TIMEOUT = 30 * 60_000
 const IDLE_SLEEP = 45_000
 // When every free model is rate-limited, wait much longer: hammering a limited API keeps the limit from resetting.
 const RATE_LIMIT_BACKOFF = 15 * 60_000
+const PRIORITY_YIELD = 10 * 60_000 // non-priority loops wait this long before each task while a priority project has work
 const INTEGRATION = 'free/integration'
 
 const log = msg => { const line = `[${new Date().toISOString()}] ${msg}`; console.log(line); fs.appendFileSync(LOG, line + '\n') }
@@ -172,11 +173,15 @@ if (cmd === 'status') {
   log(`${name}: loop started`)
   const only = { ...cfg, projects: [project] }
   const self = fileURLToPath(import.meta.url), startedAt = fs.statSync(self).mtimeMs
+  // priority projects (config: "priority": true) get first claim on the shared free-model quota: while one of them has
+  // work queued, the other loops pause between tasks and back off longer after a rate limit
+  const priorityBusy = () => !project.priority && readJson(CONFIG, cfg).projects.some(p => p.priority && readJson(queueFile(p.name), []).some(t => t.status === 'todo' || t.status === 'running'))
   while (!fs.existsSync(STOP)) {
+    if (priorityBusy()) await sleep(PRIORITY_YIELD)
     const r = await cycle(only)
     // the worker code changed: exit between tasks; the supervisor (every 10 min) starts a fresh loop on the new code
     if (fs.statSync(self).mtimeMs !== startedAt) { log(`${name}: worker code updated, restarting`); break }
-    if (r === 'ratelimited') await sleep(RATE_LIMIT_BACKOFF)
+    if (r === 'ratelimited') await sleep(priorityBusy() ? RATE_LIMIT_BACKOFF * 2 : RATE_LIMIT_BACKOFF)
     else if (!r) await sleep(IDLE_SLEEP)
   }
   if (fs.existsSync(STOP)) log(`${name}: STOP file found, exiting`)
