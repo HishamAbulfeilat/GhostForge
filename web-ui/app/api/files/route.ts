@@ -3,10 +3,15 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { requirePermission } from '@/lib/access'
+import { findRepoRoot } from '@/lib/repo-root'
 
 function safePath(p: string): string {
   const home = os.homedir()
-  const resolved = path.resolve(p.replace(/^~(?=\/|$)/, home))
+  let expanded = p.replace(/^~(?=[\\/]|$)/, home)
+  // The browser opens ~/GhostForge by default; when GhostForge lives elsewhere
+  // (e.g. ~/Desktop/GhostForge/GhostForge-public), open the real repo instead.
+  if (/^~[\\/]GhostForge[\\/]?$/.test(p) && !fs.existsSync(expanded)) expanded = findRepoRoot()
+  const resolved = path.resolve(expanded)
   if (!resolved.startsWith(home + path.sep) && resolved !== home) throw new Error('Access denied: path outside home directory')
   return resolved
 }

@@ -134,7 +134,7 @@ function FilesBrowser() {
   const lang = EXT_LANG[ext] ?? 'plaintext'
 
   // Breadcrumbs from absolute path
-  const parts = (dirData?.path ?? currentPath).split('/').filter(Boolean)
+  const parts = (dirData?.path ?? currentPath).split(/[\\/]/).filter(Boolean)
 
   return (
     <div className="flex h-[100dvh] flex-col bg-gray-950">
@@ -145,7 +145,8 @@ function FilesBrowser() {
           <button type="button" aria-label="Go back" onClick={goBack} disabled={history.length <= 1} className="shrink-0 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-white disabled:opacity-30 transition">←</button>
           <span className="shrink-0 text-white/20">/</span>
           {parts.map((part, i) => {
-            const cumulativePath = '/' + parts.slice(0, i + 1).join('/')
+            // Windows drive paths ("C:\Users") start with the drive, not a slash.
+            const cumulativePath = (/^[A-Za-z]:$/.test(parts[0]) ? '' : '/') + parts.slice(0, i + 1).join('/') + (i === 0 && /^[A-Za-z]:$/.test(parts[0]) ? '/' : '')
             return (
               <span key={cumulativePath} className="flex items-center gap-1 shrink-0">
                 <button type="button"

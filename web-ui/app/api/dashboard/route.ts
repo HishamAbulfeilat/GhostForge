@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { promisify } from 'util'
 import { isAuthorizedRequest } from '@/lib/auth'
+import { findRepoRoot } from '@/lib/repo-root'
 import { getCPU, getRAM, getDisk, getBattery, type MetricStat, type BatteryStat } from '@/lib/system-info'
 
 export const dynamic = 'force-dynamic'
 
-const execAsync = promisify(exec)
-const ROOT = path.join(os.homedir(), 'GhostForge')
+const execFileAsync = promisify(execFile)
+const ROOT = findRepoRoot()
 const WEB_UI_DIR = path.join(ROOT, 'web-ui')
 const AUDIT_FILE = path.join(os.homedir(), '.ghostforge', 'audit.log')
 
@@ -103,10 +104,13 @@ interface DashboardData {
   error?: string
 }
 
-async function runCommand(command: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+// Runs a program with an argument list (no shell), so it behaves the same on
+// Windows, macOS and Linux — no `2>/dev/null`, pipes, head or xargs.
+async function runCommand(file: string, args: string[], env: NodeJS.ProcessEnv = process.env): Promise<string> {
   try {
-    const { stdout } = await execAsync(command, {
+    const { stdout } = await execFileAsync(file, args, {
       cwd: ROOT,
+      windowsHide: true,
       env,
       timeout: 12_000,
       maxBuffer: 1024 * 1024,
@@ -196,9 +200,7 @@ function parsePRs(raw: string): DashboardPR[] {
   }
 }
 
-function parseReleases(raw: string, dateRaw: string): DashboardRelease[] {
-  const tags = raw.split('\n').filter(Boolean)
-  const dates = dateRaw.split('\n').filter(Boolean)
+function parseReleases(tags: string[], dates: string[]): DashboardRelease[] {
   return tags.slice(0, 8).map((tag, index) => ({
     tag,
     date: (dates[index] ?? '').substring(0, 10),
@@ -281,7 +283,7 @@ export async function GET(req: NextRequest) {
   const githubEnabled = Boolean(process.env.GITHUB_TOKEN)
   const ghEnv = githubEnabled ? { ...process.env, GH_TOKEN: process.env.GITHUB_TOKEN } : process.env
 
-  const [serverHealth, bridgeHealth, ollamaHealth, activityRaw, tagsRaw, tagDatesRaw] = await Promise.all([
+  const [serverHealth, bridgeHealth, ollamaHealth, activityRaw, tagsRaw] = await Promise.all([
     checkUrl('http://localhost:3001', 1500),
     checkUrl('http://localhost:4747/health', 1500),
     fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(1500) })
@@ -291,19 +293,22 @@ export async function GET(req: NextRequest) {
         models: res.ok ? ((await res.json()) as { models?: Array<{ name: string }> }).models ?? [] : [],
       }))
       .catch(() => ({ ok: false, status: undefined, models: [] as Array<{ name: string }> })),
-    runCommand('git log --oneline -20 --no-merges 2>/dev/null'),
-    runCommand('git tag -l --sort=-version:refname 2>/dev/null | head -8'),
-    runCommand("git tag -l --sort=-version:refname 2>/dev/null | head -8 | xargs -I{} git log -1 --format=%ai {} 2>/dev/null | cut -c1-10"),
+    runCommand('git', ['log', '--oneline', '-20', '--no-merges']),
+    runCommand('git', ['tag', '-l', '--sort=-version:refname']).then(out => out.split('\n').filter(Boolean).slice(0, 8)),
   ])
+  const tagsList = tagsRaw
+  const tagDatesList = await Promise.all(
+    tagsList.map(tag => runCommand('git', ['log', '-1', '--format=%ai', tag]).then(d => d.slice(0, 10))),
+  )
 
   const issuesRaw = githubEnabled
-    ? await runCommand('gh issue list --assignee @me --json number,title,labels,state,updatedAt --limit 15 2>/dev/null', ghEnv)
+    ? await runCommand('gh', ['issue', 'list', '--assignee', '@me', '--json', 'number,title,labels,state,updatedAt', '--limit', '15'], ghEnv)
     : ''
   const runsRaw = githubEnabled
-    ? await runCommand('gh run list --limit 12 --json name,status,conclusion,updatedAt,headBranch 2>/dev/null', ghEnv)
+    ? await runCommand('gh', ['run', 'list', '--limit', '12', '--json', 'name,status,conclusion,updatedAt,headBranch'], ghEnv)
     : ''
   const prsRaw = githubEnabled
-    ? await runCommand('gh pr list --json number,title,author,reviewDecision --limit 12 2>/dev/null', ghEnv)
+    ? await runCommand('gh', ['pr', 'list', '--json', 'number,title,author,reviewDecision', '--limit', '12'], ghEnv)
     : ''
 
   const ollamaModels = ollamaHealth.models.map(model => model.name)
@@ -347,7 +352,7 @@ export async function GET(req: NextRequest) {
     issues: parseIssues(issuesRaw),
     runs: parseRuns(runsRaw),
     prs: parsePRs(prsRaw),
-    releases: parseReleases(tagsRaw, tagDatesRaw),
+    releases: parseReleases(tagsList, tagDatesList),
     activity: parseActivity(activityRaw),
     version,
     timestamp: new Date().toISOString(),

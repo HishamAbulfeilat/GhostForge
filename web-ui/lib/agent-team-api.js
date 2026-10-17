@@ -15,7 +15,10 @@ const VALID_ACTIONS = Object.freeze(['status', 'start', 'stop', 'say', 'add', 'd
 const TEAM_SCRIPT = path.resolve(__dirname, '..', '..', 'scripts', 'agents', 'team.mjs')
 
 function repoRootFromLib() {
-  return path.resolve(__dirname, '..', '..')
+  // __dirname only points at lib/ in dev/tests; the Next.js production bundle
+  // runs from .next/server/..., so also try the server's cwd (web-ui/).
+  const candidates = [path.resolve(__dirname, '..', '..'), path.resolve(process.cwd(), '..'), process.cwd()]
+  return candidates.find(c => fs.existsSync(path.join(c, 'web-ui', 'package.json'))) || candidates[0]
 }
 
 function sanitizeConnectorString(value, fallback = null) {

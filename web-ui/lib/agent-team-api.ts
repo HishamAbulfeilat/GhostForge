@@ -104,7 +104,10 @@ interface AgentTeamCommandResult {
 }
 
 export function repoRootFromLib(): string {
-  return path.resolve(__dirname, '..', '..')
+  // __dirname only points at lib/ in dev/tests; the Next.js production bundle
+  // runs from .next/server/..., so also try the server's cwd (web-ui/).
+  const candidates = [path.resolve(__dirname, '..', '..'), path.resolve(process.cwd(), '..'), process.cwd()]
+  return candidates.find(c => fs.existsSync(path.join(c, 'web-ui', 'package.json'))) ?? candidates[0]
 }
 
 export function sanitizeConnectorString(value: unknown, fallback: string | null = null): string | null {

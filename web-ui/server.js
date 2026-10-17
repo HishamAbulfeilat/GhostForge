@@ -26,7 +26,11 @@ const PTY_PORT  = parseInt(process.env.PTY_PORT || '4748', 10)
 const CERT_DIR  = path.join(__dirname, 'certs')
 const CERT_FILE = path.join(CERT_DIR, 'cert.pem')
 const KEY_FILE  = path.join(CERT_DIR, 'key.pem')
-const dev       = process.env.NODE_ENV !== 'production'
+// `npm start` leaves NODE_ENV unset: serve the production build when one exists
+// (dev mode recompiles every page on first visit, which is what makes it lag).
+const dev       = process.env.NODE_ENV
+  ? process.env.NODE_ENV !== 'production'
+  : !fs.existsSync(path.join(__dirname, '.next', 'BUILD_ID'))
 
 /**
  * Auto-start the OmniRoute local free-AI gateway (default port 20128).
@@ -36,13 +40,13 @@ const dev       = process.env.NODE_ENV !== 'production'
 const OMNI_PORT = 20128
 const OMNI_URL  = process.env.OMNIROUTE_URL || `http://localhost:${OMNI_PORT}/v1`
 function ensureOmniRouteRunning() {
-  if (process.env.GHOSTFORGE_AUTOSTART_OMNI !== '1' && process.env.NODE_ENV === 'production') {
+  if (process.env.GHOSTFORGE_AUTOSTART_OMNI !== '1' && !dev) {
     // In production require explicit opt-in to avoid arbitrary binary exec
     return
   }
   if (!process.env.GHOSTFORGE_AUTOSTART_OMNI && dev) {
     // Dev auto-start only if binary exists
-    try { require('child_process').execSync('which omniroute', { stdio: 'ignore' }) } catch { return }
+    try { require('child_process').execSync(process.platform === 'win32' ? 'where omniroute' : 'which omniroute', { stdio: 'ignore' }) } catch { return }
   }
   fetch(`${OMNI_URL.replace(/\/+$/, '')}/models`, { signal: AbortSignal.timeout(1500) })
     .then((res) => { if (!res.ok) startOmniRoute() })
@@ -52,7 +56,9 @@ function ensureOmniRouteRunning() {
 function startOmniRoute() {
   const { spawn } = require('child_process')
   console.log('  ⚙  OmniRoute not running — starting local gateway…')
-  const child = spawn('omniroute', ['serve', '--daemon'], { detached: true, stdio: 'ignore' })
+  const child = spawn('omniroute', ['serve', '--daemon'], { detached: true, stdio: 'ignore', shell: process.platform === 'win32' })
+  // Missing binary must not crash the web server (unhandled 'error' event).
+  child.on('error', (err) => console.warn(`  ⚠  OmniRoute could not be started: ${err.code || err.message}`))
   child.unref()
   // Wait for it to accept connections, then log readiness (does not block boot)
   setTimeout(async () => {
@@ -112,6 +118,7 @@ function startVoiceServer() {
       cwd: path.join(__dirname, '..', 'voice-pipeline'), detached: true, stdio: 'ignore', env: { ...process.env, NO_RELOAD: '1' },
     })
   }
+  child.on('error', (err) => console.warn(`  ⚠  Voice pipeline could not be started: ${err.code || err.message}`))
   child.unref()
   setTimeout(async () => {
     const token = getBridgeToken()

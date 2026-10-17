@@ -63,7 +63,7 @@ export function Navbar() {
               }`}
             >
               <span className="text-sm leading-none">{item.icon}</span>
-              <span className="hidden sm:block">{item.label}</span>
+              <span className="hidden min-[1900px]:block">{item.label}</span>
             </Link>
           )
         })}
