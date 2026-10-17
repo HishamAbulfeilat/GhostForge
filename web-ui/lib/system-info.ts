@@ -1,13 +1,13 @@
 /**
  * Cross-platform system metrics for the host running the web-ui server.
- * Works on macOS, Windows, and Linux using os + child_process built-ins.
+ * Works on macOS, Windows, and Linux. Windows never spawns Unix tools or wmic:
+ * CPU/RAM use `os`, disk uses fs.statfs, and only the battery uses PowerShell
+ * (async, cached). Results are cached so callers stay fast.
  * Never throws — every getter returns safe defaults on failure.
  */
-import { exec, execSync } from 'child_process'
+import { execFile, execSync } from 'child_process'
+import fs from 'fs'
 import os from 'os'
-import { promisify } from 'util'
-
-const execAsync = promisify(exec)
 
 export interface MetricStat {
   usedGB: number
@@ -89,69 +89,116 @@ export function getRAM(): MetricStat {
   }
 }
 
+// ─── Cache ───────────────────────────────────────────────────────────────────
+// Disk and battery are expensive (child process / drive probing) and change
+// slowly, so every caller (/api/metrics SSE, dashboard, JARVIS tools) shares a
+// short-lived cache instead of re-running them on each request.
+
+const DISK_TTL_MS = 10_000
+const BATTERY_TTL_MS = 30_000
+const cache = new Map<string, { value: unknown; ts: number }>()
+
+function cachedValue<T>(key: string, ttlMs: number, compute: () => T): T {
+  const hit = cache.get(key)
+  if (hit && Date.now() - hit.ts < ttlMs) return hit.value as T
+  const value = compute()
+  cache.set(key, { value, ts: Date.now() })
+  return value
+}
+
+/** Test hook: drop all cached metrics. */
+export function resetMetricsCache(): void {
+  cache.clear()
+  winBatteryRefreshing = false
+}
+
 // ─── Disk ────────────────────────────────────────────────────────────────────
 
-export function getDisk(): MetricStat {
+export interface StatfsLike {
+  bsize: number
+  blocks: number
+  bavail: number
+}
+
+/** Add a statfs result to running used/total byte counters. */
+export function addStatfs(acc: { used: number; total: number }, s: StatfsLike): void {
+  const total = s.blocks * s.bsize
+  const free = s.bavail * s.bsize
+  if (total <= 0) return
+  acc.total += total
+  acc.used += Math.max(total - free, 0)
+}
+
+function toDiskStat(used: number, total: number): MetricStat {
+  return { usedGB: gb(used), totalGB: gb(total), pct: total > 0 ? Math.round((used / total) * 100) : 0 }
+}
+
+function computeDisk(): MetricStat {
   try {
     if (process.platform === 'win32') {
-      // Prefer wmic; fall back to PowerShell CIM when wmic is unavailable
-      // (removed on recent Windows 11 builds).
-      const parseCsv = (out: string) => {
-        let used = 0
-        let total = 0
-        for (const line of out.split('\n')) {
-          // Strip CSV quotes (wmic /format:csv is unquoted, ConvertTo-Csv
-          // quotes every field) and whitespace.
-          const cols = line.trim().split(',').map(c => c.trim().replace(/^"|"$/g, ''))
-          // wmic CSV header: Node,Caption,FreeSpace,Size (shifted by one)
-          // ConvertTo-Csv header: Caption,FreeSpace,Size
-          const captionIdx = cols.findIndex(c => /^[A-Za-z]:$/.test(c))
-          if (captionIdx < 0) continue
-          const free = safeParseInt(cols[captionIdx + 1])
-          const size = safeParseInt(cols[captionIdx + 2])
-          if (size <= 0) continue
-          used += size - free
-          total += size
-        }
-        return { used, total }
+      // No child process: statfs every existing fixed drive letter (C..Z).
+      const acc = { used: 0, total: 0 }
+      for (let code = 67; code <= 90; code++) {
+        const root = `${String.fromCharCode(code)}:${'\\'}`
+        if (!fs.existsSync(root)) continue
+        try { addStatfs(acc, fs.statfsSync(root)) } catch { /* empty card reader etc. */ }
       }
-      try {
-        const out = execSync('wmic logicaldisk get caption,freespace,size /format:csv', { timeout: 3000 }).toString()
-        const { used, total } = parseCsv(out)
-        if (total > 0) return { usedGB: gb(used), totalGB: gb(total), pct: Math.round((used / total) * 100) }
-      } catch { /* fall through to PowerShell */ }
-      const psOut = execSync(
-        "powershell -NoProfile -Command \"Get-CimInstance Win32_LogicalDisk | Select-Object Caption,FreeSpace,Size | ConvertTo-Csv -NoTypeInformation\"",
-        { timeout: 5000 },
-      ).toString()
-      const { used, total } = parseCsv(psOut)
-      return {
-        usedGB: gb(used),
-        totalGB: gb(total),
-        pct: total > 0 ? Math.round((used / total) * 100) : 0,
-      }
+      return toDiskStat(acc.used, acc.total)
     }
-
-    // macOS / Linux: df on the filesystem that holds cwd
-    const mountPoint = process.platform === 'darwin' ? '/' : '/'
-    const out = execSync(`df -k ${mountPoint}`, { timeout: 2000 }).toString()
-    const line = out.split('\n')[1] ?? ''
-    const parts = line.trim().split(/\s+/)
-    const total = (safeParseInt(parts[1])) / 1048576
-    const used = (safeParseInt(parts[2])) / 1048576
-    return {
-      usedGB: Math.round(used * 10) / 10,
-      totalGB: Math.round(total * 10) / 10,
-      pct: total > 0 ? Math.round((used / total) * 100) : 0,
-    }
+    // macOS / Linux: statfs on the root filesystem (no `df` spawn needed).
+    const acc = { used: 0, total: 0 }
+    addStatfs(acc, fs.statfsSync('/'))
+    return toDiskStat(acc.used, acc.total)
   } catch {
     return DEFAULT_DISK
   }
 }
 
+export function getDisk(): MetricStat {
+  return cachedValue('disk', DISK_TTL_MS, computeDisk)
+}
+
 // ─── Battery ─────────────────────────────────────────────────────────────────
 
-export function getBattery(): BatteryStat {
+/** Parse `Get-CimInstance Win32_Battery | ConvertTo-Json` output (object or array). */
+export function parseWindowsBattery(json: unknown): BatteryStat {
+  const list = Array.isArray(json) ? json : json ? [json] : []
+  const b = list[0] as Record<string, unknown> | undefined
+  if (!b) return NO_BATTERY
+  const pct = Number(b.EstimatedChargeRemaining)
+  const status = Number(b.BatteryStatus)
+  return {
+    pct: Number.isFinite(pct) ? pct : null,
+    charging: status === 2 || (status >= 6 && status <= 9),
+    present: true,
+  }
+}
+
+let winBattery: BatteryStat = NO_BATTERY
+let winBatteryTs = 0
+let winBatteryRefreshing = false
+
+/** Refresh the Windows battery cache in the background; never blocks the event loop. */
+function refreshWindowsBattery(): void {
+  if (winBatteryRefreshing) return
+  winBatteryRefreshing = true
+  execFile(
+    'powershell.exe',
+    [
+      '-NoProfile', '-NonInteractive', '-Command',
+      'Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining,BatteryStatus | ConvertTo-Json -Compress',
+    ],
+    { timeout: 4000, windowsHide: true },
+    (err, stdout) => {
+      winBatteryRefreshing = false
+      winBatteryTs = Date.now()
+      if (err) { winBattery = NO_BATTERY; return }
+      try { winBattery = parseWindowsBattery(stdout.trim() ? JSON.parse(stdout) : null) } catch { winBattery = NO_BATTERY }
+    },
+  )
+}
+
+function computeBattery(): BatteryStat {
   try {
     if (process.platform === 'darwin') {
       const out = execSync('pmset -g batt', { timeout: 2000 }).toString()
@@ -162,29 +209,24 @@ export function getBattery(): BatteryStat {
         present: Boolean(pctMatch),
       }
     }
-    if (process.platform === 'win32') {
-      // wmic battery approximates charge level from FullChargeCapacity vs
-      // EstimatedChargeRemaining when available; present only if a battery exists.
-      const out = execSync(
-        'wmic path Win32_Battery get EstimatedChargeRemaining,BatteryStatus /format:list',
-        { timeout: 2000 },
-      ).toString()
-      const pct = safeParseInt(out.match(/EstimatedChargeRemaining=(\d+)/)?.[1])
-      if (out.includes('EstimatedChargeRemaining') || out.includes('BatteryStatus')) {
-        return { pct: pct || null, charging: /BatteryStatus=(2|6|7|8|9)/.test(out), present: true }
-      }
-      return NO_BATTERY
-    }
-    // Linux: /sys/class/power_supply
-    const capacity = execSync('cat /sys/class/power_supply/BAT0/capacity 2>/dev/null', { timeout: 1000 }).toString().trim()
-    if (capacity) {
-      const status = execSync('cat /sys/class/power_supply/BAT0/status 2>/dev/null', { timeout: 1000 }).toString().trim()
-      return { pct: safeParseInt(capacity), charging: status === 'Charging', present: true }
+    if (process.platform === 'linux') {
+      const capacity = fs.readFileSync('/sys/class/power_supply/BAT0/capacity', 'utf8').trim()
+      const status = fs.readFileSync('/sys/class/power_supply/BAT0/status', 'utf8').trim()
+      return capacity ? { pct: safeParseInt(capacity), charging: status === 'Charging', present: true } : NO_BATTERY
     }
     return NO_BATTERY
   } catch {
     return NO_BATTERY
   }
+}
+
+export function getBattery(): BatteryStat {
+  if (process.platform === 'win32') {
+    // Return the last known value instantly; refresh asynchronously when stale.
+    if (Date.now() - winBatteryTs >= BATTERY_TTL_MS) refreshWindowsBattery()
+    return winBattery
+  }
+  return cachedValue('battery', BATTERY_TTL_MS, computeBattery)
 }
 
 // ─── Snapshot ────────────────────────────────────────────────────────────────

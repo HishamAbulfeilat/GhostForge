@@ -12,7 +12,7 @@ import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import { readFile, readdir, rm, appendFile } from 'fs/promises'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs'
-import { homedir } from 'os'
+import os, { homedir } from 'os'
 import { join, resolve } from 'path'
 import { chooseBestInstalledModel } from '@/lib/local-runtime'
 import { getJarvisQuickAction } from '@/lib/quick-actions'
@@ -633,6 +633,19 @@ async function executeTool(tool: string, params: Record<string, string>, current
       return runMarkLiv(mapped.name, mapped.parameters)
     }
     if (tool === 'mac_control') return 'mac_control (AppleScript) only works on macOS — use mark_liv to control this PC.'
+    if (tool === 'get_clipboard' && process.platform === 'win32') {
+      return (await import('@/lib/windows-tools')).getClipboardWindows()
+    }
+    if (tool === 'mac_cleanup') {
+      // Portable cleanup: private temp sweep + Node-based memory/disk summary (no ps/df/vm_stat).
+      const { cleared, freedBytes } = await sweepPrivateTemp(3600_000)
+      const { getRAM, getDisk } = await import('@/lib/system-info')
+      const ram = getRAM()
+      const disk = getDisk()
+      return `Cleanup complete. Cleared ${cleared} GFAI temp files (~${Math.round(freedBytes / 1024 / 1024)}MB).
+📊 Memory: ${ram.usedGB}/${ram.totalGB} GB (${ram.pct}%)
+💾 Disk: ${disk.usedGB}/${disk.totalGB} GB (${disk.pct}%)`
+    }
   }
 
   switch (tool) {
@@ -1589,10 +1602,11 @@ end tell`
     case 'llmfit_recommend': {
       try {
         // Get hardware info
+        const isMacHost = process.platform === 'darwin'
         const [memRes, cpuRes, ollamaRes] = await Promise.allSettled([
-          execAsync('sysctl hw.memsize'),
-          execAsync('sysctl -n machdep.cpu.brand_string'),
-          execAsync('ollama list 2>/dev/null'),
+          isMacHost ? execAsync('sysctl hw.memsize') : Promise.resolve({ stdout: String(os.totalmem()) }),
+          isMacHost ? execAsync('sysctl -n machdep.cpu.brand_string') : Promise.resolve({ stdout: os.cpus()[0]?.model || 'Unknown' }),
+          execAsync('ollama list'),
         ])
         const ramGB = memRes.status === 'fulfilled'
           ? Math.round(parseInt(memRes.value.stdout.match(/(\d+)/)?.[1] || '0') / 1024 ** 3)
@@ -1629,7 +1643,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
     case 'list_local_models': {
       try {
         const results = await Promise.allSettled([
-          execAsync('ollama list 2>/dev/null'),
+          execAsync('ollama list'),
           fetch('http://localhost:1234/v1/models', { signal: AbortSignal.timeout(1000) }).then(r => r.json()).catch(() => null),
           fetch('http://localhost:1337/v1/models', { signal: AbortSignal.timeout(1000) }).then(r => r.json()).catch(() => null),
           fetch('http://localhost:8080/v1/models', { signal: AbortSignal.timeout(1000) }).then(r => r.json()).catch(() => null),
@@ -2331,7 +2345,12 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
 
     case 'install_on_device': {
       let ip = '192.168.1.x'
-      try { const r = await execAsync('ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null'); ip = r.stdout.trim() } catch {}
+      if (process.platform === 'darwin') {
+        try { const r = await execAsync('ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null'); ip = r.stdout.trim() } catch {}
+      } else {
+        const lan = Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)
+        if (lan) ip = lan.address
+      }
       return `Install GhostForge on your device:\n\n📱 PWA (fastest): Open http://${ip}:3001 on your phone → Share → Add to Home Screen\n\n🤖 Android APK: Run 'bash scripts/build-android.sh' on your Mac\n\n🍎 iOS IPA: Run 'bash scripts/build-ios.sh' on your Mac (needs Xcode)\n\n🖥 Desktop: Run 'bash scripts/build-electron.sh'`
     }
 
@@ -2512,7 +2531,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       if (!/^https?:\/\//.test(target)) return 'Target must be a valid http/https URL'
 
       try {
-        await execAsync('command -v vigolium', { timeout: 3000 })
+        await execAsync(process.platform === 'win32' ? 'where vigolium' : 'command -v vigolium', { timeout: 3000 })
       } catch {
         return `Vigolium not installed. Install with:\n  npm install -g @vigolium/vigolium\nor:\n  curl -fsSL https://vigolium.com/install.sh | bash\n\nThen run: vigolium scan -t ${target}`
       }
@@ -2539,7 +2558,7 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       if (!/^https?:\/\//.test(target)) return 'Target must be a valid http/https URL'
 
       try {
-        await execAsync('command -v vigolium', { timeout: 3000 })
+        await execAsync(process.platform === 'win32' ? 'where vigolium' : 'command -v vigolium', { timeout: 3000 })
       } catch {
         return `Vigolium not installed. Install: npm install -g @vigolium/vigolium\n\nAgentic scan command: vigolium agent --mode ${params.mode || 'autopilot'} -t ${target}`
       }
@@ -3016,6 +3035,19 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
     case 'system_control': {
       const action = (params.action || '').toLowerCase()
       const value = params.value || ''
+
+      if (process.platform !== 'darwin') {
+        // Never run macOS tools (brightness, networksetup, pmset, blueutil, screencapture) elsewhere.
+        const winTools = await import('@/lib/windows-tools')
+        if (process.platform === 'win32' && (action === 'set-brightness' || action === 'set_brightness')) return winTools.setBrightnessWindows(parseInt(value) || 50)
+        if (process.platform === 'win32' && (action === 'get-brightness' || action === 'get_brightness')) return winTools.getBrightnessWindows()
+        if (action === 'battery') {
+          const { getBattery } = await import('@/lib/system-info')
+          const bat = getBattery()
+          return bat.present && bat.pct !== null ? `Battery: ${bat.pct}%${bat.charging ? ' (charging)' : ''}` : 'No battery detected'
+        }
+        return `System action "${action}" is not available through this tool on ${process.platform}. Use mark_liv computer_settings to control this PC.`
+      }
 
       if (action === 'set-brightness' || action === 'set_brightness') {
         const level = parseInt(value) || 50
@@ -3755,7 +3787,7 @@ export async function POST(req: NextRequest) {
     const markLivAction = quickAction ? getMarkLivAction(quickAction) : undefined
     const directAction = quickAction ? getJarvisQuickAction(quickAction) : undefined
 
-    if (directAction) {
+    if (directAction?.tool) {
       const toolParams = { ...directAction.params } as Record<string, string>
       if (directAction.id === 'weather' && !toolParams.city) {
         toolParams.city = String((memory.preferences as { city?: string } | undefined)?.city || 'Amman')
