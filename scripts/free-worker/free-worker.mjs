@@ -77,7 +77,7 @@ function runTask(project, task, cfg) {
   if (git(wt, 'status --porcelain').out.trim()) { git(wt, 'reset -q --hard'); git(wt, 'clean -fdq') }
   const branch = `free/${task.id}`
   git(wt, `checkout -q -B ${branch}`)
-  const prompt = `${task.prompt}\n\nRules: make the smallest change that fully does this. Do not touch unrelated files. ` +
+  const prompt = `${task.prompt}\n\nRules: make the smallest change that fully does this. Do not touch unrelated files. Do not create alias or re-export files (e.g. memories.ts that only re-exports memory.ts) or duplicate npm scripts; put code in one place and import it from there. Do not import packages that are not already dependencies. ` +
     `Do not commit, push, or switch branches. When done, \`${task.verify ?? project.verify}\` must pass.`
   // re-read the model list per task so edits to config.json apply without restarting the loop
   const live = readJson(CONFIG, cfg).models ?? cfg.models
