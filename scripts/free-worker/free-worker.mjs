@@ -28,6 +28,8 @@ const TASK_TIMEOUT = 30 * 60_000
 // Kept short so a task queued from the dashboard starts within ~a minute; the
 // idle check only reads three small queue files, so the cost is negligible.
 const IDLE_SLEEP = 45_000
+// When every free model is rate-limited, wait much longer: hammering a limited API keeps the limit from resetting.
+const RATE_LIMIT_BACKOFF = 15 * 60_000
 const INTEGRATION = 'free/integration'
 
 const log = msg => { const line = `[${new Date().toISOString()}] ${msg}`; console.log(line); fs.appendFileSync(LOG, line + '\n') }
@@ -117,7 +119,7 @@ async function cycle(cfg) {
     if (task.model) t.model = task.model
     writeJson(queueFile(project.name), fresh)
     setStatus({ current: null, last: { project: project.name, task: task.id, outcome } })
-    if (outcome === 'ratelimited') { log('all free models rate-limited, backing off'); return false } // loop sleeps, then retries
+    if (outcome === 'ratelimited') { log(`all free models rate-limited, backing off ${RATE_LIMIT_BACKOFF / 60_000} min`); return 'ratelimited' }
     worked ||= outcome !== 'skipped'
   }
   return worked
@@ -144,7 +146,11 @@ if (cmd === 'status') {
   writeJson(LOCK, process.pid)
   try { os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL) } catch { /* best effort */ }
   log('loop started')
-  while (!fs.existsSync(STOP)) { if (!(await cycle(cfg))) await sleep(IDLE_SLEEP) }
+  while (!fs.existsSync(STOP)) {
+    const r = await cycle(cfg)
+    if (r === 'ratelimited') await sleep(RATE_LIMIT_BACKOFF)
+    else if (!r) await sleep(IDLE_SLEEP)
+  }
   log('STOP file found, exiting')
 } else {
   console.log('usage: free-worker.mjs loop|once|status|add <project> "title" "prompt" [hard|easy]')
