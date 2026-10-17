@@ -179,7 +179,9 @@ if (cmd === 'status') {
     if (r === 'ratelimited') await sleep(RATE_LIMIT_BACKOFF)
     else if (!r) await sleep(IDLE_SLEEP)
   }
-  log(`${name}: STOP file found, exiting`)
+  if (fs.existsSync(STOP)) log(`${name}: STOP file found, exiting`)
+  // release the lock so the supervisor never mistakes a reused PID for this loop
+  try { if (Number(readJson(lock, 0)) === process.pid) fs.unlinkSync(lock) } catch { /* already gone */ }
 } else {
   console.log('usage: free-worker.mjs loop|once|status|add <project> "title" "prompt" [hard|easy]')
 }
