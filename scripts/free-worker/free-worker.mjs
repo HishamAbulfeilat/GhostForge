@@ -78,7 +78,7 @@ function runTask(project, task, cfg) {
   const branch = `free/${task.id}`
   git(wt, `checkout -q -B ${branch}`)
   const prompt = `${task.prompt}\n\nRules: make the smallest change that fully does this. Do not touch unrelated files. ` +
-    `Do not commit, push, or switch branches. When done, \`${project.verify}\` must pass.`
+    `Do not commit, push, or switch branches. When done, \`${task.verify ?? project.verify}\` must pass.`
   // re-read the model list per task so edits to config.json apply without restarting the loop
   const live = readJson(CONFIG, cfg).models ?? cfg.models
   const models = live[task.tier ?? 'hard'] ?? live.hard
@@ -92,7 +92,7 @@ function runTask(project, task, cfg) {
       if (/rate limit|too many requests|status 429/i.test(run.out)) { limited++; log(`  rate-limited on ${model}, next model`) } else log('  no changes, next model')
       continue
     }
-    const v = sh(project.verify, wt, 20 * 60_000)
+    const v = sh(task.verify ?? project.verify, wt, 20 * 60_000) // a task may carry its own check (big multi-app repos)
     if (v.ok) {
       git(wt, 'add -A'); git(wt, `commit -q -m "${task.title.replace(/"/g, "'")} (free-worker ${task.id}, ${model})"`)
       task.model = model; outcome = 'review'; log(`  verified, committed on ${branch}`); break
@@ -141,10 +141,10 @@ if (!cfg) { console.error(`missing ${CONFIG}`); process.exit(1) }
 if (cmd === 'status') {
   for (const p of cfg.projects) for (const t of readJson(queueFile(p.name), [])) console.log(`${p.name.padEnd(22)} ${t.id.padEnd(7)} ${t.status.padEnd(8)} ${t.model ?? ''} ${t.title}`)
 } else if (cmd === 'add') {
-  const [name, title, prompt, tier] = rest
+  const [name, title, prompt, tier, verify] = rest
   const q = readJson(queueFile(name), [])
   const next = Math.max(0, ...q.map(t => Number(t.id.split('-')[1]) || 0)) + 1
-  q.push({ id: `${name.slice(0, 2).toUpperCase()}-${String(next).padStart(3, '0')}`, title, prompt: prompt || title, tier: tier || 'hard', status: 'todo' })
+  q.push({ id: `${name.slice(0, 2).toUpperCase()}-${String(next).padStart(3, '0')}`, title, prompt: prompt || title, tier: tier || 'hard', ...(verify ? { verify } : {}), status: 'todo' })
   writeJson(queueFile(name), q); console.log('queued')
 } else if (cmd === 'once') {
   await cycle(cfg)
