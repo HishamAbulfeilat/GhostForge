@@ -72,13 +72,16 @@ function runTask(project, task, cfg) {
   const prompt = `${task.prompt}\n\nRules: make the smallest change that fully does this. Do not touch unrelated files. ` +
     `Do not commit, push, or switch branches. When done, \`${project.verify}\` must pass.`
   const models = cfg.models[task.tier ?? 'hard'] ?? cfg.models.hard
-  let outcome = 'failed'
+  let outcome = 'failed', limited = 0
   for (const model of models) {
     log(`${project.name} ${task.id} → ${model}`)
     setStatus({ current: { project: project.name, task: task.id, title: task.title, model, started: new Date().toISOString() } })
     const quoted = prompt.replace(/"/g, '\\"').replace(/\r?\n/g, ' ')
-    sh(`opencode run --auto -m ${model} --title "free-worker ${task.id}" "${quoted}"`, wt, TASK_TIMEOUT, { OPENCODE_CONFIG })
-    if (!git(wt, 'status --porcelain').out.trim()) { log('  no changes, next model'); continue }
+    const run = sh(`opencode run --auto -m ${model} --title "free-worker ${task.id}" "${quoted}"`, wt, TASK_TIMEOUT, { OPENCODE_CONFIG })
+    if (!git(wt, 'status --porcelain').out.trim()) {
+      if (/rate limit|too many requests|status 429/i.test(run.out)) { limited++; log(`  rate-limited on ${model}, next model`) } else log('  no changes, next model')
+      continue
+    }
     const v = sh(project.verify, wt, 20 * 60_000)
     if (v.ok) {
       git(wt, 'add -A'); git(wt, `commit -q -m "${task.title.replace(/"/g, "'")} (free-worker ${task.id}, ${model})"`)
@@ -87,6 +90,7 @@ function runTask(project, task, cfg) {
     log(`  verify failed, reverting: ${v.out.split('\n').slice(-3).join(' | ')}`)
     git(wt, 'reset -q --hard'); git(wt, 'clean -fdq')
   }
+  if (outcome === 'failed' && limited === models.length) outcome = 'ratelimited'
   git(wt, `checkout -q ${INTEGRATION}`)
   if (outcome === 'review') {
     if (!git(wt, `merge -q --no-edit ${branch}`).ok) { git(wt, 'merge --abort'); outcome = 'conflict' }
@@ -106,12 +110,14 @@ async function cycle(cfg) {
     // re-read: tasks may have been added while this one ran, and writing the stale copy would drop them
     const fresh = readJson(queueFile(project.name), [])
     const t = fresh.find(x => x.id === task.id) ?? task
-    t.attempts = (t.attempts ?? 0) + 1
-    t.status = outcome === 'skipped' ? 'todo' : outcome === 'failed' && t.attempts < 2 ? 'todo' : outcome
+    // skipped (no worktree) and ratelimited (every free model refused) are not real attempts: retry later
+    if (outcome !== 'skipped' && outcome !== 'ratelimited') t.attempts = (t.attempts ?? 0) + 1
+    t.status = outcome === 'skipped' || outcome === 'ratelimited' ? 'todo' : outcome === 'failed' && t.attempts < 2 ? 'todo' : outcome
     t.finished = new Date().toISOString()
     if (task.model) t.model = task.model
     writeJson(queueFile(project.name), fresh)
     setStatus({ current: null, last: { project: project.name, task: task.id, outcome } })
+    if (outcome === 'ratelimited') { log('all free models rate-limited, backing off'); return false } // loop sleeps, then retries
     worked ||= outcome !== 'skipped'
   }
   return worked
