@@ -14,13 +14,15 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const HOME = path.join(os.homedir(), '.free-worker')
 const CONFIG = path.join(HOME, 'config.json')
 const LOG = path.join(HOME, 'worker.log')
 const STATUS = path.join(HOME, 'status.json')
-const LOCK = path.join(HOME, 'loop.pid')
+// One loop per project runs in parallel (each project has its own worktree); each holds its own lock.
+const lockFile = name => path.join(HOME, `loop-${name}.pid`)
 const STOP = path.join(HOME, 'STOP')
 const OPENCODE_CONFIG = path.join(HOME, 'opencode.json')
 const TASK_TIMEOUT = 30 * 60_000
@@ -45,7 +47,11 @@ function sh(cmd, cwd, timeout = 10 * 60_000, env = {}) {
 }
 const git = (cwd, args) => sh(`git ${args}`, cwd, 120_000)
 
-function setStatus(patch) { writeJson(STATUS, { ...readJson(STATUS, {}), ...patch, updated: new Date().toISOString() }) }
+function setStatus(project, patch) {
+  const st = readJson(STATUS, {})
+  st.projects = { ...(st.projects ?? {}), [project]: { ...(st.projects?.[project] ?? {}), ...patch, updated: new Date().toISOString() } }
+  writeJson(STATUS, { ...st, updated: new Date().toISOString() })
+}
 
 /** A worktree on free/integration next to the repo, created (and deps installed) on first use. */
 function ensureWorktree(project) {
@@ -77,7 +83,7 @@ function runTask(project, task, cfg) {
   let outcome = 'failed', limited = 0
   for (const model of models) {
     log(`${project.name} ${task.id} → ${model}`)
-    setStatus({ current: { project: project.name, task: task.id, title: task.title, model, started: new Date().toISOString() } })
+    setStatus(project.name, { current: { task: task.id, title: task.title, model, started: new Date().toISOString() } })
     const quoted = prompt.replace(/"/g, '\\"').replace(/\r?\n/g, ' ')
     const run = sh(`opencode run --auto -m ${model} --title "free-worker ${task.id}" "${quoted}"`, wt, TASK_TIMEOUT, { OPENCODE_CONFIG })
     if (!git(wt, 'status --porcelain').out.trim()) {
@@ -118,7 +124,7 @@ async function cycle(cfg) {
     t.finished = new Date().toISOString()
     if (task.model) t.model = task.model
     writeJson(queueFile(project.name), fresh)
-    setStatus({ current: null, last: { project: project.name, task: task.id, outcome } })
+    setStatus(project.name, { current: null, last: { task: task.id, outcome } })
     if (outcome === 'ratelimited') { log(`all free models rate-limited, backing off ${RATE_LIMIT_BACKOFF / 60_000} min`); return 'ratelimited' }
     worked ||= outcome !== 'skipped'
   }
@@ -140,18 +146,31 @@ if (cmd === 'status') {
   writeJson(queueFile(name), q); console.log('queued')
 } else if (cmd === 'once') {
   await cycle(cfg)
+} else if (cmd === 'loop' && rest[0] !== '--project') {
+  // supervisor: make sure every project has its own live loop, then exit (the scheduled task re-runs this every 10 min)
+  for (const p of cfg.projects) {
+    const pid = Number(readJson(lockFile(p.name), 0))
+    if (pid && alive(pid)) continue
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), 'loop', '--project', p.name], { detached: true, stdio: 'ignore', windowsHide: true })
+    child.unref()
+    log(`${p.name}: started loop (pid ${child.pid})`)
+  }
 } else if (cmd === 'loop') {
-  const other = Number(readJson(LOCK, 0))
+  const name = rest[1]
+  const project = cfg.projects.find(p => p.name === name)
+  if (!project) { console.error(`unknown project ${name}`); process.exit(1) }
+  const lock = lockFile(name), other = Number(readJson(lock, 0))
   if (other && other !== process.pid && alive(other)) process.exit(0)
-  writeJson(LOCK, process.pid)
+  writeJson(lock, process.pid)
   try { os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL) } catch { /* best effort */ }
-  log('loop started')
+  log(`${name}: loop started`)
+  const only = { ...cfg, projects: [project] }
   while (!fs.existsSync(STOP)) {
-    const r = await cycle(cfg)
+    const r = await cycle(only)
     if (r === 'ratelimited') await sleep(RATE_LIMIT_BACKOFF)
     else if (!r) await sleep(IDLE_SLEEP)
   }
-  log('STOP file found, exiting')
+  log(`${name}: STOP file found, exiting`)
 } else {
   console.log('usage: free-worker.mjs loop|once|status|add <project> "title" "prompt" [hard|easy]')
 }

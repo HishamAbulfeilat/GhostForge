@@ -196,7 +196,8 @@ async function collectState() {
 
   const [runtime] = await Promise.all([sampleProcesses()])
 
-  const loopAlive = isAlive(Number(readJSON(path.join(FREE, 'loop.pid'), 0)))
+  // one loop per project (loop-<project>.pid); alive when any of them runs
+  const loopAlive = fs.existsSync(FREE) && fs.readdirSync(FREE).some(f => /^loop-.+\.pid$/.test(f) && isAlive(Number(readJSON(path.join(FREE, f), 0))))
 
   return {
     now: Date.now(),
@@ -692,9 +693,9 @@ function renderBoard(d) {
 
 function renderFree(d) {
   const f = d.free; if (!f) return
-  const cur = f.status.current
-  $('free-sub').textContent = (f.loopAlive ? 'loop running' : 'loop stopped') +
-    (cur ? ' · now: ' + cur.project + ' ' + cur.task + ' on ' + cur.model : '') +
+  const cur = Object.entries(f.status.projects || {}).filter(([, v]) => v.current).map(([p, v]) => p + ' ' + v.current.task + ' on ' + v.current.model)
+  $('free-sub').textContent = (f.loopAlive ? 'loops running' : 'loops stopped') +
+    (cur.length ? ' · now: ' + cur.join(' | ') : '') +
     ' · claude-switch: ' + (f.switchState.mode || '?') + (f.switchState.lastModel ? ' (' + f.switchState.lastModel + ')' : '')
   const rows = []
   for (const q of f.queues) for (const t of q.tasks)
