@@ -3,6 +3,7 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { PLATFORM_COMMANDS } from '../shared/constants';
+import { getWindowsBattery } from './platform-metrics';
 
 /** Battery status information */
 export interface BatteryStatus {
@@ -374,20 +375,7 @@ export class SystemControl {
         return { percent: null, charging: false, timeRemaining: null, present: false };
       }
     } else if (this.platform === 'win32') {
-      try {
-        const out = await this.run('wmic path Win32_Battery get EstimatedChargeRemaining,BatteryStatus /format:csv');
-        const lines = out.split('\n').filter(l => l.trim());
-        if (lines.length > 1) {
-          const parts = lines[1].split(',');
-          return {
-            percent: parseInt(parts[1], 10) || null,
-            charging: parts[2]?.trim() === '2',
-            timeRemaining: null,
-            present: true,
-          };
-        }
-      } catch { /* fall through */ }
-      return { percent: null, charging: false, timeRemaining: null, present: false };
+      return getWindowsBattery();
     }
     return { percent: null, charging: false, timeRemaining: null, present: false };
   }

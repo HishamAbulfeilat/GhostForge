@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
 import os from 'os';
+import { cpuUsageFromOs, getWindowsBattery, getWindowsDisks, getWindowsGpus } from './platform-metrics';
 
 /**
  * Cross-platform hardware monitoring for GhostForge JARVIS.
@@ -20,9 +21,9 @@ function cached<T>(key: string, fn: () => T): T {
   return data;
 }
 
-async function cachedAsync<T>(key: string, fn: () => Promise<T>): Promise<T> {
+async function cachedAsync<T>(key: string, fn: () => Promise<T>, ttlMs = CACHE_TTL_MS): Promise<T> {
   const entry = cache.get(key);
-  if (entry && Date.now() - entry.ts < CACHE_TTL_MS) {
+  if (entry && Date.now() - entry.ts < ttlMs) {
     return entry.data as T;
   }
   const data = await fn();
@@ -105,25 +106,30 @@ export interface SystemReport {
 
 /** Get CPU usage percentage (averaged across cores). */
 function getCpuUsageSync(): number {
+  // Windows (and anything else without top//proc/stat): derive from os.cpus() deltas.
+  if (process.platform !== 'darwin' && process.platform !== 'linux') return cpuUsageFromOs();
   try {
+    if (process.platform === 'linux') {
+      const statLine = runSync('grep "^cpu " /proc/stat');
+      if (statLine) {
+        const parts = statLine.split(/\s+/).slice(1).map(Number);
+        const idle = parts[3] || 0;
+        const total = parts.reduce((a, b) => a + b, 0);
+        return total > 0 ? Math.round(((total - idle) / total) * 100) : 0;
+      }
+      return cpuUsageFromOs();
+    }
     const output = runSync('top -l 1 -n 0 | grep "CPU usage"');
     const idleMatch = output.match(/([\d.]+)%\s+idle/);
     if (idleMatch) return Math.round(100 - parseFloat(idleMatch[1]));
 
-    // Linux fallback
-    const statLine = runSync('grep "^cpu " /proc/stat');
-    if (statLine) {
-      const parts = statLine.split(/\s+/).slice(1).map(Number);
-      const idle = parts[3] || 0;
-      const total = parts.reduce((a, b) => a + b, 0);
-      return total > 0 ? Math.round(((total - idle) / total) * 100) : 0;
-    }
   } catch { /* fall through */ }
-  return 0;
+  return cpuUsageFromOs();
 }
 
 /** Get CPU temperature if available. */
 function getCpuTempSync(): number | null {
+  if (process.platform !== 'darwin' && process.platform !== 'linux') return null;
   try {
     if (process.platform === 'darwin') {
       const out = runSync('osx-cpu-temp 2>/dev/null');
@@ -131,6 +137,7 @@ function getCpuTempSync(): number | null {
       if (match) return parseFloat(match[1]);
     }
     // Linux: thermal zones
+    if (process.platform !== 'linux') return null;
     const out = runSync('cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null');
     if (out) return Math.round(parseInt(out, 10) / 1000 * 10) / 10;
   } catch { /* fall through */ }
@@ -177,6 +184,7 @@ export function getRamStats(): RamStats {
 export async function getDiskStats(): Promise<DiskVolume[]> {
   return cachedAsync('disks', async () => {
     try {
+      if (process.platform === 'win32') return await getWindowsDisks();
       if (process.platform === 'darwin') {
         const out = runSync('df -k / /System/Volumes/Data 2>/dev/null');
         const lines = out.split('\n').filter(l => l.trim() && !l.startsWith('Filesystem'));
@@ -206,7 +214,9 @@ export async function getDiskStats(): Promise<DiskVolume[]> {
         return volumes;
       }
 
-      // Linux / other
+      if (process.platform !== 'linux') return [];
+
+      // Linux
       const out = runSync('df -k --output=source,fstype,size,used,avail,target 2>/dev/null | grep -E "^/dev/"');
       const lines = out.split('\n').filter(Boolean);
       return lines.map(line => {
@@ -234,6 +244,12 @@ export async function getDiskStats(): Promise<DiskVolume[]> {
 export async function getGpuStats(): Promise<GpuStats[]> {
   return cachedAsync('gpu', async () => {
     try {
+      if (process.platform === 'win32') {
+        const gpus = await getWindowsGpus();
+        if (gpus.length) {
+          return gpus.map(g => ({ name: g.name, usagePercent: null, memoryTotalMB: g.memoryTotalMB, memoryUsedMB: null }));
+        }
+      }
       if (process.platform === 'darwin') {
         const out = runSync('system_profiler SPDisplaysDataType 2>/dev/null');
         const nameMatch = out.match(/Chipset Model:\s+(.+)/);
@@ -265,7 +281,7 @@ export async function getGpuStats(): Promise<GpuStats[]> {
     } catch {
       return [{ name: 'Unknown GPU', usagePercent: null, memoryTotalMB: null, memoryUsedMB: null }];
     }
-  });
+  }, 60000);
 }
 
 /** Get fan speeds if available. */
@@ -297,9 +313,14 @@ export async function getFanSpeed(): Promise<FanInfo[]> {
 }
 
 /** Get battery stats. */
-function getBatterySync(): { percent: number | null; charging: boolean } {
-  return cached('battery', () => {
+async function getBatteryStats(): Promise<{ percent: number | null; charging: boolean }> {
+  return cachedAsync('battery', async () => {
     try {
+      if (process.platform === 'win32') {
+        const b = await getWindowsBattery();
+        return { percent: b.percent, charging: b.charging };
+      }
+
       if (process.platform === 'darwin') {
         const out = runSync('pmset -g batt');
         const pctMatch = out.match(/(\d+)%/);
@@ -319,15 +340,16 @@ function getBatterySync(): { percent: number | null; charging: boolean } {
       }
     } catch { /* fall through */ }
     return { percent: null, charging: false };
-  });
+  }, 15000);
 }
 
 /** Get a full system report combining all stats. */
 export async function getFullSystemReport(): Promise<SystemReport> {
-  const [disks, gpu, fans] = await Promise.all([
+  const [disks, gpu, fans, battery] = await Promise.all([
     getDiskStats(),
     getGpuStats(),
     getFanSpeed(),
+    getBatteryStats(),
   ]);
 
   return {
@@ -336,7 +358,7 @@ export async function getFullSystemReport(): Promise<SystemReport> {
     disks,
     gpu,
     fans,
-    battery: getBatterySync(),
+    battery,
     uptime: os.uptime(),
     platform: `${os.platform()} ${os.release()}`,
     hostname: os.hostname(),
