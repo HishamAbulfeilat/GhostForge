@@ -92,7 +92,7 @@ export function validateTicketInput(command: TicketCommandDef, input: unknown): 
   }
   if (!value) return { error: 'A task description is required' }
   if (value.length > MAX_DESCRIPTION_CHARS) return { error: `Description must be at most ${MAX_DESCRIPTION_CHARS} characters` }
-  // eslint-disable-next-line no-control-regex
+   
   if (/[\u0000-\u001f\u007f]/.test(value)) return { error: 'Description must be a single line of plain text' }
   // estimate.sh treats leading "--" arguments as options
   if (value.startsWith('-')) return { error: 'Description must not start with "-"' }
