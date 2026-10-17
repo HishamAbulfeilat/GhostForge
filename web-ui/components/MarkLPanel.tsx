@@ -2,12 +2,14 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { Workflow } from 'lucide-react'
-import { JARVIS_QUICK_ACTIONS, QUICK_ACTION_CATEGORIES, type QuickAction } from '@/lib/quick-actions'
+import { getQuickActionsForHost, QUICK_ACTION_CATEGORIES, type QuickAction } from '@/lib/quick-actions'
 
 interface MarkLPanelProps {
   onRunAction: (prompt: string, id: string) => void
   disabled?: boolean
   ringColor?: string
+  /** Host OS (process.platform) so the shown prompts match it. */
+  hostPlatform?: string
 }
 
 interface FeatureStatus {
@@ -33,7 +35,7 @@ function persistStatusMap(statuses: FeatureStatus[]) {
   } catch { /* ignore */ }
 }
 
-export default function MarkLPanel({ onRunAction, disabled = false, ringColor = '#1a6fff' }: MarkLPanelProps) {
+export default function MarkLPanel({ onRunAction, disabled = false, ringColor = '#1a6fff', hostPlatform = 'darwin' }: MarkLPanelProps) {
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [statuses, setStatuses] = useState<FeatureStatus[]>(getStatusMap)
 
@@ -47,12 +49,17 @@ export default function MarkLPanel({ onRunAction, disabled = false, ringColor = 
     })
   }, [])
 
+  const hostActions = useMemo(
+    () => getQuickActionsForHost(hostPlatform, { macControl: hostPlatform === 'darwin', browserControl: hostPlatform === 'darwin' || hostPlatform === 'win32' }),
+    [hostPlatform],
+  )
+
   const filteredActions = useMemo(() => {
     const filtered = activeCategory
-      ? JARVIS_QUICK_ACTIONS.filter(a => a.category === activeCategory)
-      : JARVIS_QUICK_ACTIONS
+      ? hostActions.filter(a => a.category === activeCategory)
+      : hostActions
     return filtered
-  }, [activeCategory])
+  }, [activeCategory, hostActions])
 
   const getStatus = useCallback((id: string): boolean => {
     return statuses.find(s => s.id === id)?.active ?? false
@@ -68,7 +75,7 @@ export default function MarkLPanel({ onRunAction, disabled = false, ringColor = 
           <span className="text-[11px] tracking-widest" style={{ color: ringColor }}>MARK-L FEATURES</span>
           <span className="rounded px-1.5 py-0.5 text-[9px]"
             style={{ background: `${ringColor}18`, color: ringColor }}>
-            {activeCount}/{JARVIS_QUICK_ACTIONS.length} ACTIVE
+            {activeCount}/{hostActions.length} ACTIVE
           </span>
         </div>
         <button

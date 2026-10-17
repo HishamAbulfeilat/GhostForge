@@ -13,7 +13,7 @@ const OpenJarvisPanel = dynamic(() => import('@/components/OpenJarvisPanel'), { 
 const MarkLivToolsPanel = dynamic(() => import('@/components/MarkLivToolsPanel'), { ssr: false })
 const AgentDashboard = dynamic(() => import('@/components/AgentDashboard'), { ssr: false })
 import { collectRecognitionTranscript, findWakePhrase } from '@/lib/voice-runtime'
-import { JARVIS_QUICK_ACTIONS } from '@/lib/quick-actions'
+import { getQuickActionsForHost } from '@/lib/quick-actions'
 import { MARK_LIV_ACTIONS } from '@/lib/mark-liv-actions'
 
 // Web Speech API type shims
@@ -2525,11 +2525,10 @@ export default function JarvisPage() {
   const activePersona = PERSONA_OPTIONS.find(option => option.id === persona) || PERSONA_OPTIONS[0]
   const currentModelName = liveModel?.model || selectedModel || 'auto'
 
-  const QUICK_COMMANDS = useMemo(() => JARVIS_QUICK_ACTIONS.filter(action => {
-    if (action.scope === 'mac') return hostCapabilities.macControl
-    if (action.id === 'browser') return hostCapabilities.browserControl
-    return true
-  }), [hostCapabilities.macControl, hostCapabilities.browserControl])
+  const QUICK_COMMANDS = useMemo(
+    () => getQuickActionsForHost(hostCapabilities.platform, hostCapabilities),
+    [hostCapabilities],
+  )
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -3171,6 +3170,7 @@ export default function JarvisPage() {
                 onRunAction={(prompt, id) => void sendToJarvis(prompt, id)}
                 disabled={mode === 'thinking' || mode === 'listening'}
                 ringColor={mc.ring}
+                hostPlatform={hostCapabilities.platform}
               />
               {/* Mark-LIV engine registry — mirrors vendor/mark-liv actions */}
               <div className="mt-4 border-t pt-3" style={{ borderColor: `${mc.ring}22` }}>

@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { existsSync } = require('node:fs')
 const { resolve } = require('node:path')
-const { JARVIS_QUICK_ACTIONS, TERMINAL_FEATURE_GROUPS, getJarvisQuickAction } = require('../lib/quick-actions')
+const { JARVIS_QUICK_ACTIONS, TERMINAL_FEATURE_GROUPS, getJarvisQuickAction } = require('../lib/quick-actions.ts')
 const { shouldExecuteViaApi } = require('../lib/terminal-routing')
 
 test('Jarvis quick actions resolve to deterministic tools', () => {
