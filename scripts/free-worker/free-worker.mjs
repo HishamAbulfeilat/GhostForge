@@ -79,7 +79,9 @@ function runTask(project, task, cfg) {
   git(wt, `checkout -q -B ${branch}`)
   const prompt = `${task.prompt}\n\nRules: make the smallest change that fully does this. Do not touch unrelated files. ` +
     `Do not commit, push, or switch branches. When done, \`${project.verify}\` must pass.`
-  const models = cfg.models[task.tier ?? 'hard'] ?? cfg.models.hard
+  // re-read the model list per task so edits to config.json apply without restarting the loop
+  const live = readJson(CONFIG, cfg).models ?? cfg.models
+  const models = live[task.tier ?? 'hard'] ?? live.hard
   let outcome = 'failed', limited = 0
   for (const model of models) {
     log(`${project.name} ${task.id} → ${model}`)
@@ -165,8 +167,11 @@ if (cmd === 'status') {
   try { os.setPriority(os.constants.priority.PRIORITY_BELOW_NORMAL) } catch { /* best effort */ }
   log(`${name}: loop started`)
   const only = { ...cfg, projects: [project] }
+  const self = fileURLToPath(import.meta.url), startedAt = fs.statSync(self).mtimeMs
   while (!fs.existsSync(STOP)) {
     const r = await cycle(only)
+    // the worker code changed: exit between tasks; the supervisor (every 10 min) starts a fresh loop on the new code
+    if (fs.statSync(self).mtimeMs !== startedAt) { log(`${name}: worker code updated, restarting`); break }
     if (r === 'ratelimited') await sleep(RATE_LIMIT_BACKOFF)
     else if (!r) await sleep(IDLE_SLEEP)
   }
