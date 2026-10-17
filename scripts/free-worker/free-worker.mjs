@@ -87,9 +87,13 @@ function runTask(project, task, cfg) {
     log(`${project.name} ${task.id} → ${model}`)
     setStatus(project.name, { current: { task: task.id, title: task.title, model, started: new Date().toISOString() } })
     const quoted = prompt.replace(/"/g, '\\"').replace(/\r?\n/g, ' ')
-    const run = sh(`opencode run --auto -m ${model} --title "free-worker ${task.id}" "${quoted}"`, wt, TASK_TIMEOUT, { OPENCODE_CONFIG })
+    // gemini-cli/<model|default> runs Gemini CLI on the user's own Google sign-in; auto_edit lets it edit files but not run shell commands
+    const cmd = model.startsWith('gemini-cli/')
+      ? `gemini ${model === 'gemini-cli/default' ? '' : `-m ${model.slice(11)} `}--approval-mode auto_edit -p "${quoted}"`
+      : `opencode run --auto -m ${model} --title "free-worker ${task.id}" "${quoted}"`
+    const run = sh(cmd, wt, TASK_TIMEOUT, { OPENCODE_CONFIG })
     if (!git(wt, 'status --porcelain').out.trim()) {
-      if (/rate limit|too many requests|status 429/i.test(run.out)) { limited++; log(`  rate-limited on ${model}, next model`) } else log('  no changes, next model')
+      if (/rate limit|too many requests|status 429|quota exceeded|resource_exhausted|exceeded your current quota/i.test(run.out)) { limited++; log(`  rate-limited on ${model}, next model`) } else log('  no changes, next model')
       continue
     }
     const v = sh(task.verify ?? project.verify, wt, 20 * 60_000) // a task may carry its own check (big multi-app repos)
