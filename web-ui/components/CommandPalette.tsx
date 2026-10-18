@@ -44,7 +44,7 @@ function CommandPalette() {
     { id: 'settings',label: 'Settings', icon: '⚙️', description: 'Configure GhostForge', ...go('/settings'), keywords: ['config', 'preferences'] },
     { id: 'history', label: 'JARVIS History', icon: '📜', description: 'Past conversations', ...go('/history'), keywords: ['memory', 'sessions', 'timeline'] },
     { id: 'mac-control', label: 'Mac Control', icon: '🖥️', description: 'System automation', ...go('/mac-control'), keywords: ['automation', 'system'] },
-    { id: 'health', label: 'Health Check', icon: '🏥', description: 'Project health status', ...go('/dashboard'), keywords: ['check', 'status'] },
+    { id: 'health-check', label: 'Health Check', icon: '🏥', description: 'Project health status', ...go('/code-health'), keywords: ['check', 'status'] },
     { id: 'users', label: 'Users', icon: '👥', description: 'Manage accounts and access', ...go('/users'), keywords: ['admin', 'accounts', 'permissions'] },
     { id: 'security', label: 'Security Scan', icon: '🛡️', description: 'Run defensive security scans', ...go('/security'), keywords: ['admin', 'audit', 'secrets', 'cve'] },
     { id: 'testing', label: 'Test Runner', icon: '🧪', description: 'Run the project test suites', ...go('/testing'), keywords: ['admin', 'tests', 'qa'] },

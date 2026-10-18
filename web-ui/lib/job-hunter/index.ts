@@ -4,7 +4,8 @@
  * Office CV skills:
  *
  *   importCv    CV file → text, contact details, suggested target roles
- *   runSearch   sources → location filter → dealbreakers → AI fit score →
+ *   runSearch   sources → location filter → salary floor → dealbreakers →
+ *               AI fit score →
  *               auto-prepare the best matches for approval
  *   prepareJob  tailored CV + cover letter + form answers  (status: ready)
  *   approveJob  the user's one click → fill the form, submit where safe
@@ -15,7 +16,7 @@
 import { generateWithFallback } from '../ai'
 import { auditLog } from '../audit'
 import { analyzeCv, extractCvText } from './cv'
-import { dealbreaker, matchesLocation, relevantTo, scoreJobs } from './match'
+import { belowMinSalary, dealbreaker, matchesLocation, relevantTo, scoreJobs } from './match'
 import { linkedInSearchUrl, searchSources, type SourceReport } from './sources'
 import {
   getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs, withJobOperation,
@@ -87,6 +88,8 @@ export interface SearchResult {
   terms: string[]
   found: number
   matched: number
+  /** Listings dropped before scoring because their stated salary is below the minimum */
+  salaryFiltered: number
   added: number
   prepared: number
   report: SourceReport[]
@@ -107,8 +110,12 @@ export async function runSearch(
   const home = [profile.applicant.city, profile.applicant.country].filter(Boolean)
   const inLocation = raw.filter(j => relevantTo(j, terms) && matchesLocation(j, profile.preferences, home))
 
+  // Drop listings below the salary floor before scoring so they never cost model calls
+  const aboveFloor = inLocation.filter(j => !belowMinSalary(j, profile.preferences))
+  const salaryFiltered = inLocation.length - aboveFloor.length
+
   // Score at most 60 listings per run to keep model usage bounded
-  const candidates = inLocation.slice(0, 60)
+  const candidates = aboveFloor.slice(0, 60)
   const scores = await scoreJobs(candidates, profile, generate)
   const scored = candidates.map((job, i) => {
     const blocked = dealbreaker(job, profile.preferences)
@@ -135,12 +142,13 @@ export async function runSearch(
   }
 
   const places = profile.preferences.locations.length ? profile.preferences.locations : ['']
-  void auditLog({ level: 'info', event: 'job_search', params: { username, terms, found: raw.length, matched: inLocation.length, added, prepared } })
+  void auditLog({ level: 'info', event: 'job_search', params: { username, terms, found: raw.length, matched: inLocation.length, salaryFiltered, added, prepared } })
 
   return {
     terms,
     found: raw.length,
     matched: inLocation.length,
+    salaryFiltered,
     added,
     prepared,
     report,

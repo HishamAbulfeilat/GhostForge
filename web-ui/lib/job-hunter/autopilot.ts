@@ -29,6 +29,7 @@ export interface AutopilotReport {
   reason?: string
   found?: number
   matched?: number
+  salaryFiltered?: number
   prepared?: number
   submitted?: number
   needsUser?: number
@@ -177,12 +178,12 @@ export async function runAutopilot(
     : ''
   const result = remaining === 0
     ? `Daily limit reached (${ap.dailyLimit}). Found ${search.found}, prepared ${prepared}.`
-    : `Found ${search.found}, ${search.matched} in your locations. Prepared ${prepared}, submitted ${submitted}${linkedinSent ? ` (${linkedinSent} on LinkedIn)` : ''}${needsUser ? `, ${needsUser} need you` : ''}${failed ? `, ${failed} failed` : ''}.${hint}`
+    : `Found ${search.found}, ${search.matched} in your locations${search.salaryFiltered ? ` (${search.salaryFiltered} below your minimum salary)` : ''}. Prepared ${prepared}, submitted ${submitted}${linkedinSent ? ` (${linkedinSent} on LinkedIn)` : ''}${needsUser ? `, ${needsUser} need you` : ''}${failed ? `, ${failed} failed` : ''}.${hint}`
   await record(username, now, result, submitted, linkedinSent)
-  void auditLog({ level: 'info', event: 'job_autopilot_run', params: { username, found: search.found, matched: search.matched, prepared, submitted, linkedin: linkedinSent, needsUser, failed, mode: ap.mode } })
+  void auditLog({ level: 'info', event: 'job_autopilot_run', params: { username, found: search.found, matched: search.matched, salaryFiltered: search.salaryFiltered, prepared, submitted, linkedin: linkedinSent, needsUser, failed, mode: ap.mode } })
 
   return {
-    ran: true, found: search.found, matched: search.matched, prepared, submitted, needsUser, failed,
+    ran: true, found: search.found, matched: search.matched, salaryFiltered: search.salaryFiltered, prepared, submitted, needsUser, failed,
     remainingToday: Math.max(0, remaining - submitted),
   }
   }

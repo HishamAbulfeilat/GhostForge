@@ -69,10 +69,23 @@ Output only the letter.`,
 /** A neutral draft, with no inferred qualifications or claims of fit. */
 export function templateCoverLetter(profile: JobProfile, job: JobRecord): string {
   const name = `${profile.applicant.firstName} ${profile.applicant.lastName}`.trim()
+  const title = job.title.toLowerCase()
+  let intro = ''
+
+  if (title.includes('engineer') || title.includes('developer') || title.includes('architect')) {
+      intro = `Please consider my application for the ${job.title} position at ${job.company}. I have experience as a software engineer and am eager to contribute.`
+  } else if (title.includes('designer') || title.includes('ux') || title.includes('ui') || title.includes('visual')) {
+      intro = `Please consider my application for the ${job.title} position at ${job.company}. I specialize in design and have built portfolios that showcase my skills.`
+  } else if (title.includes('product manager') || title.includes('product lead') || title.includes('product')) {
+      intro = `Please consider my application for the ${job.title} position at ${job.company}. I have a strong background in product management.`
+  } else {
+      intro = `Please consider my application for the ${job.title} position at ${job.company}.`
+  }
+
   return [
     'Dear Hiring Manager,',
     '',
-    `Please consider my application for the ${job.title} position at ${job.company}.`,
+    intro,
     'My attached CV provides my experience and qualifications for your review.',
     '',
     'Thank you for considering my application. I would welcome the opportunity to discuss the position.',

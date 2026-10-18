@@ -226,6 +226,15 @@ export default function AgentWorldPage() {
     }
   }, [router])
 
+  const exportSnapshot = () => {
+    if (state.status !== 'loaded') return;
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.data, null, 2));
+    const link = document.createElement('a');
+    link.setAttribute('href', dataStr);
+    link.setAttribute('download', 'agent-world-snapshot.json');
+    link.click();
+  }
+
   useEffect(() => {
     void load()
     const tick = () => { if (document.visibilityState !== 'hidden') void load() }
@@ -251,6 +260,9 @@ export default function AgentWorldPage() {
             <AttentionBadge items={attention.items} permission={attention.permission} onRequestPermission={attention.request} onOpen={setCliSelected} />
             <button type="button" onClick={() => void load()} disabled={state.status === 'loading' || (state.status === 'loaded' && state.refreshing === true)} className="min-h-10 rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent disabled:opacity-50">
               Refresh
+            </button>
+            <button type="button" onClick={exportSnapshot} disabled={state.status !== 'loaded'} className="min-h-10 rounded-lg border border-gf-line2 px-3 text-sm font-semibold hover:border-gf-accent disabled:opacity-50">
+              Export Snapshot
             </button>
           </div>
         </header>

@@ -1,5 +1,5 @@
 import http from 'http';
-import { spawnSync } from 'child_process';
+import { spawnSync } from 'node:child_process';
 import { stripVTControlCharacters } from 'util';
 
 const PREFERRED_LOCAL_MODELS = [

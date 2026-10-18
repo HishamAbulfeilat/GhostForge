@@ -146,6 +146,8 @@ export default function AgentKanbanBoard({
                               ? <time dateTime={details.updatedAt}>{now === null ? '—' : formatUpdatedAgo(details.updatedAt, now)}</time>
                               : '—'}
                           </dd>
+                          <dt>Estimated minutes</dt>
+                          <dd className="text-gf-ink">{details.estimatedMinutes != null ? `${details.estimatedMinutes}m` : '—'}</dd>
                         </dl>
                       )}
                     </article>

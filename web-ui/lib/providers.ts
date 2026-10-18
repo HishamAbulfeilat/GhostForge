@@ -13,6 +13,8 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
+const _fetchCache = new Map<string, { promise: Promise<any>; started: number }>()
+
 export type ProviderId =
   | 'pollinations' | 'omniroute' | 'openai' | 'anthropic' | 'google'
   | 'openrouter' | 'groq' | 'cerebras' | 'nvidia' | 'together' | 'huggingface'
@@ -276,9 +278,21 @@ const _modelCache = new Map<ProviderId, { ts: number; list: ProviderModelList }>
 const NON_CHAT = /(embed|embedding|whisper|tts|audio|realtime|transcribe|dall-e|image|moderation|search|computer-use|guard|rerank|davinci|babbage)/i
 
 async function fetchJSON<T>(url: string, headers: Record<string, string> = {}): Promise<T> {
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-  return res.json() as Promise<T>
+  // Deduplicate identical in-flight requests within one second
+  const key = url + JSON.stringify(headers)
+  const now = Date.now()
+  const cached = _fetchCache.get(key)
+  if (cached && now - cached.started < 1000) {
+    return cached.promise
+  }
+  const promise = (async () => {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) })
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    return res.json() as Promise<T>
+  })()
+  _fetchCache.set(key, { promise, started: now })
+  setTimeout(() => _fetchCache.delete(key), 1000)
+  return promise
 }
 
 type OpenAIModelsResponse = { data?: Array<{ id: string; name?: string; pricing?: { prompt?: string; completion?: string } }> }
