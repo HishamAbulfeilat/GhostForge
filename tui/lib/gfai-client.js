@@ -1,4 +1,4 @@
-import http from 'http';
+import { webUiRequest } from './web-ui.js';
 import { spawnSync } from 'child_process';
 import { stripVTControlCharacters } from 'util';
 
@@ -14,34 +14,20 @@ export function selectLocalModel(installedModels, selectedProvider, selectedMode
   return PREFERRED_LOCAL_MODELS.find(model => installedModels.includes(model)) || installedModels[0] || null;
 }
 
-function requestJarvis(payload, timeoutMs) {
-  const body = JSON.stringify(payload);
-  return new Promise(resolve => {
-    const req = http.request({
-      hostname: 'localhost',
-      port: 3001,
-      path: '/api/jarvis',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(body),
-        // The session token, not AUTH_SECRET: the server's signing secret must never be sent as a cookie
-        Cookie: `gf_token=${process.env.GHOSTFORGE_TOKEN || ''}`,
-      },
-    }, res => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        if ((res.statusCode || 500) >= 400) return resolve(null);
-        try { resolve(JSON.parse(data)); }
-        catch { resolve(data.trim() ? { speech: data } : null); }
-      });
-    });
-    req.on('error', () => resolve(null));
-    req.setTimeout(timeoutMs, () => { req.destroy(); resolve(null); });
-    req.write(body);
-    req.end();
-  });
+// POST /api/jarvis on the web UI (GF_WEB_UI_URL, default http://localhost:3001).
+// fetch follows the URL's scheme, so the HTTPS server (npm start) works too.
+// Resolves null when the server is unreachable or refuses the request.
+export async function requestJarvis(payload, timeoutMs, { env = process.env, fetchImpl = fetch } = {}) {
+  try {
+    const { ok, body } = await webUiRequest('/api/jarvis', { method: 'POST', body: payload, timeoutMs, env, fetchImpl });
+    if (!ok) return null;
+    if (typeof body.text === 'string' && Object.keys(body).length === 1) {
+      return body.text.trim() ? { speech: body.text } : null;
+    }
+    return body;
+  } catch {
+    return null;
+  }
 }
 
 function runLocalOllama(message, history, selectedProvider, selectedModel, timeoutMs) {
@@ -78,7 +64,7 @@ export async function askGFAI({ message, history = [], selectedProvider, selecte
     selectedModel: selectedModel || undefined,
   };
 
-  const serverResponse = await requestJarvis(payload, serverTimeoutMs);
+  const serverResponse = await requestJarvis(payload, serverTimeoutMs, options);
   if (serverResponse?.speech || serverResponse?.text) return { ...serverResponse, transport: 'jarvis-server' };
 
   const localResponse = runLocalOllama(message, history, selectedProvider, selectedModel, localTimeoutMs);
