@@ -4,97 +4,59 @@ import { promisify } from 'util'
 import { writeFile, rm } from 'fs/promises'
 import { generateWithFallback } from '@/lib/ai'
 import { requirePermission } from '@/lib/access'
-import { SHELL_SCRIPT_TEMPLATES, knownAppleScript, validateAppleScript } from '@/lib/apple-automation'
+import { SUPPORTED_ACTIONS, buildAppleScript, knownAppleScript, validateAppleScript } from '@/lib/apple-automation'
 import { makePrivateTempDir, privateTempPath } from '@/lib/private-temp'
 
 const execFileAsync = promisify(execFile)
 export const dynamic = 'force-dynamic'
 
-const SYSTEM_PROMPT = `You are a macOS AppleScript expert. Convert natural language commands to AppleScript code.
+// The model picks an action and its parameters; the server builds the script
+// from vetted templates (lib/apple-automation buildAppleScript), so generated
+// output can only ever be one of the shapes validateAppleScript accepts.
+const SYSTEM_PROMPT = `You turn a macOS command into ONE JSON object. Reply with the JSON only: no markdown, no explanation.
 
-STRICT RULES:
-- Return ONLY valid AppleScript code. No markdown fences, no explanation, no comments.
-- Always wrap risky operations in try...on error errMsg...end try blocks.
-- For contacts, use the display name as given (e.g. "Rawzi").
-- Prefer iMessage over Teams when the request is ambiguous about which app to use.
-- Never use "do shell script" except by copying the screenshot or battery pattern below character for character; any other shell call is rejected.
+Pick exactly one of these shapes:
+{"action":"open_app","app":"Safari"}
+{"action":"open_url","url":"https://example.com"}
+{"action":"volume","level":50}
+{"action":"mute"}
+{"action":"unmute"}
+{"action":"lock"}
+{"action":"show_desktop"}
+{"action":"screenshot"}
+{"action":"battery"}
+{"action":"notify","message":"text","subtitle":"optional"}
+{"action":"imessage","contact":"Name","message":"text"}
+{"action":"teams","contact":"Name","message":"text"}
+{"action":"mail","to":"someone@example.com","subject":"text","body":"text"}
+{"action":"finder","path":"~/Downloads"}
+{"action":"media","app":"Spotify","command":"play"}   (app: Spotify or Music; command: play, pause, next, previous)
+{"action":"unsupported","reason":"why"}
 
-COMMON PATTERNS — use these exactly:
+Rules:
+- Copy names, messages and addresses exactly as the user wrote them.
+- Prefer imessage over teams when the app is not named.
+- For a folder, give a path starting with / or ~/ (e.g. "my Downloads folder" is "~/Downloads").
+- Anything else (files, settings, shell commands, other apps' internals) is {"action":"unsupported"}.`
 
-1. Open an app:
-tell application "App Name" to activate
-
-2. iMessage / SMS (most reliable):
-tell application "Messages"
-  try
-    set targetService to 1st service whose service type = iMessage
-    set targetBuddy to buddy "ContactName" of targetService
-    send "Your message here" to targetBuddy
-  on error errMsg
-    display notification errMsg with title "GhostForge"
-  end try
-end tell
-
-3. Microsoft Teams — send a message (UI scripting):
-tell application "Microsoft Teams" to activate
-delay 1.5
-tell application "System Events"
-  tell process "Microsoft Teams"
-    try
-      keystroke "k" using command down
-      delay 0.8
-      keystroke "ContactName"
-      delay 1.5
-      key code 36
-      delay 0.8
-      keystroke "Your message here"
-      delay 0.3
-      key code 36
-    on error errMsg
-      display notification errMsg with title "GhostForge"
-    end try
-  end tell
-end tell
-
-4. Set system volume (0-100):
-set volume output volume 70
-
-5. Mute / unmute:
-set volume with output muted
--- or: set volume without output muted
-
-6. Take a screenshot:
-${SHELL_SCRIPT_TEMPLATES.screenshot}
-
-7. Show a notification:
-display notification "Your message" with title "GhostForge" subtitle "Subtitle"
-
-8. Open a URL:
-tell application "Safari"
-  activate
-  open location "https://example.com"
-end tell
-
-9. Get battery level:
-${SHELL_SCRIPT_TEMPLATES.batteryStatus}
-
-10. Lock screen:
-tell application "System Events" to keystroke "q" using {command down, control down}
-
-11. Send email via Mail:
-tell application "Mail"
-  set newMsg to make new outgoing message with properties {subject:"Subject", content:"Body", visible:true}
-  tell newMsg
-    make new to recipient at end of to recipients with properties {address:"email@example.com"}
-  end tell
-  send newMsg
-end tell
-
-12. Open Finder at a path:
-tell application "Finder"
-  activate
-  open POSIX file "/Users/username/Documents"
-end tell`
+/** Pull the JSON intent out of a model reply (tolerates fences and thinking tags). */
+function parseIntent(text: string): Record<string, unknown> | null {
+  const cleaned = text
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/gi, '')
+    .replace(/^\s*```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/, '')
+    .trim()
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start < 0 || end <= start) return null
+  try {
+    const parsed = JSON.parse(cleaned.slice(start, end + 1))
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null
+  } catch {
+    return null
+  }
+}
 
 export async function POST(req: NextRequest) {
   const access = await requirePermission(req, 'mac_control')
@@ -117,27 +79,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No command provided' }, { status: 400 })
     }
     script = knownAppleScript(command) || ''
-    // Generate AppleScript from natural language when no verified snippet matches.
-    try {
-      if (!script) {
-        const { text } = await generateWithFallback({
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: `Convert this to AppleScript: ${command}` }],
-        maxTokens: 600,
-        }, { offline: body.offlineMode, task: 'tools' })
-        script = text.trim()
+    if (!script) {
+      // No verified snippet matched: ask the model for a structured action.
+      let text: string
+      try {
+        ({ text } = await generateWithFallback({
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: command }],
+          maxTokens: 300,
+        }, { offline: body.offlineMode, task: 'tools' }))
+      } catch (e) {
+        return NextResponse.json({ error: 'AI failed to understand the command', details: String(e) }, { status: 502 })
       }
-      // Strip markdown fences
-      script = script.replace(/^```(?:applescript)?\s*/i, '').replace(/\s*```$/, '').trim()
-      // Strip thinking tokens from thinking models (qwen3, deepseek-r1)
-      script = script.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<\|thinking\|>[\s\S]*?<\|\/thinking\|>/gi, '').trim()
-      // Remove any HTML/XML-like tags that are invalid AppleScript
-      script = script.split('\n').filter(line => {
-        const t = line.trim()
-        return !t.startsWith('<') || t.startsWith('<!--')
-      }).join('\n').trim()
-    } catch (e) {
-      return NextResponse.json({ error: 'AI failed to generate script', details: String(e) }, { status: 500 })
+      const intent = parseIntent(text)
+      if (!intent) {
+        return NextResponse.json({ error: 'AI did not return a supported action. Try rephrasing the command.' }, { status: 422 })
+      }
+      if (intent.action === 'unsupported') {
+        const why = typeof intent.reason === 'string' && intent.reason ? ` (${intent.reason.slice(0, 200)})` : ''
+        return NextResponse.json({
+          error: `Mac Control can't do that yet${why}. Supported: ${SUPPORTED_ACTIONS.join(', ')}`,
+        }, { status: 422 })
+      }
+      const built = buildAppleScript(intent)
+      if (!built.ok) return NextResponse.json({ error: built.reason }, { status: 422 })
+      script = built.script
     }
   }
 
