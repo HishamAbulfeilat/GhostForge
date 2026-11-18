@@ -27,7 +27,7 @@
   <form id="connectForm">
     <label for="serverUrl">Your GhostForge web server URL</label>
     <input id="serverUrl" type="url" required placeholder="https://your-ghostforge-server.example" autocomplete="url" spellcheck="false">
-    <p>Desktop on the server machine: <code>http://localhost:3001</code>. On Android or another computer, use the server's LAN address or HTTPS remote address, not localhost. Sign in or pair the device on the server.</p>
+    <p>Desktop on the server machine: <code>http://localhost:3001</code>. On Android or another computer, use the server's LAN address (for example <code>http://192.168.1.20:3001</code>) or its HTTPS remote address, not localhost. Plain HTTP works only for local network addresses. On Android, LAN servers open inside the app and remote HTTPS servers open in your browser. Sign in or pair the device on the server.</p>
     <div class="actions">
       <button class="primary" type="submit" data-path="/dashboard">Open studio</button>
       <button type="submit" data-path="/jobs">Job Hunter</button>
@@ -43,6 +43,7 @@
   <p>Only connect to a server you own and trust. HTTP connections are unencrypted; use HTTPS for remote access. Your server address is saved locally, never your password.</p>
   <a class="link" href="index.html">JARVIS local interface</a>
 </main>
+<script src="studio-url.js"></script>
 <script src="studio.js"></script>
 </body>
 </html>

@@ -23,17 +23,20 @@ form.addEventListener('submit', async event => {
   event.preventDefault();
   const buttons = Array.from(form.querySelectorAll('button'));
   try {
-    const url = new URL(input.value.trim());
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
-      throw new Error('Enter an HTTP or HTTPS server address without credentials, paths, queries or fragments.');
-    }
-    const path = event.submitter?.dataset.path || '/dashboard';
-    if (!['/dashboard', '/jobs', '/agents', '/marketplace', '/settings'].includes(path)) throw new Error('Unknown studio section.');
+    const { origin, target, inApp } = window.GhostForgeStudioUrl.studioTarget(input.value, event.submitter?.dataset.path);
     buttons.forEach(button => { button.disabled = true; });
-    localStorage.setItem(storageKey, url.origin);
-    status.textContent = 'Opening your server. If it is unavailable, check that it is running and the address is reachable from this device.';
-    if (desktop) await desktop.connect(url.origin, path);
-    else window.location.assign(`${url.origin}${path}`);
+    localStorage.setItem(storageKey, origin);
+    if (desktop) {
+      status.textContent = 'Opening your server. If it is unavailable, check that it is running and the address is reachable from this device.';
+      await desktop.connect(origin, event.submitter?.dataset.path || '/dashboard');
+    } else {
+      // Android: LAN and localhost servers load inside the app; Capacitor hands
+      // any other host (a remote HTTPS server) to the system browser.
+      status.textContent = inApp
+        ? 'Opening your server in the app. If it is unavailable, check that it is running and reachable from this device.'
+        : 'Remote servers open in your browser. Sign in or pair the device there.';
+      window.location.assign(target);
+    }
   } catch (error) {
     status.textContent = `Could not connect: ${error.message}`;
   } finally {
