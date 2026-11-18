@@ -879,7 +879,7 @@ export default function JarvisPage() {
   const [toasts, setToasts]                 = useState<Toast[]>([])
   const [copilotMode, setCopilotMode]       = useState(false)
   const [copilotThinking, setCopilotThinking] = useState(false)
-  const [pendingRiskMsg, setPendingRiskMsg] = useState<{ message: string; tool: string } | null>(null)
+  const [pendingRiskMsg, setPendingRiskMsg] = useState<{ message: string; tool: string; confirmationId?: string } | null>(null)
   const [speechLang, setSpeechLang]         = useState('en-US')
   const [detectedLang, setDetectedLang]     = useState('en')
   const [clipboardPanel, setClipboardPanel] = useState<ClipboardPanelState>({ text: '', visible: false })
@@ -1958,7 +1958,10 @@ export default function JarvisPage() {
           selectedModel: selectedModel || undefined,
           persona,
           offlineMode,
-          confirmRisk: /^(confirm|yes|proceed|do it|تأكيد|نعم)$/i.test(text.trim()) && pendingRiskMsg != null,
+          // "yes" confirms exactly the action the server showed, by its id.
+          ...(/^(confirm|yes|proceed|do it|تأكيد|نعم)$/i.test(text.trim()) && pendingRiskMsg?.confirmationId
+            ? { confirmRisk: true, confirmationId: pendingRiskMsg.confirmationId }
+            : {}),
           lang: msgLang,
           platform: platform.type,
         }),
@@ -1977,8 +1980,9 @@ export default function JarvisPage() {
           domain?: string; confidence?: number; detectedLang?: string
           risk?: { risk: number; level: string; reason: string; requires_confirmation: boolean }
           requiresConfirmation?: boolean
+          confirmationId?: string
         }
-        const { speech, tool, toolResult, emotion, usedModel, usedProvider, domain, confidence, risk, requiresConfirmation, detectedLang: serverLang } = data
+        const { speech, tool, toolResult, emotion, usedModel, usedProvider, domain, confidence, risk, requiresConfirmation, confirmationId, detectedLang: serverLang } = data
 
         if (tool) setLastToolUsed(tool)
         if (tool && toolResult) handleClickyToolResult(tool, toolResult)
@@ -2001,7 +2005,7 @@ export default function JarvisPage() {
 
         if (requiresConfirmation) {
           toast('warn', `⚠️ High-risk action detected. Reply "confirm" to proceed or "cancel" to abort.`, 10000)
-          setPendingRiskMsg({ message: text, tool: tool || '' })
+          setPendingRiskMsg({ message: text, tool: tool || '', confirmationId })
         } else {
           setPendingRiskMsg(null)
         }
@@ -2030,6 +2034,7 @@ export default function JarvisPage() {
         confidence?: number
         risk?: Message['risk']
         requiresConfirmation?: boolean
+        confirmationId?: string
         usedModel?: string
         usedProvider?: string
         domain?: string
@@ -2060,7 +2065,7 @@ export default function JarvisPage() {
             })
             if (requiresConfirmation) {
               toast('warn', `⚠️ High-risk action detected. Reply "confirm" to proceed or "cancel" to abort.`, 10000)
-              setPendingRiskMsg({ message: text, tool: currentTool || '' })
+              setPendingRiskMsg({ message: text, tool: currentTool || '', confirmationId: payload.confirmationId })
               // Still speak the warning so user hears it, then return to idle so they can type
               if (payload.speech) void speak(payload.speech)
               setMode('idle')
@@ -2133,6 +2138,7 @@ export default function JarvisPage() {
                 confidence?: number
                 risk?: Message['risk']
                 requiresConfirmation?: boolean
+                confirmationId?: string
                 usedModel?: string
                 usedProvider?: string
                 domain?: string
