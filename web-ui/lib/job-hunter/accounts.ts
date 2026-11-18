@@ -3,6 +3,7 @@ import { resolvesPublicly, withProfileLock } from './apply'
 import { applicationPage, trackApplicationPage, updateApplicationActivity } from './live'
 import { getJob, getProfile, updateJob, withJobOperation, type JobProfile } from './store'
 import { notifyJob } from './notifications'
+import { isConsentOrLegal } from './writer'
 
 export class AccountAssistanceError extends Error {}
 
@@ -18,7 +19,18 @@ export interface AccountRequest {
 const CAPTCHA = 'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], .g-recaptcha, .h-captcha, #captcha, [data-sitekey]'
 const SIGNUP = /^(create (an? )?account|sign up|register|create profile)$/i
 const LOGIN = /^(sign in|log in|login|sign me in)$/i
-const TERMS = /\bterms\b|\bprivacy (policy|notice|statement)\b|\buser agreement\b|\bi (agree|consent|accept)\b|\bby (creating|registering|signing|continuing|clicking|submitting)\b/i
+/**
+ * Terms/privacy consent that the account action itself would give. Only
+ * wording that agrees to something counts: "By creating an account you agree
+ * to…", "I accept the terms". Bare "Terms" / "Privacy Policy" / "User
+ * Agreement" links (page footers, navigation) are on almost every site and
+ * accept nothing, so they no longer block sign-in assistance.
+ */
+const IMPLICIT_CONSENT = /\bby (creating|registering|signing|logging|continuing|clicking|tapping|submitting|proceeding|joining)\b.{0,160}?\b(agree|accept|consent|acknowledg|certif|attest|terms|privacy|polic(y|ies))/i
+const EXPLICIT_CONSENT = /\bI (have read and |hereby |fully )?(agree|accept|consent|acknowledge)\b|\b(read|reviewed) and (agree|accept)\b/i
+/** A button that would accept terms: "I agree", "Accept terms", "Agree and continue". */
+const CONSENT_BUTTON = /^\s*(i\s+)?(agree|accept|consent)\b|\b(agree|accept|consent)\w* (to )?(the |our |all )?(terms|conditions|privacy|polic(y|ies)|user agreement|eula)\b/i
+const COOKIES = /\bcookie/i
 const ACCOUNT_CONFIRMED = /\b(account (has been |was )?(successfully )?(created|registered)|registration (successful|complete)|successfully (registered|created (your |an? )?account))\b/i
 
 export function accountRequest(value: unknown): AccountRequest {
@@ -78,15 +90,62 @@ async function openSignup(page: Page, origin: string) {
   await assertOrigin(page, origin)
 }
 
-async function accountBlocker(page: Page): Promise<string | null> {
+export async function accountBlocker(page: Page): Promise<string | null> {
   if (await page.locator(CAPTCHA).count()) return 'Captcha requires your attention. Complete it in the application browser; no bypass was attempted.'
   if (await page.locator('input[autocomplete="one-time-code"]:visible').count() ||
       await page.getByLabel(/verification code|one.?time (code|password)|authentication code|security code/i).filter({ visible: true }).count() ||
       /verify (your )?(email|account|identity)|verification (code|email|link)|check your (email|inbox)|two.factor|\bMFA\b/i.test(await page.locator('body').innerText()))
     return 'Account verification or MFA requires your attention. Complete it in the application browser.'
-  if (TERMS.test(await page.locator('body').innerText()))
+  if (termsConsent(await page.locator('body').innerText(), await consentControls(page)))
     return 'Terms or privacy consent require your review. GhostForge did not accept terms or submit registration. Review and finish in the application browser.'
   return null
+}
+
+/**
+ * True when the page asks for terms/privacy consent: a visible checkbox, radio
+ * or toggle whose wording is consent, terms, a signature or a legal declaration
+ * (the same test the application form agent uses), an "I agree"/"Accept terms"
+ * button, or a sentence saying the account action accepts terms. Cookie banners
+ * are not account consent; footer and navigation links never count.
+ */
+export function termsConsent(bodyText: string, controls: { toggles: string[]; buttons: string[] }): boolean {
+  if (controls.toggles.some(label => isConsentOrLegal(label))) return true
+  if (controls.buttons.some(name => CONSENT_BUTTON.test(name) && !COOKIES.test(name))) return true
+  return bodyText.split(/\n+|(?<=[.!?])\s+/)
+    .some(sentence => !COOKIES.test(sentence) && (IMPLICIT_CONSENT.test(sentence) || EXPLICIT_CONSENT.test(sentence)))
+}
+
+/** Labels of the visible consent-capable controls on the page (read in the browser). */
+async function consentControls(page: Page): Promise<{ toggles: string[]; buttons: string[] }> {
+  return page.evaluate(() => {
+    const shown = (el: Element | null | undefined): boolean => {
+      if (!el) return false
+      const r = (el as HTMLElement).getBoundingClientRect()
+      const st = getComputedStyle(el as HTMLElement)
+      return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'
+    }
+    const text = (el: Element | null | undefined) => (el?.textContent || '').replace(/\s+/g, ' ').trim()
+    const labelOf = (el: Element) => {
+      const id = el.getAttribute('id')
+      const by = el.getAttribute('aria-labelledby')
+      const forLabel = id ? text(document.querySelector(`label[for="${CSS.escape(id)}"]`)) : ''
+      const labelled = by ? by.split(/\s+/).map(x => text(document.getElementById(x))).join(' ') : ''
+      return (el.getAttribute('aria-label') || labelled || forLabel || text(el.closest('label')) || text(el) || text(el.parentElement)).slice(0, 300)
+    }
+    // Styled checkboxes hide the input itself; its label or wrapper is what shows.
+    const visible = (el: Element) => shown(el) || shown(el.closest('label')) || shown(el.parentElement)
+    const toggles = Array.from(document.querySelectorAll('input[type="checkbox"], input[type="radio"], [role="checkbox"], [role="switch"], [role="radio"]'))
+      .filter(visible).map(labelOf)
+    const buttons = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"]'))
+      .filter(shown)
+      .map(el => {
+        const name = (el.getAttribute('aria-label') || (el as HTMLInputElement).value || text(el)).slice(0, 120)
+        // A cookie banner's "Accept" is not account consent; a button inside the sign-in form always counts.
+        const banner = !el.closest('form')?.querySelector('input[type="password"]') && /cookie/i.test(text(el.parentElement?.parentElement))
+        return banner ? `${name} (cookie notice)` : name
+      })
+    return { toggles, buttons }
+  })
 }
 
 async function submissionResult(page: Page, mode: AccountMode, before: string) {

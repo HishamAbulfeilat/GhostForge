@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/access'
-import { answerQuestions, approveJob, dismissJob, generatorFor, getProfile, listJobs, missingApplicantFields, prepareJob, runSearch } from '@/lib/job-hunter'
+import { answerQuestions, approveJob, dismissJob, generatorFor, getProfile, listJobs, markApplied, missingApplicantFields, prepareJob, recoverInterruptedJobs, runSearch } from '@/lib/job-hunter'
 import { addJobByUrl, connectLinkedIn, disconnectLinkedIn } from '@/lib/job-hunter/intake'
 import { jsearchKey } from '@/lib/job-hunter/sources'
 import { runAutopilot, submittedToday } from '@/lib/job-hunter/autopilot'
@@ -13,6 +13,8 @@ export const maxDuration = 300
 export async function GET(req: NextRequest) {
   const user = await requirePermission(req, 'job_hunter')
   if (user instanceof NextResponse) return user
+  // An application cut off by a restart or crash would otherwise show "Applying…" forever.
+  await recoverInterruptedJobs(user.username)
   const [jobs, profile] = await Promise.all([listJobs(user.username), getProfile(user.username)])
   return NextResponse.json({
     jobs: jobs.filter(j => j.status !== 'dismissed').sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
@@ -30,6 +32,7 @@ export async function GET(req: NextRequest) {
  *   prepare  tailor CV + cover letter for one job
  *   approve  fill (and where safe, submit) the application — the user's one click
  *   dismiss  hide a job
+ *   mark-applied  the user confirmed it was submitted (e.g. after an interrupted run)
  *   answer   { id, answers: { label: value } } — answer the questions an application stopped on
  *   add-url  { url } — add any job by link (LinkedIn, careers page, ATS)
  *   linkedin-connect / linkedin-disconnect — sign in to LinkedIn once in the GhostForge browser
@@ -78,6 +81,9 @@ export async function POST(req: NextRequest) {
       case 'dismiss':
         if (!body.id) return NextResponse.json({ error: 'Job id required' }, { status: 400 })
         return NextResponse.json({ job: await dismissJob(user.username, body.id) })
+      case 'mark-applied':
+        if (!body.id) return NextResponse.json({ error: 'Job id required' }, { status: 400 })
+        return NextResponse.json({ job: await markApplied(user.username, body.id) })
       default:
         return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
     }

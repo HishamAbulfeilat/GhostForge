@@ -333,32 +333,34 @@ export interface ElectronAPI {
     onStatusChange: (callback: (status: { connected: boolean; url: string; workflowCount: number; activeWorkflows: number }) => void) => void;
   };
   autonomousAgent: {
-    start: (config?: Record<string, unknown>) => Promise<{ success: boolean; status: string }>;
-    stop: () => Promise<{ success: boolean; status: string }>;
-    pause: () => Promise<{ success: boolean; status: string }>;
-    resume: () => Promise<{ success: boolean; status: string }>;
+    start: (config?: Record<string, unknown>) => Promise<{ success: boolean }>;
+    stop: () => Promise<{ success: boolean }>;
+    pause: () => Promise<{ success: boolean }>;
+    resume: () => Promise<{ success: boolean }>;
+    /** null until the agent has been started once. */
     getStatus: () => Promise<{
-      status: string; uptime: number; issueCount: number; currentTask: string;
-      stats: { totalProcessed: number; successRate: number; avgTimePerIssue: number;
-        linesGenerated: number; testsWritten: number; prsCreated: number; prsMerged: number };
-    }>;
+      state: string; currentIssue: number | null; processedCount: number; failedCount: number;
+      pendingIssues: number[]; lastPollAt: number | null; uptime: number; startedAt: number | null;
+      config: Record<string, unknown>;
+    } | null>;
+    /** githubToken comes back masked; send it only to change it. */
     getConfig: () => Promise<{
-      repoUrl: string; githubToken: string; ollamaUrl: string; model: string;
-      pollInterval: number; autoMerge: boolean; testRequired: boolean;
-      labelsToMonitor: string[]; branchPrefix: string; maxConcurrentIssues: number; dryRun: boolean;
+      repo: string; githubToken: string; ollamaUrl: string; ollamaModel: string;
+      pollInterval: number; maxConcurrent: number; autoMerge: boolean; testRequired: boolean;
+      labels: string[]; branchPrefix: string; dryRun: boolean; maxFilesPerPR: number; maxLinesPerPR: number;
+      workspaceDir: string;
     }>;
-    setConfig: (config: Record<string, unknown>) => Promise<{ success: boolean }>;
+    setConfig: (config: Record<string, unknown>) => Promise<Record<string, unknown>>;
     getIssues: () => Promise<Array<{
-      number: number; title: string; labels: Array<{ name: string; color: string }>;
-      status: string; assignedAgent: string | null; timeElapsed: number;
-      subtasksCompleted: number; subtasksTotal: number; priority: number;
+      issueNumber: number; branch: string; prUrl: string | null; status: 'success' | 'partial' | 'failed';
+      error?: string; startedAt: number; completedAt: number;
     }>>;
-    processIssue: (number: number) => Promise<{ success: boolean; status: string }>;
-    onStateChange: (callback: (state: { status: string; uptime: number; issueCount: number }) => void) => void;
-    onProgress: (callback: (progress: { currentTask: string; issueNumber: number; percent: number }) => void) => void;
-    onIssueUpdate: (callback: (update: { number: number; status: string; count: number }) => void) => void;
-    onTestResults: (callback: (results: { issueNumber: number; passed: number; failed: number; details: string[] }) => void) => void;
-    onPRCreated: (callback: (pr: { issueNumber: number; prUrl: string; prNumber: number }) => void) => void;
+    processIssue: (number: number) => Promise<Record<string, unknown> | null>;
+    onStateChange: (callback: (state: { status: string; previous: string }) => void) => void;
+    onProgress: (callback: (progress: { currentTask: string; issueNumber: number | null; percent: number }) => void) => void;
+    onIssueUpdate: (callback: (update: { number?: number; status?: string; count?: number }) => void) => void;
+    onTestResults: (callback: (results: Record<string, { passed: boolean; output: string; duration: number; error?: string }>) => void) => void;
+    onPRCreated: (callback: (pr: { prUrl: string; prNumber: number }) => void) => void;
   };
   jarvisDaemon: {
     start: () => Promise<{
@@ -780,42 +782,55 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on('jarvis:n8n-status-changed', (_event, status) => callback(status));
     },
   },
+  // Channel names match registerAutonomousAgentIPC in main/autonomous-agent.ts.
+  // Events are opt-in: the renderer asks main to forward one agent event with
+  // `jarvis:agent-on-<event>` and receives it on `jarvis:agent-event:<event>`.
   autonomousAgent: {
-    start: (config?: Record<string, unknown>) => ipcRenderer.invoke('agent:start', config),
-    stop: () => ipcRenderer.invoke('agent:stop'),
-    pause: () => ipcRenderer.invoke('agent:pause'),
-    resume: () => ipcRenderer.invoke('agent:resume'),
-    getStatus: () => ipcRenderer.invoke('agent:get-status') as Promise<{
-      status: string; uptime: number; issueCount: number; currentTask: string;
-      stats: { totalProcessed: number; successRate: number; avgTimePerIssue: number;
-        linesGenerated: number; testsWritten: number; prsCreated: number; prsMerged: number };
-    }>,
-    getConfig: () => ipcRenderer.invoke('agent:get-config') as Promise<{
-      repoUrl: string; githubToken: string; ollamaUrl: string; model: string;
-      pollInterval: number; autoMerge: boolean; testRequired: boolean;
-      labelsToMonitor: string[]; branchPrefix: string; maxConcurrentIssues: number; dryRun: boolean;
-    }>,
-    setConfig: (config: Record<string, unknown>) => ipcRenderer.invoke('agent:set-config', config),
-    getIssues: () => ipcRenderer.invoke('agent:get-issues') as Promise<Array<{
-      number: number; title: string; labels: Array<{ name: string; color: string }>;
-      status: string; assignedAgent: string | null; timeElapsed: number;
-      subtasksCompleted: number; subtasksTotal: number; priority: number;
-    }>>,
-    processIssue: (number: number) => ipcRenderer.invoke('agent:process-issue', number),
-    onStateChange: (callback: (state: { status: string; uptime: number; issueCount: number }) => void) => {
-      ipcRenderer.on('agent:state-change', (_event, state) => callback(state));
+    start: (config?: Record<string, unknown>) => ipcRenderer.invoke('jarvis:agent-start', config),
+    stop: () => ipcRenderer.invoke('jarvis:agent-stop'),
+    pause: () => ipcRenderer.invoke('jarvis:agent-pause'),
+    resume: () => ipcRenderer.invoke('jarvis:agent-resume'),
+    getStatus: () => ipcRenderer.invoke('jarvis:agent-status'),
+    getConfig: () => ipcRenderer.invoke('jarvis:agent-config'),
+    setConfig: (config: Record<string, unknown>) => ipcRenderer.invoke('jarvis:agent-config', config),
+    getIssues: () => ipcRenderer.invoke('jarvis:agent-issues'),
+    processIssue: (number: number) => ipcRenderer.invoke('jarvis:agent-process', number),
+    onStateChange: (callback: (state: { status: string; previous: string }) => void) => {
+      ipcRenderer.send('jarvis:agent-on-state:changed');
+      ipcRenderer.on('jarvis:agent-event:state:changed', (_event, data: { from?: string; to?: string }) =>
+        callback({ status: String(data?.to || 'idle').toUpperCase(), previous: String(data?.from || '').toUpperCase() }));
     },
-    onProgress: (callback: (progress: { currentTask: string; issueNumber: number; percent: number }) => void) => {
-      ipcRenderer.on('agent:progress', (_event, progress) => callback(progress));
+    onProgress: (callback: (progress: { currentTask: string; issueNumber: number | null; percent: number }) => void) => {
+      ipcRenderer.send('jarvis:agent-on-progress');
+      ipcRenderer.send('jarvis:agent-on-issue:start');
+      ipcRenderer.on('jarvis:agent-event:progress', (_event, data: { current?: number; total?: number }) => {
+        const current = Number(data?.current) || 0;
+        const total = Number(data?.total) || 0;
+        callback({
+          currentTask: total ? `Issue ${Math.min(current + 1, total)} of ${total}` : 'Checking issues',
+          issueNumber: null,
+          percent: total ? Math.round((current / total) * 100) : 0,
+        });
+      });
+      ipcRenderer.on('jarvis:agent-event:issue:start', (_event, issue: { number?: number; title?: string }) =>
+        callback({ currentTask: `#${issue?.number ?? '?'} ${issue?.title ?? ''}`.trim(), issueNumber: issue?.number ?? null, percent: 0 }));
     },
-    onIssueUpdate: (callback: (update: { number: number; status: string; count: number }) => void) => {
-      ipcRenderer.on('agent:issue-update', (_event, update) => callback(update));
+    onIssueUpdate: (callback: (update: { number?: number; status?: string; count?: number }) => void) => {
+      ipcRenderer.send('jarvis:agent-on-issues:fetched');
+      ipcRenderer.send('jarvis:agent-on-issue:complete');
+      ipcRenderer.on('jarvis:agent-event:issues:fetched', (_event, issues: unknown) =>
+        callback({ count: Array.isArray(issues) ? issues.length : 0 }));
+      ipcRenderer.on('jarvis:agent-event:issue:complete', (_event, processed: { issueNumber?: number; status?: string }) =>
+        callback({ number: processed?.issueNumber, status: processed?.status }));
     },
-    onTestResults: (callback: (results: { issueNumber: number; passed: number; failed: number; details: string[] }) => void) => {
-      ipcRenderer.on('agent:test-results', (_event, results) => callback(results));
+    onTestResults: (callback: (results: Record<string, { passed: boolean; output: string; duration: number; error?: string }>) => void) => {
+      ipcRenderer.send('jarvis:agent-on-test:results');
+      ipcRenderer.on('jarvis:agent-event:test:results', (_event, results) => callback(results));
     },
-    onPRCreated: (callback: (pr: { issueNumber: number; prUrl: string; prNumber: number }) => void) => {
-      ipcRenderer.on('agent:pr-created', (_event, pr) => callback(pr));
+    onPRCreated: (callback: (pr: { prUrl: string; prNumber: number }) => void) => {
+      ipcRenderer.send('jarvis:agent-on-pr:created');
+      ipcRenderer.on('jarvis:agent-event:pr:created', (_event, pr: { url: string; number: number }) =>
+        callback({ prUrl: pr?.url, prNumber: pr?.number }));
     },
   },
   jarvisDaemon: {

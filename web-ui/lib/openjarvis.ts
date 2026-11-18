@@ -5,13 +5,10 @@
  * rather than a pip-importable package, so the bridge shells out to it; this
  * client mirrors `mark-liv-bridge.ts` and reuses the same bridge process.
  */
-import fs from 'fs'
-import os from 'os'
-import path from 'path'
 import { ensureMarkLivBridge } from './mark-liv-bridge'
+import { getMarkLBridgeToken } from './bridge-token'
 
 const BRIDGE_URL = (process.env.MARKL_BRIDGE_URL || 'http://127.0.0.1:8765').replace(/\/+$/, '')
-const TOKEN_FILE = path.join(os.homedir(), '.ghostforge', 'bridge', 'token')
 
 export interface OpenJarvisHealth {
   installed: boolean
@@ -19,8 +16,7 @@ export interface OpenJarvisHealth {
 }
 
 function token(): string {
-  if (process.env.MARKL_BRIDGE_TOKEN) return process.env.MARKL_BRIDGE_TOKEN.trim()
-  try { return fs.readFileSync(TOKEN_FILE, 'utf8').trim() } catch { return '' }
+  return getMarkLBridgeToken()
 }
 
 async function bridgeFetch(pathname: string, init: RequestInit = {}, timeoutMs = 60_000): Promise<Response> {
@@ -44,19 +40,43 @@ export async function openjarvisHealth(): Promise<OpenJarvisHealth> {
   }
 }
 
-/** Ask OpenJarvis a question via `jarvis ask "<prompt>"` and return its reply. */
+/** A failed OpenJarvis call, with the HTTP status the API route should return. */
+export class OpenJarvisError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = 'OpenJarvisError'
+  }
+}
+
+/**
+ * Ask OpenJarvis a question via `jarvis ask "<prompt>"` and return its reply.
+ * Throws OpenJarvisError when the bridge is down, OpenJarvis is not installed
+ * or the ask fails, so callers never show a failure as if it were the answer.
+ */
 export async function openjarvisAsk(prompt: string, timeoutS = 60): Promise<string> {
   if (!(await ensureMarkLivBridge())) {
-    return 'Bridge is not running and could not be started.'
+    throw new OpenJarvisError('Bridge is not running and could not be started.', 503)
   }
-  const res = await bridgeFetch(
-    '/api/openjarvis/ask',
-    { method: 'POST', body: JSON.stringify({ prompt, timeout_s: timeoutS }) },
-    (timeoutS + 10) * 1000
-  )
-  if (res.status === 503) return 'OpenJarvis is not installed. See marketplace → "OpenJarvis" for the installer.'
-  if (!res.ok) return `OpenJarvis ask failed (${res.status}).`
-  const body = await res.json() as { data?: { response?: string } }
+  let res: Response
+  try {
+    res = await bridgeFetch(
+      '/api/openjarvis/ask',
+      { method: 'POST', body: JSON.stringify({ prompt, timeout_s: timeoutS }) },
+      (timeoutS + 10) * 1000
+    )
+  } catch (error) {
+    const name = error instanceof Error ? error.name : ''
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      throw new OpenJarvisError(`OpenJarvis did not answer within ${timeoutS}s.`, 504)
+    }
+    throw new OpenJarvisError('Bridge unreachable.', 502)
+  }
+  if (res.status === 503) {
+    throw new OpenJarvisError('OpenJarvis is not installed. See marketplace → "OpenJarvis" for the installer.', 503)
+  }
+  if (!res.ok) throw new OpenJarvisError(`OpenJarvis ask failed (${res.status}).`, 502)
+  const body = await res.json().catch(() => null) as { data?: { response?: string } } | null
+  if (!body || typeof body !== 'object') throw new OpenJarvisError('OpenJarvis returned an invalid reply.', 502)
   return body.data?.response ?? ''
 }
 

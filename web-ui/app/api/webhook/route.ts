@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { homedir } from 'os'
 import path from 'path'
 import crypto from 'crypto'
-import { isAuthorizedRequest, getAuthSecret } from '@/lib/auth'
+import { isAuthorizedRequest } from '@/lib/auth'
+import { markServiceRequest } from '@/lib/internal-request'
 import { POST as jarvisPost } from '../jarvis/route'
 
 const CONFIG_DIR = path.join(homedir(), '.ghostforge')
@@ -99,21 +100,24 @@ function buildJarvisPrompt(event: string, source: string, body: GitHubWebhookPay
   return `Webhook received from ${source} (${event}): ${JSON.stringify(body).substring(0, 300)}`
 }
 
-async function fanOutToJarvis(message: string) {
+/**
+ * Hand the prompt to JARVIS in-process as the "webhook" service: a chat-only
+ * identity (no tools, no session cookie, no secret on the request). Webhook
+ * text such as PR titles and commit messages is attacker-controlled, so it
+ * must never run tools as the owner. Returns whether JARVIS accepted it.
+ */
+async function fanOutToJarvis(message: string): Promise<{ prompted: boolean; status: number | null }> {
   try {
-    const secret = getAuthSecret()
-    const req = new NextRequest('http://localhost/api/jarvis', {
+    const req = markServiceRequest(new NextRequest('http://localhost/api/jarvis', {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        cookie: `gf_token=${secret}`,
-      },
-      body: JSON.stringify({ message, mode: 'webhook', stream: false }),
-    })
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message }),
+    }), 'webhook')
     const resp = await jarvisPost(req)
     await resp.text()
+    return { prompted: resp.ok, status: resp.status }
   } catch {
-    // Swallow webhook fan-out failures.
+    return { prompted: false, status: null }
   }
 }
 
@@ -175,11 +179,9 @@ export async function POST(req: NextRequest) {
     body,
   })
 
-  if (jarvisPrompt) {
-    await fanOutToJarvis(jarvisPrompt)
-  }
+  const fanOut = jarvisPrompt ? await fanOutToJarvis(jarvisPrompt) : { prompted: false, status: null }
 
-  return NextResponse.json({ ok: true, event, prompted: !!jarvisPrompt })
+  return NextResponse.json({ ok: true, event, prompted: fanOut.prompted, ...(fanOut.status && !fanOut.prompted ? { jarvisStatus: fanOut.status } : {}) })
 }
 
 export async function DELETE(req: NextRequest) {

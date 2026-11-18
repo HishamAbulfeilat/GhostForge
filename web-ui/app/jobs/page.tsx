@@ -163,7 +163,7 @@ export default function JobsPage() {
     setNotice({ tone: 'info', text: `Found ${result.found} jobs, ${result.matched} in your locations, ${result.added} new. ${result.prepared} prepared for your approval.` })
   })
 
-  const act = (action: 'prepare' | 'approve' | 'dismiss', id: string) => run(`${action}:${id}`, async () => {
+  const act = (action: 'prepare' | 'approve' | 'dismiss' | 'mark-applied', id: string) => run(`${action}:${id}`, async () => {
     const r = await api<{ job?: JobRecord; message?: string }>('/api/jobs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }),
     })
@@ -174,7 +174,8 @@ export default function JobsPage() {
       setSelected(id)
       setNotice({ tone: 'info', text: r.job?.preparationWarning || 'Application prepared. Review the CV, cover letter and answers, then approve to apply.' })
     }
-    if (action === 'approve' && r.job?.status === 'submitted') setTab('applied')
+    if ((action === 'approve' || action === 'mark-applied') && r.job?.status === 'submitted') setTab('applied')
+    if (action === 'mark-applied') setNotice({ tone: 'info', text: 'Marked as applied.' })
     if (r.message) setNotice({ tone: r.job?.status === 'failed' ? 'error' : 'info', text: r.message })
   })
 
@@ -308,7 +309,8 @@ export default function JobsPage() {
         <GithubProfileSetup />
       ) : job ? (
         <Review job={job} busy={busy} onBack={() => setSelected(null)} onAnswer={answers => void answer(job.id, answers)}
-          onApprove={() => void act('approve', job.id)} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)} />
+          onApprove={() => void act('approve', job.id)} onPrepare={() => void act('prepare', job.id)} onDismiss={() => void act('dismiss', job.id)}
+          onMarkApplied={() => void act('mark-applied', job.id)} />
       ) : (
         <div className="grid gap-6 px-4 py-6 lg:grid-cols-[400px_minmax(0,1fr)] lg:px-8 lg:py-7">
           <aside className="flex flex-col gap-4">
@@ -582,8 +584,9 @@ function postingDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : date.toISOString().slice(0, 10)
 }
 
-function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }: {
+function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onMarkApplied, onAnswer }: {
   job: JobRecord; busy: string; onBack: () => void; onApprove: () => void; onPrepare: () => void; onDismiss: () => void
+  onMarkApplied: () => void
   onAnswer: (answers: Record<string, string>) => void
 }) {
   const sv = STATUS_VIEW[job.status] || STATUS_VIEW.found
@@ -612,6 +615,13 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
         </div>
         <div className="flex flex-wrap gap-3">
           <button type="button" onClick={onDismiss} disabled={Boolean(busy) || job.status === 'submitting'} className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px] disabled:opacity-60">Dismiss</button>
+          {job.status === 'needs_user' && (
+            <button type="button" onClick={onMarkApplied} disabled={Boolean(busy)}
+              title="Use this once you have confirmed on the employer site (or by email) that the application went through"
+              className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px] disabled:opacity-60">
+              {busy === `mark-applied:${job.id}` ? 'Saving…' : 'Mark as applied'}
+            </button>
+          )}
           {prepared && job.preparationWarning && canApprove && (
             <button type="button" onClick={onPrepare} disabled={Boolean(busy)}
               className="min-h-12 rounded-xl border border-gf-line2 px-5 text-[15px] disabled:opacity-60">
@@ -667,6 +677,14 @@ function Review({ job, busy, onBack, onApprove, onPrepare, onDismiss, onAnswer }
           {' '}It stops for captchas, sign-ins and questions it can&apos;t answer truthfully, and lists those below for you.
         </span>
       </div>
+
+      {job.interruptedAt && job.status === 'needs_user' && (
+        <div role="alert" className="rounded-xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-gf-warn">
+          <strong>Interrupted on {new Date(job.interruptedAt).toLocaleString()}.</strong> GhostForge stopped while filling this application, so it may or may not
+          have been submitted. Check the employer site or your email for a confirmation first. Then choose Mark as applied if it went through, Open &amp; fill again
+          to retry, or Dismiss. GhostForge does not retry it on its own.
+        </div>
+      )}
 
       {job.preparationWarning && (
         <div role="status" className="rounded-xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-gf-warn">
@@ -928,8 +946,9 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
         <span className="flex flex-col gap-0.5">
           <span className="text-sm font-semibold">Allow control of this computer when stuck</span>
           <span className="text-xs text-gf-muted">
-            Off: everything runs in the background, no screen needed. On: when a form gets stuck, GhostForge opens a visible browser on this computer and uses
-            computer use (screenshots + clicks) to get past it. Never for captchas or passwords.
+            Off: everything runs in the background, no screen needed (your approvals and autopilot alike). On: GhostForge opens a visible browser on this computer
+            and, when a form gets stuck, uses computer use (screenshots + clicks) to get past it. Never for captchas or passwords. A server without a screen always
+            runs in the background.
           </span>
         </span>
         <button type="button" role="switch" aria-checked={autopilot.laptopControl} disabled={busy === 'automation'}

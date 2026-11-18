@@ -7,6 +7,8 @@ import { isOwner, type GhostUser } from '@/lib/users'
 import { speakerContext, toSpeaker, type Speaker } from '@/lib/speaker'
 import { PRIVILEGED_PERMISSIONS, hasStableAuthSecret, reportUnauthorizedAccess } from '@/lib/intrusion'
 import { permissionForMcpTool, permissionForTool } from '@/lib/tool-permissions'
+import { createPendingConfirmation, takePendingConfirmation } from '@/lib/jarvis-confirmations'
+import { internalServiceIdentity } from '@/lib/internal-request'
 import { AGENT_TEAM_ACTIONS, validateAgentTeamAction, runAgentTeamCommand } from '@/lib/agent-team'
 import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
@@ -19,7 +21,7 @@ import { getJarvisQuickAction } from '@/lib/quick-actions'
 import { getMarkLivAction, resolveMarkLivTool, markLivActionHint } from '@/lib/mark-liv-actions'
 import { macToolToMarkLiv, parseMarkLivCall } from '@/lib/mark-liv-risk'
 import { validateAppleScript } from '@/lib/apple-automation'
-import { getLiveBridgeToken } from '@/lib/bridge-token'
+import { getMarkLBridgeToken } from '@/lib/bridge-token'
 import { makePrivateTempDir, privateTempPath, sweepPrivateTemp, withPrivateTempDir, writePrivateFile } from '@/lib/private-temp'
 
 // Collaborative sessions store
@@ -582,7 +584,7 @@ async function ocrImageBuffer(imgBuffer: Buffer): Promise<string | null> {
     body.append('image', new Blob([imgBuffer as unknown as BlobPart]), 'screen.png')
     const res = await fetch('http://localhost:8765/api/mark-l/ocr', {
       method: 'POST',
-      headers: { 'X-Bridge-Token': getLiveBridgeToken() },
+      headers: { 'X-Bridge-Token': getMarkLBridgeToken() },
       body,
       signal: AbortSignal.timeout(15000),
     })
@@ -3514,22 +3516,15 @@ interface JarvisRequest {
   offlineMode?: boolean
   quickAction?: string
   confirmRisk?: boolean
-  clientId?: string
+  /** Sent back with confirmRisk: the id the server returned with requiresConfirmation. */
+  confirmationId?: string
   lang?: string        // optional client-detected language override
   platform?: string    // 'ios' | 'android' | 'mac' | 'windows' | 'linux'
 }
 
-// Pending danger-tool confirmations keyed by clientId — lets a confirmRisk
-// follow-up execute the exact previously-blocked tool without re-running AI.
-const pendingConfirmations = new Map<string, { tool: string; toolParams: Record<string, string> }>()
-
-function rememberPendingConfirmation(clientId: string, tool: string, toolParams: Record<string, string>) {
-  pendingConfirmations.set(clientId, { tool, toolParams })
-  if (pendingConfirmations.size > 100) {
-    const oldest = pendingConfirmations.keys().next().value
-    if (oldest) pendingConfirmations.delete(oldest)
-  }
-}
+// Pending danger-tool confirmations live in lib/jarvis-confirmations: a random
+// server-issued id bound to the user and an expiry, so a confirmRisk follow-up
+// executes exactly the tool + params the user was shown, never a new model pick.
 
 interface AIResponse {
   speech: string
@@ -3554,7 +3549,7 @@ interface JarvisResponsePayload {
   device: { isMobile: boolean; isMac: boolean }
   offline: boolean
   requiresConfirmation?: boolean
-  clientId?: string
+  confirmationId?: string
 }
 
 function acceptsEventStream(req: NextRequest) {
@@ -3579,7 +3574,10 @@ export async function POST(req: NextRequest) {
   }
 
   const userAgent = req.headers.get('user-agent') || undefined
-  if (!isAuthorizedRequest(req)) {
+  // In-process calls from other routes (the GitHub webhook) carry a service
+  // identity limited to chat instead of a session cookie; see lib/internal-request.
+  const service = internalServiceIdentity(req)
+  if (!service && !isAuthorizedRequest(req)) {
     const tokenStatus = sessionTokenStatus(req.cookies.get(AUTH_COOKIE_NAME)?.value)
     if (tokenStatus === 'forged' && hasStableAuthSecret()) {
       // A tampered cookie is logged as unauthorized access. The caller is
@@ -3593,7 +3591,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Current user (role + permissions) — resolves admin vs limited user ──
-  const currentUser = await getCurrentUser(req)
+  const currentUser = service ? service.user : await getCurrentUser(req)
   if (!currentUser) {
     // Validly signed token for a deleted/deactivated account
     void reportUnauthorizedAccess({ reason: 'jarvis: session for disabled or deleted account', ip, userAgent, authenticated: false })
@@ -3603,14 +3601,14 @@ export async function POST(req: NextRequest) {
 
   let body: JarvisRequest
   try { body = await req.json() } catch { body = { message: '' } }
-  const { message: rawMessage, history = [], memory = {}, selectedProvider, selectedModel, persona, offlineMode = false, quickAction, confirmRisk = false, clientId: rawClientId, lang: clientLang, platform: clientPlatform } = body
+  const { message: rawMessage, history = [], memory = {}, selectedProvider, selectedModel, persona, offlineMode = false, quickAction: rawQuickAction, confirmRisk: rawConfirmRisk = false, confirmationId, lang: clientLang, platform: clientPlatform } = body
+  // A service call is chat only: no quick actions, nothing to confirm.
+  const quickAction = service ? undefined : rawQuickAction
+  const confirmRisk = !service && rawConfirmRisk === true
 
   if (!rawMessage?.trim()) {
     return NextResponse.json({ error: 'No message' }, { status: 400 })
   }
-
-  // ClientId for the confirm-risk flow — generate one when the client didn't send it
-  const clientId = rawClientId || `${ip}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 
   // Sanitize client-sent history before it reaches the model: whitelist roles,
   // require string content, cap per-message and total size.
@@ -3689,10 +3687,41 @@ export async function POST(req: NextRequest) {
 
     // ── Confirm-risk short-circuit ──────────────────────────────────────────
     // If the client confirms a previously-blocked danger tool, execute the
-    // exact stored tool+params directly — no AI regeneration.
-    const pending = confirmRisk && clientId ? pendingConfirmations.get(clientId) : null
+    // exact stored tool+params for this user directly — no AI regeneration.
+    // A confirmation with no matching pending action (unknown id, another
+    // user's id, expired) runs nothing and never reaches the model.
+    const pending = confirmRisk ? takePendingConfirmation(confirmationId, currentUser.id) : null
+    if (confirmRisk && !pending) {
+      void auditLog({ level: 'warn', event: 'tool_confirmation_missing', params: { username: speaker.username }, risk: 30 })
+      const nothingPayload: JarvisResponsePayload = {
+        speech: 'There is no pending action to confirm — it may have expired. Please ask again.',
+        tool: null,
+        toolParams: {},
+        toolResult: null,
+        emotion: 'neutral',
+        confidence: 100,
+        domain,
+        usedModel,
+        usedProvider,
+        risk: null,
+        detectedLang,
+        device: { isMobile, isMac },
+        offline: offlineMode,
+      }
+      emit?.({
+        type: 'response',
+        speech: nothingPayload.speech,
+        tool: null,
+        toolParams: {},
+        emotion: nothingPayload.emotion,
+        confidence: nothingPayload.confidence,
+        domain,
+        risk: null,
+        requiresConfirmation: false,
+      })
+      return nothingPayload
+    }
     if (pending) {
-      pendingConfirmations.delete(clientId)
       const pendingRisk = assessRisk(pending.tool, pending.toolParams)
       void auditLog({
         level: 'danger',
@@ -3738,7 +3767,6 @@ export async function POST(req: NextRequest) {
         detectedLang,
         device: { isMobile, isMac },
         offline: offlineMode,
-        clientId,
       }
       emit?.({
         type: 'response',
@@ -3750,7 +3778,6 @@ export async function POST(req: NextRequest) {
         domain,
         risk: confirmedPayload.risk,
         requiresConfirmation: false,
-        clientId,
       })
       emit?.({
         type: 'tool_done',
@@ -3859,6 +3886,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Service calls (webhook prompts carry attacker-controlled text such as PR
+    // titles) are chat only: whatever tool the model proposes is dropped.
+    if (service && aiResp.tool && aiResp.tool !== 'null') {
+      void auditLog({ level: 'warn', event: 'tool_dropped_for_service', tool: aiResp.tool, params: { service: service.service }, risk: 20 })
+      aiResp = { ...aiResp, tool: null, toolParams: {} }
+    }
+
     let toolResult: string | null = null
     let riskAssessment: ReturnType<typeof assessRisk> | null = null
 
@@ -3872,11 +3906,12 @@ export async function POST(req: NextRequest) {
         tool: aiResp.tool,
         params: aiResp.toolParams,
         risk: risk.risk,
-        blocked: risk.level === 'danger' && !confirmRisk,
+        blocked: risk.level === 'danger' || risk.requires_confirmation,
       })
 
-      if ((risk.level === 'danger' || risk.requires_confirmation) && !confirmRisk) {
-        rememberPendingConfirmation(clientId, aiResp.tool, aiResp.toolParams || {})
+      // A fresh model pick is always gated; confirming runs the stored action above.
+      if (risk.level === 'danger' || risk.requires_confirmation) {
+        const confirmationId = createPendingConfirmation(currentUser.id, aiResp.tool, aiResp.toolParams || {})
         const blockedPayload: JarvisResponsePayload = {
           speech: risk.level === 'danger'
             ? `I've detected a high-risk operation: ${risk.reason} Please confirm if you want me to proceed.`
@@ -3894,7 +3929,7 @@ export async function POST(req: NextRequest) {
           detectedLang,
           device: { isMobile, isMac },
           offline: offlineMode,
-          clientId,
+          confirmationId,
         }
         emit?.({
           type: 'response',
@@ -3906,7 +3941,7 @@ export async function POST(req: NextRequest) {
           domain,
           risk: blockedPayload.risk,
           requiresConfirmation: true,
-          clientId,
+          confirmationId,
         })
         return blockedPayload
       }
@@ -3954,7 +3989,6 @@ export async function POST(req: NextRequest) {
           detectedLang,
           device: { isMobile, isMac },
           offline: offlineMode,
-          clientId,
         }
         emit?.({
           type: 'response',
@@ -3964,7 +3998,6 @@ export async function POST(req: NextRequest) {
           emotion: 'neutral',
           confidence: 90,
           domain,
-          clientId,
         })
         return deniedPayload
       }
@@ -4007,7 +4040,6 @@ export async function POST(req: NextRequest) {
       detectedLang,
       device: { isMobile, isMac },
       offline: offlineMode,
-      clientId,
     }
   }
 

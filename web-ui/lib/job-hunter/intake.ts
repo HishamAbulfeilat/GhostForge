@@ -11,7 +11,7 @@
  * and meta description. Only the one page the user pasted is read.
  */
 import { auditLog } from '../audit'
-import { isPrivateAddress, isSafeApplyUrl, launchProfile, resolvesPublicly, withProfile, withProfileLock } from './apply'
+import { displayAvailable, isPrivateAddress, isSafeApplyUrl, launchProfile, resolvesPublicly, withProfile, withProfileLock } from './apply'
 import { scoreJobs } from './match'
 import { detectAts, stripHtml, type RawJob } from './sources'
 import { getProfile, saveProfile, upsertJobs, listJobs, type JobRecord } from './store'
@@ -175,6 +175,8 @@ export async function connectLinkedIn(username: string): Promise<{ status: 'conn
     await saveProfile(username, { linkedin: { connectedAt: new Date().toISOString(), checkedAt: new Date().toISOString() } })
     return { status: 'connected' }
   }
+  // Signing in to LinkedIn needs a window the user can type into.
+  if (!displayAvailable()) throw new Error('Connecting LinkedIn needs a visible browser, and this server has no screen (no X11/Wayland display), so LinkedIn can\'t be connected here. Apply to LinkedIn jobs yourself, or connect LinkedIn from a GhostForge install that has a display.')
   connecting.add(username)
   // Hold the profile lock while the sign-in window is open (applications wait).
   let opened: () => void = () => {}

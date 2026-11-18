@@ -12,16 +12,29 @@ pipeline is fully offline-capable out of the box.
 
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import wave
 from pathlib import Path
 from typing import Any, Optional
 
 MODELS_DIR = Path.home() / ".ghforge" / "voice"
 _IS_MAC = sys.platform == "darwin"
+
+
+def _has_module(name: str) -> bool:
+    """True when *name* is importable, without importing it."""
+    try:
+        import importlib.util
+
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
 
 
 # --- engines ---------------------------------------------------------------
@@ -64,7 +77,9 @@ class KokoroEngine(_BaseTtsEngine):
 class PiperEngine(_BaseTtsEngine):
     """Piper — `piper-tts` python package or `piper` CLI.
 
-    Models live under ~/.ghforge/voice/piper/*.onnx. Prefer en_US-lessac-medium.
+    Models live under ~/.ghforge/voice/piper/*.onnx (with the sibling
+    `.onnx.json` config). Prefer en_US-lessac-medium. The Python package is
+    optional: without it (or without onnxruntime) the CLI is used.
     """
 
     name = "piper"
@@ -72,7 +87,9 @@ class PiperEngine(_BaseTtsEngine):
     def __init__(self) -> None:
         self._root = MODELS_DIR / "piper"
         self._bin = shutil.which("piper")
-        self._voice = None
+        self._voice: Any = None
+        self._voice_model: Optional[Path] = None
+        self._lock = threading.Lock()
 
     def _model(self) -> Optional[Path]:
         candidates = sorted(self._root.glob("*.onnx"))
@@ -88,76 +105,76 @@ class PiperEngine(_BaseTtsEngine):
         model = self._model()
         if model is None:
             return False
-        if self._voice is not None:
+        if self._bin is not None:
             return True
-        if _load_piper_py(self):
-            return True
-        return self._bin is not None
+        return _has_module("piper") and model.with_suffix(".onnx.json").is_file()
+
+    def _python_voice(self, model: Path) -> Any:
+        """Load (once per model) a PiperVoice; None when the package is unusable."""
+        with self._lock:
+            if self._voice is not None and self._voice_model == model:
+                return self._voice
+            if not model.with_suffix(".onnx.json").is_file():
+                return None
+            try:
+                from piper import PiperVoice  # type: ignore
+
+                self._voice = PiperVoice.load(str(model))
+                self._voice_model = model
+            except Exception:  # noqa: BLE001 - ImportError, missing onnxruntime, bad model
+                self._voice = None
+                self._voice_model = None
+            return self._voice
 
     def synth(self, text: str, voice: Optional[str]) -> bytes:
         model = self._model()
         if model is None:
             raise RuntimeError("no piper model found")
-        if self._voice is None:
-            _load_piper_py(self)
-        if self._voice is not None:
-            buf = __import__("io").BytesIO()
-            self._voice.synthesize(text, buf)
-            return buf.getvalue()
+        py_voice = self._python_voice(model)
+        if py_voice is not None:
+            try:
+                return _piper_py_wav(py_voice, text)
+            except Exception:  # noqa: BLE001 - fall through to the CLI when present
+                if self._bin is None:
+                    raise
         if self._bin is None:
-            raise RuntimeError("piper: no runnable engine")
+            raise RuntimeError("piper: no runnable engine (install piper-tts or the piper CLI)")
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             name = tmp.name
         try:
+            # Text on stdin works for both the C++ `piper` binary and the
+            # piper-tts (>=1.3) `piper` command.
             subprocess.run(
-                [self._bin, "-m", str(model), "-f", name, "--", text],
+                [self._bin, "-m", str(model), "-f", name],
+                input=" ".join(text.split()),
+                text=True,
                 check=True,
+                capture_output=True,
                 timeout=120,
             )
-            data = Path(name).read_bytes()
-            return data
+            return Path(name).read_bytes()
         finally:
             Path(name).unlink(missing_ok=True)
 
 
-def _load_piper_py(engine: "PiperEngine") -> bool:
-    """Best-effort load of a piper voice using the modern `piper` package.
+def _piper_py_wav(py_voice: Any, text: str) -> bytes:
+    """Synthesize to an in-memory WAV with the piper-tts Python API.
 
-    Requires the model's sibling `.onnx.json` config next to the onnx file.
+    piper-tts >= 1.3 has ``synthesize_wav(text, wave_write)``; 1.2 has
+    ``synthesize(text, wave_write)``. Both need a ``wave.Wave_write``, not a
+    raw byte buffer.
     """
-    import json as _json
-
-    import onnxruntime  # noqa: F401
-    from piper import PiperVoice, SynthesisConfig  # type: ignore
-    from piper.config import PiperConfig  # type: ignore
-
-    model = engine._model()
-    if model is None:
-        return False
-    cfg_path = model.with_suffix(".onnx.json")
-    if not cfg_path.exists():
-        return False
-    try:
-        cfg_data = _json.loads(cfg_path.read_text())
-        config = PiperConfig(
-            num_symbols=cfg_data.get("num_symbols", 0),
-            num_speakers=cfg_data.get("num_speakers", 1),
-            sample_rate=cfg_data.get("sample_rate", 22050),
-            espeak_voice=cfg_data.get("espeak", {}).get("voice", "en"),
-            phoneme_id_map=cfg_data.get("phoneme_id_map", {}),
-            phoneme_type=cfg_data.get("phoneme_type", 1),
-        )
-        session = onnxruntime.InferenceSession(
-            str(model), providers=["CPUExecutionProvider"]
-        )
-        engine._voice = PiperVoice(session, config, SynthesisConfig())
-        return True
-    except Exception:
-        return False
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav_file:
+        if hasattr(py_voice, "synthesize_wav"):
+            py_voice.synthesize_wav(text, wav_file)
+        else:
+            py_voice.synthesize(text, wav_file)
+    return buf.getvalue()
 
 
 class SayEngine(_BaseTtsEngine):
-    """macOS built-in `say` — always available, converts to aiff/wav.
+    """macOS built-in `say` — always available, writes WAV.
 
     This is the guaranteed last-resort offline TTS on macOS.
     """
@@ -168,10 +185,12 @@ class SayEngine(_BaseTtsEngine):
         return _IS_MAC and shutil.which("say") is not None
 
     def synth(self, text: str, voice: Optional[str]) -> bytes:
-        with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp:
+        # Chromium/Electron cannot decode AIFF (say's default), so ask for a
+        # 16-bit little-endian PCM WAV that every browser plays.
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
             out = tmp.name
         try:
-            cmd = ["say", "-o", out]
+            cmd = ["say", "--file-format=WAVE", "--data-format=LEI16@22050", "-o", out]
             if voice:
                 cmd += ["-v", voice]
             cmd.append(text)
@@ -202,12 +221,44 @@ class EspeakEngine(_BaseTtsEngine):
 # --- registry ---------------------------------------------------------------
 
 
+_ENGINES: Optional[list[_BaseTtsEngine]] = None
+_ENGINES_LOCK = threading.Lock()
+
+
 def _engines() -> list[_BaseTtsEngine]:
-    return [KokoroEngine(), PiperEngine(), SayEngine(), EspeakEngine()]
+    """The process-wide engine singletons (built once, so loaded voices are reused)."""
+    global _ENGINES
+    with _ENGINES_LOCK:
+        if _ENGINES is None:
+            _ENGINES = [KokoroEngine(), PiperEngine(), SayEngine(), EspeakEngine()]
+        return list(_ENGINES)
 
 
 def detect() -> dict[str, Any]:
-    return {eng.name: eng.ready() for eng in _engines()}
+    """Availability per engine; one broken engine never fails the report."""
+    status: dict[str, Any] = {}
+    for eng in _engines():
+        try:
+            status[eng.name] = bool(eng.ready())
+        except Exception:  # noqa: BLE001
+            status[eng.name] = False
+    return status
+
+
+def audio_mime(audio: bytes) -> str:
+    """Content type from the audio container magic (defaults to WAV)."""
+    head = audio[:12]
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return "audio/wav"
+    if head[:4] == b"FORM" and head[8:12] in (b"AIFF", b"AIFC"):
+        return "audio/aiff"
+    if head[:4] == b"OggS":
+        return "audio/ogg"
+    if head[:4] == b"fLaC":
+        return "audio/flac"
+    if head[:3] == b"ID3" or (len(head) > 1 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0):
+        return "audio/mpeg"
+    return "audio/wav"
 
 
 def synth(
@@ -215,7 +266,8 @@ def synth(
 ) -> dict[str, Any]:
     """Synthesize speech with the best available engine.
 
-    Returns bytes + engine name. The guaranteed fallback is macOS `say`, so
+    Returns ``{"audio": bytes, "engine": name, "mime": content type}``.
+    The guaranteed fallback is macOS `say`, so
     this should only raise on non-macOS machines without espeak-ng.
     """
     engines = _engines()
@@ -228,7 +280,7 @@ def synth(
                 continue
             audio = eng.synth(text, voice)
             if audio:
-                return {"audio": audio, "engine": eng.name}
+                return {"audio": audio, "engine": eng.name, "mime": audio_mime(audio)}
         except Exception as exc:  # noqa: BLE001
             errors.append(f"{eng.name}: {exc}")
     raise RuntimeError(

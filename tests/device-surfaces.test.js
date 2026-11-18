@@ -39,3 +39,23 @@ test('device CLI requires a session token and validates push arguments', async (
     command: 'push', title: 'Title', body: 'Body', url: '',
   })
 })
+
+test('device CLI defaults to the web UI port 3001 and reports redirects', async () => {
+  const module = await import(`${pathToFileURL(cli).href}?test=${Date.now()}-port`)
+  assert.equal(module.DEFAULT_BASE_URL, 'http://127.0.0.1:3001')
+  assert.equal(module.resolveBaseUrl({}), 'http://127.0.0.1:3001')
+  const calls = []
+  const data = await module.request('status', {}, { GF_SESSION_TOKEN: 't' }, async (url, init) => {
+    calls.push({ url, init })
+    return { ok: true, status: 200, text: async () => JSON.stringify({ status: 'online', device: {} }) }
+  })
+  assert.equal(data.status, 'online')
+  assert.equal(calls[0].url, 'http://127.0.0.1:3001/api/bridge-status')
+  assert.equal(calls[0].init.redirect, 'manual')
+  await assert.rejects(
+    module.request('status', {}, { GF_SESSION_TOKEN: 't', GF_WEB_UI_URL: 'http://127.0.0.1:3000' }, async () => ({
+      ok: false, status: 308, headers: { get: () => 'https://127.0.0.1:3001/api/bridge-status' }, text: async () => '',
+    })),
+    /redirected to https:\/\/127\.0\.0\.1:3001/,
+  )
+})

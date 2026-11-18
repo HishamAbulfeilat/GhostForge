@@ -1138,11 +1138,31 @@ export async function triggerIssueProcess(issueNumber: number): Promise<Processe
 
 // ── IPC Registration (called from index.ts) ────────────────────────────────
 
+/** Shown to the renderer instead of the stored GitHub token. */
+export const MASKED_TOKEN = '********';
+
+/** Config as sent over IPC: the GitHub token never leaves the main process. */
+export function publicAgentConfig(config: AgentConfig): AgentConfig {
+  return { ...config, githubToken: config.githubToken ? MASKED_TOKEN : '' };
+}
+
+/** Drop a masked (unchanged) token from renderer config updates. */
+export function sanitizeAgentConfigUpdate(updates: unknown): Partial<AgentConfig> | undefined {
+  if (!updates || typeof updates !== 'object' || Array.isArray(updates)) return undefined;
+  const clean = { ...(updates as Partial<AgentConfig>) };
+  if (clean.githubToken === MASKED_TOKEN) delete clean.githubToken;
+  return clean;
+}
+
 export function registerAutonomousAgentIPC(): void {
-  secureHandle('jarvis:agent-start', async (_event: any, config?: Partial<AgentConfig>) => {
+  secureHandle('jarvis:agent-start', (_event: any, rawConfig?: unknown) => {
+    const config = sanitizeAgentConfigUpdate(rawConfig);
     const agent = getAgent(config);
     if (config) agent.updateConfig(config);
-    await agent.startAgentLoop();
+    // The loop runs until stopped; answer the renderer as soon as it starts.
+    void agent.startAgentLoop().catch((err: any) => {
+      console.error('[autonomous-agent] loop failed:', err?.message || err);
+    });
     return { success: true };
   });
 
@@ -1152,15 +1172,17 @@ export function registerAutonomousAgentIPC(): void {
   });
 
   secureHandle('jarvis:agent-status', () => {
-    return triggerAgentStatus();
+    const status = triggerAgentStatus();
+    return status ? { ...status, config: publicAgentConfig(status.config) } : null;
   });
 
-  secureHandle('jarvis:agent-config', (_event: any, updates?: Partial<AgentConfig>) => {
+  secureHandle('jarvis:agent-config', (_event: any, rawUpdates?: unknown) => {
     const agent = getAgent();
+    const updates = sanitizeAgentConfigUpdate(rawUpdates);
     if (updates) {
       agent.updateConfig(updates);
     }
-    return agent.getConfig();
+    return publicAgentConfig(agent.getConfig());
   });
 
   secureHandle('jarvis:agent-issues', () => {
@@ -1186,6 +1208,7 @@ export function registerAutonomousAgentIPC(): void {
   // Forward agent events to renderer
   const forwardEvents = [
     'state:changed',
+    'issues:fetched',
     'issue:start',
     'code:generated',
     'test:results',

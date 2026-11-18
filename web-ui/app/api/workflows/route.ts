@@ -5,7 +5,7 @@ import {
   updateStep, updateWorkflow, type WorkflowInput, type WorkflowStatus, type WorkflowStep,
 } from '@/lib/workflows/store'
 import { ensureMarkLivBridge } from '@/lib/mark-liv-bridge'
-import { getLiveBridgeToken } from '@/lib/bridge-token'
+import { getMarkLBridgeToken } from '@/lib/bridge-token'
 import { getMarkLBridgeUrl } from '@/lib/bridge-url'
 import { RunError, runWorkflowOnBridge } from './run'
 
@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic'
 /** GET /api/workflows            list all
  *  GET /api/workflows?id=<id>    one workflow + progress + ready steps */
 export async function GET(req: NextRequest) {
-  const user = await requirePermission(req, 'workflows')
+  const user = await requirePermission(req, 'n8n')
   if (user instanceof NextResponse) return user
 
   const id = req.nextUrl.searchParams.get('id')
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 
 /** POST /api/workflows { name, goal?, steps? } — create */
 export async function POST(req: NextRequest) {
-  const user = await requirePermission(req, 'workflows')
+  const user = await requirePermission(req, 'n8n')
   if (user instanceof NextResponse) return user
   let body: WorkflowInput
   try {
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
  *   { id, stepId, step: { status?, notes?, title?, ref? }, log? }  update one step
  */
 export async function PUT(req: NextRequest) {
-  const user = await requirePermission(req, 'workflows')
+  const user = await requirePermission(req, 'n8n')
   if (user instanceof NextResponse) return user
   let body: {
     id?: string; stepId?: string; log?: string
@@ -84,7 +84,7 @@ export async function PUT(req: NextRequest) {
 
 /** DELETE /api/workflows?id=<id> */
 export async function DELETE(req: NextRequest) {
-  const user = await requirePermission(req, 'workflows')
+  const user = await requirePermission(req, 'n8n')
   if (user instanceof NextResponse) return user
   const id = req.nextUrl.searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'Workflow id required' }, { status: 400 })
@@ -100,7 +100,7 @@ async function runWorkflow(username: string, body: { action?: unknown; id?: unkn
   if (wf.status === 'running') return NextResponse.json({ error: 'Workflow is already running' }, { status: 409 })
   try {
     if (!(await ensureMarkLivBridge())) throw new RunError('Bridge is not running and could not be started.', 502)
-    const result = await runWorkflowOnBridge(username, wf, { url: getMarkLBridgeUrl(), token: getLiveBridgeToken() })
+    const result = await runWorkflowOnBridge(username, wf, { url: getMarkLBridgeUrl(), token: getMarkLBridgeToken() })
     const saved = await updateWorkflow(username, wf.id, { status: result.status, steps: result.steps })
     if (!saved) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
     return NextResponse.json({ workflow: saved, progress: progress(saved) })

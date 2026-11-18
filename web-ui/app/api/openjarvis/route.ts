@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAuthorizedRequest } from '@/lib/auth'
-import { openjarvisAsk, openjarvisHealth } from '@/lib/openjarvis'
+import { OpenJarvisError, openjarvisAsk, openjarvisHealth } from '@/lib/openjarvis'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,17 +18,30 @@ export async function POST(req: NextRequest) {
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  let body: { prompt?: string; timeoutS?: number }
+  let body: { prompt?: unknown; timeoutS?: unknown }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
-  const prompt = (body.prompt ?? '').trim()
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+  const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
   if (!prompt) {
     return NextResponse.json({ error: 'prompt is required' }, { status: 400 })
   }
-  const timeoutS = Math.min(Math.max(body.timeoutS ?? 60, 1), 300)
-  const response = await openjarvisAsk(prompt, timeoutS)
-  return NextResponse.json({ response })
+  if (body.timeoutS !== undefined && (typeof body.timeoutS !== 'number' || !Number.isFinite(body.timeoutS))) {
+    return NextResponse.json({ error: 'timeoutS must be a number of seconds' }, { status: 400 })
+  }
+  const timeoutS = Math.min(Math.max(Math.round((body.timeoutS as number | undefined) ?? 60), 1), 300)
+  try {
+    const response = await openjarvisAsk(prompt, timeoutS)
+    return NextResponse.json({ response })
+  } catch (error) {
+    if (error instanceof OpenJarvisError) {
+      return NextResponse.json({ error: error.message }, { status: error.status })
+    }
+    return NextResponse.json({ error: 'OpenJarvis request failed' }, { status: 502 })
+  }
 }

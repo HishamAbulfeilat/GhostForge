@@ -5,7 +5,15 @@ python-multipart
 # AI integrations
 mem0ai
 crewai
+# browser-use drives the free-form /browser/browse AI task (needs an LLM:
+# local Ollama by default, see GF_BROWSER_LLM in ai_browser.py). Left unpinned
+# on purpose: ai_browser.py probes the API so 0.1.x and the newer
+# BrowserSession releases both work.
 browser-use
+# Page actions (extract, screenshot, click, fill-form, search). Same bound as
+# vendor/mark-liv. After install run once: python -m playwright install chromium
+# (or have Google Chrome installed; it is used as a fallback).
+playwright>=1.40,<2
 huggingface_hub
 httpx
 

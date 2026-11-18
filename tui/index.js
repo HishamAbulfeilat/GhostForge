@@ -23,6 +23,8 @@ import { applyEffectiveMarketplaceState } from './lib/marketplace-state.js';
 import { resolveInstallCommand, explainMissingCommand } from '../marketplace/install-commands.mjs';
 import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP } from './lib/platform-utils.js';
 import { askGFAI } from './lib/gfai-client.js';
+import { resolveBridgeToken } from './lib/bridge-token.js';
+import { collabShareUrl, webUiOrigin, webUiUrl, webUiRequest, webUiReachable } from './lib/web-ui.js';
 import { normalizeLLMFitCLI } from './lib/llmfit-client.js';
 import { escapeAppleScriptString } from './lib/applescript.js';
 import { runTeamCommand, startAgentTeam } from './lib/agent-team.js';
@@ -62,20 +64,7 @@ function collabBridgeConfig(env = process.env) {
     throw new Error('Remote MARKL_BRIDGE_URL must use the default port.');
   }
 
-  let token = env.MARKL_BRIDGE_TOKEN?.trim();
-  if (!token) {
-    const tokenPath = join(homedir(), '.ghostforge', 'bridge', 'token');
-    try {
-      token = readFileSync(tokenPath, 'utf8').trim();
-    } catch (error) {
-      if (error.code === 'ENOENT') {
-        throw new Error(`Bridge token not found. Set MARKL_BRIDGE_TOKEN or create ${tokenPath}.`);
-      }
-      throw new Error(`Could not read bridge token at ${tokenPath}: ${error.message}`);
-    }
-  }
-  if (!token) throw new Error('Bridge token is empty. Set MARKL_BRIDGE_TOKEN or check the bridge token file.');
-  if (/[\r\n]/.test(token)) throw new Error('Bridge token contains invalid characters.');
+  const token = resolveBridgeToken(env);
   return { baseUrl: parsedUrl.origin, token };
 }
 
@@ -116,24 +105,6 @@ async function collabBridgeRequest(pathname, { timeoutMs = 8000, ...init } = {})
     throw new Error(safeCollabText(detail || body.error || `Bridge request failed (${response.status}).`));
   }
   return body.data ?? body;
-}
-
-function collabShareUrl(id, sharePath = `/jarvis?session=${encodeURIComponent(id)}`) {
-  const base = process.env.GF_WEB_UI_URL?.trim() || 'http://127.0.0.1:3000';
-  let webUrl;
-  try {
-    webUrl = new URL(base);
-  } catch {
-    throw new Error('GF_WEB_UI_URL must be an absolute http(s) URL to build a share link.');
-  }
-  if (!['http:', 'https:'].includes(webUrl.protocol) || webUrl.username || webUrl.password ||
-      !['', '/'].includes(webUrl.pathname) || webUrl.search || webUrl.hash) {
-    throw new Error('GF_WEB_UI_URL must contain only an http(s) scheme, host, and optional port.');
-  }
-  const safePath = /^\/jarvis\?session=[a-z0-9]{8,64}$/i.test(sharePath)
-    ? sharePath
-    : `/jarvis?session=${encodeURIComponent(id)}`;
-  return new URL(safePath, webUrl.origin).toString();
 }
 
 const cliArgs = process.argv.slice(2);
@@ -962,52 +933,16 @@ async function screenChatChain() {
 
 const BRIEFING_PROACTIVE_SILENCE_MS =30 * 60 * 1000;
 
-function briefingWebOrigin() {
-  const base = process.env.GF_WEB_UI_URL?.trim() || 'http://127.0.0.1:3000';
-  let webUrl;
-  try {
-    webUrl = new URL(base);
-  } catch {
-    throw new Error('GF_WEB_UI_URL must be an absolute http(s) URL.');
-  }
-  if (!['http:', 'https:'].includes(webUrl.protocol) || webUrl.username || webUrl.password ||
-      !['', '/'].includes(webUrl.pathname) || webUrl.search || webUrl.hash) {
-    throw new Error('GF_WEB_UI_URL must contain only an http(s) scheme, host, and optional port.');
-  }
-  return webUrl.origin;
-}
-
 // Fetches a /api/jarvis/* route from the web UI (the same routes the web
 // briefing uses). The routes are cookie-authed; GF_WEB_UI_TOKEN is the gf_token
 // session value. It is sent only as a header and never printed.
 async function briefingWebRequest(pathname) {
-  const origin = briefingWebOrigin();
-  const token = process.env.GF_WEB_UI_TOKEN?.trim();
-  if (token && /[\r\n;]/.test(token)) throw new Error('GF_WEB_UI_TOKEN contains invalid characters.');
-  let response;
-  try {
-    response = await fetch(`${origin}${pathname}`, {
-      headers: token ? { Cookie: `gf_token=${token}` } : {},
-      signal: AbortSignal.timeout(15000),
-    });
-  } catch (error) {
-    const offline = new Error(error.name === 'TimeoutError'
-      ? 'The web UI request timed out.'
-      : `Web UI offline: cannot reach ${origin}. Start it with "cd web-ui && npm run dev" (or set GF_WEB_UI_URL).`);
-    offline.offline = true;
-    throw offline;
-  }
-  if (response.status === 401) {
+  const { ok, status, body } = await webUiRequest(pathname, { timeoutMs: 15000 });
+  if (status === 401) {
     throw new Error('Web UI rejected the request (401). Set GF_WEB_UI_TOKEN to your gf_token session cookie value and retry.');
   }
-  let body;
-  try {
-    body = await response.json();
-  } catch {
-    body = {};
-  }
-  if (!response.ok) throw new Error(safeCollabText(body?.error || `Web UI request failed (${response.status}).`));
-  return body && typeof body === 'object' ? body : {};
+  if (!ok) throw new Error(safeCollabText(body?.error || `Web UI request failed (${status}).`));
+  return body;
 }
 
 async function screenBriefing() {
@@ -1256,6 +1191,7 @@ async function screenCollaboration() {
         shareUrl = collabShareUrl(sessionId, session.shareUrl);
         console.log(T.success(`\n  ✔ Session created: ${safeCollabText(sessionId)}`));
         console.log(T.cyan(`  Share link: ${safeCollabText(shareUrl)}`));
+        console.log(T.muted('  Another GhostForge terminal can join with "Load a session by ID".'));
       } else if (action === 'load') {
         const requestedId = (await input({ message: 'Session ID:' })).trim();
         if (!COLLAB_SESSION_ID.test(requestedId)) {
@@ -2798,9 +2734,10 @@ async function screenJarvis() {
   if (action === 'back') return;
 
   if (action === 'webui') {
-    console.log(T.cyan('\n  Opening http://localhost:3001/jarvis ...\n'));
-    if (!crossPlatformOpen('http://localhost:3001/jarvis')) {
-      console.log(T.warning('  ⚠  Could not open URL. Please open manually: http://localhost:3001/jarvis'));
+    const jarvisUrl = webUiUrl('/jarvis');
+    console.log(T.cyan(`\n  Opening ${jarvisUrl} ...\n`));
+    if (!crossPlatformOpen(jarvisUrl)) {
+      console.log(T.warning(`  ⚠  Could not open URL. Please open manually: ${jarvisUrl}`));
     }
     await pressEnter(); return;
   }
@@ -2874,24 +2811,8 @@ async function screenLLMFit() {
   const spinner = ora(T.muted('  Analyzing hardware and scoring models...')).start();
   let data = null;
   try {
-    const { default: http } = await import('http');
-    data = await new Promise((resolve) => {
-      const req = http.get('http://localhost:3001/api/llmfit', {
-        headers: { Cookie: `gf_token=${process.env.AUTH_SECRET || 'ghostforge-secret'}` },
-      }, (res) => {
-        let d = '';
-        res.on('data', c => d += c);
-        res.on('end', () => {
-          if ((res.statusCode || 500) >= 400) return resolve(null);
-          try {
-            const parsed = JSON.parse(d);
-            resolve(parsed?.hardware && parsed?.recommendation ? parsed : null);
-          } catch { resolve(null); }
-        });
-      });
-      req.on('error', () => resolve(null));
-      req.setTimeout(10000, () => { req.destroy(); resolve(null); });
-    });
+    const { ok, body } = await webUiRequest('/api/llmfit', { timeoutMs: 10000 });
+    data = ok && body?.hardware && body?.recommendation ? body : null;
     spinner.stop();
   } catch {
     spinner.stop();
@@ -2973,21 +2894,12 @@ async function screenMacCleanup() {
 
   const spinner = ora(T.muted('  Cleaning...')).start();
   try {
-    const { default: http } = await import('http');
-    const result = await new Promise((resolve) => {
-      const body = JSON.stringify({ message: 'clean up my mac, remove temp files, clear cache, free memory', platform: 'mac' });
-      const req = http.request({
-        hostname: 'localhost', port: 3001, path: '/api/jarvis',
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), Cookie: `gf_token=${process.env.GHOSTFORGE_TOKEN || ''}` },
-      }, (res) => {
-        let d = '';
-        res.on('data', c => d += c);
-        res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({ toolResult: 'Cleanup complete' }); } });
-      });
-      req.on('error', () => resolve({ toolResult: 'Server not running' }));
-      req.write(body); req.end();
+    const { ok, body: result } = await webUiRequest('/api/jarvis', {
+      method: 'POST',
+      body: { message: 'clean up my mac, remove temp files, clear cache, free memory', platform: 'mac' },
+      timeoutMs: 120000,
     });
-    if (result.toolResult === 'Server not running') throw new Error('Server not running');
+    if (!ok) throw new Error('Web UI refused the cleanup request');
     spinner.stop();
     console.log(T.success('\n  ✓ Cleanup complete:\n'));
     console.log(T.muted(`  ${(result.toolResult || result.speech || '').split('\n').join('\n  ')}\n`));
@@ -3016,20 +2928,8 @@ async function screenModelSelect() {
   let availableModels = [];
   const spinner = ora(T.muted('  Fetching available models...')).start();
   try {
-    const { default: http } = await import('http');
-    availableModels = await new Promise((resolve) => {
-      const req = http.get('http://localhost:3001/api/jarvis/models', {
-        headers: { Cookie: `gf_token=${process.env.GHOSTFORGE_TOKEN || ''}` },
-      }, (res) => {
-        let data = '';
-        res.on('data', c => data += c);
-        res.on('end', () => {
-          try { resolve(JSON.parse(data).models || []); } catch { resolve([]); }
-        });
-      });
-      req.on('error', () => resolve([]));
-      req.setTimeout(3000, () => { req.destroy(); resolve([]); });
-    });
+    const { ok, body } = await webUiRequest('/api/jarvis/models', { timeoutMs: 3000 });
+    availableModels = ok && Array.isArray(body?.models) ? body.models : [];
     spinner.stop();
   } catch {
     spinner.stop();
@@ -3209,7 +3109,7 @@ async function screenMacControl() {
     T.success('  ✓ System control: volume, brightness, lock, screenshot\n') +
     T.success('  ✓ AI generates AppleScript from plain English\n') +
     T.muted('  ─────────────────────────────────────────────────\n') +
-    T.cyan('  Web UI: ') + T.white('http://localhost:3001/mac-control') + '\n' +
+    T.cyan('  Web UI: ') + T.white(webUiUrl('/mac-control')) + '\n' +
     T.muted('  Or use the quick actions below\n'),
     { padding: 1, margin: { left: 2 }, borderColor: 'white', borderStyle: 'round', title: ' Mac Control — appmorphy.app ' }
   ));
@@ -3232,8 +3132,9 @@ async function screenMacControl() {
   if (action === 'back') return;
 
   if (action === 'webui') {
-    console.log(T.accent('\n  Opening http://localhost:3001/mac-control ...\n'));
-    try { execSync('open http://localhost:3001/mac-control 2>/dev/null || xdg-open http://localhost:3001/mac-control 2>/dev/null', { stdio: 'ignore' }); } catch {}
+    const macControlUrl = webUiUrl('/mac-control');
+    console.log(T.accent(`\n  Opening ${macControlUrl} ...\n`));
+    if (!crossPlatformOpen(macControlUrl)) console.log(T.warning(`  ⚠  Could not open URL. Please open manually: ${macControlUrl}`));
     await pressEnter();
     return;
   }
@@ -3654,8 +3555,9 @@ async function screenDoctor() {
   const checks = [];
   const addCheck = (label, status, detail, weight = 1) => checks.push({ label, status, detail, weight });
 
-  const server = runShellCheck('curl -fsS --max-time 2 http://localhost:3001 >/dev/null');
-  addCheck('Server :3001', server.ok ? 'pass' : 'fail', server.ok ? 'responding' : 'not reachable');
+  const webOrigin = webUiOrigin();
+  const serverUp = await webUiReachable();
+  addCheck(`Web UI ${webOrigin}`, serverUp ? 'pass' : 'fail', serverUp ? 'responding' : 'not reachable');
 
   const ollama = runShellCheck('curl -fsS --max-time 2 http://localhost:11434/api/tags >/dev/null');
   addCheck('Ollama :11434', ollama.ok ? 'pass' : 'warn', ollama.ok ? 'responding' : 'offline');
@@ -4695,7 +4597,7 @@ async function screenMarketplace() {
         { name: T.brand.bold('🐙  GitHub profile')         + T.muted(' — README designs from your CV, recommended + others'), value: 'github' },
         { name: T.warning.bold('🤖  Autopilot')            + T.muted(' — fully automated search + apply on a schedule'),      value: 'autopilot' },
         { name: T.white('🧠  AI model')                   + T.muted(' — use any model for Job Hunter'),                      value: 'model' },
-        { name: T.muted('🌐  Open in web UI')             + T.muted(' — http://localhost:3001/jobs'),                         value: 'web' },
+        { name: T.muted('🌐  Open in web UI')             + T.muted(` — ${webUiUrl('/jobs')}`),                         value: 'web' },
         { name: T.muted('← Back'), value: '__back__' },
       ],
       pageSize: 14,
@@ -4765,7 +4667,7 @@ async function screenMarketplace() {
       const m = (await input({ message: 'provider/model (e.g. groq/llama-3.3-70b-versatile, ollama/qwen3:8b) or "default" — empty to keep:' })).trim();
       if (m) jobs(['model', m]);
     } else if (jhAction === 'web') {
-      console.log(T.cyan('\n  Open http://localhost:3001/jobs (start the web UI with: cd web-ui && npm run dev)\n'));
+      console.log(T.cyan(`\n  Open ${webUiUrl('/jobs')} (start the web UI with: cd web-ui && npm run dev)\n`));
     }
     await pressEnter();
     return;
@@ -6740,24 +6642,11 @@ async function screenChangelogViewer() {
 // ── Beautiful Command Center (blessed-style layout with chalk) ────────────────
 
 async function screenCommandCenter() {
-  const { default: http } = await import('http');
-
   // Fetch live stats in background
   let hw = null, health = null;
   try {
-    hw = await new Promise(r => {
-      const req = http.get('http://localhost:3001/api/llmfit', {
-        headers: { Cookie: `gf_token=${process.env.AUTH_SECRET || 'ghostforge-secret'}` },
-      }, res => {
-        let d = ''; res.on('data', c => d += c);
-        res.on('end', () => {
-          if ((res.statusCode || 500) >= 400) return r(null);
-          try { r(JSON.parse(d).hardware || null); } catch { r(null); }
-        });
-      });
-      req.on('error', () => r(null));
-      req.setTimeout(3000, () => { req.destroy(); r(null); });
-    });
+    const { ok, body } = await webUiRequest('/api/llmfit', { timeoutMs: 3000 });
+    hw = ok ? body?.hardware || null : null;
   } catch {}
 
   const cols = process.stdout.columns || 100;
@@ -6870,7 +6759,7 @@ async function screenCommandCenter() {
   const handleDest = async (dest) => {
     if (dest === 'integrations') await screenIntegrationsHub();
     else if (dest === 'chat')    await screenGFAIChat();
-    else if (dest === 'webui')   { try { execSync('open http://localhost:3001/jarvis 2>/dev/null', { stdio: 'ignore' }); } catch {} console.log(T.success('  ✓ Opened browser')); await new Promise(r=>setTimeout(r,1500)); }
+    else if (dest === 'webui')   { const url = webUiUrl('/jarvis'); console.log(crossPlatformOpen(url) ? T.success('  ✓ Opened browser') : T.warning(`  ⚠ Could not open ${url}`)); await new Promise(r=>setTimeout(r,1500)); }
     else if (dest === 'model')   await screenModelSelect();
     else if (dest === 'llmfit')  await screenLLMFit();
     else if (dest === 'cleanup') await screenMacCleanup();
@@ -6886,7 +6775,7 @@ async function screenCommandCenter() {
     else if (dest === 'tickets') await screenTickets();
     else if (dest === 'env-check') await screenEnvCheck();
     else if (dest === 'maccontrol') await screenMacControl();
-    else if (dest === 'remote')  { console.log(T.cyan('\n  Opening remote: http://localhost:3001/remote\n')); try { execSync('open http://localhost:3001/remote 2>/dev/null', { stdio: 'ignore' }); } catch {} await pressEnter(); }
+    else if (dest === 'remote')  { const url = webUiUrl('/remote'); console.log(T.cyan(`\n  Opening remote: ${url}\n`)); if (!crossPlatformOpen(url)) console.log(T.warning(`  ⚠ Could not open URL. Please open manually: ${url}`)); await pressEnter(); }
     else if (dest === 'deviceinstall') await screenDeviceInstall();
     else if (dest === 'device-status') await screenDeviceStatus();
     else if (dest === 'collaboration') await screenCollaboration();

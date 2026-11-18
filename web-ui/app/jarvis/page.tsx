@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import CollabShare from '@/components/CollabShare'
+import { ownKey, sanitizeCollabMessages, sessionIdFromSearch, takeNewCollabMessages, type CollabMessage } from '@/lib/collab-client'
 import LLMfitAutoSwitch from '@/components/LLMfitAutoSwitch'
 import ClickyOverlay from '@/components/ClickyOverlay'
 import { usePlatform, detectLanguage, getSpeechLang, platformLabel } from '@/lib/platform'
@@ -879,7 +880,7 @@ export default function JarvisPage() {
   const [toasts, setToasts]                 = useState<Toast[]>([])
   const [copilotMode, setCopilotMode]       = useState(false)
   const [copilotThinking, setCopilotThinking] = useState(false)
-  const [pendingRiskMsg, setPendingRiskMsg] = useState<{ message: string; tool: string } | null>(null)
+  const [pendingRiskMsg, setPendingRiskMsg] = useState<{ message: string; tool: string; confirmationId?: string } | null>(null)
   const [speechLang, setSpeechLang]         = useState('en-US')
   const [detectedLang, setDetectedLang]     = useState('en')
   const [clipboardPanel, setClipboardPanel] = useState<ClipboardPanelState>({ text: '', visible: false })
@@ -1502,6 +1503,87 @@ export default function JarvisPage() {
     setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', text, ts: Date.now() }])
   }, [])
 
+  // ── Shared session (/jarvis?session=<id>, created here or in the TUI) ─────
+  const [collabSessionId, setCollabSessionId] = useState<string | null>(null)
+  const collabRef = useRef<{ id: string | null; seen: number; ownPending: string[] }>({ id: null, seen: 0, ownPending: [] })
+
+  const showCollabMessages = useCallback((incoming: CollabMessage[]) => {
+    if (!incoming.length) return
+    setMessages(prev => [
+      ...prev,
+      ...incoming.map((m, i) => ({
+        id: `collab-${m.ts}-${prev.length + i}`,
+        role: (m.role === 'assistant' ? 'ai' : 'user') as Message['role'],
+        text: m.content,
+        ts: m.ts,
+      })),
+    ])
+  }, [])
+
+  const joinCollabSession = useCallback((id: string, transcript: CollabMessage[]) => {
+    collabRef.current = { id, seen: transcript.length, ownPending: [] }
+    setCollabSessionId(id)
+    showCollabMessages(transcript)
+  }, [showCollabMessages])
+
+  /** Post one of this page's turns to the shared session, if one is joined. */
+  const postToCollab = useCallback((role: 'user' | 'assistant', content: string) => {
+    const id = collabRef.current.id
+    const text = content.trim().slice(0, 10_000)
+    if (!id || !text || text === '...') return
+    collabRef.current.ownPending.push(ownKey(role, text))
+    fetch('/api/jarvis/collab', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, role, content: text }),
+    }).catch(() => {})
+  }, [])
+
+  // Join the session named in the URL once on load.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const id = sessionIdFromSearch(window.location.search)
+    if (!id) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/jarvis/collab?id=${encodeURIComponent(id)}`)
+        const data = await res.json().catch(() => ({})) as { id?: string; messages?: unknown; error?: string }
+        if (cancelled) return
+        if (!res.ok || data.id !== id) {
+          toast('error', res.status === 404 ? 'Shared session not found — it may have expired.' : (data.error || 'Could not join the shared session.'))
+          return
+        }
+        joinCollabSession(id, sanitizeCollabMessages(data.messages))
+        toast('info', 'Joined shared session.')
+      } catch {
+        if (!cancelled) toast('error', 'Could not join the shared session.')
+      }
+    })()
+    return () => { cancelled = true }
+  }, [joinCollabSession, toast])
+
+  // While joined, pick up turns other participants add.
+  useEffect(() => {
+    if (!collabSessionId) return
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void (async () => {
+        try {
+          const res = await fetch(`/api/jarvis/collab?id=${encodeURIComponent(collabSessionId)}`)
+          if (!res.ok) return
+          const data = await res.json() as { messages?: unknown }
+          const state = collabRef.current
+          if (state.id !== collabSessionId) return
+          const next = takeNewCollabMessages(sanitizeCollabMessages(data.messages), state.seen, state.ownPending)
+          collabRef.current = { id: state.id, seen: next.seen, ownPending: next.ownPending }
+          showCollabMessages(next.fresh)
+        } catch { /* try again on the next tick */ }
+      })()
+    }, 8_000)
+    return () => clearInterval(timer)
+  }, [collabSessionId, showCollabMessages])
+
   // ── External TTS (Fish Audio / ElevenLabs) with auto-fallback chain ───────
 
   const speakExternal = useCallback(async (text: string, preferEngine?: VoiceEngine): Promise<{ ok: boolean; usedEngine: string }> => {
@@ -1884,6 +1966,7 @@ export default function JarvisPage() {
       text = `Ask GitHub Copilot CLI: ${copilotMatch[1]}`
     }
     addUserMessage(text)
+    postToCollab('user', text)
     modeRef.current = 'thinking'
     setMode('thinking')
     pauseMic()  // stop mic while thinking — mic restarts when JARVIS finishes speaking
@@ -1958,7 +2041,10 @@ export default function JarvisPage() {
           selectedModel: selectedModel || undefined,
           persona,
           offlineMode,
-          confirmRisk: /^(confirm|yes|proceed|do it|تأكيد|نعم)$/i.test(text.trim()) && pendingRiskMsg != null,
+          // "yes" confirms exactly the action the server showed, by its id.
+          ...(/^(confirm|yes|proceed|do it|تأكيد|نعم)$/i.test(text.trim()) && pendingRiskMsg?.confirmationId
+            ? { confirmRisk: true, confirmationId: pendingRiskMsg.confirmationId }
+            : {}),
           lang: msgLang,
           platform: platform.type,
         }),
@@ -1977,8 +2063,9 @@ export default function JarvisPage() {
           domain?: string; confidence?: number; detectedLang?: string
           risk?: { risk: number; level: string; reason: string; requires_confirmation: boolean }
           requiresConfirmation?: boolean
+          confirmationId?: string
         }
-        const { speech, tool, toolResult, emotion, usedModel, usedProvider, domain, confidence, risk, requiresConfirmation, detectedLang: serverLang } = data
+        const { speech, tool, toolResult, emotion, usedModel, usedProvider, domain, confidence, risk, requiresConfirmation, confirmationId, detectedLang: serverLang } = data
 
         if (tool) setLastToolUsed(tool)
         if (tool && toolResult) handleClickyToolResult(tool, toolResult)
@@ -1996,12 +2083,13 @@ export default function JarvisPage() {
         }
 
         addAIMessage(speech, emotion || 'neutral', tool, toolResult, usedModel, domain, confidence, risk, requiresConfirmation)
+        postToCollab('assistant', speech)
         recordModelResponse(usedModel, Date.now() - startedAt, speech)
         void speak(speech)
 
         if (requiresConfirmation) {
           toast('warn', `⚠️ High-risk action detected. Reply "confirm" to proceed or "cancel" to abort.`, 10000)
-          setPendingRiskMsg({ message: text, tool: tool || '' })
+          setPendingRiskMsg({ message: text, tool: tool || '', confirmationId })
         } else {
           setPendingRiskMsg(null)
         }
@@ -2030,6 +2118,7 @@ export default function JarvisPage() {
         confidence?: number
         risk?: Message['risk']
         requiresConfirmation?: boolean
+        confirmationId?: string
         usedModel?: string
         usedProvider?: string
         domain?: string
@@ -2060,7 +2149,7 @@ export default function JarvisPage() {
             })
             if (requiresConfirmation) {
               toast('warn', `⚠️ High-risk action detected. Reply "confirm" to proceed or "cancel" to abort.`, 10000)
-              setPendingRiskMsg({ message: text, tool: currentTool || '' })
+              setPendingRiskMsg({ message: text, tool: currentTool || '', confirmationId: payload.confirmationId })
               // Still speak the warning so user hears it, then return to idle so they can type
               if (payload.speech) void speak(payload.speech)
               setMode('idle')
@@ -2099,6 +2188,7 @@ export default function JarvisPage() {
               }
             }
             recordModelResponse(payload.usedModel, Date.now() - startedAt, latestResponseText)
+            postToCollab('assistant', latestResponseText)
             fetch('/api/jarvis/memory', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ conversationCount: (memory.conversationCount || 0) + 1 }),
@@ -2133,6 +2223,7 @@ export default function JarvisPage() {
                 confidence?: number
                 risk?: Message['risk']
                 requiresConfirmation?: boolean
+                confirmationId?: string
                 usedModel?: string
                 usedProvider?: string
                 domain?: string
@@ -2152,7 +2243,7 @@ export default function JarvisPage() {
       await speak(err)
       console.error(e)
     }
-  }, [messages, memory, selectedProvider, selectedModel, persona, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast, pauseMic, resumeMic, markActivity, recordModelResponse])
+  }, [messages, memory, selectedProvider, selectedModel, persona, copilotMode, detectedLang, platform.type, pendingRiskMsg, sendToCopilot, addUserMessage, addAIMessage, speak, toast, pauseMic, resumeMic, markActivity, recordModelResponse, postToCollab])
 
   // ── Gemini Live event listeners (Electron only) ────────────────────────────
   useEffect(() => {
@@ -2617,7 +2708,7 @@ export default function JarvisPage() {
               style={{ borderColor: `${mc.ring}44`, color: `${mc.ring}99`, background: showSettings ? `${mc.ring}18` : 'transparent' }}>
               ⚙ SETTINGS
             </button>
-            <CollabShare />
+            <CollabShare onJoinSession={(id, transcript) => joinCollabSession(id, sanitizeCollabMessages(transcript))} />
             <button type="button" onClick={() => setShowAudit(s => !s)}
               className="font-mono text-[10px] rounded px-2 py-1 border transition"
               style={{ borderColor: `${mc.ring}44`, color: '#f59e0b99', background: showAudit ? 'rgba(245,158,11,0.08)' : 'transparent' }}

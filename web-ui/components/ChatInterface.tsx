@@ -168,10 +168,12 @@ export function ChatInterface() {
           body: JSON.stringify({ prompt: content, mode: copilotMode }),
         })
         if (response.status === 401) { router.push('/login'); return }
-        const data = (await response.json()) as { output?: string; error?: string; connected?: boolean }
+        const data = (await response.json().catch(() => ({}))) as { output?: string; error?: string; connected?: boolean }
         const reply = data.connected === false
-          ? `🔌 ${data.error}`
-          : `\`\`\`\n${data.output || 'No output'}\n\`\`\``
+          ? `🔌 ${data.error || 'Bridge not connected'}`
+          : !response.ok
+            ? `❌ ${data.error || `Copilot request failed (${response.status})`}${data.output ? `\n\`\`\`\n${data.output}\n\`\`\`` : ''}`
+            : `\`\`\`\n${data.output || 'No output'}\n\`\`\``
         setMessages(previous => [...previous, { role: 'assistant', content: reply, timestamp: new Date() }])
       } catch {
         setMessages(previous => [...previous, { role: 'assistant', content: '❌ Error reaching bridge', timestamp: new Date() }])
