@@ -816,6 +816,17 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
     if (ok) onAutopilot({ enabled: true }, 'Autopilot is on.')
   }
 
+  // Running a pass submits applications, so it asks first, like turning autopilot on
+  const runNow = () => {
+    if (!autopilot.enabled) return
+    const left = Math.max(0, autopilot.dailyLimit - (autopilot.submittedToday || 0))
+    const ok = window.confirm(
+      `Run autopilot now?\n\nGhostForge will search, tailor your CV and cover letter, and SUBMIT up to ${left} more application${left === 1 ? '' : 's'} today ` +
+      `for High-fit jobs scoring ${autopilot.minScore}+ ${autopilot.mode === 'full' ? 'on any site it can complete' : 'on Lever, Greenhouse and Ashby'}${autopilot.linkedinEasyApply && linkedin.connected ? ', plus LinkedIn Easy Apply' : ''}, using your CV and application details. ` +
+      'It never invents answers: questions it can\'t answer from your CV come to you first.')
+    if (ok) onRunNow()
+  }
+
   return (
     <section className="flex flex-col gap-4 rounded-2xl border border-gf-line bg-gf-surface p-5">
       <div className="flex items-center justify-between gap-3">
@@ -938,9 +949,10 @@ function AutomationCard({ model, autopilot, busy, linkedin, onLinkedIn, onModel,
         )}
       </div>
 
-      <button type="button" onClick={onRunNow} disabled={busy === 'autopilot'}
+      <button type="button" onClick={runNow} disabled={busy === 'autopilot' || !autopilot.enabled}
+        title={autopilot.enabled ? undefined : 'Turn on autopilot first'}
         className="min-h-11 rounded-xl border border-gf-line2 text-sm font-semibold disabled:opacity-60">
-        {busy === 'autopilot' ? 'Running autopilot…' : 'Run autopilot now'}
+        {busy === 'autopilot' ? 'Running autopilot…' : autopilot.enabled ? 'Run autopilot now' : 'Run autopilot now (turn it on first)'}
       </button>
       <p className="text-xs leading-relaxed text-gf-muted">
         Autopilot submits only High-fit jobs at or above your minimum score, within your daily limits. Answers come only from your CV and profile;

@@ -59,7 +59,8 @@ export async function POST(req: NextRequest) {
         if (!body.id) return NextResponse.json({ error: 'Job id required' }, { status: 400 })
         return NextResponse.json(await approveJob(user.username, body.id))
       case 'autopilot':
-        // "Run now": one full autopilot pass, even if not due (or switched off)
+        // "Run now": one full autopilot pass, even if not due. Refused while autopilot is off
+        // (runAutopilot never submits for a user who hasn't turned it on).
         return NextResponse.json({ report: await runAutopilot(user.username, { force: true }) })
       case 'answer':
         if (!body.id || !body.answers || typeof body.answers !== 'object') return NextResponse.json({ error: 'Job id and answers required' }, { status: 400 })

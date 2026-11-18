@@ -1,6 +1,6 @@
-import { app, BrowserWindow, ipcMain, screen, globalShortcut, nativeTheme, shell } from 'electron';
-import { isAbsolute, join, relative, resolve } from 'path';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { app, BrowserWindow, screen, globalShortcut, nativeTheme } from 'electron';
+import { join } from 'path';
+import { pathToFileURL } from 'url';
 import { ScreenCapture } from './screen-capture';
 import { CursorOverlay } from './cursor-overlay';
 import { VoiceSystem } from './voice';
@@ -64,11 +64,15 @@ import { readFileSync } from 'fs';
 import { join as pathJoin } from 'path';
 import { assertOAuthProvider } from './oauth-providers';
 import { readStudioUrl, saveStudioUrl, studioTarget } from './studio-connection';
+import {
+  STUDIO_LAUNCHER,
+  attachNavigationGuards,
+  getConnectedStudioOrigin,
+  secureHandle,
+  setConnectedStudioOrigin,
+} from './ipc-guard';
 
 let mainWindow: BrowserWindow | null = null;
-let connectedStudioOrigin: string | null = null;
-const STUDIO_LAUNCHER = resolve(__dirname, '../../android-web/studio.html');
-const LOCAL_INTERFACE = resolve(__dirname, '../../android-web/index.html');
 let trayManager: TrayManager | null = null;
 let screenCapture: ScreenCapture;
 let cursorOverlay: CursorOverlay;
@@ -165,56 +169,11 @@ async function loadFirstReachable(urls: string[]): Promise<void> {
 }
 
 // ── Navigation / IPC trust guards ───────────────────────────────────────────
-
-/** Origins the renderer is allowed to navigate to and send IPC from. */
-function getAppOrigins(): Set<string> {
-  const origins = new Set<string>([
-    'https://localhost:3001',
-    'http://localhost:3001',
-    'https://localhost:3000',
-    'http://localhost:3000',
-  ]);
-  if (connectedStudioOrigin) origins.add(connectedStudioOrigin);
-  const envUrl = process.env.JARVIS_WEB_UI_URL;
-  if (envUrl) {
-    try {
-      origins.add(new URL(envUrl).origin);
-    } catch { /* ignore invalid env URL */ }
-  }
-  return origins;
-}
-
-/** True when the IPC call originated from the app's own origin. */
-function isTrustedSender(event: Electron.IpcMainInvokeEvent): boolean {
-  try {
-    const senderFrame = event.senderFrame;
-    if (!senderFrame?.url) return false;
-    const url = new URL(senderFrame.url);
-    // file:, data:, about: and sandboxed frames all report origin "null", so
-    // file: pages are trusted only when they are the app's own bundled files.
-    if (url.protocol === 'file:') {
-      const file = resolve(fileURLToPath(url));
-      if (file === STUDIO_LAUNCHER || file === LOCAL_INTERFACE) return true;
-      const rel = relative(resolve(__dirname, '..'), file);
-      return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
-    }
-    return getAppOrigins().has(url.origin);
-  } catch {
-    return false;
-  }
-}
-
-/** Guard wrapper for IPC handlers that take action with untrusted arguments. */
-function trusted(
-  handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown
-): (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown {
-  return (event, ...args) => {
-    if (!isTrustedSender(event)) {
-      throw new Error('IPC rejected: untrusted sender origin');
-    }
-    return handler(event, ...args);
-  };
-}
+// Every webContents (main window, overlays, any child) is kept on the app's
+// own pages; see ipc-guard.ts. Registered before any window exists.
+app.on('web-contents-created', (_event, contents) => {
+  attachNavigationGuards(contents);
+});
 
 function createMainWindow(): void {
   const headlessSmoke = isHeadlessSmokeMode();
@@ -242,33 +201,10 @@ function createMainWindow(): void {
   }
 
   // ── Navigation lockdown ──────────────────────────────────────────────────
-  // Pop-ups: only allow the app's own origin; open everything else in the
-  // system browser (http/https only), otherwise deny.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      const origin = new URL(url).origin;
-      if (getAppOrigins().has(origin)) {
-        return { action: 'allow' };
-      }
-      if (url.startsWith('http://') || url.startsWith('https://')) {
-        void shell.openExternal(url);
-      }
-    } catch { /* invalid URL — deny */ }
-    return { action: 'deny' };
-  });
-
-  // Navigation: block any navigation away from the app's own origins.
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    try {
-      const target = new URL(url);
-      const bundledPage = target.protocol === 'file:' && [STUDIO_LAUNCHER, LOCAL_INTERFACE].includes(resolve(fileURLToPath(target)));
-      if (!bundledPage && !getAppOrigins().has(target.origin)) {
-        event.preventDefault();
-      }
-    } catch {
-      event.preventDefault();
-    }
-  });
+  // No child windows (they would inherit the preload; http(s) targets open in
+  // the system browser), and no navigation or main-frame redirect away from
+  // the app's own origins. Also attached via 'web-contents-created'.
+  attachNavigationGuards(mainWindow.webContents);
 
   // ── Electron-level permission handler (mic, screen — camera is never granted) ──
   const { session } = require('electron');
@@ -290,7 +226,7 @@ function createMainWindow(): void {
   let savedStudioUrl: string | null = null;
   try {
     savedStudioUrl = readStudioUrl(join(app.getPath('userData'), 'studio-url.json'));
-    connectedStudioOrigin = savedStudioUrl;
+    setConnectedStudioOrigin(savedStudioUrl);
   } catch (error) {
     console.error('[electron] could not restore studio URL:', error);
   }
@@ -369,7 +305,7 @@ function createMainWindow(): void {
   trayManager.createTray();
 
   // Register autonomous agent IPC
-  registerAutonomousAgentIPC(ipcMain);
+  registerAutonomousAgentIPC();
 
   // Register global shortcuts
   registerGlobalShortcuts();
@@ -382,20 +318,21 @@ function registerIPC(): void {
       throw new Error('Studio connection can only be changed from the bundled launcher');
     }
   };
-  ipcMain.handle('studio:get-url', event => {
+  secureHandle('studio:get-url', event => {
     requireLauncher(event);
     return readStudioUrl(join(app.getPath('userData'), 'studio-url.json'));
   });
-  ipcMain.handle('studio:connect', async (event, raw: unknown, section: unknown) => {
+  secureHandle('studio:connect', async (event, raw: unknown, section: unknown) => {
     requireLauncher(event);
     const target = studioTarget(raw, section);
-    const previous = connectedStudioOrigin;
-    connectedStudioOrigin = new URL(target).origin;
+    const previous = getConnectedStudioOrigin();
+    const origin = new URL(target).origin;
+    setConnectedStudioOrigin(origin);
     try {
       await mainWindow?.loadURL(target);
-      saveStudioUrl(join(app.getPath('userData'), 'studio-url.json'), connectedStudioOrigin);
+      saveStudioUrl(join(app.getPath('userData'), 'studio-url.json'), origin);
     } catch (error) {
-      connectedStudioOrigin = previous;
+      setConnectedStudioOrigin(previous);
       await mainWindow?.loadFile(STUDIO_LAUNCHER, {
         query: { error: `Could not connect: ${error instanceof Error ? error.message : String(error)}` },
       });
@@ -403,17 +340,17 @@ function registerIPC(): void {
     }
   });
   // Screen capture
-  ipcMain.handle('screen:capture', trusted(async (_event, options: ScreenCaptureOptions) => {
+  secureHandle('screen:capture', (async (_event, options: ScreenCaptureOptions) => {
     return screenCapture.capture(options);
   }));
 
-  ipcMain.handle('screen:captureRegion', trusted(async (
+  secureHandle('screen:captureRegion', (async (
     _event, x: number, y: number, w: number, h: number, options?: ScreenCaptureOptions
   ) => {
     return screenCapture.captureRegion(x, y, w, h, options);
   }));
 
-  ipcMain.handle('screen:getDisplays', () => {
+  secureHandle('screen:getDisplays', () => {
     return screen.getAllDisplays().map(d => ({
       id: d.id,
       bounds: d.bounds,
@@ -424,19 +361,19 @@ function registerIPC(): void {
   });
 
   // Cursor overlay
-  ipcMain.handle('cursor:point', (_event, screenId: number, target: CursorTarget) => {
+  secureHandle('cursor:point', (_event, screenId: number, target: CursorTarget) => {
     cursorOverlay.showCursor(screenId, target);
     return { success: true };
   });
 
-  ipcMain.handle('cursor:highlight', (
+  secureHandle('cursor:highlight', (
     _event, screenId: number, x: number, y: number, w: number, h: number, label?: string
   ) => {
     cursorOverlay.highlightArea(screenId, x, y, w, h, label);
     return { success: true };
   });
 
-  ipcMain.handle('cursor:hide', (_event, screenId?: number) => {
+  secureHandle('cursor:hide', (_event, screenId?: number) => {
     if (screenId !== undefined) {
       cursorOverlay.hideCursor(screenId);
     } else {
@@ -446,190 +383,190 @@ function registerIPC(): void {
   });
 
   // Voice
-  ipcMain.handle('voice:start', () => {
+  secureHandle('voice:start', () => {
     voiceSystem.startListening();
     return { success: true };
   });
 
-  ipcMain.handle('voice:stop', () => {
+  secureHandle('voice:stop', () => {
     voiceSystem.stopListening();
     return { success: true };
   });
 
-  ipcMain.handle('voice:speak', trusted(async (_event, text: string, voice?: string) => {
+  secureHandle('voice:speak', (async (_event, text: string, voice?: string) => {
     return voiceSystem.speak(text, voice);
   }));
 
-  ipcMain.handle('voice:setVolume', (_event, direction: 'up' | 'down' | 'mute') => {
+  secureHandle('voice:setVolume', (_event, direction: 'up' | 'down' | 'mute') => {
     voiceSystem.setSystemVolume(direction);
     return { success: true };
   });
 
   // System control
-  ipcMain.handle('system:openApp', trusted(async (_event, appName: string) => {
+  secureHandle('system:openApp', (async (_event, appName: string) => {
     return systemControl.openApp(appName);
   }));
 
-  ipcMain.handle('system:openUrl', trusted(async (_event, url: string) => {
+  secureHandle('system:openUrl', (async (_event, url: string) => {
     return systemControl.openUrl(url);
   }));
 
-  ipcMain.handle('system:lockScreen', trusted(async () => {
+  secureHandle('system:lockScreen', (async () => {
     return systemControl.lockScreen();
   }));
 
-  ipcMain.handle('system:getInfo', async () => {
+  secureHandle('system:getInfo', async () => {
     return systemControl.getSystemInfo();
   });
 
-  ipcMain.handle('system:getVolume', async () => {
+  secureHandle('system:getVolume', async () => {
     return systemControl.getVolume();
   });
 
-  ipcMain.handle('system:setVolume', async (_event, level: number) => {
+  secureHandle('system:setVolume', async (_event, level: number) => {
     return systemControl.setVolume(level);
   });
 
-  ipcMain.handle('system:volumeUp', async () => {
+  secureHandle('system:volumeUp', async () => {
     return systemControl.volumeUp();
   });
 
-  ipcMain.handle('system:volumeDown', async () => {
+  secureHandle('system:volumeDown', async () => {
     return systemControl.volumeDown();
   });
 
-  ipcMain.handle('system:processes', async () => {
+  secureHandle('system:processes', async () => {
     return systemControl.listRunningProcesses();
   });
 
-  ipcMain.handle('system:killProcess', trusted(async (_event, name: string) => {
+  secureHandle('system:killProcess', (async (_event, name: string) => {
     return systemControl.killProcess(name);
   }));
 
   // Config
-  ipcMain.handle('config:get', () => config);
+  secureHandle('config:get', () => config);
 
-  ipcMain.handle('config:set', (_event, updates: Partial<JarvisConfig>) => {
+  secureHandle('config:set', (_event, updates: Partial<JarvisConfig>) => {
     config = { ...config, ...updates };
     return config;
   });
 
   // Window control
-  ipcMain.handle('window:minimize', () => mainWindow?.minimize());
-  ipcMain.handle('window:maximize', () => {
+  secureHandle('window:minimize', () => mainWindow?.minimize());
+  secureHandle('window:maximize', () => {
     if (mainWindow?.isMaximized()) mainWindow.unmaximize();
     else mainWindow?.maximize();
   });
-  ipcMain.handle('window:close', () => {
+  secureHandle('window:close', () => {
     if (!mainWindow) return;
     isExplicitWindowClose = true;
     mainWindow?.close();
   });
-  ipcMain.handle('window:hide', () => mainWindow?.hide());
-  ipcMain.handle('window:show', () => mainWindow?.show());
+  secureHandle('window:hide', () => mainWindow?.hide());
+  secureHandle('window:show', () => mainWindow?.show());
 
   // Tray updates
-  ipcMain.handle('tray:updateStatus', (_event, status: string, model?: string) => {
+  secureHandle('tray:updateStatus', (_event, status: string, model?: string) => {
     trayManager?.updateContextMenu(status, model);
     return { success: true };
   });
 
   // ── Auto-Start ────────────────────────────────────────────────────────────
-  ipcMain.handle('auto-start:enable', () => enableAutoStart());
-  ipcMain.handle('auto-start:disable', () => disableAutoStart());
-  ipcMain.handle('auto-start:status', () => isAutoStartEnabled());
+  secureHandle('auto-start:enable', () => enableAutoStart());
+  secureHandle('auto-start:disable', () => disableAutoStart());
+  secureHandle('auto-start:status', () => isAutoStartEnabled());
 
   // ── YouTube ───────────────────────────────────────────────────────────────
-  ipcMain.handle('youtube:search', (_event, query: string) => searchAndPlay(query));
-  ipcMain.handle('youtube:transcript', (_event, url: string) => getTranscript(url));
-  ipcMain.handle('youtube:info', (_event, url: string) => getVideoInfo(url));
-  ipcMain.handle('youtube:trending', (_event, region: string) => getTrending(region));
-  ipcMain.handle('youtube:summarize', (_event, url: string) => summarizeVideo(url));
+  secureHandle('youtube:search', (_event, query: string) => searchAndPlay(query));
+  secureHandle('youtube:transcript', (_event, url: string) => getTranscript(url));
+  secureHandle('youtube:info', (_event, url: string) => getVideoInfo(url));
+  secureHandle('youtube:trending', (_event, region: string) => getTrending(region));
+  secureHandle('youtube:summarize', (_event, url: string) => summarizeVideo(url));
 
   // ── Game Updater ──────────────────────────────────────────────────────────
-  ipcMain.handle('games:list', () => listAllGames());
-  ipcMain.handle('games:scan-steam', () => scanSteamGames());
-  ipcMain.handle('games:scan-epic', () => scanEpicGames());
-  ipcMain.handle('games:check-update', (_event, name: string) => checkForUpdates(name));
-  ipcMain.handle('games:update', (_event, name: string) => updateGame(name));
+  secureHandle('games:list', () => listAllGames());
+  secureHandle('games:scan-steam', () => scanSteamGames());
+  secureHandle('games:scan-epic', () => scanEpicGames());
+  secureHandle('games:check-update', (_event, name: string) => checkForUpdates(name));
+  secureHandle('games:update', (_event, name: string) => updateGame(name));
 
   // ── Clipboard Intelligence ────────────────────────────────────────────────
-  ipcMain.handle('clipboard:start-watcher', (_event, interval: number) => {
+  secureHandle('clipboard:start-watcher', (_event, interval: number) => {
     startClipboardWatcher(interval);
     return { success: true };
   });
-  ipcMain.handle('clipboard:stop-watcher', () => {
+  secureHandle('clipboard:stop-watcher', () => {
     stopClipboardWatcher();
     return { success: true };
   });
-  ipcMain.handle('clipboard:analyze', (_event, text: string, action?: string) =>
+  secureHandle('clipboard:analyze', (_event, text: string, action?: string) =>
     analyzeClipboard(text, (action as any) || 'explain')
   );
-  ipcMain.handle('clipboard:history', () => getClipboardHistory());
-  ipcMain.handle('clipboard:smart-paste', (_event, action: string) =>
+  secureHandle('clipboard:history', () => getClipboardHistory());
+  secureHandle('clipboard:smart-paste', (_event, action: string) =>
     smartPaste(action as any)
   );
 
   // ── Setup Wizard ──────────────────────────────────────────────────────────
-  ipcMain.handle('setup:status', () => getSetupStatus());
-  ipcMain.handle('setup:steps', () => getSetupSteps());
-  ipcMain.handle('setup:complete-step', (_event, stepId: string, config: Record<string, unknown>) =>
+  secureHandle('setup:status', () => getSetupStatus());
+  secureHandle('setup:steps', () => getSetupSteps());
+  secureHandle('setup:complete-step', (_event, stepId: string, config: Record<string, unknown>) =>
     completeStep(stepId, config)
   );
-  ipcMain.handle('setup:is-first-run', () => isFirstRun());
+  secureHandle('setup:is-first-run', () => isFirstRun());
 
   // ── System Control (new methods) ──────────────────────────────────────────
-  ipcMain.handle('system:set-brightness', (_event, level: number) =>
+  secureHandle('system:set-brightness', (_event, level: number) =>
     systemControl.setBrightness(level)
   );
-  ipcMain.handle('system:get-brightness', () => systemControl.getBrightness());
-  ipcMain.handle('system:toggle-wifi', () => systemControl.toggleWifi());
-  ipcMain.handle('system:wifi-status', () => systemControl.getWifiStatus());
-  ipcMain.handle('system:toggle-bluetooth', () => systemControl.toggleBluetooth());
-  ipcMain.handle('system:sleep', () => systemControl.sleepComputer());
-  ipcMain.handle('system:restart', () => systemControl.restartComputer());
-  ipcMain.handle('system:shutdown', () => systemControl.shutdownComputer());
-  ipcMain.handle('system:battery', () => systemControl.getBatteryStatus());
-  ipcMain.handle('system:screenshot', () => systemControl.takeScreenshot());
+  secureHandle('system:get-brightness', () => systemControl.getBrightness());
+  secureHandle('system:toggle-wifi', () => systemControl.toggleWifi());
+  secureHandle('system:wifi-status', () => systemControl.getWifiStatus());
+  secureHandle('system:toggle-bluetooth', () => systemControl.toggleBluetooth());
+  secureHandle('system:sleep', () => systemControl.sleepComputer());
+  secureHandle('system:restart', () => systemControl.restartComputer());
+  secureHandle('system:shutdown', () => systemControl.shutdownComputer());
+  secureHandle('system:battery', () => systemControl.getBatteryStatus());
+  secureHandle('system:screenshot', () => systemControl.takeScreenshot());
 
   // ── Browser Automation ────────────────────────────────────────────────────
-  ipcMain.handle('browser:open', (_event, url: string) => browserOpen(url));
-  ipcMain.handle('browser:search', (_event, query: string) => searchWeb(query));
-  ipcMain.handle('browser:navigate', (_event, url: string) => navigateTab(url));
-  ipcMain.handle('browser:click', (_event, selector: string) => clickElement(selector));
-  ipcMain.handle('browser:type', (_event, text: string) => typeText(text));
-  ipcMain.handle('browser:back', () => goBack());
-  ipcMain.handle('browser:forward', () => goForward());
-  ipcMain.handle('browser:scroll', (_event, dir: string) =>
+  secureHandle('browser:open', (_event, url: string) => browserOpen(url));
+  secureHandle('browser:search', (_event, query: string) => searchWeb(query));
+  secureHandle('browser:navigate', (_event, url: string) => navigateTab(url));
+  secureHandle('browser:click', (_event, selector: string) => clickElement(selector));
+  secureHandle('browser:type', (_event, text: string) => typeText(text));
+  secureHandle('browser:back', () => goBack());
+  secureHandle('browser:forward', () => goForward());
+  secureHandle('browser:scroll', (_event, dir: string) =>
     scrollPage(dir as 'up' | 'down' | 'left' | 'right')
   );
-  ipcMain.handle('browser:screenshot', (_event, filePath?: string) =>
+  secureHandle('browser:screenshot', (_event, filePath?: string) =>
     browserScreenshot(filePath)
   );
-  ipcMain.handle('browser:get-text', () => getPageText());
+  secureHandle('browser:get-text', () => getPageText());
 
   // ── File Processor ────────────────────────────────────────────────────────
-  ipcMain.handle('file:read', trusted(async (_event, filePath: string) => extractText(filePath)));
-  ipcMain.handle('file:summarize', trusted(async (_event, filePath: string) =>
+  secureHandle('file:read', (async (_event, filePath: string) => extractText(filePath)));
+  secureHandle('file:summarize', (async (_event, filePath: string) =>
     readAndSummarize(filePath)
   ));
-  ipcMain.handle('file:ask', trusted(async (_event, filePath: string, question: string) =>
+  secureHandle('file:ask', (async (_event, filePath: string, question: string) =>
     askQuestionAboutFile(filePath, question)
   ));
-  ipcMain.handle('file:convert', trusted(async (_event, inputPath: string, format: string) =>
+  secureHandle('file:convert', (async (_event, inputPath: string, format: string) =>
     convertFormat(inputPath, format as 'txt' | 'md' | 'json' | 'csv' | 'html')
   ));
 
   // ── Hardware Monitor ──────────────────────────────────────────────────────
-  ipcMain.handle('hardware:cpu', () => getCpuStats());
-  ipcMain.handle('hardware:ram', () => getRamStats());
-  ipcMain.handle('hardware:disk', () => getDiskStats());
-  ipcMain.handle('hardware:gpu', () => getGpuStats());
-  ipcMain.handle('hardware:fan', () => getFanSpeed());
-  ipcMain.handle('hardware:full-report', () => getFullSystemReport());
+  secureHandle('hardware:cpu', () => getCpuStats());
+  secureHandle('hardware:ram', () => getRamStats());
+  secureHandle('hardware:disk', () => getDiskStats());
+  secureHandle('hardware:gpu', () => getGpuStats());
+  secureHandle('hardware:fan', () => getFanSpeed());
+  secureHandle('hardware:full-report', () => getFullSystemReport());
 
   // ── Combined System Info (for JARVIS / dashboard quick-poll) ────────────
-  ipcMain.handle('jarvis:get-system-info', async () => {
+  secureHandle('jarvis:get-system-info', async () => {
     const report = await getFullSystemReport();
     const primaryDisk = report.disks?.[0];
     return {
@@ -644,62 +581,62 @@ function registerIPC(): void {
   });
 
   // ── JARVIS Connection ─────────────────────────────────────────────────────
-  ipcMain.handle('jarvis:connect', async (_event, serverUrl?: string) => {
+  secureHandle('jarvis:connect', async (_event, serverUrl?: string) => {
     return jarvisConnection.connect(serverUrl);
   });
 
-  ipcMain.handle('jarvis:connect-ws', async (_event, serverUrl?: string) => {
+  secureHandle('jarvis:connect-ws', async (_event, serverUrl?: string) => {
     return jarvisConnection.connectWebSocket(serverUrl);
   });
 
-  ipcMain.handle('jarvis:disconnect', () => {
+  secureHandle('jarvis:disconnect', () => {
     jarvisConnection.disconnect();
     return { success: true };
   });
 
-  ipcMain.handle('jarvis:discover-servers', async () => {
+  secureHandle('jarvis:discover-servers', async () => {
     return jarvisConnection.discoverServers();
   });
 
-  ipcMain.handle('jarvis:get-state', () => {
+  secureHandle('jarvis:get-state', () => {
     return jarvisConnection.getState();
   });
 
-  ipcMain.handle('jarvis:send-command', async (_event, command: string, payload?: Record<string, unknown>) => {
+  secureHandle('jarvis:send-command', async (_event, command: string, payload?: Record<string, unknown>) => {
     return jarvisConnection.sendCommand(command, payload);
   });
 
-  ipcMain.handle('jarvis:send-ws-message', (_event, message: Record<string, unknown>) => {
+  secureHandle('jarvis:send-ws-message', (_event, message: Record<string, unknown>) => {
     jarvisConnection.sendWsMessage(message);
     return { success: true };
   });
 
-  ipcMain.handle('jarvis:is-connected', () => {
+  secureHandle('jarvis:is-connected', () => {
     return jarvisConnection.isConnected();
   });
 
   // ── Connection Toggle / OmniRoute ─────────────────────────────────────────
-  ipcMain.handle('connection:get-mode', () => {
+  secureHandle('connection:get-mode', () => {
     return connectionToggle.getConnectionMode();
   });
 
-  ipcMain.handle('connection:set-mode', async (_event, mode: 'server' | 'omniroute') => {
+  secureHandle('connection:set-mode', async (_event, mode: 'server' | 'omniroute') => {
     return connectionToggle.setConnectionMode(mode);
   });
 
-  ipcMain.handle('connection:get-status', async () => {
+  secureHandle('connection:get-status', async () => {
     return connectionToggle.getStatus();
   });
 
-  ipcMain.handle('connection:get-server-status', async () => {
+  secureHandle('connection:get-server-status', async () => {
     return connectionToggle.getServerStatus();
   });
 
-  ipcMain.handle('connection:get-servers', async () => {
+  secureHandle('connection:get-servers', async () => {
     return connectionToggle.getAvailableServers();
   });
 
-  ipcMain.handle('connection:process', async (_event, text: string) => {
+  secureHandle('connection:process', async (_event, text: string) => {
     return connectionToggle.processWithMode(text);
   });
 
@@ -741,33 +678,33 @@ function registerIPC(): void {
   });
 
   // ── Mark-L Bridge Manager ─────────────────────────────────────────────────
-  ipcMain.handle('jarvis:bridge-start', async () => {
+  secureHandle('jarvis:bridge-start', async () => {
     await bridgeManager.startBridge();
     return { success: true, status: bridgeManager.getBridgeStatus() };
   });
 
-  ipcMain.handle('jarvis:bridge-stop', async () => {
+  secureHandle('jarvis:bridge-stop', async () => {
     await bridgeManager.stopBridge();
     return { success: true, status: bridgeManager.getBridgeStatus() };
   });
 
-  ipcMain.handle('jarvis:bridge-restart', async () => {
+  secureHandle('jarvis:bridge-restart', async () => {
     await bridgeManager.restartBridge();
     return { success: true, status: bridgeManager.getBridgeStatus() };
   });
 
-  ipcMain.handle('jarvis:bridge-status', () => {
+  secureHandle('jarvis:bridge-status', () => {
     return {
       status: bridgeManager.getBridgeStatus(),
       url: bridgeManager.getBridgeUrl(),
     };
   });
 
-  ipcMain.handle('jarvis:bridge-logs', () => {
+  secureHandle('jarvis:bridge-logs', () => {
     return { logs: bridgeManager.getBridgeLogs() };
   });
 
-  ipcMain.handle('jarvis:bridge-auto-start', (_event, enabled?: boolean) => {
+  secureHandle('jarvis:bridge-auto-start', (_event, enabled?: boolean) => {
     if (enabled !== undefined) {
       bridgeManager.setAutoStart(enabled);
     }
@@ -779,56 +716,56 @@ function registerIPC(): void {
   });
 
   // ── Gemini Live Voice ────────────────────────────────────────────────────────
-  ipcMain.handle('jarvis:voice-connect', async () => {
+  secureHandle('jarvis:voice-connect', async () => {
     return geminiLiveVoice.connect();
   });
 
-  ipcMain.handle('jarvis:voice-disconnect', async () => {
+  secureHandle('jarvis:voice-disconnect', async () => {
     await geminiLiveVoice.disconnect();
     return { success: true };
   });
 
-  ipcMain.handle('jarvis:voice-start', async () => {
+  secureHandle('jarvis:voice-start', async () => {
     return geminiLiveVoice.startListening();
   });
 
-  ipcMain.handle('jarvis:voice-stop', async () => {
+  secureHandle('jarvis:voice-stop', async () => {
     await geminiLiveVoice.stopListening();
     return { success: true };
   });
 
-  ipcMain.handle('jarvis:voice-status', () => {
+  secureHandle('jarvis:voice-status', () => {
     return geminiLiveVoice.getSessionInfo();
   });
 
-  ipcMain.handle('jarvis:voice-send-text', async (_event, text: string) => {
+  secureHandle('jarvis:voice-send-text', async (_event, text: string) => {
     await geminiLiveVoice.sendText(text);
     return { success: true };
   });
 
-  ipcMain.handle('jarvis:voice-settings-save', (_event, settings: Record<string, unknown>) => {
+  secureHandle('jarvis:voice-settings-save', (_event, settings: Record<string, unknown>) => {
     geminiLiveVoice.updateSettings(settings as Partial<import('./gemini-live').GeminiLiveSettings>);
     return { success: true };
   });
 
-  ipcMain.handle('jarvis:voice-settings-load', () => {
+  secureHandle('jarvis:voice-settings-load', () => {
     return geminiLiveVoice.getConfig();
   });
 
   // Audio chunk relay: renderer captures mic → sends base64 → main forwards to Gemini WS
-  ipcMain.handle('jarvis:voice-audio-chunk', (_event, base64Audio: string) => {
+  secureHandle('jarvis:voice-audio-chunk', (_event, base64Audio: string) => {
     geminiLiveVoice.sendAudioChunkFromRenderer(base64Audio);
     return { success: true };
   });
 
   // ── n8n Workflows ─────────────────────────────────────────────────────────
-  ipcMain.handle('jarvis:n8n-status', async () => {
+  secureHandle('jarvis:n8n-status', async () => {
     const connected = await n8nIntegration.isConnected();
     const status = n8nIntegration.getStatus();
     return { ...status, connected };
   });
 
-  ipcMain.handle('jarvis:n8n-connect', async (_event, url?: string, apiKey?: string) => {
+  secureHandle('jarvis:n8n-connect', async (_event, url?: string, apiKey?: string) => {
     if (url) n8nIntegration.updateConfig({ baseUrl: url });
     if (apiKey) n8nIntegration.updateConfig({ apiKey });
     const connected = await n8nIntegration.isConnected();
@@ -839,47 +776,47 @@ function registerIPC(): void {
     return { ...status, connected };
   });
 
-  ipcMain.handle('jarvis:n8n-workflows', async () => {
+  secureHandle('jarvis:n8n-workflows', async () => {
     return n8nIntegration.listWorkflows();
   });
 
-  ipcMain.handle('jarvis:n8n-workflow-get', async (_event, id: string) => {
+  secureHandle('jarvis:n8n-workflow-get', async (_event, id: string) => {
     return n8nIntegration.getWorkflow(id);
   });
 
-  ipcMain.handle('jarvis:n8n-workflow-create', async (_event, workflow: { name: string; nodes: unknown[]; connections: Record<string, unknown> }) => {
+  secureHandle('jarvis:n8n-workflow-create', async (_event, workflow: { name: string; nodes: unknown[]; connections: Record<string, unknown> }) => {
     return n8nIntegration.createWorkflow(workflow);
   });
 
-  ipcMain.handle('jarvis:n8n-workflow-activate', async (_event, id: string) => {
+  secureHandle('jarvis:n8n-workflow-activate', async (_event, id: string) => {
     return n8nIntegration.activateWorkflow(id);
   });
 
-  ipcMain.handle('jarvis:n8n-workflow-deactivate', async (_event, id: string) => {
+  secureHandle('jarvis:n8n-workflow-deactivate', async (_event, id: string) => {
     return n8nIntegration.deactivateWorkflow(id);
   });
 
-  ipcMain.handle('jarvis:n8n-trigger', async (_event, workflowId: string, data: Record<string, unknown>) => {
+  secureHandle('jarvis:n8n-trigger', async (_event, workflowId: string, data: Record<string, unknown>) => {
     return n8nIntegration.triggerWebhook(workflowId, data);
   });
 
-  ipcMain.handle('jarvis:n8n-trigger-by-name', async (_event, name: string, data: Record<string, unknown>) => {
+  secureHandle('jarvis:n8n-trigger-by-name', async (_event, name: string, data: Record<string, unknown>) => {
     return n8nIntegration.triggerByName(name, data);
   });
 
-  ipcMain.handle('jarvis:n8n-deploy', async (_event, action: 'test' | 'build' | 'deploy', project: string, branch?: string) => {
+  secureHandle('jarvis:n8n-deploy', async (_event, action: 'test' | 'build' | 'deploy', project: string, branch?: string) => {
     return n8nIntegration.deployWorkflow(action, project, branch);
   });
 
-  ipcMain.handle('jarvis:n8n-notify', async (_event, channel: string, message: string, priority?: 'low' | 'medium' | 'high') => {
+  secureHandle('jarvis:n8n-notify', async (_event, channel: string, message: string, priority?: 'low' | 'medium' | 'high') => {
     return n8nIntegration.notifyWorkflow(channel, message, priority);
   });
 
-  ipcMain.handle('jarvis:n8n-pr', async (_event, action: 'review' | 'merge' | 'comment', prNumber: number, repo: string, comment?: string) => {
+  secureHandle('jarvis:n8n-pr', async (_event, action: 'review' | 'merge' | 'comment', prNumber: number, repo: string, comment?: string) => {
     return n8nIntegration.prWorkflow(action, prNumber, repo, comment);
   });
 
-  ipcMain.handle('jarvis:n8n-workflows-import', async () => {
+  secureHandle('jarvis:n8n-workflows-import', async () => {
     const workflowsDir = join(__dirname, '../../n8n-workflows');
     const files = ['ghostforge-deploy.json', 'ghostforge-notify.json', 'ghostforge-pr.json'];
     const imported: string[] = [];
@@ -898,225 +835,225 @@ function registerIPC(): void {
   });
 
   // ── Email Integration ───────────────────────────────────────────────────
-  ipcMain.handle('email:list', async (_event, params: EmailSearchParams & { accountId?: string }) => {
+  secureHandle('email:list', async (_event, params: EmailSearchParams & { accountId?: string }) => {
     return emailList(params);
   });
 
-  ipcMain.handle('email:read', async (_event, messageId: string, accountId?: string) => {
+  secureHandle('email:read', async (_event, messageId: string, accountId?: string) => {
     return readEmail(messageId, accountId);
   });
 
-  ipcMain.handle('email:send', async (_event, params: EmailSendParams & { accountId?: string }) => {
+  secureHandle('email:send', async (_event, params: EmailSendParams & { accountId?: string }) => {
     return emailSend(params);
   });
 
-  ipcMain.handle('email:reply', async (_event, messageId: string, body: string, bodyHtml?: string, accountId?: string) => {
+  secureHandle('email:reply', async (_event, messageId: string, body: string, bodyHtml?: string, accountId?: string) => {
     return replyToEmail(messageId, body, bodyHtml, accountId);
   });
 
-  ipcMain.handle('email:mark-read', async (_event, messageId: string, accountId?: string) => {
+  secureHandle('email:mark-read', async (_event, messageId: string, accountId?: string) => {
     return markAsRead(messageId, accountId);
   });
 
-  ipcMain.handle('email:mark-unread', async (_event, messageId: string, accountId?: string) => {
+  secureHandle('email:mark-unread', async (_event, messageId: string, accountId?: string) => {
     return markAsUnread(messageId, accountId);
   });
 
-  ipcMain.handle('email:star', async (_event, messageId: string, accountId?: string) => {
+  secureHandle('email:star', async (_event, messageId: string, accountId?: string) => {
     return starEmail(messageId, accountId);
   });
 
-  ipcMain.handle('email:unstar', async (_event, messageId: string, accountId?: string) => {
+  secureHandle('email:unstar', async (_event, messageId: string, accountId?: string) => {
     return unstarEmail(messageId, accountId);
   });
 
-  ipcMain.handle('email:delete', async (_event, messageId: string, accountId?: string) => {
+  secureHandle('email:delete', async (_event, messageId: string, accountId?: string) => {
     return deleteEmail(messageId, accountId);
   });
 
-  ipcMain.handle('email:unread-count', async (_event, accountId?: string) => {
+  secureHandle('email:unread-count', async (_event, accountId?: string) => {
     return getUnreadCount(accountId);
   });
 
-  ipcMain.handle('email:recent', async (_event, count?: number, accountId?: string) => {
+  secureHandle('email:recent', async (_event, count?: number, accountId?: string) => {
     return getRecentEmails(count, accountId);
   });
 
-  ipcMain.handle('email:search', async (_event, query: string, accountId?: string) => {
+  secureHandle('email:search', async (_event, query: string, accountId?: string) => {
     return searchEmails(query, accountId);
   });
 
-  ipcMain.handle('email:accounts', () => {
+  secureHandle('email:accounts', () => {
     return getEmailAccounts();
   });
 
-  ipcMain.handle('email:remove-account', (_event, accountId: string) => {
+  secureHandle('email:remove-account', (_event, accountId: string) => {
     return removeEmailAccount(accountId);
   });
 
-  ipcMain.handle('email:add-imap', (_event, config: Parameters<typeof addImapAccount>[0]) => {
+  secureHandle('email:add-imap', (_event, config: Parameters<typeof addImapAccount>[0]) => {
     return addImapAccount(config);
   });
 
-  ipcMain.handle('email:oauth-start', (_event, provider: unknown) => {
+  secureHandle('email:oauth-start', (_event, provider: unknown) => {
     assertOAuthProvider('email', provider);
     return startGmailOAuth();
   });
 
-  ipcMain.handle('email:oauth-callback', async (_event, code: string, provider: unknown) => {
+  secureHandle('email:oauth-callback', async (_event, code: string, provider: unknown) => {
     assertOAuthProvider('email', provider);
     return handleOAuthCallback(code, provider);
   });
 
   // ── Google AI Studio ────────────────────────────────────────────────────
-  ipcMain.handle('ai-studio:set-key', (_event, apiKey: string) => {
+  secureHandle('ai-studio:set-key', (_event, apiKey: string) => {
     return setAIStudioKey(apiKey);
   });
 
-  ipcMain.handle('ai-studio:key-status', () => {
+  secureHandle('ai-studio:key-status', () => {
     return getAIStudioKeyStatus();
   });
 
-  ipcMain.handle('ai-studio:list-models', async () => {
+  secureHandle('ai-studio:list-models', async () => {
     return listTunedModels();
   });
 
-  ipcMain.handle('ai-studio:get-model', async (_event, modelId: string) => {
+  secureHandle('ai-studio:get-model', async (_event, modelId: string) => {
     return getTunedModel(modelId);
   });
 
-  ipcMain.handle('ai-studio:generate', async (_event, model: string, prompt: string, options?: Record<string, unknown>) => {
+  secureHandle('ai-studio:generate', async (_event, model: string, prompt: string, options?: Record<string, unknown>) => {
     return generateContent(model, prompt, options as Parameters<typeof generateContent>[2]);
   });
 
-  ipcMain.handle('ai-studio:update-model', async (_event, modelId: string, updates: { displayName?: string; description?: string }) => {
+  secureHandle('ai-studio:update-model', async (_event, modelId: string, updates: { displayName?: string; description?: string }) => {
     return updateTunedModel(modelId, updates);
   });
 
-  ipcMain.handle('ai-studio:base-models', async () => {
+  secureHandle('ai-studio:base-models', async () => {
     return listModels();
   });
 
-  ipcMain.handle('ai-studio:model-info', async (_event, modelName: string) => {
+  secureHandle('ai-studio:model-info', async (_event, modelName: string) => {
     return getModelInfo(modelName);
   });
 
-  ipcMain.handle('ai-studio:compare', async (_event, prompt: string, modelA: string, modelB: string, options?: Record<string, unknown>) => {
+  secureHandle('ai-studio:compare', async (_event, prompt: string, modelA: string, modelB: string, options?: Record<string, unknown>) => {
     return compareModels(prompt, modelA, modelB, options as Parameters<typeof compareModels>[3]);
   });
 
-  ipcMain.handle('ai-studio:test', async (_event, model: string, prompt: string, options?: Record<string, unknown>) => {
+  secureHandle('ai-studio:test', async (_event, model: string, prompt: string, options?: Record<string, unknown>) => {
     return aiStudioTest(model, prompt, options as Parameters<typeof aiStudioTest>[2]);
   });
 
-  ipcMain.handle('ai-studio:export-config', async (_event, modelId: string) => {
+  secureHandle('ai-studio:export-config', async (_event, modelId: string) => {
     return exportModelConfig(modelId);
   });
 
-  ipcMain.handle('ai-studio:import-config', async (_event, config: Record<string, unknown>) => {
+  secureHandle('ai-studio:import-config', async (_event, config: Record<string, unknown>) => {
     return importModelConfig(config as Parameters<typeof importModelConfig>[0]);
   });
 
   // ── Calendar Integration ────────────────────────────────────────────────
-  ipcMain.handle('calendar:today', async (_event, accountId?: string) => {
+  secureHandle('calendar:today', async (_event, accountId?: string) => {
     return listTodayEvents(accountId);
   });
 
-  ipcMain.handle('calendar:upcoming', async (_event, days?: number, accountId?: string) => {
+  secureHandle('calendar:upcoming', async (_event, days?: number, accountId?: string) => {
     return listUpcomingEvents(days, accountId);
   });
 
-  ipcMain.handle('calendar:create', async (_event, params: CreateEventParams & { accountId?: string }) => {
+  secureHandle('calendar:create', async (_event, params: CreateEventParams & { accountId?: string }) => {
     return createEvent(params);
   });
 
-  ipcMain.handle('calendar:update', async (_event, eventId: string, updates: Partial<CreateEventParams> & { accountId?: string }) => {
+  secureHandle('calendar:update', async (_event, eventId: string, updates: Partial<CreateEventParams> & { accountId?: string }) => {
     return updateEvent(eventId, updates);
   });
 
-  ipcMain.handle('calendar:delete', async (_event, eventId: string, accountId?: string) => {
+  secureHandle('calendar:delete', async (_event, eventId: string, accountId?: string) => {
     return deleteEvent(eventId, accountId);
   });
 
-  ipcMain.handle('calendar:free-busy', async (_event, timeMin: string, timeMax: string, accountId?: string) => {
+  secureHandle('calendar:free-busy', async (_event, timeMin: string, timeMax: string, accountId?: string) => {
     return checkAvailability(timeMin, timeMax, accountId);
   });
 
-  ipcMain.handle('calendar:free-slots', async (_event, date: string, accountId?: string) => {
+  secureHandle('calendar:free-slots', async (_event, date: string, accountId?: string) => {
     return getFreeSlots(date, accountId);
   });
 
-  ipcMain.handle('calendar:accounts', () => {
+  secureHandle('calendar:accounts', () => {
     return getCalendarAccounts();
   });
 
-  ipcMain.handle('calendar:remove-account', (_event, accountId: string) => {
+  secureHandle('calendar:remove-account', (_event, accountId: string) => {
     return removeCalendarAccount(accountId);
   });
 
-  ipcMain.handle('calendar:oauth-start', (_event, provider: unknown) => {
+  secureHandle('calendar:oauth-start', (_event, provider: unknown) => {
     assertOAuthProvider('calendar', provider);
     return startGoogleCalendarOAuth();
   });
 
-  ipcMain.handle('calendar:oauth-callback', async (_event, code: string, provider: unknown) => {
+  secureHandle('calendar:oauth-callback', async (_event, code: string, provider: unknown) => {
     assertOAuthProvider('calendar', provider);
     return handleCalendarOAuthCallback(code, provider);
   });
 
-  ipcMain.handle('calendar:add-caldav', (_event, config: Parameters<typeof addCaldavAccount>[0]) => {
+  secureHandle('calendar:add-caldav', (_event, config: Parameters<typeof addCaldavAccount>[0]) => {
     return addCaldavAccount(config);
   });
 
   // ── Contacts Integration ────────────────────────────────────────────────
-  ipcMain.handle('contacts:search', async (_event, query: string, accountId?: string) => {
+  secureHandle('contacts:search', async (_event, query: string, accountId?: string) => {
     return searchContacts(query, accountId);
   });
 
-  ipcMain.handle('contacts:get', async (_event, contactId: string, accountId?: string) => {
+  secureHandle('contacts:get', async (_event, contactId: string, accountId?: string) => {
     return getContact(contactId, accountId);
   });
 
-  ipcMain.handle('contacts:create', async (_event, contact: Record<string, unknown> & { accountId?: string }) => {
+  secureHandle('contacts:create', async (_event, contact: Record<string, unknown> & { accountId?: string }) => {
     return createContact(contact as Parameters<typeof createContact>[0]);
   });
 
-  ipcMain.handle('contacts:delete', async (_event, contactId: string, accountId?: string) => {
+  secureHandle('contacts:delete', async (_event, contactId: string, accountId?: string) => {
     return deleteContact(contactId, accountId);
   });
 
-  ipcMain.handle('contacts:by-phone', async (_event, phone: string, accountId?: string) => {
+  secureHandle('contacts:by-phone', async (_event, phone: string, accountId?: string) => {
     return getContactsByPhone(phone, accountId);
   });
 
-  ipcMain.handle('contacts:recent', async (_event, count?: number) => {
+  secureHandle('contacts:recent', async (_event, count?: number) => {
     return getRecentContacts(count);
   });
 
-  ipcMain.handle('contacts:accounts', () => {
+  secureHandle('contacts:accounts', () => {
     return getContactAccounts();
   });
 
-  ipcMain.handle('contacts:remove-account', (_event, accountId: string) => {
+  secureHandle('contacts:remove-account', (_event, accountId: string) => {
     return removeContactAccount(accountId);
   });
 
-  ipcMain.handle('contacts:oauth-start', (_event, provider: unknown) => {
+  secureHandle('contacts:oauth-start', (_event, provider: unknown) => {
     assertOAuthProvider('contacts', provider);
     return startGoogleContactsOAuth();
   });
 
-  ipcMain.handle('contacts:oauth-callback', async (_event, code: string, provider: unknown) => {
+  secureHandle('contacts:oauth-callback', async (_event, code: string, provider: unknown) => {
     assertOAuthProvider('contacts', provider);
     return handleContactsOAuthCallback(code, provider);
   });
 
   // ── Voicebox Integration ───────────────────────────────────────────────────
-  ipcMain.handle('voicebox:status', async () => {
+  secureHandle('voicebox:status', async () => {
     return voiceboxIntegration.checkConnection();
   });
 
-  ipcMain.handle('voicebox:generate', async (
+  secureHandle('voicebox:generate', async (
     _event,
     text: string,
     options?: {
@@ -1130,7 +1067,7 @@ function registerIPC(): void {
     return voiceboxIntegration.generateSpeech(text, options || {});
   });
 
-  ipcMain.handle('voicebox:speak', async (
+  secureHandle('voicebox:speak', async (
     _event,
     text: string,
     options?: { profile?: string; personality?: boolean; clientId?: string }
@@ -1139,7 +1076,7 @@ function registerIPC(): void {
     return { success: true };
   });
 
-  ipcMain.handle('voicebox:transcribe', async (
+  secureHandle('voicebox:transcribe', async (
     _event,
     audioBase64: string,
     options?: { model?: string; language?: string }
@@ -1151,11 +1088,11 @@ function registerIPC(): void {
     });
   });
 
-  ipcMain.handle('voicebox:profiles', async () => {
+  secureHandle('voicebox:profiles', async () => {
     return voiceboxIntegration.listProfiles();
   });
 
-  ipcMain.handle('voicebox:clone', async (
+  secureHandle('voicebox:clone', async (
     _event,
     name: string,
     referenceAudioBase64: string,
@@ -1165,15 +1102,15 @@ function registerIPC(): void {
     return voiceboxIntegration.cloneVoice({ name, referenceAudio: buffer.buffer as ArrayBuffer, description });
   });
 
-  ipcMain.handle('voicebox:engines', async () => {
+  secureHandle('voicebox:engines', async () => {
     return voiceboxIntegration.getEngines();
   });
 
-  ipcMain.handle('voicebox:languages', async () => {
+  secureHandle('voicebox:languages', async () => {
     return voiceboxIntegration.getLanguages();
   });
 
-  ipcMain.handle('voicebox:set-config', async (
+  secureHandle('voicebox:set-config', async (
     _event,
     updates: Partial<import('./voicebox-integration').VoiceboxConfig>
   ) => {
@@ -1181,18 +1118,18 @@ function registerIPC(): void {
     return voiceboxIntegration.getConfig();
   });
 
-  ipcMain.handle('voicebox:get-config', () => {
+  secureHandle('voicebox:get-config', () => {
     return voiceboxIntegration.getConfig();
   });
 
-  ipcMain.handle('voicebox:create-profile', async (
+  secureHandle('voicebox:create-profile', async (
     _event,
     options: { name: string; description?: string; language?: string }
   ) => {
     return voiceboxIntegration.createProfile(options);
   });
 
-  ipcMain.handle('voicebox:delete-profile', async (_event, id: string) => {
+  secureHandle('voicebox:delete-profile', async (_event, id: string) => {
     await voiceboxIntegration.deleteProfile(id);
     return { success: true };
   });

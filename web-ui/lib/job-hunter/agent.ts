@@ -12,6 +12,9 @@
  *     those come back as `questions`; once the user answers them they are
  *     saved and reused on every later form
  *   - the page stops changing (unknown layout) and no vision fallback helps
+ *   - any field asks for consent, terms, a signature or a legal declaration
+ *     (checkbox, radio, select or text alike): those are never filled or sent to the AI
+ *   - Submit was pressed once and no confirmation was recognised (never pressed twice)
  *
  * Optional "computer use": with a vision model, when the DOM approach is stuck
  * it looks at a screenshot and clicks/types like a person would (still never
@@ -20,7 +23,7 @@
 import type { Page } from 'playwright-core'
 import { extractJson } from './match'
 import type { FieldAnswer, JobProfile, JobRecord } from './store'
-import { answerFor, normalizeLabel } from './writer'
+import { answerFor, isConsentOrLegal, needsUserAnswer, normalizeLabel, reusableAnswer } from './writer'
 
 type Generate = (opts: { system?: string; prompt?: string; maxTokens?: number }) => Promise<string>
 export type Vision = (imageBase64: string, prompt: string) => Promise<string>
@@ -72,6 +75,8 @@ const APPLY = /^apply( now)?$/i
 const NEXT = /^(next|continue|review( (my |your )?application)?|proceed|save (and|&) continue|next step|continue to (next|application))\b/i
 const START = /^(easy apply|apply( (now|for this (job|position|role)|on company (site|website)))?|i'?m interested|start (my )?application)$/i
 const DECLINE = /decline|prefer not|don'?t wish|do not wish|choose not|not to (say|disclose|answer)|rather not/i
+/** "By clicking Submit you agree to our terms" style wording in the page itself */
+const CONSENT_TEXT = /by (clicking|submitting|continuing|applying|signing).{0,120}(agree|accept|consent|acknowledg|certify|attest|terms)/i
 const SENSITIVE = /criminal|convict|felony|arrest|background check|drug (test|screen)|disabilit|veteran|gender|\brace\b|ethnic|sexual|pregnan|religio|marital|\bage\b|date of birth|birth ?date|social security|ssn|passport (number|no)|national id|bank|credit card/i
 
 /** Read the visible form fields inside the active dialog (if any) or the page. */
@@ -241,7 +246,7 @@ async function aiAnswers(fields: Field[], ctx: AgentContext): Promise<Map<string
     a.workAuthorized && `Authorized to work where they live: ${a.workAuthorized}`, a.needsSponsorship && `Needs visa sponsorship: ${a.needsSponsorship}`,
     prefs.minSalary ? `Minimum acceptable salary: ${prefs.minSalary}` : '',
     prefs.remote !== 'any' ? `Work preference: ${prefs.remote}` : '',
-    ...Object.entries(ctx.profile.customAnswers).map(([q, v]) => `Previously answered "${q}": ${v}`),
+    ...Object.entries(ctx.profile.customAnswers).filter(([q]) => reusableAnswer(q)).map(([q, v]) => `Previously answered "${q}": ${v}`),
   ].filter(Boolean).join('\n')
   const list = fields.map((f, i) => `[${i}] (${f.kind}${f.required ? ', required' : ''}) ${f.label}${f.options.length ? ` — options: ${f.options.slice(0, 15).join(' | ')}` : ''}`).join('\n')
   try {
@@ -250,6 +255,7 @@ async function aiAnswers(fields: Field[], ctx: AgentContext): Promise<Map<string
 - Years of experience with a skill: count from the CV's dates for roles that clearly used it; if the CV doesn't show it, answer "ASK".
 - Yes/No skill or experience questions: "Yes" only if the CV shows it; if it clearly doesn't, "No"; if unsure, "ASK".
 - Never invent employers, degrees, certifications, numbers, salaries, notice periods or availability. Never answer legal, criminal, medical, demographic, identity-document or background-check questions: answer "ASK" (except EEO self-identification, which is "Decline to self-identify" or the closest decline option).
+- Never answer consent, terms, privacy, signature, certification or declaration questions, work authorization, visa sponsorship or previous-employment questions: answer "ASK".
 - Short "why this company/role" or "summary" text questions: write 2-4 honest sentences from the CV and the job, no clichés.
 - For options, answer with one option exactly as written.
 Return ONLY JSON: [{"i": <index>, "value": "<answer or ASK>"}]`,
@@ -262,13 +268,18 @@ Return ONLY JSON: [{"i": <index>, "value": "<answer or ASK>"}]`,
       if (!f || !v || /^ask$/i.test(v)) continue
       // The model is told not to, but double-check: sensitive questions are the user's to answer
       if (SENSITIVE.test(f.label) && !DECLINE.test(v)) continue
+      if (needsUserAnswer(f.label)) continue
       out.set(f.id, v.slice(0, 2000))
     }
   } catch { /* unanswered fields become questions for the user */ }
   return out
 }
 
-/** Computer-use fallback: one screenshot → one action. Returns false when it can't help. */
+/**
+ * Computer-use fallback: one screenshot → one action. Returns false when it
+ * can't help, or when the action would touch a final Submit button or a
+ * consent/legal control (those stay with the user).
+ */
 async function visionStep(page: Page, ctx: AgentContext, goal: string): Promise<boolean> {
   if (!ctx.vision) return false
   const shot = (await page.screenshot({ type: 'jpeg', quality: 60 })).toString('base64')
@@ -276,20 +287,27 @@ async function visionStep(page: Page, ctx: AgentContext, goal: string): Promise<
   const raw = await ctx.vision(shot, `You are operating a web browser to complete a job application for ${ctx.profile.applicant.firstName} ${ctx.profile.applicant.lastName} (job: ${ctx.job.title} at ${ctx.job.company}). Goal: ${goal}
 The screenshot is ${vp.width}x${vp.height} pixels. Reply with ONLY JSON, one action:
 {"action":"click","x":<px>,"y":<px>,"why":"..."} | {"action":"type","text":"...","why":"..."} | {"action":"scroll","why":"..."} | {"action":"stop","why":"..."}
-Use "stop" for captchas, sign-in or account-creation pages, anything needing a password, or questions you can't answer from the application itself. Never type facts that aren't the applicant's.`).catch(() => '')
+You MUST use "stop" (never click or type) for: captchas; sign-in or account-creation pages; anything needing a password; terms, conditions or privacy consent (checkboxes, toggles, "I agree"/"I accept" buttons); signatures or "type your name to sign"; certifications, attestations or legal declarations; the final Submit / Send application / Apply button that sends the application; and questions you can't answer from the application itself. Never type facts that aren't the applicant's.`).catch(() => '')
   const act = extractJson<{ action?: string; x?: number; y?: number; text?: string; why?: string }>(raw)
   if (!act?.action || act.action === 'stop') return false
-  ctx.log?.(`Computer use: ${act.action}${act.why ? ` (${String(act.why).slice(0, 80)})` : ''}`)
   if (act.action === 'click' && Number.isFinite(act.x) && Number.isFinite(act.y)) {
-    await page.mouse.click(Math.max(0, Math.min(vp.width - 1, Number(act.x))), Math.max(0, Math.min(vp.height - 1, Number(act.y))))
+    const point = { x: Math.max(0, Math.min(vp.width - 1, Number(act.x))), y: Math.max(0, Math.min(vp.height - 1, Number(act.y))) }
+    if (await visionTargetBlocked(page, point)) { ctx.log?.('Computer use stopped: that click would submit or accept terms'); return false }
+    ctx.log?.(`Computer use: click${act.why ? ` (${String(act.why).slice(0, 80)})` : ''}`)
+    await page.mouse.click(point.x, point.y)
   } else if (act.action === 'type' && act.text) {
+    if (await visionTargetBlocked(page, null)) { ctx.log?.('Computer use stopped: that field is a signature or consent'); return false }
+    ctx.log?.(`Computer use: type${act.why ? ` (${String(act.why).slice(0, 80)})` : ''}`)
     await page.keyboard.type(String(act.text).slice(0, 500))
   } else if (act.action === 'scroll') {
+    ctx.log?.(`Computer use: scroll${act.why ? ` (${String(act.why).slice(0, 80)})` : ''}`)
     await page.mouse.wheel(0, 600)
   } else return false
   await page.waitForTimeout(1500)
   return true
 }
+
+const SUBMIT_UNCONFIRMED = 'Submit was pressed once, but GhostForge did not recognise a confirmation. Check the employer site (and your email) to see whether the application went through before retrying. Submit was not pressed again.'
 
 async function blocked(page: Page): Promise<string | null> {
   if (await page.locator(CAPTCHA).count().catch(() => 0)) return 'captcha'
@@ -303,6 +321,58 @@ async function blocked(page: Page): Promise<string | null> {
 }
 
 const bodyText = (page: Page) => page.evaluate(() => document.body?.innerText || '').catch(() => '')
+
+/** Labels of custom (div/button) checkboxes and switches, which scan() can't see. */
+async function toggleLabels(page: Page): Promise<string[]> {
+  return page.evaluate(() => Array.from(document.querySelectorAll('[role="checkbox"], [role="switch"]'))
+    .filter(el => { const r = (el as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0 })
+    .map(el => {
+      const by = el.getAttribute('aria-labelledby')
+      const labelled = by ? by.split(/\s+/).map(x => document.getElementById(x)?.textContent || '').join(' ') : ''
+      return (el.getAttribute('aria-label') || labelled || el.closest('label')?.textContent || el.textContent || el.parentElement?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300)
+    })).catch(() => [])
+}
+
+/**
+ * The one consent/legal gate: any form field (checkbox, radio, select, text,
+ * custom toggle) whose wording asks for consent, terms, a signature or a legal
+ * declaration, or page text saying that submitting accepts terms. Returns the
+ * hand-back message, or null when there is none.
+ */
+export function consentMessage(labels: string[], pageText: string): string | null {
+  const hit = labels.find(l => isConsentOrLegal(l))
+  if (hit) return `Terms, consent, a signature or a legal declaration need you ("${normalizeLabel(hit).slice(0, 80)}"). Review and finish this application yourself in the browser. GhostForge did not accept, sign or submit anything.`
+  if (CONSENT_TEXT.test(pageText)) return 'Submitting this form includes terms or privacy consent. Review and finish it yourself in the application browser. GhostForge did not accept terms or submit the application.'
+  return null
+}
+
+async function consentGate(page: Page, fields: Field[]): Promise<string | null> {
+  const labels = [...fields.filter(f => f.kind !== 'file').map(f => f.label), ...await toggleLabels(page)]
+  return consentMessage(labels, await bodyText(page))
+}
+
+/**
+ * What the vision model is about to click (or type into): its text and label.
+ * Final Submit buttons and consent/legal controls are off limits for it.
+ */
+async function visionTargetBlocked(page: Page, point: { x: number; y: number } | null): Promise<boolean> {
+  const info = await page.evaluate(({ pt }) => {
+    let el: Element | null = pt ? document.elementFromPoint(pt.x, pt.y) : document.activeElement
+    if (!el || el === document.body || el === document.documentElement) return null
+    const control = el.closest('button, a, label, input, select, textarea, [role="button"], [role="checkbox"], [role="switch"], [role="radio"]') || el
+    const id = control.getAttribute('id')
+    const forLabel = id ? document.querySelector(`label[for="${CSS.escape(id)}"]`)?.textContent : ''
+    el = control
+    const form = el.closest('form, [role="dialog"], dialog')
+    const inForm = Boolean(form && form.querySelectorAll('input:not([type="hidden"]):not([type="search"]):not([type="submit"]):not([type="button"]), textarea, select').length >= 2)
+    const text = (el.getAttribute('aria-label') || (el as HTMLInputElement).value || el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120)
+    const label = [forLabel, el.closest('label')?.textContent, el.getAttribute('placeholder')].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim().slice(0, 300)
+    return { text, label, inForm }
+  }, { pt: point }).catch(() => null)
+  if (!info) return false
+  return SUBMIT.test(info.text) || /\bsubmit\b|send application/i.test(info.text) || (APPLY.test(info.text) && info.inForm)
+    || isConsentOrLegal(info.text) || isConsentOrLegal(info.label)
+}
 
 /**
  * A confirmation that was not on the page before we pressed Submit. Job
@@ -327,6 +397,7 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
   const maxSteps = ctx.maxSteps ?? 15
   let lastSignature = ''
   let stuckCount = 0
+  let submitPressed = false
   let resumeUploaded = false
   let visionTries = 0
   // Page text just before we pressed Submit (or let computer use act); null until then
@@ -360,12 +431,9 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     if (wall === 'login') return outcome('needs_user', `${new URL(pg.url()).hostname || 'This website'} requires sign-in, account creation or verification. Use account assistance for supported forms, or complete sign-in/registration/MFA yourself in the GhostForge browser, then use Open & fill again. The application has not been submitted.`)
 
     const fields = await scan(pg)
-    if (fields.some(f => f.kind === 'checkbox' && f.empty && /privacy|consent|agree|acknowledg|terms|certify|confirm (that )?(the )?information/i.test(f.label))) {
-      return outcome('needs_user', 'Terms, privacy consent or a certification require your review. Check the application browser and accept only if you agree, then retry. GhostForge did not accept terms or submit the application.')
-    }
-    if (/by (clicking|submitting|continuing).{0,120}(agree|accept|consent)|by (clicking|submitting|continuing).{0,120}terms/i.test(await bodyText(pg))) {
-      return outcome('needs_user', 'Submitting this form includes terms or privacy consent. Review and finish it yourself in the application browser. GhostForge did not accept terms or submit the application.')
-    }
+    // Consent, terms, signatures and legal declarations on ANY field kind: hand back, never fill
+    const consent = await consentGate(pg, fields)
+    if (consent) return outcome('needs_user', consent)
     ctx.log?.(`Filling application step ${step + 1}: ${fields.length} fields detected`)
     const btns = await buttons(pg)
 
@@ -405,8 +473,8 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
       unknown.push(f)
     }
 
-    // 2. Ask the AI for the rest (grounded in the CV); never for sensitive questions.
-    const answerable = unknown.filter(f => !SENSITIVE.test(f.label) || /gender|race|ethnic|veteran|disabilit|sexual/i.test(f.label))
+    // 2. Ask the AI for the rest (grounded in the CV); never for sensitive, consent or eligibility questions.
+    const answerable = unknown.filter(f => (!SENSITIVE.test(f.label) || /gender|race|ethnic|veteran|disabilit|sexual/i.test(f.label)) && !needsUserAnswer(f.label))
     if (answerable.length && ctx.generate) ctx.log?.(`Waiting for AI to suggest CV-grounded answers for ${answerable.length} fields`)
     const ai = await aiAnswers(answerable, ctx)
     ctx.log?.(`Filling application step ${step + 1}: checking required answers and uploads`)
@@ -430,9 +498,12 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     const next = btns.find(b => NEXT.test(b.text))
     if (submit) {
       if (!ctx.allowSubmit) return outcome('needs_user', 'Everything is filled in and ready. Review it and press Submit.')
+      // Submit is pressed at most once per run: a second press can send a duplicate application
+      if (submitPressed) return outcome('needs_user', SUBMIT_UNCONFIRMED)
       ctx.log?.(`Submitting (${submit.text})`)
       const before = await bodyText(pg)
       beforeSubmit = before
+      submitPressed = true
       await pg.locator(`[data-gf-btn="${submit.idx}"]`).click({ timeout: 10_000 })
       const ok = await pg.waitForFunction(([re, prev]) => {
         const rx = new RegExp(re, 'gi')
@@ -442,12 +513,11 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
         return now.length > was.length || now.some(m => !seen.has(m))
       }, [CONFIRMED.source, before] as const, { timeout: 25_000 }).then(() => true).catch(() => false)
       if (ok) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
-      // Some sites show errors instead of confirming (or confirm on a new page): loop once more to read them
+      // Some sites confirm on a new page or tab
       await pg.waitForTimeout(1000)
       if (isNewConfirmation(before, await bodyText(current))) return outcome('submitted', `Submitted to ${ctx.job.company} (${filled.length} fields filled).`)
-      stuckCount++
-      if (stuckCount > 2) return outcome('needs_user', 'Submit was pressed but no confirmation appeared. Check the application in the browser.')
-      continue
+      // Unrecognised wording, errors or a reset form: never press Submit again, hand back
+      return outcome('needs_user', SUBMIT_UNCONFIRMED)
     }
     if (next) {
       const signature = `${pg.url()}|${after.map(f => f.label).join('|')}|${btns.map(b => b.text).join('|')}`
@@ -463,9 +533,12 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
 
     // 5. Stuck: let computer use try, else hand over.
     const beforeVision = await bodyText(pg)
-    if (visionTries < 6 && await visionStep(pg, ctx, 'reach and complete the application form, then stop before any final submit you are unsure about')) {
-      beforeSubmit ??= beforeVision // computer use may have pressed Submit itself
+    if (visionTries < 6 && await visionStep(pg, ctx, 'reach and fill in the application form; stop before terms, consent, signatures, declarations and the final Submit')) {
+      beforeSubmit ??= beforeVision // in case the page still submitted
       visionTries++
+      // Re-run the consent gate after every computer-use action: if it reached consent wording, stop
+      const reached = await consentGate(current, await scan(current))
+      if (reached) return outcome('needs_user', reached)
       continue
     }
     return outcome('needs_user', 'The form uses a layout GhostForge could not finish on its own. It is pre-filled; finish it in the browser.')

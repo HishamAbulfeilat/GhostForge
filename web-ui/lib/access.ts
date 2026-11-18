@@ -4,8 +4,9 @@
  * Page visibility alone doesn't restrict anything — a limited user could call
  * the API directly. Routes that expose a capability (terminal, files, screen,
  * system control...) call requirePermission() so the account's permission set
- * is enforced server-side. Denials of privileged capabilities are reported as
- * intrusions (audit log + PC lock).
+ * is enforced server-side. Denials of privileged capabilities to a signed-in
+ * user are reported as intrusions (audit log; PC lock only when opted in via
+ * GF_LOCK_ON_UNAUTHORIZED=1).
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser, hasPermission, isAuthorizedRequest } from './auth'
@@ -31,6 +32,7 @@ export async function requirePermission(req: NextRequest, permission: string): P
       username: user.username,
       ip: getClientIP(req),
       userAgent: req.headers.get('user-agent') || undefined,
+      authenticated: true,
     })
   }
   return NextResponse.json({ error: `Your account doesn't have the "${permission}" permission` }, { status: 403 })

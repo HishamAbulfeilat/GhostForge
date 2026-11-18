@@ -236,3 +236,33 @@ test('answering a job\'s questions saves them for every later application and re
   await assert.rejects(jh.answerQuestions(user, job.id, { 'Notice period': '   ' }), /at least one/)
   await assert.rejects(jh.answerQuestions(user, 'missing', { a: 'b' }), /not found/)
 })
+
+test('"Run now" (force) never runs or submits while autopilot is off', async () => {
+  const user = 'force-off'
+  await setupUser(user, { enabled: false, intervalHours: 12, dailyLimit: 5, minScore: 75, mode: 'full' })
+  const { approve, calls } = recorder()
+  const r = await ap.runAutopilot(user, { force: true, generate: fakeAi, approve })
+  assert.equal(r.ran, false)
+  assert.match(r.reason, /Autopilot is off/)
+  assert.equal(calls.length, 0)
+  assert.equal((await jh.listJobs(user)).length, 0, 'it did not even search')
+})
+
+test('job-specific answers (eligibility for "this country", previous employment) stay with the job', async () => {
+  const user = 'job-answers'
+  await setupUser(user, { enabled: false, intervalHours: 12, dailyLimit: 5, minScore: 75 })
+  await jh.runSearch(user, { generate: fakeAi, autoPrepare: 0 })
+  const [job] = await jh.listJobs(user)
+  await jh.updateJob(user, job.id, { status: 'needs_user', questions: [
+    { label: 'Have you previously worked for this company?', type: 'select', options: ['Yes', 'No'] },
+    { label: 'Will you require visa sponsorship?', type: 'select', options: ['Yes', 'No'] },
+    { label: 'Notice period', type: 'text', options: [] },
+  ] }, 'test')
+  const done = await jh.answerQuestions(user, job.id, { 'Have you previously worked for this company?': 'Yes', 'Will you require visa sponsorship?': 'Yes', 'Notice period': '2 weeks' })
+  assert.equal(done.status, 'ready')
+  assert.deepEqual(done.jobAnswers, { 'Have you previously worked for this company?': 'Yes', 'Will you require visa sponsorship?': 'Yes' })
+  const saved = (await jh.getProfile(user)).customAnswers
+  assert.equal(saved['Notice period'], '2 weeks')
+  assert.equal(saved['Have you previously worked for this company?'], undefined)
+  assert.equal(saved['Will you require visa sponsorship?'], undefined)
+})

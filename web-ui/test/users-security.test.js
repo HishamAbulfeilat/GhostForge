@@ -117,6 +117,35 @@ test('unauthorized access is written to the audit log (lock disabled under test)
   assert.equal(entry.blocked, true)
 })
 
+test('the PC is only locked when opted in AND the actor is a signed-in user', () => {
+  const on = { GF_LOCK_ON_UNAUTHORIZED: '1' }
+  // Opt-in: unset means never lock (it used to default to on)
+  assert.equal(intrusion.lockOnUnauthorizedEnabled({}), false)
+  assert.equal(intrusion.lockOnUnauthorizedEnabled({ GF_LOCK_ON_UNAUTHORIZED: '0' }), false)
+  assert.equal(intrusion.lockOnUnauthorizedEnabled(on), true)
+  assert.equal(intrusion.lockOnUnauthorizedEnabled({ ...on, NODE_ENV: 'test' }), false)
+  // Anonymous / unspecified events never lock, even when opted in
+  assert.equal(intrusion.shouldLockFor({}, on), false)
+  assert.equal(intrusion.shouldLockFor({ authenticated: false }, on), false)
+  assert.equal(intrusion.shouldLockFor({ authenticated: true }, {}), false)
+  assert.equal(intrusion.shouldLockFor({ authenticated: true, lock: false }, on), false)
+  assert.equal(intrusion.shouldLockFor({ authenticated: true }, on), true)
+})
+
+test('PIN login failures are counted globally, not per client address', () => {
+  intrusion._resetIntrusionState()
+  const now = 2_000_000
+  for (let i = 0; i < intrusion.MAX_GLOBAL_PIN_FAILURES - 1; i++) {
+    intrusion.recordFailedPinLogin(now + i)
+    assert.equal(intrusion.isPinLoginBlocked(now + i), false)
+  }
+  intrusion.recordFailedPinLogin(now + 100)
+  assert.equal(intrusion.isPinLoginBlocked(now + 101), true, 'blocked regardless of which address guessed')
+  assert.equal(intrusion.isLoginBlocked('1.2.3.4', now + 101), false, 'per-address password lockout is separate')
+  assert.equal(intrusion.isPinLoginBlocked(now + 11 * 60_000), false, 'window expires')
+  intrusion._resetIntrusionState()
+})
+
 test('forged tokens only count as tampering with a stable auth secret', () => {
   const saved = { s: process.env.AUTH_SECRET, e: process.env.GF_EPHEMERAL_AUTH_SECRET }
   process.env.AUTH_SECRET = 'x'.repeat(64)

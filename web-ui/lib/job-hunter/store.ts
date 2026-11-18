@@ -198,6 +198,8 @@ export interface JobRecord {
   questions?: Array<{ label: string; type: string; options: string[] }>
   /** Answers the AI wrote on the last attempt (shown for transparency) */
   aiAnswers?: FieldAnswer[]
+  /** The user's answers that apply to this job only (work eligibility for its country, previous employment) */
+  jobAnswers?: Record<string, string>
   log: Array<{ at: string; msg: string }>
   createdAt: string
   updatedAt: string

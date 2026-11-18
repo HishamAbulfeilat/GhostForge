@@ -1,4 +1,5 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, screen, nativeTheme } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, screen, nativeTheme } from 'electron';
+import { secureHandle } from './ipc-guard';
 import { exec, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { EventEmitter } from 'events';
@@ -531,58 +532,58 @@ export class JarvisDaemon extends EventEmitter {
   // ── IPC Registration ─────────────────────────────────────────────────────
 
   registerIPC(): void {
-    ipcMain.handle('daemon:start', async () => {
+    secureHandle('daemon:start', async () => {
       return this.start(this.mainWindow);
     });
 
-    ipcMain.handle('daemon:stop', async () => {
+    secureHandle('daemon:stop', async () => {
       return this.stop();
     });
 
-    ipcMain.handle('daemon:status', () => {
+    secureHandle('daemon:status', () => {
       return this.getStatus();
     });
 
-    ipcMain.handle('daemon:get-settings', () => {
+    secureHandle('daemon:get-settings', () => {
       return this.settings;
     });
 
-    ipcMain.handle('daemon:set-settings', (_event, updates: Partial<DaemonSettings>) => {
+    secureHandle('daemon:set-settings', (_event, updates: Partial<DaemonSettings>) => {
       this.settings = { ...this.settings, ...updates };
       this.saveSettings();
       this.log('info', 'Daemon settings updated', updates);
       return this.settings;
     });
 
-    ipcMain.handle('daemon:start-voice', () => {
+    secureHandle('daemon:start-voice', () => {
       this.startVoiceListening();
       return { success: true };
     });
 
-    ipcMain.handle('daemon:stop-voice', () => {
+    secureHandle('daemon:stop-voice', () => {
       this.stopVoiceListening();
       return { success: true };
     });
 
-    ipcMain.handle('daemon:process-command', async (_event, transcript: string) => {
+    secureHandle('daemon:process-command', async (_event, transcript: string) => {
       return this.processVoiceCommand(transcript);
     });
 
-    ipcMain.handle('daemon:show-window', () => {
+    secureHandle('daemon:show-window', () => {
       this.showWindow();
       return { success: true };
     });
 
-    ipcMain.handle('daemon:hide-window', () => {
+    secureHandle('daemon:hide-window', () => {
       this.hideWindow();
       return { success: true };
     });
 
-    ipcMain.handle('daemon:get-logs', (_event, lines?: number) => {
+    secureHandle('daemon:get-logs', (_event, lines?: number) => {
       return this.getLogs(lines ?? 100);
     });
 
-    ipcMain.handle('daemon:clear-logs', () => {
+    secureHandle('daemon:clear-logs', () => {
       try {
         writeFileSync(LOG_FILE, '');
         return { success: true };

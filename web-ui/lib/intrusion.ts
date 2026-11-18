@@ -3,13 +3,15 @@
  *
  * When an unauthorized access attempt is detected (forged session, disabled
  * account, brute-forced login, a non-owner touching user management, or a
- * restricted user reaching for a privileged tool) we:
- *   1. append a `security` / `unauthorized_access` entry to ~/.ghostforge/audit.log
- *   2. lock the host PC (Windows, macOS, Linux)
+ * restricted user reaching for a privileged tool) we append a `security` /
+ * `unauthorized_access` entry to ~/.ghostforge/audit.log.
  *
- * Locking is throttled to once per LOCK_COOLDOWN_MS so a flood of requests
- * can't keep re-locking the machine, and can be disabled with
- * GF_LOCK_ON_UNAUTHORIZED=0.
+ * Locking the host PC is opt-in (GF_LOCK_ON_UNAUTHORIZED=1) and, even then,
+ * only happens for a signed-in session crossing a privilege boundary
+ * (`authenticated: true`). Anonymous events — no cookie, a forged or junk
+ * cookie, failed logins — never lock: anyone who can reach the port could
+ * otherwise keep the owner's computer locked. Locking is also throttled to
+ * once per LOCK_COOLDOWN_MS.
  */
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -31,9 +33,10 @@ export const PRIVILEGED_PERMISSIONS = new Set([
   'screenshots',
 ])
 
-export function lockOnUnauthorizedEnabled(): boolean {
-  if (process.env.NODE_ENV === 'test') return false
-  return process.env.GF_LOCK_ON_UNAUTHORIZED !== '0'
+/** Opt-in: the PC is only ever locked when GF_LOCK_ON_UNAUTHORIZED=1. */
+export function lockOnUnauthorizedEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.NODE_ENV === 'test') return false
+  return env.GF_LOCK_ON_UNAUTHORIZED === '1'
 }
 
 /**
@@ -82,11 +85,22 @@ export interface IntrusionReport {
   tool?: string
   /** Set false to log without locking (e.g. informational events) */
   lock?: boolean
+  /**
+   * True only when the actor is a resolved, signed-in user crossing a privilege
+   * boundary. Anything else (anonymous, forged/expired cookie, failed login)
+   * is logged but never locks the PC.
+   */
+  authenticated?: boolean
 }
 
-/** Log an unauthorized access attempt and lock the PC (throttled). */
+/** Whether this report may lock the PC (opt-in + authenticated actor only). */
+export function shouldLockFor(report: Pick<IntrusionReport, 'lock' | 'authenticated'>, env: NodeJS.ProcessEnv = process.env): boolean {
+  return report.authenticated === true && report.lock !== false && lockOnUnauthorizedEnabled(env)
+}
+
+/** Log an unauthorized access attempt; lock the PC only when shouldLockFor() allows (throttled). */
 export async function reportUnauthorizedAccess(report: IntrusionReport): Promise<{ locked: boolean; method: string | null }> {
-  const wantLock = report.lock !== false && lockOnUnauthorizedEnabled()
+  const wantLock = shouldLockFor(report)
   const now = Date.now()
   const cooledDown = now - lastLockAt >= LOCK_COOLDOWN_MS
 
@@ -133,6 +147,24 @@ export function isLoginBlocked(key: string, now = Date.now()): boolean {
 
 export function clearFailedLogins(key: string): void {
   failedLogins.delete(key)
+}
+
+// ── Global PIN-login failure counter ─────────────────────────────────────────
+// The legacy PIN maps straight to the owner account and may be short, so its
+// guesses are counted across ALL clients, not per IP: rotating addresses (or a
+// shared proxy key) must not reset the budget. While blocked, PIN login is
+// refused for everyone; username/password login is unaffected.
+
+export const MAX_GLOBAL_PIN_FAILURES = 10
+const PIN_KEY = '\u0000global-pin'
+
+export function recordFailedPinLogin(now = Date.now()): number {
+  return recordFailedLogin(PIN_KEY, now)
+}
+
+export function isPinLoginBlocked(now = Date.now()): boolean {
+  const recent = (failedLogins.get(PIN_KEY) || []).filter(t => now - t < LOGIN_WINDOW_MS)
+  return recent.length >= MAX_GLOBAL_PIN_FAILURES
 }
 
 export function _resetIntrusionState(): void {

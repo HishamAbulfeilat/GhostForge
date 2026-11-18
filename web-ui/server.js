@@ -293,8 +293,26 @@ function generateCerts() {
   return { ok: true }
 }
 
+// Tell lib/ratelimit.getClientIP that x-gf-remote-addr comes from us (below),
+// not from the client. Set before Next starts so its workers inherit it.
+process.env.GF_CUSTOM_SERVER = '1'
+
 const app    = next({ dev })
-const handle = app.getRequestHandler()
+const nextHandle = app.getRequestHandler()
+
+/**
+ * Stamp the real TCP peer address on every request, overwriting whatever the
+ * client sent, so rate limits / login lockouts can't be dodged with a forged
+ * X-Real-IP. (Proxy headers are only honoured when TRUSTED_PROXY=1.)
+ */
+function stampRemoteAddr(req) {
+  req.headers['x-gf-remote-addr'] = (req.socket && req.socket.remoteAddress) || ''
+}
+
+function handle(req, res) {
+  stampRemoteAddr(req)
+  return nextHandle(req, res)
+}
 let nextUpgradeHandler = null
 
 app.prepare().then(() => {

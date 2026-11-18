@@ -170,3 +170,28 @@ export function permissionForTool(tool: string): string | undefined {
 
 /** Default permission allowed to all signed-in users (chat is the baseline) */
 export const CHAT_BASELINE_PERMISSION = 'chat'
+/**
+ * Permission each tool of the bundled MCP server (mcp-server/index.js) needs
+ * when JARVIS reaches it through `mcp_call`. Holding `mcp` only opens the
+ * channel; the tool itself still needs what its native JARVIS equivalent
+ * needs, otherwise `mcp_call terminal_command` would bypass `terminal`.
+ * Tools not listed here are refused.
+ */
+export const MCP_TOOL_PERMISSION: Record<string, string> = {
+  get_time: TOOL_PERMISSION.get_time,
+  get_weather: TOOL_PERMISSION.get_weather,
+  web_search: TOOL_PERMISSION.web_search,
+  open_url: TOOL_PERMISSION.open_url,
+  open_app: TOOL_PERMISSION.open_app,
+  get_system_info: TOOL_PERMISSION.get_system_info,
+  terminal_command: TOOL_PERMISSION.terminal_command,
+  office_document: TOOL_PERMISSION.office_document,
+  memory_status: TOOL_PERMISSION.memory_stats,
+}
+
+/** Permission an MCP tool needs via mcp_call, or undefined for an unknown tool. */
+export function permissionForMcpTool(tool: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(MCP_TOOL_PERMISSION, tool)
+    ? MCP_TOOL_PERMISSION[tool]
+    : undefined
+}

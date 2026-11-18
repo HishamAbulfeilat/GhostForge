@@ -167,8 +167,11 @@ test('form labels are answered from the profile', () => {
   assert.equal(a('Email address'), 'jane@example.com')
   assert.equal(a('LinkedIn Profile'), 'https://linkedin.com/in/jane')
   assert.equal(a('Current location'), 'Tokyo, Japan')
-  assert.equal(a('Will you now or in the future require visa sponsorship?'), 'No')
-  assert.equal(a('Are you legally authorized to work in this country?'), 'Yes')
+  // Eligibility questions that name no country are answered only when the job is in the applicant's country
+  const inJapan = { ...job, location: 'Tokyo, Japan' }
+  assert.equal(writer.answerFor('Will you now or in the future require visa sponsorship?', profile, inJapan), 'No')
+  assert.equal(writer.answerFor('Are you legally authorized to work in this country?', profile, inJapan), 'Yes')
+  assert.equal(a('Are you legally authorized to work in this country?'), '')
   assert.equal(a('Gender'), 'Decline to self-identify')
   assert.equal(a('Notice period'), '1 month') // cached custom answer wins
   assert.equal(a('What is your favourite colour?'), '')

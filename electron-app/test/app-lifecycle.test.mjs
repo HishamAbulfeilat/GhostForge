@@ -55,7 +55,7 @@ test('quit wiring bypasses close-to-tray and only reports smoke success after cl
     readFile(daemonSourcePath, 'utf8'),
   ])
 
-  assert.match(source, /ipcMain\.handle\('window:close', \(\) => \{[\s\S]*?isExplicitWindowClose = true;[\s\S]*?mainWindow\?\.close\(\);/)
+  assert.match(source, /secureHandle\('window:close', \(\) => \{[\s\S]*?isExplicitWindowClose = true;[\s\S]*?mainWindow\?\.close\(\);/)
   assert.match(source, /app\.on\('before-quit', \(event\) => \{[\s\S]*?event\.preventDefault\(\)/)
   assert.ok(source.indexOf("app.on('before-quit'") < source.indexOf('app.requestSingleInstanceLock()'))
   assert.match(source, /shouldMinimizeWindowToTray\(skipTrayInterception, config\.minimizeToTray\)/)

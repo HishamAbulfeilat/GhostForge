@@ -14,7 +14,7 @@ const hooks = Module.registerHooks({
   },
 })
 
-const { checkRateLimit, getClientIP } = require('../lib/ratelimit.ts')
+const { checkRateLimit, getClientIP, REMOTE_ADDR_HEADER, SHARED_CLIENT_KEY } = require('../lib/ratelimit.ts')
 const { assessRisk, behavioralScore, HIGH_RISK_TOOLS } = require('../lib/audit.ts')
 const {
   PERMISSIONS,
@@ -64,26 +64,41 @@ test('checkRateLimit tracks separate keys independently', () => {
   assert.equal(allowedB.allowed, true)
 })
 
-test('getClientIP prefers x-real-ip, then req.ip, then rightmost x-forwarded-for, then cf-connecting-ip', () => {
-  const header = (map) => ({ headers: { get: (k) => map[k] ?? null } })
+const header = (map, extra = {}) => ({ headers: { get: (k) => map[k] ?? null }, ...extra })
 
-  assert.equal(
-    getClientIP(header({ 'x-real-ip': '1.1.1.1', 'x-forwarded-for': '2.2.2.2' })),
-    '1.1.1.1',
-  )
-  assert.equal(
-    getClientIP({ ...header({ 'x-forwarded-for': '2.2.2.2, 3.3.3.3' }), ip: '4.4.4.4' }),
-    '4.4.4.4',
-  )
-  assert.equal(
-    getClientIP(header({ 'x-forwarded-for': '2.2.2.2, 3.3.3.3' })),
-    '3.3.3.3',
-  )
-  assert.equal(
-    getClientIP(header({ 'cf-connecting-ip': '5.5.5.5' })),
-    '5.5.5.5',
-  )
-  assert.equal(getClientIP(header({})), 'local')
+test('getClientIP ignores client-supplied proxy headers unless TRUSTED_PROXY=1', () => {
+  // A forged X-Real-IP per guess used to give every guess a fresh lockout key.
+  const spoofed = header({ 'x-real-ip': '1.1.1.1', 'x-forwarded-for': '2.2.2.2', 'cf-connecting-ip': '5.5.5.5' })
+  assert.equal(getClientIP(spoofed, {}), SHARED_CLIENT_KEY)
+  assert.equal(getClientIP(header({ 'x-real-ip': '1.1.1.1' }), {}), getClientIP(header({ 'x-real-ip': '9.9.9.9' }), {}),
+    'rotating X-Real-IP must not change the key')
+  // x-gf-remote-addr is only trusted when server.js marked the process
+  assert.equal(getClientIP(header({ 'x-gf-remote-addr': '7.7.7.7' }), {}), SHARED_CLIENT_KEY)
+})
+
+test('getClientIP uses the socket address that server.js stamps', () => {
+  const env = { GF_CUSTOM_SERVER: '1' }
+  assert.equal(getClientIP(header({ 'x-gf-remote-addr': '192.168.1.20', 'x-real-ip': '1.1.1.1' }), env), '192.168.1.20')
+  assert.equal(getClientIP(header({ 'x-gf-remote-addr': '::ffff:10.0.0.4' }), env), '10.0.0.4')
+  assert.equal(getClientIP(header({ 'x-gf-remote-addr': '::1' }), env), '::1')
+  // No stamp (e.g. plain next dev): shared key, or the platform's req.ip
+  assert.equal(getClientIP(header({}), env), SHARED_CLIENT_KEY)
+  assert.equal(getClientIP(header({}, { ip: '4.4.4.4' }), {}), '4.4.4.4')
+})
+
+test('getClientIP honours proxy headers only behind a trusted proxy', () => {
+  const env = { TRUSTED_PROXY: '1', GF_CUSTOM_SERVER: '1' }
+  assert.equal(getClientIP(header({ 'x-real-ip': '1.1.1.1', 'x-gf-remote-addr': '127.0.0.1' }), env), '1.1.1.1')
+  assert.equal(getClientIP(header({ 'x-forwarded-for': '2.2.2.2, 3.3.3.3', 'x-gf-remote-addr': '127.0.0.1' }), env), '3.3.3.3')
+  assert.equal(getClientIP(header({ 'cf-connecting-ip': '5.5.5.5' }), env), '5.5.5.5')
+  assert.equal(getClientIP(header({ 'x-gf-remote-addr': '127.0.0.1' }), env), '127.0.0.1')
+})
+
+test('server.js stamps the socket address over any client value and marks the process', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8')
+  assert.match(src, /process\.env\.GF_CUSTOM_SERVER = '1'/)
+  assert.match(src, /req\.headers\[REMOTE_ADDR_HEADER\]|req\.headers\['x-gf-remote-addr'\]\s*=\s*\(req\.socket/)
+  assert.equal(REMOTE_ADDR_HEADER, 'x-gf-remote-addr')
 })
 
 // ── audit.ts risk assessment ─────────────────────────────────────────────────

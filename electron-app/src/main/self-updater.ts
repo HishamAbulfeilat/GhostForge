@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
+import { secureHandle } from './ipc-guard';
 import { exec, spawn, execFile } from 'child_process';
 import { promisify } from 'util';
 import { EventEmitter } from 'events';
@@ -464,25 +465,25 @@ export class SelfUpdater extends EventEmitter {
   // ── IPC Registration ─────────────────────────────────────────────────────
 
   registerIPC(): void {
-    ipcMain.handle('updater:check', async () => {
+    secureHandle('updater:check', async () => {
       return this.checkForUpdates();
     });
 
-    ipcMain.handle('updater:update', async (_event, userConfirm?: boolean) => {
+    secureHandle('updater:update', async (_event, userConfirm?: boolean) => {
       return this.applyUpdate(userConfirm ?? true);
     });
 
-    ipcMain.handle('updater:start-auto-check', (_event, intervalMs?: number) => {
+    secureHandle('updater:start-auto-check', (_event, intervalMs?: number) => {
       this.startAutoCheck(intervalMs);
       return { success: true };
     });
 
-    ipcMain.handle('updater:stop-auto-check', () => {
+    secureHandle('updater:stop-auto-check', () => {
       this.stopAutoCheck();
       return { success: true };
     });
 
-    ipcMain.handle('updater:self-modify', async (
+    secureHandle('updater:self-modify', async (
       _event,
       filePath: string,
       newContent: string,
@@ -491,11 +492,11 @@ export class SelfUpdater extends EventEmitter {
       return this.selfModify(filePath, newContent, options);
     });
 
-    ipcMain.handle('updater:analyze-project', async () => {
+    secureHandle('updater:analyze-project', async () => {
       return this.analyzeProject();
     });
 
-    ipcMain.handle('updater:read-file', async (_event, filePath: string) => {
+    secureHandle('updater:read-file', async (_event, filePath: string) => {
       const fullPath = join(PROJECT_ROOT, filePath);
       if (!fullPath.startsWith(PROJECT_ROOT)) {
         return { error: 'Path traversal blocked' };
@@ -508,7 +509,7 @@ export class SelfUpdater extends EventEmitter {
       }
     });
 
-    ipcMain.handle('updater:version', async () => {
+    secureHandle('updater:version', async () => {
       return this.getCurrentVersion();
     });
   }

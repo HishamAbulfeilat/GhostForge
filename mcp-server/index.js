@@ -79,6 +79,114 @@ function locateOfficeCli() {
 
 // ── Tool implementations (see MCP serialized schema below) ─────────────────
 
+// ── terminal_command allowlist ──────────────────────────────────────────────
+// Read-only commands with fixed argument shapes, run with execFile (argv, no
+// shell). Every token must match the shape below; anything else is rejected.
+
+const TERMINAL_ALLOWED_SUMMARY =
+  'git status|log|diff|branch, ls, pwd, node --version, npm --version, npm ls'
+
+function notAllowed(command) {
+  return new Error(
+    `Command not allowed: "${String(command).slice(0, 120)}". terminal_command only runs read-only ` +
+    `commands from an allowlist (${TERMINAL_ALLOWED_SUMMARY}).`,
+  )
+}
+
+function checkFlags(args, allowed, command) {
+  for (const a of args) if (!allowed.includes(a)) throw notAllowed(command)
+}
+
+// git: -c core.fsmonitor=false stops a repo config from running a hook
+// program on status/diff; --no-pager keeps output non-interactive.
+const GIT_PREFIX = ['--no-pager', '-c', 'core.fsmonitor=false']
+
+const GIT_SUBCOMMANDS = {
+  status(args, command) {
+    checkFlags(args, ['-s', '--short', '-b', '--branch', '--porcelain'], command)
+    return ['status', ...args]
+  },
+  log(args, command) {
+    const out = ['log']
+    let limited = false
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i]
+      if (['--oneline', '--graph', '--decorate', '--stat', '--no-merges'].includes(a)) out.push(a)
+      else if (/^-\d{1,4}$/.test(a) || /^--max-count=\d{1,4}$/.test(a)) { out.push(a); limited = true }
+      else if (a === '-n' && /^\d{1,4}$/.test(args[i + 1] || '')) { out.push('-n', args[++i]); limited = true }
+      else throw notAllowed(command)
+    }
+    if (!limited) out.push('-n', '20')
+    return out
+  },
+  diff(args, command) {
+    checkFlags(args, ['--stat', '--shortstat', '--name-only', '--name-status', '--cached', '--staged'], command)
+    // Never run configured external diff / textconv programs.
+    return ['diff', '--no-ext-diff', '--no-textconv', ...args]
+  },
+  branch(args, command) {
+    // Flags only: a positional argument would create or rename a branch.
+    checkFlags(args, ['-a', '--all', '-r', '--remotes', '-v', '-vv', '--show-current', '--list'], command)
+    return ['branch', ...args]
+  },
+}
+
+const LS_FLAGS = ['-l', '-a', '-A', '-h', '-1', '-la', '-al', '-lh', '-lah', '-alh', '-lA', '-Al']
+
+/**
+ * Parse a terminal_command string against the allowlist.
+ * Returns { file, args } for execFile, or { builtin: 'pwd' }; throws otherwise.
+ */
+export function parseTerminalCommand(command) {
+  if (typeof command !== 'string') throw notAllowed(command)
+  // No shell runs these, so pipes, redirects, quoting, globs and substitutions
+  // would not work anyway; reject them with the same clear error.
+  if (/[|&;<>`$(){}\[\]\\'"*?!~\n\r]/.test(command)) throw notAllowed(command)
+  const parts = command.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) throw new Error('Empty command')
+  const [bin, ...rest] = parts
+
+  switch (bin) {
+    case 'git': {
+      const [sub, ...args] = rest
+      const shape = Object.prototype.hasOwnProperty.call(GIT_SUBCOMMANDS, sub) ? GIT_SUBCOMMANDS[sub] : null
+      if (!shape) throw notAllowed(command)
+      return { file: 'git', args: [...GIT_PREFIX, ...shape(args, command)] }
+    }
+    case 'ls': {
+      const flags = []
+      const paths = []
+      for (const a of rest) {
+        if (a.startsWith('-')) {
+          if (!LS_FLAGS.includes(a)) throw notAllowed(command)
+          flags.push(a)
+        } else {
+          paths.push(a)
+        }
+      }
+      return { file: 'ls', args: [...flags, '--', ...paths] }
+    }
+    case 'pwd':
+      if (rest.length) throw notAllowed(command)
+      return { builtin: 'pwd' }
+    case 'node':
+      if (rest.length === 1 && (rest[0] === '--version' || rest[0] === '-v')) return { file: 'node', args: ['--version'] }
+      throw notAllowed(command)
+    case 'npm':
+      if (rest.length === 1 && (rest[0] === '--version' || rest[0] === '-v')) return { file: 'npm', args: ['--version'] }
+      if (rest[0] === 'ls') {
+        const args = rest.slice(1)
+        for (const a of args) {
+          if (!(a === '--all' || a === '--json' || /^--depth=\d{1,2}$/.test(a))) throw notAllowed(command)
+        }
+        return { file: 'npm', args: ['ls', ...args] }
+      }
+      throw notAllowed(command)
+    default:
+      throw notAllowed(command)
+  }
+}
+
 const TOOLS = {
   get_time: {
     description: 'Get the current date and time.',
@@ -163,7 +271,9 @@ const TOOLS = {
   },
 
   terminal_command: {
-    description: 'Run a terminal command (safe subset; destructive commands blocked).',
+    description:
+      'Run one read-only command from a fixed allowlist (no shell): git status/log/diff/branch, ls, pwd, ' +
+      'node --version, npm --version, npm ls. Anything else is rejected.',
     schema: {
       type: 'object',
       properties: { command: { type: 'string' } },
@@ -171,16 +281,14 @@ const TOOLS = {
       additionalProperties: false,
     },
     async run({ command }) {
-      const blocked = [/rm\s+-[rRf]{1,3}\s+\//, /sudo rm/, /mkfs\./, /dd\s+if=\/dev\/(sda|zero)/i, /csrutil\s+disable/]
-      if (blocked.some(b => b.test(command))) return 'Command blocked for safety'
+      // Throws (-> isError) for anything outside the allowlist.
+      const parsed = parseTerminalCommand(command)
+      if (parsed.builtin === 'pwd') return process.cwd()
       try {
-        const parts = command.split(/ /).filter(Boolean)
-        const bin = parts.shift()
-        if (!bin) return 'Empty command'
-        const { stdout } = await execFileAsync(bin, parts, { timeout: 12000 }).catch(e => ({ stdout: `Error: ${(e.stderr || e.message).slice(0, 300)}` }))
+        const { stdout } = await execFileAsync(parsed.file, parsed.args, { timeout: 12000, maxBuffer: 4 * 1024 * 1024 })
         return stdout.slice(0, 1000) || 'Command completed'
       } catch (e) {
-        return `Error: ${e.message.slice(0, 300)}`
+        return `Error: ${String(e.stderr || e.message).slice(0, 300)}`
       }
     },
   },
@@ -240,7 +348,7 @@ const TOOLS = {
 // ── MCP protocol handler ────────────────────────────────────────────────────
 
 const MT_PREFIX = '/mcp/'
-async function handleRequest(method, params) {
+export async function handleRequest(method, params) {
   switch (method) {
     case 'initialize':
       return {

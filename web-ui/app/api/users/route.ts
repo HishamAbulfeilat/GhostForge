@@ -16,27 +16,30 @@ import { getClientIP } from '@/lib/ratelimit'
 import { reportUnauthorizedAccess } from '@/lib/intrusion'
 
 /**
- * Only the owner (Hisham) may change users. Anyone else who reaches a
- * mutating endpoint is an intrusion: log it and lock the PC.
+ * Only the owner may change users. A request with no valid session is a plain
+ * 401. A signed-in non-owner reaching a mutating endpoint crosses a privilege
+ * boundary: it is logged as unauthorized access (and may lock the PC when the
+ * owner opted in with GF_LOCK_ON_UNAUTHORIZED=1).
  */
 async function requireOwner(req: NextRequest, action: string): Promise<GhostUser | NextResponse> {
   const me = await getCurrentUser(req)
-  if (me && isOwner(me)) return me
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (isOwner(me)) return me
   void reportUnauthorizedAccess({
     reason: `users:${action} by non-owner`,
-    username: me?.username,
+    username: me.username,
     ip: getClientIP(req),
     userAgent: req.headers.get('user-agent') || undefined,
+    authenticated: true,
   })
   return NextResponse.json({ error: 'Only the owner can manage users' }, { status: 403 })
 }
 
 export async function GET(req: NextRequest) {
   const me = await getCurrentUser(req)
-  if (!me || !isAdmin(me)) {
-    void reportUnauthorizedAccess({ reason: 'users:list by non-admin', username: me?.username, ip: getClientIP(req), userAgent: req.headers.get('user-agent') || undefined })
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Reading the list is what the /users page does on open: refuse, never lock.
+  if (!isAdmin(me)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   await ensureUserStore()
   const users = await listUsers()
   return NextResponse.json({ users: users.map(u => ({ ...storeToPublic(u), owner: isOwner(u) })), canManage: isOwner(me) })
@@ -121,6 +124,8 @@ export async function PATCH(req: NextRequest) {
       ? body.permissions.filter(p => ALL_PERMISSIONS.includes(p))
       : []
     patch.permissions = sanitized
+    // The owner chose this set: the setup wizard must keep it exactly
+    patch.permissionsAssigned = true
   }
 
   const updated = await updateUser(id, patch)

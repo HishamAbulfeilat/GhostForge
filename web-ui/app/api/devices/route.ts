@@ -100,8 +100,9 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const me = await getCurrentUser(req)
-  if (!me || !isOwner(me)) {
-    void reportUnauthorizedAccess({ reason: 'devices:delete by non-owner', username: me?.username, ip: getClientIP(req), userAgent: req.headers.get('user-agent') || undefined })
+  if (!me) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!isOwner(me)) {
+    void reportUnauthorizedAccess({ reason: 'devices:delete by non-owner', username: me.username, ip: getClientIP(req), userAgent: req.headers.get('user-agent') || undefined, authenticated: true })
     return NextResponse.json({ error: 'Only the owner can remove devices' }, { status: 403 })
   }
 

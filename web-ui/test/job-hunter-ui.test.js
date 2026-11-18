@@ -279,3 +279,42 @@ test('bulk preparation never approves and requires review of fallback drafts bef
     assert.equal(page.document.querySelector('[aria-label="Confirm selected applications"]'), null)
   } finally { await page.unmount() }
 })
+
+test('"Run autopilot now" asks first like the toggle, and is unavailable while autopilot is off', async () => {
+  const runNowRoutes = (state, enabled) => {
+    const endpoints = routes(state)
+    const base = endpoints['/api/jobs']
+    endpoints['/api/jobs'] = (url, init) => {
+      if (init?.method === 'POST') {
+        state.actions.push(JSON.parse(init.body).action)
+        return { report: { ran: true, found: 0, prepared: 0, submitted: 0 } }
+      }
+      const body = base(url, init)
+      return { ...body, autopilot: { ...body.autopilot, enabled } }
+    }
+    return endpoints
+  }
+  const runNow = el => text(el).startsWith('Run autopilot now')
+
+  const off = { job: baseJob, actions: [] }
+  let page = await renderPage('jobs/page.tsx', runNowRoutes(off, false))
+  try {
+    const button = [...page.document.querySelectorAll('button')].find(runNow)
+    assert.equal(button.disabled, true)
+    assert.match(text(button), /turn it on first/)
+  } finally { await page.unmount() }
+
+  const on = { job: baseJob, actions: [] }
+  page = await renderPage('jobs/page.tsx', runNowRoutes(on, true))
+  try {
+    const asked = []
+    page.window.confirm = message => { asked.push(message); return false }
+    await page.click(runNow)
+    assert.equal(asked.length, 1)
+    assert.match(asked[0], /SUBMIT up to 5 more applications/)
+    assert.deepEqual(on.actions, [], 'declining the confirmation submits nothing')
+    page.window.confirm = message => { asked.push(message); return true }
+    await page.click(runNow)
+    assert.deepEqual(on.actions, ['autopilot'])
+  } finally { await page.unmount() }
+})

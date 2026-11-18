@@ -3,10 +3,10 @@ import { generateWithFallback } from '@/lib/ai'
 import { auditLog, assessRisk } from '@/lib/audit'
 import { checkRateLimit, getClientIP } from '@/lib/ratelimit'
 import { isAuthorizedRequest, getCurrentUser, hasPermission, sessionTokenStatus, AUTH_COOKIE_NAME } from '@/lib/auth'
-import { isOwner } from '@/lib/users'
+import { isOwner, type GhostUser } from '@/lib/users'
 import { speakerContext, toSpeaker, type Speaker } from '@/lib/speaker'
 import { PRIVILEGED_PERMISSIONS, hasStableAuthSecret, reportUnauthorizedAccess } from '@/lib/intrusion'
-import { permissionForTool } from '@/lib/tool-permissions'
+import { permissionForMcpTool, permissionForTool } from '@/lib/tool-permissions'
 import { AGENT_TEAM_ACTIONS, validateAgentTeamAction, runAgentTeamCommand } from '@/lib/agent-team'
 import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
@@ -624,7 +624,7 @@ async function webSearchDeep(query: string): Promise<string> {
 
 // ── Tool executor ─────────────────────────────────────────────────────────────
 
-async function executeTool(tool: string, params: Record<string, string>, currentUser?: { username?: string } | null): Promise<string> {
+async function executeTool(tool: string, params: Record<string, string>, currentUser?: Pick<GhostUser, 'username' | 'role' | 'permissions'> | null): Promise<string> {
   // Windows/Linux host: macOS-only tools run through the matching Mark-LIV action
   if (process.platform !== 'darwin') {
     const mapped = macToolToMarkLiv(tool, params)
@@ -3256,6 +3256,14 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       const { callMcpTool } = await import('@/lib/mcp')
       const tool = String(params.tool || params.name || '').trim()
       if (!tool) return 'MCP call needs a tool name.'
+      // `mcp` only grants the MCP channel, not every capability behind it: each
+      // MCP tool needs the permission its native equivalent needs (e.g.
+      // terminal_command → terminal), and tools we can't map are refused.
+      const neededPerm = permissionForMcpTool(tool)
+      if (!neededPerm) return `MCP call refused: unknown MCP tool "${tool}".`
+      if (!currentUser || !hasPermission(currentUser, neededPerm)) {
+        return `Permission denied — your account lacks "${neededPerm}", which the MCP tool "${tool}" needs.`
+      }
       const safeArgs: Record<string, unknown> = {}
       for (const [k, v] of Object.entries(params)) {
         if (k === 'tool' || k === 'name' || k === 'params') continue
@@ -3574,8 +3582,9 @@ export async function POST(req: NextRequest) {
   if (!isAuthorizedRequest(req)) {
     const tokenStatus = sessionTokenStatus(req.cookies.get(AUTH_COOKIE_NAME)?.value)
     if (tokenStatus === 'forged' && hasStableAuthSecret()) {
-      // A tampered session cookie is an intrusion: log it and lock the PC
-      void reportUnauthorizedAccess({ reason: 'jarvis: forged session token', ip, userAgent })
+      // A tampered cookie is logged as unauthorized access. The caller is
+      // anonymous, so it never locks the PC (anyone could send junk cookies).
+      void reportUnauthorizedAccess({ reason: 'jarvis: forged session token', ip, userAgent, authenticated: false })
     } else {
       // Missing/expired session (e.g. a logged-out device) — log only
       void auditLog({ level: 'security', event: 'unauthorized_access_attempt', ip, userAgent, params: { tokenStatus }, risk: 60 })
@@ -3587,7 +3596,7 @@ export async function POST(req: NextRequest) {
   const currentUser = await getCurrentUser(req)
   if (!currentUser) {
     // Validly signed token for a deleted/deactivated account
-    void reportUnauthorizedAccess({ reason: 'jarvis: session for disabled or deleted account', ip, userAgent })
+    void reportUnauthorizedAccess({ reason: 'jarvis: session for disabled or deleted account', ip, userAgent, authenticated: false })
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const speaker: Speaker = toSpeaker(currentUser, isOwner(currentUser))
@@ -3929,7 +3938,7 @@ export async function POST(req: NextRequest) {
         })
         if (PRIVILEGED_PERMISSIONS.has(neededPerm)) {
           // Restricted user reaching for system control — treat as intrusion
-          void reportUnauthorizedAccess({ reason: `jarvis: ${speaker.username} attempted privileged tool without "${neededPerm}"`, tool: aiResp.tool, username: speaker.username, ip, userAgent })
+          void reportUnauthorizedAccess({ reason: `jarvis: ${speaker.username} attempted privileged tool without "${neededPerm}"`, tool: aiResp.tool, username: speaker.username, ip, userAgent, authenticated: true })
         }
         const deniedPayload: JarvisResponsePayload = {
           speech: `I can't do that — your account doesn't have permission for "${aiResp.tool.replace(/_/g, ' ')}". Ask an administrator to grant this permission.`,

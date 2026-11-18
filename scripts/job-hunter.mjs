@@ -74,7 +74,8 @@ ${c.bold('Automate')}
   jobs autopilot on [--every 12] [--limit 5] [--min-score 75]
                                        Search + apply on a schedule while the web UI server runs
   jobs autopilot off
-  jobs autopilot run                   One full autopilot pass now (searches and submits)
+  jobs autopilot run [--yes]           One full autopilot pass now (searches and submits;
+                                       asks first unless --yes, only while autopilot is on)
 
 ${c.bold('CV & GitHub')}
   jobs improve [--adopt | --restore]   Review + rewrite your CV (never invents facts); --adopt uses it
@@ -258,6 +259,11 @@ Dealbreakers: ${p.dealbreakers.join(', ') || 'none'} · company boards: ${p.comp
         return
       }
       if (sub === 'run') {
+        const a = profile.autopilot
+        if (!a.enabled) { console.log(c.yellow('Autopilot is off. Turn it on first (jobs autopilot on); run submits applications only while it is on.')); return }
+        if (!flags.yes && !(await confirm(
+          `Run autopilot now? It will search and SUBMIT up to ${Math.max(0, a.dailyLimit - ap.submittedToday(a))} more application(s) today ` +
+          `(High fit, score ${a.minScore}+, ${a.mode === 'full' ? 'any site it can complete' : 'Lever/Greenhouse/Ashby'}) using your CV and details.`))) { console.log('Cancelled.'); return }
         console.log(c.dim('Autopilot: searching, preparing and submitting…'))
         const r = await ap.runAutopilot(user, { force: true, generate })
         console.log(r.ran
