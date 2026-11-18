@@ -19,7 +19,7 @@ import { AUTO_SUBMIT_ATS } from './apply'
 import {
   approveJob, generatorFor, getProfile, listJobs, missingApplicantFields, prepareJob, runSearch, saveProfile,
 } from './index'
-import { listJobUsers, type AutopilotSettings } from './store'
+import { listJobUsers, recoverAllInterruptedJobs, type AutopilotSettings } from './store'
 
 type Generate = (opts: { system?: string; prompt?: string; maxTokens?: number }) => Promise<string>
 type Approve = typeof approveJob
@@ -224,10 +224,27 @@ export async function autopilotTick(now = Date.now()): Promise<void> {
   }
 }
 
-/** Started once per server process (instrumentation.ts). GF_JOB_AUTOPILOT=0 disables it. */
+/** Hand applications cut off by the last shutdown back to the user (never resubmitted). */
+export async function recoverInterruptedOnStart(): Promise<number> {
+  const recovered = await recoverAllInterruptedJobs()
+  for (const { username, jobIds } of recovered) {
+    void auditLog({ level: 'warn', event: 'job_application_interrupted', params: { username, jobIds } })
+  }
+  return recovered.reduce((n, r) => n + r.jobIds.length, 0)
+}
+
+/**
+ * Started once per server process (instrumentation.ts). Recovers interrupted
+ * applications first, then schedules autopilot. GF_JOB_AUTOPILOT=0 disables
+ * the schedule only.
+ */
 export function startAutopilotScheduler(intervalMs = 10 * 60_000): void {
-  if (started || process.env.GF_JOB_AUTOPILOT === '0' || process.env.NODE_ENV === 'test') return
+  if (started || process.env.NODE_ENV === 'test') return
   started = true
+  void recoverInterruptedOnStart().catch(e => {
+    void auditLog({ level: 'warn', event: 'job_recovery_error', params: { error: String(e).slice(0, 200) } })
+  })
+  if (process.env.GF_JOB_AUTOPILOT === '0') return
   setTimeout(() => void autopilotTick(), 60_000).unref?.()
   setInterval(() => void autopilotTick(), intervalMs).unref?.()
 }

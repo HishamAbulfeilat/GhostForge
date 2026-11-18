@@ -18,7 +18,7 @@ import { analyzeCv, extractCvText } from './cv'
 import { dealbreaker, matchesLocation, relevantTo, scoreJobs } from './match'
 import { linkedInSearchUrl, searchSources, type SourceReport } from './sources'
 import {
-  getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs, withJobOperation,
+  applicationRunner, getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs, withJobOperation,
   type JobProfile, type JobRecord, type ModelChoice,
 } from './store'
 import { applyToJob } from './apply'
@@ -212,14 +212,19 @@ async function applyApprovedJob(
 
   const by = opts.by || 'user'
   const ap = profile.autopilot
-  await updateJob(username, id, { status: 'submitting', activity: updateApplicationActivity(username, id, 'Opening the application browser') }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
+  await updateJob(username, id, {
+    status: 'submitting', runner: applicationRunner(), interruptedAt: undefined,
+    activity: updateApplicationActivity(username, id, 'Opening the application browser'),
+  }, by === 'autopilot' ? 'Autopilot — filling the application form' : 'Approved — filling the application form')
   void auditLog({ level: 'info', event: 'job_application_approved', params: { username, jobId: id, company: job.company, title: job.title, ats: job.ats, by } })
 
   // Laptop control on: a visible browser on this computer and screenshot-based
   // computer use when the form agent gets stuck. Off: headless, no screen needed.
+  // The same for the user's own approvals and autopilot; without a display
+  // (a server) applyToJob always runs headless.
   const generate = generatorFor(profile.model)
   const vision = ap.laptopControl ? visionModel : null
-  const headless = opts.headless ?? (by === 'autopilot' ? !ap.laptopControl : undefined)
+  const headless = opts.headless ?? !ap.laptopControl
 
   // If applyToJob throws (e.g. no browser installed, or the process dies), the
   // job must not stay "submitting" forever — reset it to "failed" so it can be
@@ -240,13 +245,14 @@ async function applyApprovedJob(
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    const failed = await updateJob(username, id, { status: 'failed', activity: updateApplicationActivity(username, id, msg, 'failed') }, `Application could not run: ${msg.slice(0, 200)}`)
+    const failed = await updateJob(username, id, { status: 'failed', runner: undefined, activity: updateApplicationActivity(username, id, msg, 'failed') }, `Application could not run: ${msg.slice(0, 200)}`)
     void auditLog({ level: 'warn', event: 'job_application_error', params: { username, jobId: id, error: msg.slice(0, 200), by } })
     void notifyJob(username, id, { title: `Application failed: ${job.title}`, body: 'Application automation stopped. Open Job Hunter for the error and retry instructions.' })
     return { job: failed!, message: msg, missing: [] }
   }
   const updated = await updateJob(username, id, {
     status: result.status,
+    runner: undefined,
     activity: updateApplicationActivity(username, id, result.message, result.status),
     questions: result.questions?.length ? result.questions : undefined,
     aiAnswers: result.aiAnswers?.length ? result.aiAnswers : job.aiAnswers,
@@ -298,5 +304,23 @@ async function saveQuestionAnswers(username: string, id: string, answers: Record
 }
 
 export function dismissJob(username: string, id: string): Promise<JobRecord | null> {
-  return withJobOperation(username, id, () => updateJob(username, id, { status: 'dismissed' }, 'Dismissed'))
+  return withJobOperation(username, id, () => updateJob(username, id, { status: 'dismissed', interruptedAt: undefined }, 'Dismissed'))
+}
+
+/**
+ * The user checked the employer site (or finished the form themselves) and the
+ * application went through: record it as applied. Only for jobs waiting on the
+ * user or failed, e.g. one interrupted mid-apply.
+ */
+export function markApplied(username: string, id: string): Promise<JobRecord> {
+  return withJobOperation(username, id, async () => {
+    const job = await getJob(username, id)
+    if (!job) throw new Error('Job not found')
+    if (job.status !== 'needs_user' && job.status !== 'failed') throw new Error(`This job is "${job.status}" — only an application waiting for you can be marked as applied`)
+    const message = 'You marked this application as submitted'
+    return (await updateJob(username, id, {
+      status: 'submitted', interruptedAt: undefined, questions: undefined,
+      activity: updateApplicationActivity(username, id, message, 'submitted'),
+    }, message))!
+  })
 }

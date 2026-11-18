@@ -38,7 +38,7 @@ function load(file, dependencies) {
 }
 const notices = []
 const accounts = load('../lib/job-hunter/accounts.ts', {
-  './live': live, './store': store,
+  './live': live, './store': store, './writer': require('../lib/job-hunter/writer.ts'),
   './notifications': { notifyJob: async (username, id, payload) => { notices.push({ username, id, ...payload }); return 'unavailable' } },
   './apply': { withProfileLock: apply.withProfileLock, resolvesPublicly: async origin => origin === 'https://example.com' },
 })

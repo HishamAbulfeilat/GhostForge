@@ -9,6 +9,7 @@ import { mkdir, readFile, writeFile, rename } from 'fs/promises'
 import { homedir } from 'os'
 import { join, basename } from 'path'
 import { randomUUID } from 'crypto'
+import { updateApplicationActivity } from './live'
 
 /**
  * Per-key async mutex. Read-modify-write of a user's JSON files must not
@@ -23,11 +24,17 @@ function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return next
 }
 
-const activeOperations = new Set<string>()
+// Kept on globalThis like the live sessions, so a Next dev reload still sees the
+// operations that are running (and doesn't mistake them for interrupted ones).
+const runtime = globalThis as typeof globalThis & { ghostforgeJobOperations?: Set<string>; ghostforgeJobRunner?: string }
+const activeOperations = runtime.ghostforgeJobOperations ??= new Set<string>()
+/** This server or CLI process. Recorded on a job while its form is being filled. */
+const RUNNER_INSTANCE = runtime.ghostforgeJobRunner ??= randomUUID()
+const operationKey = (username: string, id: string) => `${userDir(username)}/${id}`
 
 /** Prevent Prepare/Approve/Answer/Dismiss from racing on the same application. */
 export async function withJobOperation<T>(username: string, id: string, run: () => Promise<T>): Promise<T> {
-  const key = `${userDir(username)}/${id}`
+  const key = operationKey(username, id)
   if (activeOperations.has(key)) throw new Error('An operation on this application is already running. Wait for it to finish before retrying.')
   activeOperations.add(key)
   try { return await run() } finally { activeOperations.delete(key) }
@@ -169,6 +176,8 @@ export interface JobProfile {
 
 export interface FieldAnswer { label: string; value: string }
 
+export interface JobRunner { pid: number; instance: string; startedAt: string }
+
 export interface JobRecord {
   id: string
   /** Stable identity used to de-duplicate across searches */
@@ -200,6 +209,10 @@ export interface JobRecord {
   aiAnswers?: FieldAnswer[]
   /** The user's answers that apply to this job only (work eligibility for its country, previous employment) */
   jobAnswers?: Record<string, string>
+  /** The process filling the form while status is "submitting" (to tell a live run from one cut off by a restart) */
+  runner?: JobRunner
+  /** Set when a run was cut off mid-apply (restart, crash); cleared when the user retries, dismisses or marks it applied */
+  interruptedAt?: string
   log: Array<{ at: string; msg: string }>
   createdAt: string
   updatedAt: string
@@ -363,4 +376,84 @@ export function updateJob(
   await saveJobs(username, jobs)
   return job
   })
+}
+
+// ── interrupted applications ────────────────────────────────────────────────
+
+/** Recorded on a job when this process starts filling its form. */
+export function applicationRunner(): JobRunner {
+  return { pid: process.pid, instance: RUNNER_INSTANCE, startedAt: new Date().toISOString() }
+}
+
+/**
+ * A run in another process that has not written any progress for this long is
+ * treated as gone (hung, or its process id was reused). Live runs log progress
+ * every few seconds.
+ */
+export const INTERRUPTED_AFTER_MS = 20 * 60_000
+
+export const INTERRUPTED_MESSAGE = 'Interrupted: GhostForge stopped (restart, crash or update) while filling this application, so it may or may not have been submitted. Check the employer site or your email for a confirmation before you use Open & fill again. Mark it as applied if it went through, or dismiss it. GhostForge will not retry it on its own.'
+
+function processAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try { process.kill(pid, 0); return true } catch (e) {
+    // EPERM: the process exists but belongs to someone else
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * True for a job left "submitting" by a run that is no longer going: started
+ * in this process but no longer running here, started by an earlier process
+ * with the same id (a container restart), or by another process that has
+ * exited or gone quiet. A run in another live process (the CLI next to the
+ * server) is left alone.
+ */
+export function isInterruptedRun(username: string, job: JobRecord, now = Date.now(), alive: (pid: number) => boolean = processAlive): boolean {
+  if (job.status !== 'submitting') return false
+  if (activeOperations.has(operationKey(username, job.id))) return false
+  const runner = job.runner
+  if (runner?.instance === RUNNER_INSTANCE) return true
+  if (runner && runner.pid === process.pid) return true
+  const quietFor = now - Date.parse(job.updatedAt || job.createdAt || '')
+  if (!(quietFor < INTERRUPTED_AFTER_MS)) return true
+  // Records from before runners were stored: only once they have gone quiet.
+  return Boolean(runner) && !alive(runner!.pid)
+}
+
+/**
+ * Hand interrupted applications back to the user: "submitting" becomes
+ * "needs_user" with a note to check the employer site. Never resubmits:
+ * autopilot only picks up "ready" jobs, and the user decides what happens next.
+ */
+export function recoverInterruptedJobs(username: string, now = Date.now(), alive?: (pid: number) => boolean): Promise<JobRecord[]> {
+  return withLock(userDir(username), async () => {
+    const jobs = await listJobs(username)
+    const stuck = jobs.filter(job => isInterruptedRun(username, job, now, alive))
+    if (!stuck.length) return []
+    const at = new Date(now).toISOString()
+    for (const job of stuck) {
+      Object.assign(job, {
+        status: 'needs_user', runner: undefined, interruptedAt: at, updatedAt: at,
+        // Questions from an earlier attempt are stale; answering them would put the job back in autopilot's queue.
+        questions: undefined,
+        activity: updateApplicationActivity(username, job.id, INTERRUPTED_MESSAGE, 'needs_user'),
+      })
+      job.log = [...(job.log || []), { at, msg: INTERRUPTED_MESSAGE }].slice(-50)
+    }
+    await saveJobs(username, jobs)
+    return stuck
+  })
+}
+
+/** Run once when the server starts: recover every user's interrupted applications. */
+export async function recoverAllInterruptedJobs(now = Date.now()): Promise<Array<{ username: string; jobIds: string[] }>> {
+  const recovered: Array<{ username: string; jobIds: string[] }> = []
+  for (const username of await listJobUsers()) {
+    try {
+      const jobs = await recoverInterruptedJobs(username, now)
+      if (jobs.length) recovered.push({ username, jobIds: jobs.map(j => j.id) })
+    } catch { /* an unreadable user folder must not stop the others */ }
+  }
+  return recovered
 }
