@@ -7,7 +7,12 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
+        <!-- Cleartext is needed for the studio on a LAN server (http://192.168.x.x:3001).
+             The launcher (android-web/studio-url.js) accepts plain HTTP only for
+             loopback/private addresses, and capacitor.config.json allowNavigation keeps
+             only those hosts in the WebView; every other host opens in the system browser. -->
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"

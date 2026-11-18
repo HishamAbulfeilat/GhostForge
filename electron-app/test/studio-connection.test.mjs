@@ -38,3 +38,18 @@ test('desktop fallback and IPC guard use bundled paths on all operating systems'
   const config = readFileSync(new URL('../electron-builder.yml', import.meta.url), 'utf8');
   assert.match(config, /android-web\/\*\*\/\*/);
 });
+
+test('desktop studio accepts plain HTTP only for loopback and private LAN servers', async () => {
+  const { isPrivateStudioHost } = await import('../dist/main/studio-connection.js');
+  assert.equal(studioTarget('http://localhost:3001'), 'http://localhost:3001/dashboard');
+  assert.equal(studioTarget('http://10.0.0.5:3001', '/agents'), 'http://10.0.0.5:3001/agents');
+  assert.throws(() => studioTarget('http://my-server.example:3001'), /HTTPS/);
+  assert.throws(() => studioTarget('http://8.8.8.8:3001'), /HTTPS/);
+  assert.equal(studioTarget('https://8.8.8.8:3001'), 'https://8.8.8.8:3001/dashboard');
+  // Same rules as the Android launcher (android-web/studio-url.js).
+  const { createRequire } = await import('node:module');
+  const { isPrivateHost } = createRequire(import.meta.url)('../android-web/studio-url.js');
+  for (const host of ['localhost', '127.0.0.1', '10.1.2.3', '172.16.0.1', '172.32.0.1', '192.168.0.1', '169.254.0.1', 'box.local', 'a.box.local', 'example.com', '[::1]', '[fd00::1]', '[2001:db8::1]', '300.1.1.1']) {
+    assert.equal(isPrivateStudioHost(host), isPrivateHost(host), host);
+  }
+});

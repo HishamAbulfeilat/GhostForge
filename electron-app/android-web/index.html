@@ -1572,7 +1572,7 @@
     function initAgentListeners() {
       if (!api || !api.autonomousAgent) return;
       api.autonomousAgent.onStateChange(function(s) {
-        updateAgentUI(s.status || 'IDLE', s.issueCount || 0, '');
+        updateAgentUI(s.status || 'IDLE', s.issueCount != null ? s.issueCount : State.agentIssueCount, '');
       });
       api.autonomousAgent.onProgress(function(p) {
         if (p.currentTask) {

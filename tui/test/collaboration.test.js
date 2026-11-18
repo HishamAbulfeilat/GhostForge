@@ -25,7 +25,8 @@ test('collaboration screen uses bridge create, load, message, and share contract
 
 test('bridge access requires an explicit token and protects remote credentials', () => {
   assert.match(TUI, /MARKL_BRIDGE_TOKEN/);
-  assert.match(TUI, /\.ghostforge', 'bridge', 'token'/);
+  assert.match(TUI, /const token = resolveBridgeToken\(env\)/);
+  assert.match(readFileSync(resolve(ROOT, 'tui/lib/bridge-token.js'), 'utf8'), /\.ghostforge', 'bridge', 'token'/);
   assert.match(TUI, /Authorization: `Bearer \$\{token\}`/);
   assert.match(TUI, /GF_ALLOW_REMOTE_BRIDGE !== '1'/);
   assert.match(TUI, /set GF_ALLOW_REMOTE_BRIDGE=1 to opt in/);

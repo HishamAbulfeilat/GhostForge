@@ -73,7 +73,7 @@ test('list uses the authenticated GET /api/users contract and formats its respon
     },
   )
 
-  assert.equal(call.url, 'http://127.0.0.1:3000/api/users')
+  assert.equal(call.url, 'http://127.0.0.1:3001/api/users')
   assert.equal(call.init.method, 'GET')
   assert.equal(call.init.headers.Cookie, 'gf_token=session-token')
   assert.match(formatResult({ command: 'list' }, result), /sara \(u_0123456789ab\).*user, active/)
@@ -92,7 +92,7 @@ test('update sends only selected access fields through PATCH /api/users', async 
     },
   )
 
-  assert.equal(call.url, 'http://127.0.0.1:3000/api/users')
+  assert.equal(call.url, 'http://127.0.0.1:3001/api/users')
   assert.equal(call.init.method, 'PATCH')
   assert.equal(call.init.headers.Cookie, 'gf_token=session-token')
   assert.deepEqual(JSON.parse(call.init.body), { id: USER_ID, role: 'admin', permissions: ['chat'] })
@@ -111,5 +111,30 @@ test('API failures include status and server message; malformed successful respo
   await assert.rejects(
     request({ command: 'list' }, { GF_SESSION_TOKEN: 'session-token' }, async () => jsonResponse({})),
     /did not include a users list/,
+  )
+})
+
+test('defaults to the web UI port 3001 and reports redirects instead of following them', async () => {
+  let call
+  await request({ command: 'list' }, { GF_SESSION_TOKEN: 'session-token' }, async (url, init) => {
+    call = { url, init }
+    return jsonResponse({ users: [], canManage: false })
+  })
+  assert.equal(call.url, 'http://127.0.0.1:3001/api/users')
+  assert.equal(call.init.redirect, 'manual')
+
+  await assert.rejects(
+    request(
+      { command: 'list' },
+      { GF_SESSION_TOKEN: 'session-token', GF_WEB_UI_URL: 'http://127.0.0.1:3000' },
+      async () => ({
+        ok: false,
+        status: 308,
+        statusText: 'Permanent Redirect',
+        headers: { get: name => (name === 'location' ? 'https://127.0.0.1:3001/api/users' : null) },
+        text: async () => '',
+      }),
+    ),
+    /redirected to https:\/\/127\.0\.0\.1:3001; set GF_WEB_UI_URL/,
   )
 })
