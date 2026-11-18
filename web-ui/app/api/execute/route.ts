@@ -37,13 +37,35 @@ const GHOSTFORGE_SCRIPT_MAP = [
 ] as const
 
 type ResolvedCommand =
-  | { kind: 'exec'; command: string; file: string; args: string[]; timeoutMs?: number }
-  | { kind: 'output'; output: string }
+  | { kind: 'exec'; bridgeCommand: string; file: string; args: string[]; timeoutMs?: number }
+  | { kind: 'output'; output: string; status?: number }
+
+/** scripts/bridge-server.js kills a `ghostforge` run after 30 s. */
+const BRIDGE_TIMEOUT_MS = 30_000
+const LOCAL_TIMEOUT_MS = 30_000
 
 export const dynamic = 'force-dynamic'
 
-function shellQuote(value: string) {
-  return `'${value.replace(/'/g, `'\\''`)}'`
+/**
+ * The bridge's /execute only accepts `ghostforge <subcommand> [args]` and splits
+ * it itself (whitespace, honouring "double" and 'single' quotes), then runs
+ * ROOT/ghostforge with execFile — no shell. Args here never contain
+ * whitespace, so they go bare; one containing a quote character is wrapped in
+ * the other kind so the bridge's tokenizer hands it over unchanged.
+ */
+function bridgeArg(value: string): string | null {
+  const hasSingle = value.includes("'")
+  const hasDouble = value.includes('"')
+  if (hasSingle && hasDouble) return null
+  if (hasSingle) return `"${value}"`
+  if (hasDouble) return `'${value}'`
+  return value
+}
+
+function bridgeCommandFor(subcommand: string, args: string[]): string | null {
+  const parts = args.map(bridgeArg)
+  if (parts.some(p => p === null)) return null
+  return ['ghostforge', subcommand, ...(parts as string[])].join(' ')
 }
 
 function buildPath(...segments: string[]) {
@@ -81,11 +103,12 @@ async function resolveGhostforgeCommand(command: string, ghostforgeRoot: string)
     if (!(await fileExists(scriptPath))) {
       return {
         kind: 'output',
+        status: 404,
         output: 'Script not found: ~/GhostForge/scripts/doctor.sh — run ghostforge doctor to check setup',
       }
     }
 
-    return { kind: 'exec', command: `bash ${shellQuote(scriptPath)}`, file: 'bash', args: [scriptPath] }
+    return { kind: 'exec', bridgeCommand: 'ghostforge doctor', file: 'bash', args: [scriptPath] }
   }
 
   for (const [subcommand, scriptName] of GHOSTFORGE_SCRIPT_MAP) {
@@ -96,15 +119,20 @@ async function resolveGhostforgeCommand(command: string, ghostforgeRoot: string)
     if (!(await fileExists(scriptPath))) {
       return {
         kind: 'output',
+        status: 404,
         output: `Script not found: ~/GhostForge/scripts/${scriptName} — run ghostforge doctor to check setup`,
       }
     }
 
     const args = match[1]?.trim()
     const argList = args ? args.split(/\s+/).filter(Boolean) : []
+    const bridgeCommand = bridgeCommandFor(subcommand, argList)
+    if (!bridgeCommand) {
+      return { kind: 'output', status: 400, output: 'An argument cannot contain both \' and " quote characters.' }
+    }
     return {
       kind: 'exec',
-      command: `bash ${shellQuote(scriptPath)}${argList.length ? ` ${argList.map(shellQuote).join(' ')}` : ''}`,
+      bridgeCommand,
       file: 'bash',
       args: [scriptPath, ...argList],
       ...(subcommand === 'upgrade' ? { timeoutMs: 180_000 } : {}),
@@ -118,34 +146,68 @@ async function resolveGhostforgeCommand(command: string, ghostforgeRoot: string)
   ]
   return {
     kind: 'output',
+    status: 400,
     output: `Unknown command. Supported: ${supported.map(s => `ghostforge ${s}`).join(', ')}`,
   }
 }
 
-async function executeBridgeCommand(command: string, bridgeToken: string, timeoutMs = 2000) {
-  const response = await fetch(`${normalizeBridgeHttpUrl(getBridgeUrl())}/execute`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${bridgeToken}`,
-    },
-    body: JSON.stringify({ command }),
-    signal: AbortSignal.timeout(timeoutMs),
-  })
+class BridgeUnreachableError extends Error {}
 
-  if (!response.ok) {
-    throw new Error(`Bridge execution failed with status ${response.status}`)
+/**
+ * Run `ghostforge <subcommand> ...` on the bridge. Returns the HTTP response
+ * to send, or throws BridgeUnreachableError when nothing is listening (so the
+ * caller can run the same script locally instead).
+ */
+async function executeOnBridge(command: string, bridgeToken: string, timeoutMs: number): Promise<NextResponse> {
+  let response: Response
+  try {
+    response = await fetch(`${normalizeBridgeHttpUrl(getBridgeUrl())}/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bridgeToken}`,
+      },
+      body: JSON.stringify({ command }),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (error) {
+    const name = error instanceof Error ? error.name : ''
+    if (name === 'TimeoutError' || name === 'AbortError') {
+      return NextResponse.json({ error: 'The command did not finish in time', connected: true }, { status: 504 })
+    }
+    throw new BridgeUnreachableError(error instanceof Error ? error.message : 'Bridge unreachable')
   }
 
-  return (await response.json()) as ExecuteBridgeResponse
+  const data = (await response.json().catch(() => ({}))) as ExecuteBridgeResponse
+  if (response.status === 401) {
+    return NextResponse.json({
+      error: 'The bridge rejected its token (it may have restarted). Restart the bridge and try again.',
+      connected: true,
+    }, { status: 502 })
+  }
+  if (!response.ok) {
+    const detail = typeof data.error === 'string' ? data.error : `HTTP ${response.status}`
+    return NextResponse.json({ error: `Bridge refused the command: ${detail}`, connected: true }, { status: 502 })
+  }
+  const output = typeof data.output === 'string' ? data.output : ''
+  if (data.error) {
+    // The bridge reports a script that exited non-zero as 200 { output, error: true }.
+    return NextResponse.json({ output, error: output || 'Command failed', connected: true }, { status: 500 })
+  }
+  return NextResponse.json({ output: output || 'Done', connected: true })
 }
 
 export async function POST(req: NextRequest) {
   const access = await requirePermission(req, 'terminal')
   if (access instanceof NextResponse) return access
 
-  const body = (await req.json()) as { command?: string }
-  const command = body.command?.trim()
+  let body: { command?: unknown }
+  try {
+    body = (await req.json()) as { command?: unknown }
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+  const command = typeof body?.command === 'string' ? body.command.trim() : ''
 
   if (!command) {
     return NextResponse.json({ error: 'Command is required' }, { status: 400 })
@@ -156,19 +218,24 @@ export async function POST(req: NextRequest) {
   const resolved = await resolveGhostforgeCommand(command, ghostforgeRoot)
 
   if (resolved.kind === 'output') {
+    if (resolved.status && resolved.status >= 400) {
+      return NextResponse.json({ error: resolved.output, connected: true }, { status: resolved.status })
+    }
     return NextResponse.json({ output: resolved.output, connected: true })
   }
 
+  // The bridge enforces its own 30 s limit, so longer commands (upgrade) run here.
   const bridgeToken = getLiveBridgeToken()
-  if (bridgeToken) {
+  if (bridgeToken && (resolved.timeoutMs ?? BRIDGE_TIMEOUT_MS) <= BRIDGE_TIMEOUT_MS) {
     try {
-      const data = await executeBridgeCommand(resolved.command, bridgeToken, resolved.timeoutMs)
-      return NextResponse.json(data)
-    } catch {
-      return NextResponse.json({ error: 'Bridge execution failed' }, { status: 502 })
+      return await executeOnBridge(resolved.bridgeCommand, bridgeToken, BRIDGE_TIMEOUT_MS + 5_000)
+    } catch (error) {
+      if (!(error instanceof BridgeUnreachableError)) {
+        return NextResponse.json({ error: 'Bridge execution failed', connected: true }, { status: 502 })
+      }
+      // Stale token file and no bridge listening: run the same script locally.
     }
   }
-
   const env = {
     ...process.env,
     PATH: buildPath(
@@ -192,13 +259,13 @@ export async function POST(req: NextRequest) {
   try {
     const { stdout, stderr } = await execFileAsync(resolved.file, resolved.args, {
       env,
-      timeout: resolved.timeoutMs ?? 15000,
+      timeout: resolved.timeoutMs ?? LOCAL_TIMEOUT_MS,
       cwd: ghostforgeRoot,
     })
     return NextResponse.json({ output: stdout.trim() || stderr.trim() || 'Done', connected: true })
   } catch (error: unknown) {
     const err = error as { stdout?: string; stderr?: string; message?: string }
     const output = ((err.stdout || '') + (err.stderr || '')).trim() || err.message || 'Command failed'
-    return NextResponse.json({ output, error: output, connected: true })
+    return NextResponse.json({ output, error: output, connected: true }, { status: 500 })
   }
 }
