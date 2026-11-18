@@ -19,7 +19,7 @@ import { getJarvisQuickAction } from '@/lib/quick-actions'
 import { getMarkLivAction, resolveMarkLivTool, markLivActionHint } from '@/lib/mark-liv-actions'
 import { macToolToMarkLiv, parseMarkLivCall } from '@/lib/mark-liv-risk'
 import { validateAppleScript } from '@/lib/apple-automation'
-import { getLiveBridgeToken } from '@/lib/bridge-token'
+import { getMarkLBridgeToken } from '@/lib/bridge-token'
 import { makePrivateTempDir, privateTempPath, sweepPrivateTemp, withPrivateTempDir, writePrivateFile } from '@/lib/private-temp'
 
 // Collaborative sessions store
@@ -582,7 +582,7 @@ async function ocrImageBuffer(imgBuffer: Buffer): Promise<string | null> {
     body.append('image', new Blob([imgBuffer as unknown as BlobPart]), 'screen.png')
     const res = await fetch('http://localhost:8765/api/mark-l/ocr', {
       method: 'POST',
-      headers: { 'X-Bridge-Token': getLiveBridgeToken() },
+      headers: { 'X-Bridge-Token': getMarkLBridgeToken() },
       body,
       signal: AbortSignal.timeout(15000),
     })

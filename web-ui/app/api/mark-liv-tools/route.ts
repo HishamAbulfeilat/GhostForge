@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isAuthorizedRequest } from '@/lib/auth'
 import { requirePermission } from '@/lib/access'
 import { ensureMarkLivBridge, type MarkLivTool } from '@/lib/mark-liv-bridge'
-import { getLiveBridgeToken } from '@/lib/bridge-token'
+import { getMarkLBridgeToken } from '@/lib/bridge-token'
 import { getMarkLBridgeUrl } from '@/lib/bridge-url'
 import { parseMarkLivToolsRequest } from '@/lib/mark-liv-tools-request'
 
@@ -21,7 +21,7 @@ async function bridgeFetch(pathname: string, init: RequestInit, timeoutMs: numbe
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${getLiveBridgeToken()}`,
+      Authorization: `Bearer ${getMarkLBridgeToken()}`,
     },
     signal: AbortSignal.timeout(timeoutMs),
   })

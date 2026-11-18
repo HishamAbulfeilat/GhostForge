@@ -6,8 +6,9 @@ shared bridge token auth, graceful optional-module stubs, port 8766.
 Endpoints:
   GET  /api/voice/health   — engine availability report
   POST /api/voice/stt      — multipart `audio` (wav/mp3) → { text, engine }
-  POST /api/voice/tts      — json { text, voice?, engine? } → audio/wav bytes
-  POST /api/voice/wake     — json/audio clip → wake probabilities
+  POST /api/voice/tts      — json { text, voice?, engine? } → audio bytes (WAV;
+                             Content-Type set from the engine output)
+  POST /api/voice/wake     — multipart `audio` (16 kHz mono WAV) → wake scores
   GET  /api/voice/wake     — wake-word status
 """
 
@@ -21,6 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -32,18 +34,26 @@ import wake
 logger = logging.getLogger("ghostforge_voice")
 
 # ---------------------------------------------------------------------------
-# Auth — same token file as the mark-l-bridge so the web UI only manages one
-# secret. Falls back to GHOSTFORGE_VOICE_TOKEN env var.
+# Auth — same secret as the mark-l-bridge so the web UI only manages one.
+# Resolution order matches mark-l-bridge/server.py and
+# web-ui/lib/bridge-token.ts (getMarkLBridgeToken):
+#   1. MARKL_BRIDGE_TOKEN env var
+#   2. GHOSTFORGE_VOICE_TOKEN env var (legacy, voice only)
+#   3. ~/.ghostforge/bridge/token (created if missing)
 # ---------------------------------------------------------------------------
 
 _TOKEN_DIR = Path.home() / ".ghostforge" / "bridge"
 _TOKEN_FILE = _TOKEN_DIR / "token"
 
+# Uploaded clips above this are refused before they are buffered in full.
+MAX_AUDIO_BYTES = 25 * 1024 * 1024
+
 
 def _read_token() -> str:
-    env_token = os.environ.get("GHOSTFORGE_VOICE_TOKEN")
-    if env_token:
-        return env_token.strip()
+    for var in ("MARKL_BRIDGE_TOKEN", "GHOSTFORGE_VOICE_TOKEN"):
+        env_token = (os.environ.get(var) or "").strip()
+        if env_token:
+            return env_token
     try:
         _TOKEN_DIR.mkdir(parents=True, exist_ok=True)
         if not _TOKEN_FILE.exists():
@@ -55,6 +65,25 @@ def _read_token() -> str:
         return _TOKEN_FILE.read_text().strip()
     except OSError:
         return ""
+
+
+async def _read_upload_capped(upload: UploadFile, limit: Optional[int] = None) -> bytes:
+    """Read an upload in chunks, refusing it with 413 once it exceeds *limit*."""
+    limit = MAX_AUDIO_BYTES if limit is None else limit
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Audio too large (limit {limit // (1024 * 1024)} MB)",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def require_token(
@@ -115,11 +144,14 @@ async def stt_endpoint(
     language: Optional[str] = Form(default=None),
     engine: Optional[str] = Form(default=None),
 ):
-    data = await audio.read()
+    data = await _read_upload_capped(audio)
     if not data:
         raise HTTPException(status_code=400, detail="No audio provided")
     try:
-        result = stt.transcribe(data, language=language, prefer=engine)
+        # Model load + inference block for seconds: keep them off the event loop.
+        result = await run_in_threadpool(
+            stt.transcribe, data, language=language, prefer=engine
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception:
@@ -142,7 +174,7 @@ def tts_endpoint(req: TtsRequest):
         raise HTTPException(status_code=500, detail="tts failed: internal error")
     return Response(
         content=result["audio"],
-        media_type="audio/wav",
+        media_type=result.get("mime") or "audio/wav",
         headers={"X-TTS-Engine": result["engine"]},
     )
 
@@ -156,11 +188,12 @@ def wake_status():
 async def wake_listen(
     audio: UploadFile = File(...),
 ):
-    data = await audio.read()
+    data = await _read_upload_capped(audio)
     if not data:
         raise HTTPException(status_code=400, detail="No audio provided")
     try:
-        return {"ok": True, **wake.listen_once(data)}
+        scores = await run_in_threadpool(wake.listen_once, data)
+        return {"ok": True, **scores}
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception:
