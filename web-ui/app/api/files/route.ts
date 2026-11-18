@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
-import os from 'os'
 import { requirePermission } from '@/lib/access'
-
-function safePath(p: string): string {
-  const home = os.homedir()
-  const resolved = path.resolve(p.replace(/^~(?=\/|$)/, home))
-  if (!resolved.startsWith(home + path.sep) && resolved !== home) throw new Error('Access denied: path outside home directory')
-  return resolved
-}
+import { isAdmin } from '@/lib/auth'
+import { defaultFilesPath, isListable, resolveReadPath, resolveWritePath, writeFileNoFollow } from '@/lib/file-access'
 
 function getFileIcon(name: string, isDir: boolean): string {
   if (isDir) return '📁'
@@ -26,16 +20,18 @@ function getFileIcon(name: string, isDir: boolean): string {
 
 // GET /api/files?path=~/GhostForge — list directory
 // GET /api/files?path=~/GhostForge/file.ts&content=1 — read file content
+// Paths are confined by lib/file-access (workspace root for non-admins).
 export async function GET(req: NextRequest) {
   const access = await requirePermission(req, 'file_read')
   if (access instanceof NextResponse) return access
+  const policy = { admin: isAdmin(access) }
 
   const url = new URL(req.url)
-  const rawPath = url.searchParams.get('path') || '~'
+  const rawPath = url.searchParams.get('path') || defaultFilesPath(policy)
   const wantContent = url.searchParams.get('content') === '1'
 
   try {
-    const resolved = safePath(rawPath)
+    const resolved = resolveReadPath(rawPath, policy)
     const stat = fs.statSync(resolved)
 
     if (wantContent || stat.isFile()) {
@@ -48,7 +44,7 @@ export async function GET(req: NextRequest) {
     // List directory
     const entries = fs.readdirSync(resolved, { withFileTypes: true })
     const items = entries
-      .filter(e => !e.name.startsWith('.') || e.name === '.env' || e.name === '.gitignore')
+      .filter(e => isListable(e.name, policy))
       .map(e => ({
         name: e.name,
         isDir: e.isDirectory(),
@@ -74,9 +70,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const { path: rawPath, content } = await req.json() as { path: string; content: string }
-    if (typeof content === 'string' && Buffer.byteLength(content, 'utf8') > 1024 * 1024) return NextResponse.json({ error: 'Content too large (>1MB)' }, { status: 400 })
-    const resolved = safePath(rawPath)
-    fs.writeFileSync(resolved, content, 'utf8')
+    if (typeof rawPath !== 'string' || typeof content !== 'string') return NextResponse.json({ error: 'path and content must be strings' }, { status: 400 })
+    if (Buffer.byteLength(content, 'utf8') > 1024 * 1024) return NextResponse.json({ error: 'Content too large (>1MB)' }, { status: 400 })
+    const resolved = resolveWritePath(rawPath, { admin: isAdmin(access) })
+    writeFileNoFollow(resolved, content)
     return NextResponse.json({ ok: true, path: resolved })
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 400 })

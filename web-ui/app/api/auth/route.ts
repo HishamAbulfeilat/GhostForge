@@ -4,7 +4,7 @@ import { ensureUserStore, getUserByUsername, verifyPassword } from '@/lib/users'
 import { timingSafeEqual } from 'crypto'
 import { getClientIP } from '@/lib/ratelimit'
 import { auditLog } from '@/lib/audit'
-import { MAX_FAILED_LOGINS, clearFailedLogins, isLoginBlocked, recordFailedLogin, reportUnauthorizedAccess } from '@/lib/intrusion'
+import { MAX_FAILED_LOGINS, clearFailedLogins, isLoginBlocked, isPinLoginBlocked, recordFailedLogin, recordFailedPinLogin, reportUnauthorizedAccess } from '@/lib/intrusion'
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a)
@@ -13,8 +13,9 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Log a failed login. After MAX_FAILED_LOGINS in the window from one IP it is
- * treated as an intrusion: logged as unauthorized access and the PC is locked.
+ * Log a failed login. After MAX_FAILED_LOGINS in the window from one client it
+ * is logged as unauthorized access. The caller is anonymous, so this never
+ * locks the PC (that would let anyone lock it by guessing badly).
  */
 async function failLogin(req: NextRequest, username: string, error: string) {
   const ip = getClientIP(req)
@@ -22,7 +23,7 @@ async function failLogin(req: NextRequest, username: string, error: string) {
   const count = recordFailedLogin(ip)
   void auditLog({ level: 'security', event: 'login_failed', ip, userAgent, params: { username }, risk: 50 })
   if (count === MAX_FAILED_LOGINS) {
-    void reportUnauthorizedAccess({ reason: `${count} failed logins`, username, ip, userAgent })
+    void reportUnauthorizedAccess({ reason: `${count} failed logins`, username, ip, userAgent, authenticated: false })
   }
   if (count >= MAX_FAILED_LOGINS) {
     return NextResponse.json({ error: 'Too many failed attempts. Try again later.' }, { status: 429 })
@@ -45,8 +46,13 @@ export async function POST(req: NextRequest) {
   }
   const pin = body.pin?.trim()
 
-  // Legacy PIN login: maps to the default admin account.
+  // Legacy PIN login: maps to the default admin account. Its failures are
+  // also counted globally (not per client), so rotating addresses can't
+  // brute-force a short PIN.
   if (pin) {
+    if (isPinLoginBlocked()) {
+      return NextResponse.json({ error: 'PIN sign-in is paused after too many failed attempts. Try again later or sign in with your username and password.' }, { status: 429 })
+    }
     if (safeEqual(pin, getAccessPin())) {
       const admin = await getUserByUsername(process.env.ADMIN_USERNAME || 'hisham')
       if (admin) {
@@ -55,6 +61,7 @@ export async function POST(req: NextRequest) {
         return setSession(token, req)
       }
     }
+    recordFailedPinLogin()
     return failLogin(req, 'pin', 'Invalid PIN')
   }
 

@@ -296,6 +296,14 @@ const stubs = {
     },
     '@/lib/users': { isOwner: () => state.user?.role === 'admin' },
     '@/lib/local-runtime': { chooseBestInstalledModel: () => null },
+    '@/lib/mcp': {
+      callMcpTool: async (name, args) => {
+        state.executed.push({ tool: `mcp:${name}`, params: args })
+        return `mcp ran ${name}`
+      },
+      listMcpTools: async () => [],
+      mcpStderrTail: () => '',
+    },
     '@/lib/mark-liv-bridge': {
       runMarkLiv: async (name, params) => {
         state.executed.push({ tool: `mark_liv:${name}`, params })
@@ -458,4 +466,43 @@ test('a denied alias tool is refused exactly like the tool it aliases', async ()
   const body = await runJarvisTool('run_terminal', { command: 'echo hi' }, limited, 'deny-alias')
   assert.equal(body.tool, null)
   assert.equal(body.toolResult, null)
+})
+
+// ── mcp_call must not bypass the permission of the tool it reaches ────────────
+
+test('mcp_call requires the underlying tool\'s permission, not just "mcp"', async () => {
+  const mcpOnly = { role: 'user', permissions: ['chat', 'mcp'], name: 'Limited', username: 'limited' }
+  const body = await runJarvisTool('mcp_call', { tool: 'terminal_command', command: 'bash -c id' }, mcpOnly, 'mcp-deny-terminal')
+  assert.match(body.toolResult, /lacks "terminal"/)
+  assert.deepEqual(state.executed, [], 'terminal_command must not reach the MCP server without "terminal"')
+
+  const office = await runJarvisTool('mcp_call', { tool: 'office_document', action: 'create' }, mcpOnly, 'mcp-deny-docs')
+  assert.match(office.toolResult, /lacks "documents"/)
+  assert.deepEqual(state.executed, [])
+})
+
+test('mcp_call runs an MCP tool when the user holds its permission', async () => {
+  const user = { role: 'user', permissions: ['chat', 'mcp', 'weather'], name: 'Limited', username: 'limited' }
+  const body = await runJarvisTool('mcp_call', { tool: 'get_weather', city: 'Cairo' }, user, 'mcp-allow-weather')
+  assert.equal(body.toolResult, 'mcp ran get_weather')
+  assert.deepEqual(state.executed, [{ tool: 'mcp:get_weather', params: { city: 'Cairo' } }])
+})
+
+test('mcp_call refuses tools it cannot map to a permission, even for an admin', async () => {
+  for (const tool of ['definitely_not_a_tool', 'toString', 'constructor']) {
+    const body = await runJarvisTool('mcp_call', { tool }, ADMIN, `mcp-unknown-${tool}`)
+    assert.match(body.toolResult, /unknown MCP tool/)
+  }
+  assert.deepEqual(state.executed, [])
+})
+
+test('every MCP tool maps to a real permission key', () => {
+  const { MCP_TOOL_PERMISSION, permissionForMcpTool } = require('../lib/tool-permissions.ts')
+  const known = new Set(ALL_PERMISSIONS)
+  for (const [tool, perm] of Object.entries(MCP_TOOL_PERMISSION)) {
+    assert.ok(known.has(perm), `MCP tool ${tool} maps to unknown permission ${perm}`)
+  }
+  assert.equal(permissionForMcpTool('terminal_command'), 'terminal')
+  assert.equal(permissionForMcpTool('open_app'), 'mac_control')
+  assert.equal(permissionForMcpTool('nope'), undefined)
 })

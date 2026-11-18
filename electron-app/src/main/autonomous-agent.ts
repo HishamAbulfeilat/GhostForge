@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { validateOutboundUrl } from './outbound-url';
+import { secureHandle, secureOn } from './ipc-guard';
 import { execSync, exec as execCb, execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
 import { randomUUID } from 'crypto';
@@ -1137,24 +1138,24 @@ export async function triggerIssueProcess(issueNumber: number): Promise<Processe
 
 // ── IPC Registration (called from index.ts) ────────────────────────────────
 
-export function registerAutonomousAgentIPC(ipcMain: any): void {
-  ipcMain.handle('jarvis:agent-start', async (_event: any, config?: Partial<AgentConfig>) => {
+export function registerAutonomousAgentIPC(): void {
+  secureHandle('jarvis:agent-start', async (_event: any, config?: Partial<AgentConfig>) => {
     const agent = getAgent(config);
     if (config) agent.updateConfig(config);
     await agent.startAgentLoop();
     return { success: true };
   });
 
-  ipcMain.handle('jarvis:agent-stop', () => {
+  secureHandle('jarvis:agent-stop', () => {
     triggerAgentStop();
     return { success: true };
   });
 
-  ipcMain.handle('jarvis:agent-status', () => {
+  secureHandle('jarvis:agent-status', () => {
     return triggerAgentStatus();
   });
 
-  ipcMain.handle('jarvis:agent-config', (_event: any, updates?: Partial<AgentConfig>) => {
+  secureHandle('jarvis:agent-config', (_event: any, updates?: Partial<AgentConfig>) => {
     const agent = getAgent();
     if (updates) {
       agent.updateConfig(updates);
@@ -1162,21 +1163,21 @@ export function registerAutonomousAgentIPC(ipcMain: any): void {
     return agent.getConfig();
   });
 
-  ipcMain.handle('jarvis:agent-issues', () => {
+  secureHandle('jarvis:agent-issues', () => {
     return agentInstance?.getProcessedIssues() || [];
   });
 
-  ipcMain.handle('jarvis:agent-process', async (_event: any, issueNumber: number) => {
+  secureHandle('jarvis:agent-process', async (_event: any, issueNumber: number) => {
     return triggerIssueProcess(issueNumber);
   });
 
-  ipcMain.handle('jarvis:agent-pause', () => {
+  secureHandle('jarvis:agent-pause', () => {
     const agent = getAgent();
     agent.pauseAgent();
     return { success: true };
   });
 
-  ipcMain.handle('jarvis:agent-resume', () => {
+  secureHandle('jarvis:agent-resume', () => {
     const agent = getAgent();
     agent.resumeAgent();
     return { success: true };
@@ -1197,7 +1198,7 @@ export function registerAutonomousAgentIPC(ipcMain: any): void {
   ];
 
   for (const eventName of forwardEvents) {
-    ipcMain.on(`jarvis:agent-on-${eventName}`, (event: any) => {
+    secureOn(`jarvis:agent-on-${eventName}`, (event: any) => {
       const agent = getAgent();
       agent.on(eventName, (data: any) => {
         if (!event.sender.isDestroyed()) {

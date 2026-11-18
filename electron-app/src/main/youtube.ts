@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { openExternalUrl } from './external-open';
 import { homedir } from 'os';
 
 const PYTHON_BRIDGE_BASE = 'http://localhost:8765';
@@ -224,22 +224,11 @@ async function fetchFromBridge(path: string, body: unknown): Promise<Response> {
 }
 
 async function openInBrowser(url: string): Promise<void> {
-  const platform = process.platform;
-
-  return new Promise((resolve, reject) => {
-    let cmd: string;
-
-    if (platform === 'darwin') {
-      cmd = `open "${url}"`;
-    } else if (platform === 'win32') {
-      cmd = `start "" "${url}"`;
-    } else {
-      cmd = `xdg-open "${url}"`;
-    }
-
-    exec(cmd, (error) => {
-      if (error) reject(new Error(`Failed to open URL: ${error.message}`));
-      else resolve();
-    });
-  });
+  // http(s) only, opened via shell.openExternal with the normalised href:
+  // no shell string is ever built from the URL.
+  try {
+    await openExternalUrl(url);
+  } catch (error) {
+    throw new Error(`Failed to open URL: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }

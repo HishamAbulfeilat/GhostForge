@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { openExternalUrl } from './external-open';
 import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -270,8 +270,6 @@ function parseAcfManifest(content: string, steamappsDir: string): InstalledGame 
 }
 
 async function triggerSteamUpdate(appId: string): Promise<string> {
-  const platform = process.platform;
-
   // Only numeric Steam app IDs are valid — reject anything else before it
   // reaches the `steam://update/` deep link.
   if (!/^\d+$/.test(String(appId))) {
@@ -280,22 +278,13 @@ async function triggerSteamUpdate(appId: string): Promise<string> {
 
   const target = `steam://update/${appId}`;
 
-  return new Promise((resolve, reject) => {
-    let cmd: string;
-
-    if (platform === 'darwin') {
-      cmd = `open "${target}"`;
-    } else if (platform === 'win32') {
-      cmd = `start "" "${target}"`;
-    } else {
-      cmd = `xdg-open "${target}"`;
-    }
-
-    exec(cmd, (error) => {
-      if (error) reject(new Error(`Failed to trigger Steam update: ${error.message}`));
-      else resolve(`Update triggered for Steam app ${appId}`);
-    });
-  });
+  try {
+    // Deep link opened by the OS handler (no shell string built from it).
+    await openExternalUrl(target, ['steam:']);
+  } catch (error) {
+    throw new Error(`Failed to trigger Steam update: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return `Update triggered for Steam app ${appId}`;
 }
 
 // ── Epic Helpers ────────────────────────────────────────────────────────────
@@ -323,24 +312,16 @@ function getEpicPaths(): string[] {
 }
 
 async function triggerEpicUpdate(gameName: string): Promise<string> {
-  const platform = process.platform;
+  // The name is URL-encoded into the deep link, which the OS handler opens
+  // directly (no shell string), so quotes or `$(...)` in it are inert.
+  const target = `com.epicgames.launcher://apps/${encodeURIComponent(gameName)}?action=update`;
 
-  return new Promise((resolve, reject) => {
-    let cmd: string;
-
-    if (platform === 'darwin') {
-      cmd = `open "com.epicgames.launcher://apps/${gameName}?action=update"`;
-    } else if (platform === 'win32') {
-      cmd = `start "" "com.epicgames.launcher://apps/${gameName}?action=update"`;
-    } else {
-      cmd = `xdg-open "com.epicgames.launcher://apps/${gameName}?action=update"`;
-    }
-
-    exec(cmd, (error) => {
-      if (error) reject(new Error(`Failed to trigger Epic update: ${error.message}`));
-      else resolve(`Update triggered for ${gameName} in Epic Games Launcher`);
-    });
-  });
+  try {
+    await openExternalUrl(target, ['com.epicgames.launcher:']);
+  } catch (error) {
+    throw new Error(`Failed to trigger Epic update: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return `Update triggered for ${gameName} in Epic Games Launcher`;
 }
 
 // ── Version Helpers ─────────────────────────────────────────────────────────

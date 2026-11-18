@@ -72,7 +72,7 @@ async function context(user, extra = {}) {
     ...extra,
   })
   const profile = await store.getProfile(user)
-  const job = { id: 'j1', title: 'Rust Engineer', company: 'Acme', description: 'Rust services', coverLetter: '' }
+  const job = { id: 'j1', title: 'Rust Engineer', company: 'Acme', location: 'Berlin, Germany', description: 'Rust services', coverLetter: '' }
   return { profile, job, coverPath: '', generate: async () => '[]', allowSubmit: false, maxSteps: 6 }
 }
 

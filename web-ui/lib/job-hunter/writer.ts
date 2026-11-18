@@ -86,19 +86,93 @@ export function templateCoverLetter(profile: JobProfile, job: JobRecord): string
 
 export interface FieldRule {
   pattern: RegExp
-  value: (p: JobProfile, job: JobRecord) => string
+  value: (p: JobProfile, job: JobRecord, label: string) => string
 }
 
 const yesNo = (v: string) => (v === 'yes' ? 'Yes' : v === 'no' ? 'No' : '')
 
 /**
+ * Consent, terms, signatures and legal declarations. Any field whose label
+ * matches is the user's to answer: the agent stops and hands back instead of
+ * filling it, never asks the AI about it and never reuses a saved answer.
+ * Checked on every field kind (checkbox, radio, select, text…), not only checkboxes.
+ */
+export const CONSENT_OR_LEGAL = new RegExp([
+  String.raw`\bI (hereby |fully )?(accept|agree|consent|acknowledge|attest|certify|declare|confirm|understand|authori[sz]e)\b`,
+  String.raw`\b(read|reviewed) and (understand|understood|agree|accept)\b|\bunderstand (and|that)\b`,
+  String.raw`\baccept(s|ed|ing)? (the|our|these|this|all|terms|privacy|polic(y|ies)|conditions)\b`,
+  String.raw`\bagree(s|d|ment)?\b|\bconsent\w*|\backnowledg\w*|\battest\w*|\bcertif(y|ies|ied)\b|\bdeclar(e|es|ed|ation)\b`,
+  String.raw`\bterms\b|\bprivacy\b|\bgdpr\b|\bdata (processing|retention|protection)\b`,
+  String.raw`\bsignature\b|\be-?sign\b|\bsign(ed)? (here|below)\b`,
+  String.raw`\bconfirm (that )?(the )?(above |this |all )?information\b`,
+].join('|'), 'i')
+
+/** True when a form label asks for consent, a signature or a legal declaration. */
+export function isConsentOrLegal(label: string): boolean {
+  return CONSENT_OR_LEGAL.test(normalizeLabel(label))
+}
+
+const WORK_ELIGIBILITY = /authori[sz]ed to work|work authori[sz]ation|legally (eligible|able|permitted) to work|right to work|eligib(le|ility) to work/i
+/** Sponsorship wording only: "Do you hold a valid UK visa?" is a different question. */
+const SPONSORSHIP = /sponsor(ship)?\b|(require|need)s? (a )?(work |employment )?visa\b|visa (support|transfer)/i
+const PREVIOUS_EMPLOYMENT = /previously (worked|been employed)|former (employee|employer)|worked (for|at|with) (us|this company|[A-Z][\w&.' -]*) (before|previously)|ever (worked|been employed) (for|at|by)/i
+/** "Where you live / your country of residence" refers to the applicant's own country. */
+const RESIDENCE = /where you (currently )?(live|reside)|country (of|where you) (residence|live|reside)|your (current |home )?country( of residence)?\b/i
+
+const COUNTRY_ALIASES: string[][] = [
+  ['united states', 'united states of america', 'usa', 'us', 'america'],
+  ['united kingdom', 'uk', 'great britain', 'britain', 'england'],
+  ['united arab emirates', 'uae'],
+  ['germany', 'deutschland'],
+  ['netherlands', 'the netherlands', 'holland'],
+]
+const countryKey = (s: string) => {
+  const v = s.toLowerCase().replace(/\./g, '').replace(/^the\s+/, '').replace(/\s+/g, ' ').trim()
+  return COUNTRY_ALIASES.find(group => group.includes(v))?.[0] ?? v
+}
+
+/** The place a work-eligibility question names ("…work in the United States?"), or '' when it names none. */
+export function namedWorkCountry(label: string): string {
+  const m = normalizeLabel(label).match(/\b(?:work|employment|employed|sponsorship|visa)\b[^?]*?\bin\s+(?:the\s+)?([A-Za-z][A-Za-z .'-]*?)(?=\s+(?:without|for|on|as|now|at|if|and|or|with)\b|[?,;(]|$)/i)
+  const place = (m?.[1] || '').trim()
+  if (!place || /^(this|that|the|your|any|which|what) |^(this|that) (country|location|region)$|^country\b|^(location|region|countries)$/i.test(place) || /\bcountry\b/i.test(place)) return ''
+  return place
+}
+
+/**
+ * Does a work-authorization / sponsorship question ask about the applicant's
+ * own country? Only then may the profile answer it. A question about another
+ * country, or one that names none while the job is elsewhere or remote, goes
+ * to the user.
+ */
+export function asksAboutOwnCountry(label: string, p: JobProfile, job: Pick<JobRecord, 'location'>): boolean {
+  const own = countryKey(p.applicant.country || '')
+  if (!own) return false
+  const named = namedWorkCountry(label)
+  if (named) return countryKey(named) === own
+  if (RESIDENCE.test(label)) return true
+  // "…work in this country?" / no country: the job's own location decides
+  const where = String(job?.location || '').toLowerCase().replace(/\./g, '')
+  const city = (p.applicant.city || '').trim().toLowerCase()
+  const aliases = COUNTRY_ALIASES.find(g => g[0] === own) ?? [own]
+  return Boolean(where) && (aliases.some(a => a.length > 3 && where.includes(a)) || where.split(/[^a-z]+/).some(w => aliases.includes(w)) || (city.length > 2 && where.includes(city)))
+}
+
+/** Labels whose answer depends on the employer or the country, so a saved answer must not carry over. */
+function isJobRelative(label: string): boolean {
+  if (PREVIOUS_EMPLOYMENT.test(label)) return true
+  return (WORK_ELIGIBILITY.test(label) || SPONSORSHIP.test(label)) && !namedWorkCountry(label)
+}
+
+/**
  * Label → value rules (from the Proficiently apply skill's field matching
- * table). Order matters: more specific patterns first.
+ * table). Order matters: more specific patterns first. Signatures, consent
+ * and "previously worked for…" are deliberately absent: the user answers them.
  */
 export const FIELD_RULES: FieldRule[] = [
   { pattern: /legal first name|^first name|given name/i, value: p => p.applicant.firstName },
   { pattern: /legal last name|^last name|surname|family name/i, value: p => p.applicant.lastName },
-  { pattern: /full name|^name$|your name|electronic signature|signature/i, value: p => `${p.applicant.firstName} ${p.applicant.lastName}`.trim() },
+  { pattern: /full name|^name$|your name/i, value: p => `${p.applicant.firstName} ${p.applicant.lastName}`.trim() },
   { pattern: /e-?mail/i, value: p => p.applicant.email },
   { pattern: /phone|mobile|telephone/i, value: p => p.applicant.phone },
   { pattern: /linkedin/i, value: p => p.applicant.linkedin },
@@ -109,10 +183,10 @@ export const FIELD_RULES: FieldRule[] = [
   { pattern: /how did you hear|referral source|where did you (find|hear)/i, value: p => p.applicant.howHeard || 'Job board' },
   // Authorization must be tested before sponsorship: "authorized to work without
   // requiring visa sponsorship?" is an authorization question and must answer
-  // from workAuthorized, not be inverted by the "visa"/"sponsorship" rule below.
-  { pattern: /authori[sz]ed to work|work authori[sz]ation|legally (eligible|able) to work|right to work/i, value: p => yesNo(p.applicant.workAuthorized) },
-  { pattern: /sponsorship|visa/i, value: p => yesNo(p.applicant.needsSponsorship) },
-  { pattern: /previously (worked|been employed)|former employee/i, value: () => 'No' },
+  // from workAuthorized, not be inverted by the sponsorship rule below.
+  // Both answer only for the applicant's own country; anything else is left blank for the user.
+  { pattern: WORK_ELIGIBILITY, value: (p, job, label) => asksAboutOwnCountry(label, p, job) ? yesNo(p.applicant.workAuthorized) : '' },
+  { pattern: SPONSORSHIP, value: (p, job, label) => asksAboutOwnCountry(label, p, job) ? yesNo(p.applicant.needsSponsorship) : '' },
   { pattern: /gender|\brace\b|ethnicity|hispanic|veteran|disability|sexual orientation/i, value: () => 'Decline to self-identify' },
   { pattern: /current (company|employer)|^company$|^organization$/i, value: p => currentEmployer(p) },
 ]
@@ -130,14 +204,37 @@ export function normalizeLabel(label: string): string {
 /** Comparison key for saved answers: case, punctuation and spacing don't matter. */
 const answerKey = (label: string) => normalizeLabel(label).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
-/** Answer a form label from the profile (answers the user saved win) */
+/** Can a saved answer to this label be reused on another application? */
+export function reusableAnswer(label: string): boolean {
+  return !isConsentOrLegal(label) && !isJobRelative(normalizeLabel(label))
+}
+
+/**
+ * Questions the user must answer themselves when the profile has no answer:
+ * consent and legal wording, work eligibility, sponsorship and previous
+ * employment. They are never sent to the AI.
+ */
+export function needsUserAnswer(label: string): boolean {
+  const clean = normalizeLabel(label)
+  return isConsentOrLegal(clean) || PREVIOUS_EMPLOYMENT.test(clean) || WORK_ELIGIBILITY.test(clean) || SPONSORSHIP.test(clean)
+}
+
+/**
+ * Answer a form label from the profile (answers the user saved win). Consent,
+ * signatures and legal declarations are never answered: they return ''.
+ */
 export function answerFor(label: string, profile: JobProfile, job: JobRecord): string {
   const clean = normalizeLabel(label)
+  if (isConsentOrLegal(clean)) return ''
   const key = answerKey(clean)
-  const cached = Object.entries(profile.customAnswers).find(([k]) => answerKey(k) === key)
+  // What the user answered for this job only ("Have you worked for us before?")
+  const forJob = Object.entries(job.jobAnswers || {}).find(([k]) => answerKey(k) === key)
+  if (forJob) return forJob[1]
+  if (PREVIOUS_EMPLOYMENT.test(clean)) return ''
+  const cached = reusableAnswer(clean) ? Object.entries(profile.customAnswers).find(([k]) => answerKey(k) === key) : undefined
   if (cached) return cached[1]
   const rule = FIELD_RULES.find(r => r.pattern.test(clean))
-  return rule ? rule.value(profile, job) : ''
+  return rule ? rule.value(profile, job, clean) : ''
 }
 
 /** The standard answers shown for review before the user approves */

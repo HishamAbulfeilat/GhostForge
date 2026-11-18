@@ -1,9 +1,11 @@
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
+import { assertHttpUrl, openExternalUrl } from './external-open';
 import type { Browser, Page } from 'playwright';
 
 /**
  * Browser automation module for GhostForge JARVIS.
- * Uses Playwright when available, falls back to shell commands.
+ * Uses Playwright when available, falls back to OS tools run with argv arrays
+ * (never a shell string), so URLs and text cannot inject commands.
  */
 
 export interface BrowserScreenshot {
@@ -44,40 +46,24 @@ async function getBrowserPage(): Promise<Page | null> {
   }
 }
 
-function runShell(cmd: string, timeout = 10000): Promise<string> {
+/** Run a program with an argv array (no shell). */
+function runFile(file: string, args: string[], timeout = 10000): Promise<string> {
   return new Promise((resolve, reject) => {
-    exec(cmd, { timeout }, (error, stdout) => {
+    execFile(file, args, { timeout }, (error, stdout) => {
       if (error) reject(error);
-      else resolve(stdout.trim());
+      else resolve(String(stdout).trim());
     });
   });
 }
 
-/** Validate that a URL uses an http(s) scheme before navigation. */
-function assertHttpUrl(url: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error(`Invalid URL: ${url}`);
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new Error(`Blocked URL with non-http(s) scheme: ${parsed.protocol}`);
-  }
-  return url;
-}
-
-function platformOpen(url: string): Promise<string> {
-  assertHttpUrl(url);
-  const platform = process.platform;
-  if (platform === 'darwin') return runShell(`open "${url}"`);
-  if (platform === 'win32') return runShell(`start "" "${url}"`);
-  return runShell(`xdg-open "${url}"`);
+/** Open an http(s) URL in the system browser via shell.openExternal. */
+async function platformOpen(url: string): Promise<string> {
+  return openExternalUrl(url);
 }
 
 /** Open a URL in the default browser or Playwright. */
-export async function openUrl(url: string): Promise<string> {
-  assertHttpUrl(url);
+export async function openUrl(rawUrl: string): Promise<string> {
+  const url = assertHttpUrl(rawUrl);
   const page = await getBrowserPage();
   if (page) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -97,8 +83,8 @@ export async function searchWeb(query: string, engine: 'google' | 'duckduckgo' =
 }
 
 /** Navigate the current tab to a new URL. */
-export async function navigateTab(url: string): Promise<string> {
-  assertHttpUrl(url);
+export async function navigateTab(rawUrl: string): Promise<string> {
+  const url = assertHttpUrl(rawUrl);
   const page = await getBrowserPage();
   if (page) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -114,12 +100,17 @@ export async function typeText(text: string): Promise<string> {
     await page.keyboard.type(text, { delay: 30 });
     return `Typed: "${text.slice(0, 60)}"`;
   }
-  // Fallback: use xdotool on Linux, osascript keystroke on macOS
-  const escaped = text.replace(/"/g, '\\"');
+  // Fallback: xdotool on Linux, osascript keystroke on macOS. The text is a
+  // separate argv item (AppleScript reads it from `argv`), never interpolated.
   if (process.platform === 'darwin') {
-    await runShell(`osascript -e 'tell application "System Events" to keystroke "${escaped}"'`);
+    await runFile('osascript', [
+      '-e', 'on run argv',
+      '-e', 'tell application "System Events" to keystroke (item 1 of argv)',
+      '-e', 'end run',
+      text,
+    ]);
   } else {
-    await runShell(`xdotool type --delay 30 "${escaped}"`);
+    await runFile('xdotool', ['type', '--delay', '30', '--', text]);
   }
   return `Typed: "${text.slice(0, 60)}"`;
 }
@@ -142,7 +133,7 @@ export async function goBack(): Promise<string> {
     return 'Navigated back';
   }
   if (process.platform === 'darwin') {
-    await runShell('osascript -e \'tell application "System Events" to keystroke "[" using command down\'');
+    await runFile('osascript', ['-e', 'tell application "System Events" to keystroke "[" using command down']);
     return 'Navigated back (shell fallback)';
   }
   throw new Error('Playwright not available — install with: npm i playwright');
@@ -156,7 +147,7 @@ export async function goForward(): Promise<string> {
     return 'Navigated forward';
   }
   if (process.platform === 'darwin') {
-    await runShell('osascript -e \'tell application "System Events" to keystroke "]" using command down\'');
+    await runFile('osascript', ['-e', 'tell application "System Events" to keystroke "]" using command down']);
     return 'Navigated forward (shell fallback)';
   }
   throw new Error('Playwright not available — install with: npm i playwright');
@@ -179,7 +170,7 @@ export async function scrollPage(direction: 'up' | 'down' | 'left' | 'right', am
   if (process.platform === 'darwin') {
     const dir = (direction === 'up' || direction === 'left') ? 'up' : 'down';
     const script = `tell application "System Events" to scroll ${dir} 5`;
-    await runShell(`osascript -e '${script}'`);
+    await runFile('osascript', ['-e', script]);
     return `Scrolled ${direction} (shell fallback)`;
   }
   throw new Error('Playwright not available');
@@ -198,9 +189,9 @@ export async function takeScreenshot(filePath?: string): Promise<BrowserScreensh
 
   // Fallback: OS-level screenshot
   if (process.platform === 'darwin') {
-    await runShell(`screencapture -x "${outPath}"`);
+    await runFile('screencapture', ['-x', outPath]);
   } else {
-    await runShell(`gnome-screenshot -f "${outPath}"`);
+    await runFile('gnome-screenshot', ['-f', outPath]);
   }
   return { path: outPath, width: 0, height: 0 };
 }

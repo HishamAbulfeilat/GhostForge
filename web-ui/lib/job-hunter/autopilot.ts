@@ -72,7 +72,8 @@ async function record(username: string, now: number, result: string, submitted =
 
 /**
  * One autopilot pass for a user. `force` runs even when it isn't due (the
- * "Run now" button / CLI). `generate` and `approve` are injectable for tests.
+ * "Run now" button / CLI), but never while autopilot is off. `generate` and
+ * `approve` are injectable for tests.
  */
 export async function runAutopilot(
   username: string,
@@ -82,7 +83,9 @@ export async function runAutopilot(
   const profile = await getProfile(username)
   const ap = profile.autopilot
 
-  if (!ap.enabled && !opts.force) return { ran: false, reason: 'Autopilot is off' }
+  // `force` skips only the schedule, never the on/off switch: a pass submits applications,
+  // so "Run now" works only after the user turned autopilot on (and confirmed what it does).
+  if (!ap.enabled) return { ran: false, reason: opts.force ? 'Autopilot is off. Turn it on first: Run now submits applications only while autopilot is on.' : 'Autopilot is off' }
   if (!opts.force && !isDue(ap, now)) return { ran: false, reason: 'Not due yet' }
 
   const missing = missingApplicantFields(profile)

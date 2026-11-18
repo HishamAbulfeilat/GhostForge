@@ -6,7 +6,7 @@
  * verified in lib/auth.ts.
  */
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'crypto'
-import { mkdir, readFile, writeFile } from 'fs/promises'
+import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
 
@@ -27,6 +27,12 @@ export interface GhostUser {
   jobTitle?: string
   profileId?: string
   setupComplete?: boolean
+  /**
+   * True once the owner has set this account's permissions explicitly (created
+   * with a permission list, or edited on the Users page). The setup wizard then
+   * leaves them exactly as assigned instead of applying a job-title profile.
+   */
+  permissionsAssigned?: boolean
 }
 
 export interface PublicUser {
@@ -41,6 +47,7 @@ export interface PublicUser {
   jobTitle?: string
   profileId?: string
   setupComplete?: boolean
+  permissionsAssigned?: boolean
 }
 
 const USERS_FILE = join(homedir(), '.ghostforge', 'users.json')
@@ -90,18 +97,34 @@ interface UserFile {
 let _cache: { users: GhostUser[]; ts: number } | null = null
 const CACHE_TTL = 2000
 
+/**
+ * Read the store. Only a missing file means "no users yet" (the caller seeds
+ * the default admin). A file that exists but cannot be read or parsed must
+ * never look empty — that used to re-seed the store and wipe every account —
+ * so we keep serving the last good copy, or throw when there is none.
+ */
 async function readUsers(): Promise<GhostUser[]> {
   const now = Date.now()
   if (_cache && now - _cache.ts < CACHE_TTL) return _cache.users
+  let raw: string
   try {
-    const raw = await readFile(USERS_FILE, 'utf8')
-    const parsed = JSON.parse(raw) as UserFile
-    const users = Array.isArray(parsed.users) ? parsed.users : []
-    _cache = { users, ts: now }
-    return users
-  } catch {
-    return []
+    raw = await readFile(USERS_FILE, 'utf8')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+    if (_cache) return _cache.users
+    throw err
   }
+  let parsed: UserFile
+  try {
+    parsed = JSON.parse(raw) as UserFile
+    if (!parsed || !Array.isArray(parsed.users)) throw new Error('users.json has no "users" array')
+  } catch (err) {
+    console.error(`[users] ${USERS_FILE} is unreadable (${(err as Error).message}); not re-seeding`)
+    if (_cache) return _cache.users
+    throw new Error(`User store ${USERS_FILE} is corrupt; fix or restore it (it was not overwritten)`)
+  }
+  _cache = { users: parsed.users, ts: now }
+  return parsed.users
 }
 
 /**
@@ -117,9 +140,20 @@ function withUsersLock<T>(fn: () => Promise<T>): Promise<T> {
   return run
 }
 
+/**
+ * Atomic write: a reader sees either the old file or the new one, never a
+ * truncated or half-written file (temp file with mode 0600, then rename).
+ */
 async function writeUsers(users: GhostUser[]): Promise<void> {
-  await mkdir(join(homedir(), '.ghostforge'), { recursive: true })
-  await writeFile(USERS_FILE, JSON.stringify({ users }, null, 2), 'utf8')
+  await mkdir(join(homedir(), '.ghostforge'), { recursive: true, mode: 0o700 })
+  const tmp = `${USERS_FILE}.${randomBytes(6).toString('hex')}.tmp`
+  try {
+    await writeFile(tmp, JSON.stringify({ users }, null, 2), { encoding: 'utf8', mode: 0o600 })
+    await rename(tmp, USERS_FILE)
+  } catch (err) {
+    await unlink(tmp).catch(() => {})
+    throw err
+  }
   _cache = { users, ts: Date.now() }
 }
 
@@ -134,6 +168,17 @@ async function writeUsers(users: GhostUser[]): Promise<void> {
 export async function ensureUserStore(): Promise<GhostUser[]> {
   const users = await readUsers()
   if (users.some(u => u.role === 'admin')) return users
+  // Seed under the lock so it can't race a concurrent write.
+  return withUsersLock(loadUsersLocked)
+}
+
+/**
+ * Read the store and seed the default admin when there is none. Callers must
+ * already hold withUsersLock (the lock is not re-entrant).
+ */
+async function loadUsersLocked(): Promise<GhostUser[]> {
+  const users = await readUsers()
+  if (users.some(u => u.role === 'admin')) return users
 
   const username = (process.env.ADMIN_USERNAME || DEFAULT_ADMIN_USERNAME).toLowerCase()
   const envPassword = process.env.ADMIN_PASSWORD || process.env.ACCESS_PIN
@@ -145,6 +190,9 @@ export async function ensureUserStore(): Promise<GhostUser[]> {
     password = generated
   } else {
     password = envPassword
+    if (password.length < 8) {
+      console.warn(`[users] WARNING: the first admin password (ADMIN_PASSWORD or ACCESS_PIN) is shorter than 8 characters. Change it in Settings → Users.`)
+    }
   }
   const name = process.env.ADMIN_NAME || DEFAULT_ADMIN_NAME
   const admin: GhostUser = {
@@ -199,7 +247,7 @@ export async function createUser(input: {
   active?: boolean
 }): Promise<GhostUser> {
   return withUsersLock(async () => {
-    const users = await listUsers()
+    const users = await loadUsersLocked()
     const username = input.username.trim().toLowerCase()
     if (!username || !input.password) throw new Error('Username and password are required')
     if (users.some(u => u.username === username)) throw new Error('Username already exists')
@@ -210,6 +258,7 @@ export async function createUser(input: {
       role: input.role === 'admin' ? 'admin' : 'user',
       passwordHash: hashPassword(input.password),
       permissions: input.role === 'admin' ? ['*'] : (input.permissions || []),
+      ...(input.role !== 'admin' && Array.isArray(input.permissions) ? { permissionsAssigned: true } : {}),
       active: input.active !== false,
       createdAt: new Date().toISOString(),
     }
@@ -221,10 +270,10 @@ export async function createUser(input: {
 
 export async function updateUser(
   id: string,
-  patch: Partial<Pick<GhostUser, 'name' | 'role' | 'permissions' | 'active' | 'passwordHash' | 'jobTitle' | 'profileId' | 'setupComplete'>>,
+  patch: Partial<Pick<GhostUser, 'name' | 'role' | 'permissions' | 'active' | 'passwordHash' | 'jobTitle' | 'profileId' | 'setupComplete' | 'permissionsAssigned'>>,
 ): Promise<GhostUser | null> {
   return withUsersLock(async () => {
-    const users = await listUsers()
+    const users = await loadUsersLocked()
     const idx = users.findIndex(u => u.id === id)
     if (idx === -1) return null
     const current = users[idx]
@@ -245,7 +294,7 @@ export async function updateUser(
 
 export async function setUserPassword(id: string, newPassword: string): Promise<boolean> {
   return withUsersLock(async () => {
-    const users = await listUsers()
+    const users = await loadUsersLocked()
     const idx = users.findIndex(u => u.id === id)
     if (idx === -1) return false
     users[idx].passwordHash = hashPassword(newPassword)
@@ -256,7 +305,7 @@ export async function setUserPassword(id: string, newPassword: string): Promise<
 
 export async function deleteUser(id: string): Promise<boolean> {
   return withUsersLock(async () => {
-    const users = await listUsers()
+    const users = await loadUsersLocked()
     const target = users.find(u => u.id === id)
     if (!target || isOwner(target)) return false
     await writeUsers(users.filter(u => u.id !== id))
@@ -264,12 +313,25 @@ export async function deleteUser(id: string): Promise<boolean> {
   })
 }
 
-export async function touchLastSeen(id: string): Promise<void> {
+/** lastSeen is rewritten at most once per this interval per user. */
+export const LAST_SEEN_INTERVAL_MS = 60_000
+const _lastSeenWrites = new Map<string, number>()
+
+/**
+ * Record activity. getCurrentUser() calls this on every authenticated request,
+ * so it is throttled: rewriting users.json on every API call made the store
+ * churn constantly (and, before writes were atomic, could wipe it).
+ */
+export async function touchLastSeen(id: string, nowMs = Date.now()): Promise<void> {
+  const last = _lastSeenWrites.get(id)
+  if (last !== undefined && nowMs - last < LAST_SEEN_INTERVAL_MS) return
+  _lastSeenWrites.set(id, nowMs)
+  if (_lastSeenWrites.size > 10_000) _lastSeenWrites.clear()
   return withUsersLock(async () => {
-    const users = await listUsers()
+    const users = await loadUsersLocked()
     const idx = users.findIndex(u => u.id === id)
     if (idx === -1) return
-    const now = new Date().toISOString()
+    const now = new Date(nowMs).toISOString()
     if (users[idx].lastSeen === now) return
     users[idx].lastSeen = now
     users[idx].lastActive = now

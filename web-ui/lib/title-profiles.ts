@@ -135,6 +135,25 @@ export function permissionsForProfile(profile: TitleProfile): string[] {
   return [...new Set([...BASE_PERMISSIONS, ...profile.permissions])]
 }
 
+/**
+ * Permissions a user ends up with after the setup wizard.
+ *
+ * The job title / profile is self-reported, so it may only ever narrow access,
+ * never widen it: the result is the profile's set intersected with what the
+ * owner already granted. Accounts whose permissions the owner set explicitly
+ * keep exactly those. Admins are unaffected (returns null = leave as is).
+ */
+export function setupPermissionsFor(
+  user: { role: string; permissions?: string[]; permissionsAssigned?: boolean },
+  profile: TitleProfile,
+): string[] | null {
+  if (user.role === 'admin') return null
+  const current = Array.isArray(user.permissions) ? user.permissions.filter(p => p !== '*') : []
+  if (user.permissionsAssigned) return current
+  const granted = new Set(current)
+  return permissionsForProfile(profile).filter(p => granted.has(p))
+}
+
 // ── Page access ──────────────────────────────────────────────────────────────
 
 export interface PageAccess {

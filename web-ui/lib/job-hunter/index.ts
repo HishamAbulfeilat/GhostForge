@@ -24,7 +24,7 @@ import {
 import { applyToJob } from './apply'
 import { updateApplicationActivity } from './live'
 import { notifyJob } from './notifications'
-import { buildAnswers, missingApplicantFields, normalizeLabel, tailorResume, templateCoverLetter, writeCoverLetter } from './writer'
+import { buildAnswers, missingApplicantFields, normalizeLabel, reusableAnswer, tailorResume, templateCoverLetter, writeCoverLetter } from './writer'
 
 export * from './store'
 export { linkedInSearchUrl } from './sources'
@@ -285,10 +285,16 @@ async function saveQuestionAnswers(username: string, id: string, answers: Record
     if (l && v) clean[l] = v
   }
   if (!Object.keys(clean).length) throw new Error('Answer at least one question')
-  await saveProfile(username, { customAnswers: clean })
+  // Country- or employer-specific answers stay with this job; the rest are reused everywhere
+  const reusable: Record<string, string> = {}
+  const forJob: Record<string, string> = {}
+  for (const [l, v] of Object.entries(clean)) (reusableAnswer(l) ? reusable : forJob)[l] = v
+  if (Object.keys(reusable).length) await saveProfile(username, { customAnswers: reusable })
   const remaining = (job.questions || []).filter(q => !clean[normalizeLabel(q.label)])
   const status = job.status === 'submitted' || job.status === 'dismissed' ? job.status : remaining.length ? 'needs_user' : 'ready'
-  return (await updateJob(username, id, { questions: remaining.length ? remaining : undefined, status }, `You answered ${Object.keys(clean).length} question(s); saved for future applications`))!
+  const patch: Partial<JobRecord> = { questions: remaining.length ? remaining : undefined, status }
+  if (Object.keys(forJob).length) patch.jobAnswers = { ...(job.jobAnswers || {}), ...forJob }
+  return (await updateJob(username, id, patch, `You answered ${Object.keys(clean).length} question(s); ${Object.keys(forJob).length ? 'job-specific answers kept for this job only, the rest ' : ''}saved for future applications`))!
 }
 
 export function dismissJob(username: string, id: string): Promise<JobRecord | null> {

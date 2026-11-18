@@ -4,7 +4,7 @@ import { updateUser } from '@/lib/users'
 import { auditLog } from '@/lib/audit'
 import { PERMISSIONS } from '@/lib/permissions'
 import {
-  TITLE_PROFILES, allowedPages, getProfile, permissionsForProfile, profileForTitle,
+  TITLE_PROFILES, allowedPages, getProfile, permissionsForProfile, profileForTitle, setupPermissionsFor,
 } from '@/lib/title-profiles'
 
 export const dynamic = 'force-dynamic'
@@ -15,8 +15,10 @@ export const dynamic = 'force-dynamic'
  *   GET  /api/setup                 → current state + profile catalog
  *   GET  /api/setup?title=<title>   → preview the profile a title maps to
  *   POST /api/setup { name, jobTitle, profileId? }
- *        Saves who the user is. Regular users get their title's permissions
- *        immediately; admins keep full access ('*').
+ *        Saves who the user is. The title is self-reported, so it can only
+ *        narrow a regular user's access (profile ∩ owner-assigned set); users
+ *        whose permissions the owner set explicitly keep exactly those.
+ *        Admins keep full access ('*').
  */
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser(req)
@@ -75,13 +77,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Setup is already complete. Ask the owner to reset it from the Users page.' }, { status: 409 })
   }
 
+  // Never widen permissions from self-reported input (see setupPermissionsFor)
+  const permissions = setupPermissionsFor(user, profile)
   const updated = await updateUser(user.id, {
     name,
     jobTitle,
     profileId: profile.id,
     setupComplete: true,
-    // Admins keep full access; everyone else gets exactly their title's access
-    ...(admin ? {} : { permissions: permissionsForProfile(profile) }),
+    ...(permissions ? { permissions } : {}),
   })
   if (!updated) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 

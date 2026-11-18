@@ -49,7 +49,17 @@ export function getAccessPin() {
     return devPin
   }
   if (pin.length < 4) throw new Error('ACCESS_PIN must be at least 4 characters')
+  if (pin.length < MIN_RECOMMENDED_PIN_LENGTH) warnShortPin()
   return pin
+}
+
+/** PINs shorter than this still work (existing setups) but are warned about. */
+export const MIN_RECOMMENDED_PIN_LENGTH = 8
+let shortPinWarned = false
+function warnShortPin() {
+  if (shortPinWarned || process.env.NODE_ENV === 'test') return
+  shortPinWarned = true
+  console.warn(`[auth] WARNING: ACCESS_PIN is shorter than ${MIN_RECOMMENDED_PIN_LENGTH} characters. It signs in as the owner, so a short PIN is easy to guess. Set a longer ACCESS_PIN (or sign in with username + password). PIN login is rate-limited globally in the meantime.`)
 }
 
 function b64url(input: Buffer | string): string {

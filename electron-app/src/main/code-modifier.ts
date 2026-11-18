@@ -1,5 +1,6 @@
-import { app, ipcMain, dialog, BrowserWindow } from 'electron';
-import { exec } from 'child_process';
+import { app, dialog, BrowserWindow } from 'electron';
+import { secureHandle } from './ipc-guard';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import { EventEmitter } from 'events';
 import {
@@ -16,6 +17,13 @@ import { join, relative, dirname } from 'path';
 import { homedir } from 'os';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+/** stdout of a failed execFile (e.g. grep/find exit 1/2 but still printed results). */
+function stdoutOf(err: unknown): string {
+  const out = (err as { stdout?: unknown } | null)?.stdout;
+  return typeof out === 'string' ? out : '';
+}
 
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 
@@ -92,9 +100,10 @@ export class CodeModifier extends EventEmitter {
   private resolvePath(filePath: string): string {
     const resolved = join(PROJECT_ROOT, filePath);
     const normalized = resolved.replace(/\\/g, '/');
-    const root = PROJECT_ROOT.replace(/\\/g, '/');
+    const root = PROJECT_ROOT.replace(/\\/g, '/').replace(/\/+$/, '');
 
-    if (!normalized.startsWith(root)) {
+    // Require a separator after the root so a sibling like "<root>-evil" can't pass.
+    if (normalized !== root && !normalized.startsWith(root + '/')) {
       throw new Error('Path traversal detected');
     }
 
@@ -426,8 +435,9 @@ export class CodeModifier extends EventEmitter {
 
   private async gitCommit(filePath: string, message: string): Promise<void> {
     try {
-      await execAsync(`git add "${filePath}"`, { cwd: PROJECT_ROOT });
-      await execAsync(`git commit -m "${message.replace(/"/g, '\\"')}"`, { cwd: PROJECT_ROOT });
+      // argv arrays, no shell: the path and message are never parsed by a shell.
+      await execFileAsync('git', ['add', '--', filePath], { cwd: PROJECT_ROOT });
+      await execFileAsync('git', ['commit', '-m', message], { cwd: PROJECT_ROOT });
       this.log(`Committed: ${message}`);
     } catch (err) {
       this.log('Git commit failed', err);
@@ -476,23 +486,31 @@ export class CodeModifier extends EventEmitter {
     const searchDir = directory ? this.resolvePath(directory) : PROJECT_ROOT;
 
     try {
-      const { stdout } = await execAsync(
-        `grep -rl "${pattern.replace(/"/g, '\\"')}" "${searchDir}" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.json" 2>/dev/null | head -100`,
-        { cwd: PROJECT_ROOT }
-      );
+      // Fixed-string grep via argv (no shell); `--` ends options so a pattern
+      // starting with '-' is still treated as the pattern.
+      const includes = ['*.ts', '*.tsx', '*.js', '*.jsx', '*.json'].map(glob => '--include=' + glob);
+      let stdout = '';
+      try {
+        ({ stdout } = await execFileAsync('grep', ['-rlF', ...includes, '--', pattern, searchDir], {
+          cwd: PROJECT_ROOT,
+          maxBuffer: 10 * 1024 * 1024,
+        }));
+      } catch (err) {
+        // grep exits 1 for no match and 2 when some files were unreadable.
+        stdout = stdoutOf(err);
+      }
 
-      const files = stdout.trim().split('\n').filter(Boolean);
+      const files = stdout.trim().split('\n').filter(Boolean).slice(0, 100);
       const results: Array<{ path: string; matches: number }> = [];
 
       for (const file of files) {
         const relPath = relative(PROJECT_ROOT, file);
-        const { stdout: countOut } = await execAsync(
-          `grep -c "${pattern.replace(/"/g, '\\"')}" "${file}" 2>/dev/null || echo 0`
-        );
-        results.push({
-          path: relPath,
-          matches: parseInt(countOut.trim(), 10) || 0,
-        });
+        let matches = 0;
+        try {
+          // Same as `grep -c -F`: number of lines containing the pattern.
+          matches = readFileSync(file, 'utf8').split('\n').filter(line => line.includes(pattern)).length;
+        } catch { /* unreadable: report 0 */ }
+        results.push({ path: relPath, matches });
       }
 
       return results;
@@ -503,12 +521,22 @@ export class CodeModifier extends EventEmitter {
 
   async getProjectStructure(): Promise<ProjectAnalysis> {
     try {
-      const { stdout: filesOutput } = await execAsync(
-        `find "${PROJECT_ROOT}" -type f -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" -not -path "*/release/*" -not -path "*/.aider*/*" 2>/dev/null | head -500`,
-        { cwd: PROJECT_ROOT }
-      );
+      let filesOutput = '';
+      try {
+        ({ stdout: filesOutput } = await execFileAsync('find', [
+          PROJECT_ROOT, '-type', 'f',
+          '-not', '-path', '*/node_modules/*',
+          '-not', '-path', '*/.git/*',
+          '-not', '-path', '*/dist/*',
+          '-not', '-path', '*/release/*',
+          '-not', '-path', '*/.aider*/*',
+        ], { cwd: PROJECT_ROOT, maxBuffer: 50 * 1024 * 1024 }));
+      } catch (err) {
+        // find exits non-zero on unreadable directories but still lists the rest.
+        filesOutput = stdoutOf(err);
+      }
 
-      const fileList = filesOutput.trim().split('\n').filter(Boolean);
+      const fileList = filesOutput.trim().split('\n').filter(Boolean).slice(0, 500);
       const languages: Record<string, number> = {};
       let totalSize = 0;
 
@@ -525,11 +553,19 @@ export class CodeModifier extends EventEmitter {
         }
       });
 
-      const { stdout: dirsOutput } = await execAsync(
-        `find "${PROJECT_ROOT}" -type d -not -path "*/node_modules/*" -not -path "*/.git/*" -not -path "*/dist/*" -not -path "*/release/*" 2>/dev/null | head -100`,
-        { cwd: PROJECT_ROOT }
-      );
-      const directories = dirsOutput.trim().split('\n').filter(Boolean).map(d => relative(PROJECT_ROOT, d));
+      let dirsOutput = '';
+      try {
+        ({ stdout: dirsOutput } = await execFileAsync('find', [
+          PROJECT_ROOT, '-type', 'd',
+          '-not', '-path', '*/node_modules/*',
+          '-not', '-path', '*/.git/*',
+          '-not', '-path', '*/dist/*',
+          '-not', '-path', '*/release/*',
+        ], { cwd: PROJECT_ROOT, maxBuffer: 50 * 1024 * 1024 }));
+      } catch (err) {
+        dirsOutput = stdoutOf(err);
+      }
+      const directories = dirsOutput.trim().split('\n').filter(Boolean).slice(0, 100).map(d => relative(PROJECT_ROOT, d));
 
       return {
         root: PROJECT_ROOT,
@@ -581,11 +617,11 @@ export class CodeModifier extends EventEmitter {
   // ── IPC Registration ─────────────────────────────────────────────────────
 
   registerIPC(): void {
-    ipcMain.handle('code:read-file', async (_event, filePath: string) => {
+    secureHandle('code:read-file', async (_event, filePath: string) => {
       return this.readFile(filePath);
     });
 
-    ipcMain.handle('code:edit-file', async (
+    secureHandle('code:edit-file', async (
       _event,
       filePath: string,
       oldContent: string,
@@ -595,7 +631,7 @@ export class CodeModifier extends EventEmitter {
       return this.editFile(filePath, oldContent, newContent, options);
     });
 
-    ipcMain.handle('code:create-file', async (
+    secureHandle('code:create-file', async (
       _event,
       filePath: string,
       content: string,
@@ -604,7 +640,7 @@ export class CodeModifier extends EventEmitter {
       return this.createFile(filePath, content, options);
     });
 
-    ipcMain.handle('code:delete-file', async (
+    secureHandle('code:delete-file', async (
       _event,
       filePath: string,
       options?: { confirm?: boolean; commitMessage?: string }
@@ -612,31 +648,31 @@ export class CodeModifier extends EventEmitter {
       return this.deleteFile(filePath, options);
     });
 
-    ipcMain.handle('code:search', async (_event, pattern: string, directory?: string) => {
+    secureHandle('code:search', async (_event, pattern: string, directory?: string) => {
       return this.searchFiles(pattern, directory);
     });
 
-    ipcMain.handle('code:structure', async () => {
+    secureHandle('code:structure', async () => {
       return this.getProjectStructure();
     });
 
-    ipcMain.handle('code:rollback', async () => {
+    secureHandle('code:rollback', async () => {
       return this.rollbackLastChange();
     });
 
-    ipcMain.handle('code:history', () => {
+    secureHandle('code:history', () => {
       return this.getChangeHistory();
     });
 
-    ipcMain.handle('code:run-install', async () => {
+    secureHandle('code:run-install', async () => {
       return this.runNpmInstall();
     });
 
-    ipcMain.handle('code:run-build', async () => {
+    secureHandle('code:run-build', async () => {
       return this.runBuild();
     });
 
-    ipcMain.handle('code:restart-app', async () => {
+    secureHandle('code:restart-app', async () => {
       await this.restartApp();
       return { success: true };
     });
