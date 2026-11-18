@@ -306,16 +306,31 @@ function knownAppleScript(command) {
     return `open location "${escapeAppleScript(openUrl[1])}"`
   }
 
-  const imessage = input.match(/^send (?:an? )?imessage to (.+?) saying (.+)$/i)
-  if (imessage) return buildAppleScript({ action: 'imessage', contact: unquote(imessage[1]), message: unquote(imessage[2]) }).script || null
+  // The contact/message splits below use indexOf rather than a lazy group
+  // followed by a delimiter, so a long command can't make the match slow.
+  const imessage = input.match(/^send (?:an? )?imessage to /i)
+  if (imessage) {
+    const rest = input.slice(imessage[0].length)
+    const at = rest.toLowerCase().indexOf(' saying ')
+    const contact = at > 0 ? rest.slice(0, at) : ''
+    const message = at > 0 ? rest.slice(at + ' saying '.length).trim() : ''
+    if (contact && message) return buildAppleScript({ action: 'imessage', contact: unquote(contact), message: unquote(message) }).script || null
+  }
 
-  const teams = input.match(/^(?:open teams and )?message (.+?)(?: on teams)?:\s*(.+)$/i)
-  if (teams) return buildAppleScript({ action: 'teams', contact: unquote(teams[1]), message: unquote(teams[2]) }).script || null
+  const teams = input.match(/^(?:open teams and )?message /i)
+  if (teams) {
+    const rest = input.slice(teams[0].length)
+    const colon = rest.indexOf(':')
+    let contact = colon > 0 ? rest.slice(0, colon) : ''
+    if (contact.toLowerCase().endsWith(' on teams')) contact = contact.slice(0, -' on teams'.length)
+    const message = colon > 0 ? rest.slice(colon + 1).trim() : ''
+    if (contact && message) return buildAppleScript({ action: 'teams', contact: unquote(contact), message: unquote(message) }).script || null
+  }
 
-  const notify = input.match(/^(?:show|display|send) (?:me )?(?:a )?notification(?: saying| that says|:)\s*(.+)$/i)
+  const notify = input.match(/^(?:show|display|send) (?:me )?(?:a )?notification(?: saying| that says|:)\s*(\S.*)$/i)
   if (notify) return buildAppleScript({ action: 'notify', message: unquote(notify[1]) }).script || null
 
-  const mail = input.match(/^send (?:an? )?e-?mail to (\S+@\S+) with subject "([^"]*)" and body "([^"]*)"$/i)
+  const mail = input.match(/^send (?:an? )?e-?mail to ([^\s@]+@[^\s@]+) with subject "([^"]*)" and body "([^"]*)"$/i)
   if (mail) return buildAppleScript({ action: 'mail', to: mail[1], subject: mail[2], body: mail[3] }).script || null
 
   const finder = input.match(/^open (?:a )?finder(?: window)? (?:at|in|to|on) (?:my |the )?(.+?)(?: folder)?$/i)

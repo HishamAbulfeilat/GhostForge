@@ -92,3 +92,29 @@ test('mac-control route validates before any osacompile/osascript call', () => {
     assert.ok(at > validateAt, `${sink} must only be reachable after validation`)
   }
 })
+
+test('message commands split on the first delimiter and keep their meaning', () => {
+  assert.match(knownAppleScript('send an imessage to Sam saying see you saying hi'), /buddy "Sam"[\s\S]*"see you saying hi"/)
+  const teams = knownAppleScript('open Teams and message Dana on Teams: running late')
+  assert.ok(teams && teams.includes('Dana') && !teams.includes('on Teams') && teams.includes('running late'))
+  assert.equal(knownAppleScript('send an imessage to Sam saying '), null)
+  assert.match(knownAppleScript('show notification:   build done'), /build done/)
+})
+
+test('long hostile commands are parsed in linear time (CodeQL polynomial regex)', () => {
+  // Each input ends in a newline plus a letter so the old patterns had to
+  // fail after trying every split (about 2-7 s each at this size).
+  const n = 60000
+  const inputs = [
+    'send imessage to a saying ' + 'a saying a'.repeat(n / 10) + '\nx',
+    'message a:' + '\t'.repeat(n) + '\nx',
+    'show notification:' + '\t'.repeat(n) + '\nx',
+    'send email to !@' + '!@'.repeat(n / 2) + ' x',
+  ]
+  for (const input of inputs) {
+    const start = process.hrtime.bigint()
+    knownAppleScript(input)
+    const ms = Number(process.hrtime.bigint() - start) / 1e6
+    assert.ok(ms < 300, `${JSON.stringify(input.slice(0, 20))} took ${ms.toFixed(0)}ms`)
+  }
+})

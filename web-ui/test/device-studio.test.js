@@ -9,15 +9,20 @@ const assets = join(__dirname, '../../electron-app/android-web')
 test.before(async () => { browser = await chromium.launch({ headless: true }) })
 test.after(async () => { await browser?.close() })
 
+// Serve studio.html and every script it loads (studio-url.js, studio.js) from
+// the Android web assets, so a new script tag can't silently get HTML back.
+function serveStudioAsset(route) {
+  const name = new URL(route.request().url()).pathname.split('/').pop() || 'studio.html'
+  const file = /^studio(-url)?\.js$/.test(name) ? name : 'studio.html'
+  return route.fulfill({ contentType: file.endsWith('.js') ? 'application/javascript' : 'text/html', body: readFileSync(join(assets, file), 'utf8') })
+}
+
 for (const [device, width, height] of [['Android phone', 393, 851], ['tablet', 768, 1024], ['desktop', 1440, 900]]) {
   test(`studio connection and Job Hunter are reachable on ${device}`, async () => {
     const context = await browser.newContext({ viewport: { width, height } })
     const page = await context.newPage()
     try {
-      await page.route('https://client.ghostforge.test/**', route => {
-        const script = route.request().url().endsWith('/studio.js')
-        return route.fulfill({ contentType: script ? 'application/javascript' : 'text/html', body: readFileSync(join(assets, script ? 'studio.js' : 'studio.html'), 'utf8') })
-      })
+      await page.route('https://client.ghostforge.test/**', serveStudioAsset)
       await page.route('https://server.ghostforge.test/**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Job Hunter sign in</h1>' }))
       await page.goto('https://client.ghostforge.test/studio.html')
       assert.equal(await page.getByRole('heading', { name: 'GhostForge Studio', exact: true }).isVisible(), true)
@@ -41,10 +46,7 @@ test('desktop launcher surfaces connection errors and restores its buttons', asy
         connect: async () => { throw new Error('Server is not running') },
       }
     })
-    await page.route('https://client.ghostforge.test/**', route => {
-      const script = route.request().url().endsWith('/studio.js')
-      return route.fulfill({ contentType: script ? 'application/javascript' : 'text/html', body: readFileSync(join(assets, script ? 'studio.js' : 'studio.html'), 'utf8') })
-    })
+    await page.route('https://client.ghostforge.test/**', serveStudioAsset)
     await page.goto('https://client.ghostforge.test/studio.html')
     await page.getByRole('button', { name: 'Job Hunter', exact: true }).click()
     await page.waitForFunction(() => document.querySelector('#status').textContent.includes('Server is not running'))

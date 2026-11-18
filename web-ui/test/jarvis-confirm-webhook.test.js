@@ -122,9 +122,13 @@ Module._load = stubbedLoad
 const jarvis = compileFile(path.join(WEB_UI, 'app/api/jarvis/route.ts'))
 const webhook = compileFile(path.join(WEB_UI, 'app/api/webhook/route.ts'))
 
-test.after(() => {
+test.after(async () => {
   Module._load = originalLoad
-  fs.rmSync(fakeHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+  // The routes write the audit log in the background (lib/audit.ts appends
+  // without being awaited), so let those writes land before removing the
+  // fake home; otherwise rmSync can race a new file into .ghostforge.
+  await new Promise(resolve => setTimeout(resolve, 200))
+  fs.rmSync(fakeHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 function jarvisReq(username, body) {
