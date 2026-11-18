@@ -18,6 +18,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -29,6 +30,7 @@ from typing import Any, Optional
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -416,6 +418,10 @@ app.add_middleware(
 # Token source: MARKL_BRIDGE_TOKEN env var, else ~/.ghostforge/bridge/token
 # (created with `secrets.token_hex(32)` if missing). Read fresh per request
 # so the file can be rotated without restarting the bridge.
+#
+# Every client resolves the token in this same order, so setting
+# MARKL_BRIDGE_TOKEN works end to end: web-ui/lib/bridge-token.ts
+# (getMarkLBridgeToken), voice-pipeline/server.py and the TUI.
 # ---------------------------------------------------------------------------
 
 _TOKEN_DIR = Path.home() / ".ghostforge" / "bridge"
@@ -424,9 +430,9 @@ _TOKEN_FILE = _TOKEN_DIR / "token"
 
 def _read_bridge_token() -> str:
     """Return the shared bridge secret (env var first, then the token file)."""
-    env_token = os.environ.get("MARKL_BRIDGE_TOKEN")
+    env_token = (os.environ.get("MARKL_BRIDGE_TOKEN") or "").strip()
     if env_token:
-        return env_token.strip()
+        return env_token
     try:
         _TOKEN_DIR.mkdir(parents=True, exist_ok=True)
         if not _TOKEN_FILE.exists():
@@ -1559,8 +1565,17 @@ def clipboard_endpoint(req: ClipboardRequest):
         raise _err("Clipboard error: internal error")
 
 
+# PaddleOCR is neither cheap to build nor documented as thread-safe: build it
+# once and run one recognition at a time. The work runs in the thread pool, so
+# the event loop (health, every other bridge route) stays responsive.
+_OCR_LOCK = threading.Lock()
+# Uploads above this are refused before they are buffered in full.
+_OCR_MAX_BYTES = 20 * 1024 * 1024
+_OCR_ALLOWED_EXTS = {"png", "jpg", "jpeg", "bmp", "gif", "webp", "tif", "tiff"}
+
+
 def _get_ocr_engine():
-    """Lazily initialize the shared PaddleOCR engine."""
+    """Lazily initialize the shared PaddleOCR engine (caller holds _OCR_LOCK)."""
     global _ocr_engine
     if not _HAS_OCR:
         raise _err("paddleocr is not installed on the server.", status=503)
@@ -1569,44 +1584,67 @@ def _get_ocr_engine():
     return _ocr_engine
 
 
-@app.post("/api/mark-l/ocr", dependencies=[Depends(require_token)])
-async def ocr_endpoint(image: UploadFile = File(...)):
-    """Extract all text from an uploaded image using PaddleOCR."""
-    data = await image.read()
-    if not data:
-        raise _err("No image provided", status=400)
-    _require_module("ocr", _HAS_OCR)
+def _ocr_extension(filename: Optional[str]) -> str:
+    """Image extension for the temp file: from an allow-list, never a path."""
+    ext = (filename or "").rsplit(".", 1)[-1].lower() if "." in (filename or "") else ""
+    return ext if ext in _OCR_ALLOWED_EXTS else "png"
+
+
+async def _read_upload_capped(upload: UploadFile, limit: int) -> bytes:
+    """Read an upload in chunks, refusing it with 413 once it exceeds *limit*."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await upload.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise _err(f"Upload too large (limit {limit // (1024 * 1024)} MB)", status=413)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _run_ocr(data: bytes, ext: str) -> dict[str, Any]:
+    """Blocking OCR pass (engine init + recognition). Runs in a worker thread."""
+    import tempfile as _tf
+
+    fd, tmp = _tf.mkstemp(prefix="gfai-ocr-", suffix=f".{ext}")
     try:
-        ext = (image.filename or "img.png").rsplit(".", 1)[-1].lower()
-        tmp = str(tmp_path(f"gfai-ocr-{secrets.token_hex(4)}.{ext}"))
-        with open(tmp, "wb") as fh:
+        with os.fdopen(fd, "wb") as fh:
             fh.write(data)
-        engine = _get_ocr_engine()
-        result = engine.ocr(tmp, cls=True)
+        with _OCR_LOCK:
+            engine = _get_ocr_engine()
+            result = engine.ocr(tmp, cls=True)
         lines: list[str] = []
         for page in result or []:
             for item in page or []:
                 text = item[1][0]
                 if text and text.strip():
                     lines.append(text.strip())
-        return _ok({"text": "\n".join(lines), "lines": len(lines)})
+        return {"text": "\n".join(lines), "lines": len(lines)}
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+@app.post("/api/mark-l/ocr", dependencies=[Depends(require_token)])
+async def ocr_endpoint(image: UploadFile = File(...)):
+    """Extract all text from an uploaded image using PaddleOCR."""
+    _require_module("ocr", _HAS_OCR)
+    data = await _read_upload_capped(image, _OCR_MAX_BYTES)
+    if not data:
+        raise _err("No image provided", status=400)
+    try:
+        payload = await run_in_threadpool(_run_ocr, data, _ocr_extension(image.filename))
+        return _ok(payload)
     except HTTPException:
         raise
     except Exception:
         logger.exception("OCR failed")
         raise _err("OCR failed: internal error")
-    finally:
-        try:
-            os.remove(tmp)
-        except (OSError, NameError, UnboundLocalError):
-            pass
-
-
-def tmp_path(suffix: str) -> str:
-    """Return a temp filename under the system temp dir."""
-    import tempfile as _tf
-
-    return os.path.join(_tf.gettempdir(), suffix)
 
 
 # ---------------------------------------------------------------------------
