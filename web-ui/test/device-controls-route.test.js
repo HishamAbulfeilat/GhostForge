@@ -17,7 +17,7 @@ test('device controls route protects the bridge and validates supported actions'
 
 test('device controls route forwards only to the matching bridge endpoint', () => {
   assert.match(route, /target === 'youtube' \? '\/api\/mark-l\/youtube' : '\/api\/mark-l\/game-updater'/)
-  assert.match(route, /Authorization: `Bearer \$\{getLiveBridgeToken\(\)\}`/)
+  assert.match(route, /Authorization: `Bearer \$\{getMarkLBridgeToken\(\)\}`/)
   assert.match(route, /AbortSignal\.timeout\(180_000\)/)
 })
 

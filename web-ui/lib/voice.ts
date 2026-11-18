@@ -1,9 +1,16 @@
-import { getLiveBridgeToken } from '@/lib/bridge-token'
+import { getMarkLBridgeToken } from '@/lib/bridge-token'
 
 export const VOICE_URL = process.env.GHOSTFORGE_VOICE_URL ?? 'http://localhost:8766'
 
-function voiceToken(): string {
-  return getLiveBridgeToken()
+/**
+ * Same order voice-pipeline/server.py checks: MARKL_BRIDGE_TOKEN, then the
+ * legacy voice-only GHOSTFORGE_VOICE_TOKEN, then ~/.ghostforge/bridge/token.
+ */
+export function voiceToken(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.MARKL_BRIDGE_TOKEN?.trim()) return getMarkLBridgeToken(env)
+  const legacy = env.GHOSTFORGE_VOICE_TOKEN?.trim()
+  if (legacy) return legacy
+  return getMarkLBridgeToken(env)
 }
 
 function headers(json = false): Record<string, string> {
@@ -80,6 +87,8 @@ export async function localStt(
 export interface TtsResult {
   audio?: Buffer
   engine?: string
+  /** Content type the pipeline reported for the audio (WAV for every bundled engine). */
+  mime?: string
   error?: string
 }
 
@@ -107,7 +116,11 @@ export async function localTts(
       return { error: detail?.detail || `TTS failed (${res.status})` }
     }
     const buffer = Buffer.from(await res.arrayBuffer())
-    return { audio: buffer, engine: res.headers.get('X-TTS-Engine') || undefined }
+    return {
+      audio: buffer,
+      engine: res.headers.get('X-TTS-Engine') || undefined,
+      mime: res.headers.get('Content-Type')?.split(';')[0].trim() || undefined,
+    }
   } catch (e) {
     return { error: (e as Error).message || 'TTS request failed' }
   }

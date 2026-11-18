@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isAuthorizedRequest } from '@/lib/auth'
 import { requirePermission } from '@/lib/access'
 import { ensureMarkLivBridge } from '@/lib/mark-liv-bridge'
-import { getLiveBridgeToken } from '@/lib/bridge-token'
+import { getMarkLBridgeToken } from '@/lib/bridge-token'
 import { getMarkLBridgeUrl } from '@/lib/bridge-url'
 
 export const dynamic = 'force-dynamic'
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${getLiveBridgeToken()}`,
+        Authorization: `Bearer ${getMarkLBridgeToken()}`,
       },
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(180_000),

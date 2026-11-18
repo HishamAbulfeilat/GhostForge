@@ -5,7 +5,7 @@ import {
   updateStep, updateWorkflow, type WorkflowInput, type WorkflowStatus, type WorkflowStep,
 } from '@/lib/workflows/store'
 import { ensureMarkLivBridge } from '@/lib/mark-liv-bridge'
-import { getLiveBridgeToken } from '@/lib/bridge-token'
+import { getMarkLBridgeToken } from '@/lib/bridge-token'
 import { getMarkLBridgeUrl } from '@/lib/bridge-url'
 import { RunError, runWorkflowOnBridge } from './run'
 
@@ -100,7 +100,7 @@ async function runWorkflow(username: string, body: { action?: unknown; id?: unkn
   if (wf.status === 'running') return NextResponse.json({ error: 'Workflow is already running' }, { status: 409 })
   try {
     if (!(await ensureMarkLivBridge())) throw new RunError('Bridge is not running and could not be started.', 502)
-    const result = await runWorkflowOnBridge(username, wf, { url: getMarkLBridgeUrl(), token: getLiveBridgeToken() })
+    const result = await runWorkflowOnBridge(username, wf, { url: getMarkLBridgeUrl(), token: getMarkLBridgeToken() })
     const saved = await updateWorkflow(username, wf.id, { status: result.status, steps: result.steps })
     if (!saved) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
     return NextResponse.json({ workflow: saved, progress: progress(saved) })

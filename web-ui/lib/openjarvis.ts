@@ -5,13 +5,10 @@
  * rather than a pip-importable package, so the bridge shells out to it; this
  * client mirrors `mark-liv-bridge.ts` and reuses the same bridge process.
  */
-import fs from 'fs'
-import os from 'os'
-import path from 'path'
 import { ensureMarkLivBridge } from './mark-liv-bridge'
+import { getMarkLBridgeToken } from './bridge-token'
 
 const BRIDGE_URL = (process.env.MARKL_BRIDGE_URL || 'http://127.0.0.1:8765').replace(/\/+$/, '')
-const TOKEN_FILE = path.join(os.homedir(), '.ghostforge', 'bridge', 'token')
 
 export interface OpenJarvisHealth {
   installed: boolean
@@ -19,8 +16,7 @@ export interface OpenJarvisHealth {
 }
 
 function token(): string {
-  if (process.env.MARKL_BRIDGE_TOKEN) return process.env.MARKL_BRIDGE_TOKEN.trim()
-  try { return fs.readFileSync(TOKEN_FILE, 'utf8').trim() } catch { return '' }
+  return getMarkLBridgeToken()
 }
 
 async function bridgeFetch(pathname: string, init: RequestInit = {}, timeoutMs = 60_000): Promise<Response> {

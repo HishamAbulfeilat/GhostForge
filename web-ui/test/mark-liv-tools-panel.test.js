@@ -128,7 +128,7 @@ test('route is authenticated, permission-gated and only talks to a validated bri
   assert.ok(route.indexOf('request.confirmReason') < route.indexOf('bridgeFetch(request.endpoint'))
   assert.match(route, /status: 409/)
   assert.match(route, /const bridgeUrl = getMarkLBridgeUrl\(\)/)
-  assert.match(route, /Authorization: `Bearer \$\{getLiveBridgeToken\(\)\}`/)
+  assert.match(route, /Authorization: `Bearer \$\{getMarkLBridgeToken\(\)\}`/)
   assert.match(route, /'\/api\/mark-liv\/tools'/)
   assert.doesNotMatch(route, /process\.env\.MARKL_BRIDGE_URL/)
   assert.match(route, /online: false, tools: \[\]/)
@@ -136,7 +136,7 @@ test('route is authenticated, permission-gated and only talks to a validated bri
 
 test('panel uses only the authenticated proxy and never sees the bridge token', () => {
   assert.match(panel, /fetch\('\/api\/mark-liv-tools'/)
-  assert.doesNotMatch(panel, /8765|bridge\/token|getLiveBridgeToken|Authorization/)
+  assert.doesNotMatch(panel, /8765|bridge\/token|getLiveBridgeToken|getMarkLBridgeToken|Authorization/)
   assert.doesNotMatch(panel, /\/api\/mark-l\//)
 })
 
