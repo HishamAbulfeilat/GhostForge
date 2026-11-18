@@ -19,11 +19,13 @@ import { join } from 'path'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { auditLog } from '@/lib/audit'
+import { enrollmentConflict, hashIdentity, verifyIdentity, type StoredIdentity } from '@/lib/identity-check'
 
 const execAsync = promisify(exec)
 const BIOMETRIC_DIR  = join(homedir(), '.ghostforge', 'biometrics')
 const PROFILE_FILE   = join(BIOMETRIC_DIR, 'voice_profile.npy')
 const TYPING_FILE    = join(BIOMETRIC_DIR, 'typing_profile.json')
+const IDENTITY_FILE  = join(BIOMETRIC_DIR, 'identity.json')
 
 interface TypingProfile {
   avgWordLen:     number
@@ -35,38 +37,6 @@ interface TypingProfile {
 
 async function ensureDir() {
   if (!existsSync(BIOMETRIC_DIR)) await mkdir(BIOMETRIC_DIR, { recursive: true })
-}
-
-// Owner identity is configured via env vars, never hardcoded in source, so
-// PII (name/DOB) isn't committed to git history. OWNER_DOB accepts an
-// ISO date (YYYY-MM-DD); extra accepted phrasings are derived from it.
-function getOwnerIdentity(): { ownerNames: string[]; ownerDob: string[] } {
-  const fullName = (process.env.OWNER_FULL_NAME || '').trim().toLowerCase()
-  const ownerNames = fullName
-    ? Array.from(new Set([fullName, ...fullName.split(/\s+/)])).filter(Boolean)
-    : []
-
-  const dob = (process.env.OWNER_DOB || '').trim()
-  const ownerDob: string[] = []
-  const isoMatch = dob.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (isoMatch) {
-    const [, year, month, day] = isoMatch
-    const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
-    const monthName = monthNames[Number(month) - 1]
-    const dayNum = String(Number(day))
-    ownerDob.push(
-      dob,
-      `${year}/${month}/${day}`,
-      `${month}/${day}/${year}`,
-      `${day}/${month}/${year}`,
-      monthName ? `${monthName} ${dayNum} ${year}` : '',
-      monthName ? `${dayNum} ${monthName} ${year}` : '',
-    )
-  } else if (dob) {
-    ownerDob.push(dob.toLowerCase())
-  }
-
-  return { ownerNames, ownerDob: ownerDob.filter(Boolean).map(s => s.toLowerCase()) }
 }
 
 function ownerDisplayName(): string {
@@ -126,7 +96,16 @@ export async function GET(req: NextRequest) {
 }
 
 // ── Parse request body (supports both JSON and FormData) ────────────────────
-async function parseBody(req: NextRequest): Promise<{ action: string; audio?: string; typingData?: object }> {
+interface BiometricBody {
+  action: string
+  audio?: string
+  typingData?: object
+  name?: unknown
+  dob?: unknown
+  keyword?: unknown
+}
+
+async function parseBody(req: NextRequest): Promise<BiometricBody> {
   const ct = req.headers.get('content-type') || ''
   if (ct.includes('multipart/form-data') || ct.includes('application/x-www-form-urlencoded')) {
     const fd = await req.formData()
@@ -139,7 +118,24 @@ async function parseBody(req: NextRequest): Promise<{ action: string; audio?: st
     }
     return { action, audio }
   }
-  return req.json() as Promise<{ action: string; audio?: string; typingData?: object }>
+  const json = await req.json()
+  if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error('Body must be a JSON object')
+  return json as BiometricBody
+}
+
+async function readStoredIdentity(): Promise<StoredIdentity | null> {
+  try {
+    const parsed = JSON.parse(await readFile(IDENTITY_FILE, 'utf8')) as StoredIdentity
+    return parsed && parsed.version === 1 && typeof parsed.salt === 'string' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/** Store the hashed name / date of birth / keyword sent with an enrollment. */
+async function saveEnrolledIdentity(body: BiometricBody): Promise<void> {
+  if (!body.name && !body.dob && !body.keyword) return
+  await writeFile(IDENTITY_FILE, JSON.stringify(hashIdentity(body), null, 2), { mode: 0o600 })
 }
 
 // ── Save audio as webm/ogg without requiring Resemblyzer ────────────────────
@@ -162,7 +158,7 @@ export async function POST(req: NextRequest) {
 
   await ensureDir()
 
-  let body: { action: string; audio?: string; typingData?: object }
+  let body: BiometricBody
   try {
     body = await parseBody(req)
   } catch (e) {
@@ -184,6 +180,8 @@ export async function POST(req: NextRequest) {
     if (audioBuffer.length < 1000) {
       return NextResponse.json({ error: 'Audio sample too short — please record at least 5 seconds' }, { status: 400 })
     }
+    const conflict = enrollmentConflict(body)
+    if (conflict) return NextResponse.json({ error: conflict }, { status: 400 })
 
     if (hasResemblyzer) {
       // Full Resemblyzer embedding
@@ -197,6 +195,7 @@ export async function POST(req: NextRequest) {
         await unlink(scriptPath).catch(() => {})
         const meta: BiometricMeta = { enrolled: true, method: 'resemblyzer', enrolledAt: new Date().toISOString(), ownerName: ownerDisplayName() }
         await writeFile(META_FILE, JSON.stringify(meta, null, 2))
+        await saveEnrolledIdentity(body)
         void auditLog({ level: 'info', event: 'voice_profile_enrolled', result: 'resemblyzer' })
         return NextResponse.json({ success: true, message: 'Voice profile enrolled (Resemblyzer)', method: 'resemblyzer' })
       } catch (e) {
@@ -210,6 +209,7 @@ export async function POST(req: NextRequest) {
     await writeFile(AUDIO_PROFILE_FILE, audioBuffer)
     const meta: BiometricMeta = { enrolled: true, method: 'raw-audio', enrolledAt: new Date().toISOString(), ownerName: ownerDisplayName() }
     await writeFile(META_FILE, JSON.stringify(meta, null, 2))
+    await saveEnrolledIdentity(body)
     void auditLog({ level: 'info', event: 'voice_profile_enrolled', result: 'raw-audio' })
     return NextResponse.json({ success: true, message: 'Voice profile saved (audio reference mode — install resemblyzer for biometric matching)', method: 'raw-audio' })
   }
@@ -252,43 +252,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ verified: false, reason: 'no_resemblyzer', askIdentity: true, method: 'raw-audio' })
   }
 
-  // ── AI identity challenge endpoint ───────────────────────────────────────
-  // Owner PII (name / DOB) must never be hardcoded in source — it's read from
-  // env vars (OWNER_FULL_NAME, OWNER_DOB) so it isn't committed to git history.
+  // ── Identity check: { name, dob, keyword } ──────────────────────────────
+  // Name / DOB come from OWNER_FULL_NAME / OWNER_DOB when set (never hardcoded),
+  // otherwise from the hashed enrollment record; the keyword only from enrollment.
   if (action === 'identity-challenge') {
-    const { answer, question } = body as unknown as { action: string; answer?: string; question?: string }
-
-    const { ownerNames, ownerDob } = getOwnerIdentity()
-    if (!ownerNames.length && !ownerDob.length) {
-      return NextResponse.json({ verified: false, reason: 'not_configured', message: 'Identity challenge is not configured (set OWNER_FULL_NAME / OWNER_DOB).' }, { status: 503 })
+    const result = verifyIdentity(body, await readStoredIdentity())
+    if (!result.ok) {
+      return NextResponse.json({ verified: false, reason: result.reason, error: result.error }, { status: result.status })
     }
-
-    if (!answer) {
-      // Return a challenge question
-      const questions = [
-        'What is your full name?',
-        'What is your date of birth?',
-        'What is your first name and last name?',
-      ]
-      return NextResponse.json({ challengeQuestion: questions[Math.floor(Math.random() * questions.length)] })
-    }
-
-    // Verify answer against the configured owner identity
-    const ans = answer.toLowerCase().trim()
-    const mentionedQ = (question || '').toLowerCase()
-
-    let verified = false
-    if (mentionedQ.includes('date of birth') || mentionedQ.includes('born') || /\b(19|20)\d{2}\b/.test(ans)) {
-      verified = ownerDob.some(d => ans.includes(d))
-    } else if (mentionedQ.includes('name') || ownerNames.some(n => ans.includes(n))) {
-      verified = ownerNames.some(n => ans.includes(n))
-    } else {
-      // Check both
-      verified = ownerNames.some(n => ans.includes(n)) || ownerDob.some(d => ans.includes(d))
-    }
-
-    void auditLog({ level: verified ? 'info' : 'security', event: verified ? 'identity_verified' : 'identity_failed', risk: verified ? 0 : 90 })
-    return NextResponse.json({ verified, message: verified ? 'Identity confirmed.' : 'Identity could not be verified. Access denied.' })
+    const { verified, checked } = result
+    void auditLog({ level: verified ? 'info' : 'security', event: verified ? 'identity_verified' : 'identity_failed', result: `checked=${checked.join(',')}`, risk: verified ? 0 : 90 })
+    return NextResponse.json({ verified, checked, message: verified ? 'Identity confirmed.' : 'Identity could not be verified. Access denied.' })
   }
 
   if (action === 'update-typing-profile') {
