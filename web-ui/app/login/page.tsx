@@ -30,7 +30,7 @@ function LoginForm() {
         setLoading(false)
         return
       }
-      const res = await fetch('/api/auth', {
+      const res = await fetch(mode === 'pin' ? '/api/auth/pin' : '/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

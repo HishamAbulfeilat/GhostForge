@@ -164,7 +164,7 @@ test('every reportUnauthorizedAccess call site states whether the actor is authe
   // flag is safe — but each site should make the decision explicitly.
   const files = [
     'app/api/users/route.ts', 'app/api/devices/route.ts', 'app/api/jarvis/route.ts',
-    'app/api/auth/route.ts', 'lib/access.ts',
+    'lib/login.ts', 'lib/access.ts',
   ]
   for (const rel of files) {
     const src = fs.readFileSync(path.join(WEB_UI, rel), 'utf8')

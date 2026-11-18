@@ -36,6 +36,7 @@ const GUARDS = new Set([
 // "<route dir relative to app/api> <METHOD>" → why it is public.
 const PUBLIC_HANDLERS = {
   'auth POST': 'login endpoint — issues the session cookie; rate-limited per IP',
+  'auth/pin POST': 'legacy admin PIN login — issues the session cookie; rate-limited per IP and globally',
   'remote/pair GET': 'device pairing page — shows a confirm button only; does not use the code (link previewers would burn it)',
   'remote/pair/redeem POST': 'device pairing redemption — the one-time 128-bit pairing code is the credential; same-origin form, IP failure-limited',
 }
