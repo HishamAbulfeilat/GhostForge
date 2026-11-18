@@ -57,7 +57,7 @@ const state = { authed: true, token: TOKEN, bridgeStarts: 0, canStart: false }
 const stubs = {
   'next/server': { NextResponse },
   '@/lib/auth': { isAuthorizedRequest: () => state.authed },
-  '@/lib/bridge-token': { getLiveBridgeToken: () => state.token },
+  '@/lib/bridge-token': { getMarkLBridgeToken: () => state.token },
   '@/lib/mark-liv-bridge': { ensureMarkLivBridge: async () => { state.bridgeStarts++; return state.canStart } },
 }
 const originalLoad = Module._load

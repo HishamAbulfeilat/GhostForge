@@ -61,6 +61,8 @@ function compile(file) {
 }
 function stubbedLoad(request, parent, isMain) {
   if (Object.hasOwn(stubs, request)) return stubs[request]
+  // lib/openjarvis.ts imports the real Mark-L token resolver relatively.
+  if (request === './bridge-token') return compile(path.join(WEB_UI, 'lib/bridge-token.ts'))
   if (request.startsWith('@/')) return compile(path.join(WEB_UI, request.slice(2)) + '.ts')
   return originalLoad.call(this, request, parent, isMain)
 }

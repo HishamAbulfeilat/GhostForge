@@ -151,6 +151,11 @@ jobs:
         working-directory: mark-l-bridge
         run: python -m pytest . -q
 
+      # Same bare interpreter: the voice engines are faked in these tests.
+      - name: Voice pipeline tests
+        working-directory: voice-pipeline
+        run: python -m pytest . -q
+
   pr-check:
     name: GhostForge PR Quality Checks
     runs-on: ubuntu-latest

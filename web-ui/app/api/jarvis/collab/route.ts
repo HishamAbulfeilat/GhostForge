@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isAuthorizedRequest } from '@/lib/auth'
-import { getLiveBridgeToken } from '@/lib/bridge-token'
+import { getMarkLBridgeToken } from '@/lib/bridge-token'
 import { BridgeUrlError, getMarkLBridgeUrl } from '@/lib/bridge-url'
 import { ensureMarkLivBridge } from '@/lib/mark-liv-bridge'
 
@@ -33,7 +33,7 @@ async function bridgeCall(pathname: string, init: RequestInit = {}): Promise<Res
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${getLiveBridgeToken()}`,
+      Authorization: `Bearer ${getMarkLBridgeToken()}`,
       ...(init.headers || {}),
     },
     signal: AbortSignal.timeout(10_000),
