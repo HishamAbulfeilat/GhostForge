@@ -125,7 +125,7 @@ Turn on the switch in **Find jobs → Autopilot & AI model** and choose:
 | **Safe sites** (default) | Auto-submits on Lever, Greenhouse and Ashby, which have predictable forms. Other jobs are prepared and wait for one tap. |
 | **Any site** | Also auto-submits on company career sites and Workday. Anything it can't finish safely comes back to you. |
 | **Apply on LinkedIn (Easy Apply)** | Opt-in. Needs *Any site* and **Connect LinkedIn**: you sign in once in the GhostForge browser, on the laptop or from your phone through Remote → Control this computer. It has its own daily cap (default 5, max 15) and waits 30 s between LinkedIn applications. ⚠️ Automated applying can break LinkedIn's User Agreement and can get the account restricted. Use it at your own risk. |
-| **Allow control of this computer when stuck** | Off: everything runs headless in the background, and no screen is needed. On: applications run in a visible browser, and a vision model (computer use: screenshot → click/type) tries to get past layouts the agent doesn't understand. Still never for captchas or passwords. |
+| **Allow control of this computer when stuck** | Off: everything (your own approvals and autopilot) runs headless in the background, and no screen is needed. On: applications run in a visible browser, and a vision model (computer use: screenshot → click/type) tries to get past layouts the agent doesn't understand. Still never for captchas or passwords. A server without a display (Linux with no `DISPLAY`/`WAYLAND_DISPLAY`) always runs in the background; `JOB_HUNTER_HEADLESS=1` forces that everywhere. A background window that stops for you stays open for 45 minutes for account sign-in help and the preview. |
 | Interval / daily limit / minimum score | How often it runs (1–168 h), how many it submits per day (1–25), and the lowest match score it applies to (50–100). |
 
 Autopilot runs on the machine that hosts GhostForge. You don't have to sit at
@@ -143,6 +143,12 @@ and windows retained for captchas/questions are reused in new tabs (including
 development reloads). A profile conflict is reported separately from a missing
 browser. With no installed browser, run `npx playwright install chromium` in
 `web-ui`, or set `JOB_HUNTER_BROWSER` to a Chrome/Edge executable.
+
+If the server stops (restart, crash, update) while an application is being
+filled, the job is not left as "Applying…": on the next start, or the next time
+the job list loads, it moves to **Needs you** with an "Interrupted" note. It is
+never retried automatically. Check the employer site or your email, then choose
+**Mark as applied**, **Open & fill again** or **Dismiss** (CLI: `jobs applied <id>`).
 
 Approval opens the application URL (or original posting when it is missing).
 Lever/Ashby application paths preserve tracking queries and fragments, and

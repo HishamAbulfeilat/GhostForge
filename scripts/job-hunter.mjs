@@ -66,6 +66,8 @@ ${c.bold('Hunt')}
   jobs prepare <id>                    Tailor CV + cover letter for one job
   jobs approve <id> [--yes]            Fill the application (submits where safe)
   jobs dismiss <id>
+  jobs applied <id>                    Mark an application waiting for you as submitted
+                                       (e.g. one interrupted mid-apply that you confirmed went through)
 
 ${c.bold('Automate')}
   jobs model [provider/model | default] Show or set the AI model (e.g. groq/llama-3.3-70b-versatile,
@@ -129,6 +131,9 @@ async function main() {
   const user = String(flags.user || process.env.ADMIN_USERNAME || 'hisham').toLowerCase()
   const jh = await import(pathToFileURL(join(WEB, 'lib', 'job-hunter', 'index.ts')).href)
   const generate = flags['no-ai'] ? null : undefined
+  // Applications cut off by a crash or restart go back to "needs you" (never resubmitted).
+  const interrupted = await jh.recoverInterruptedJobs(user).catch(() => [])
+  for (const j of interrupted) console.log(c.yellow(`Interrupted mid-apply: ${j.title} @ ${j.company} (${j.id}). Check the employer site before retrying; "jobs applied ${j.id}" if it went through.`))
 
   switch (cmd) {
     case 'cv': {
@@ -325,6 +330,11 @@ Dealbreakers: ${p.dealbreakers.join(', ') || 'none'} · company boards: ${p.comp
     case 'dismiss': {
       const j = await jh.dismissJob(user, rest[0] || '')
       console.log(j ? 'Dismissed.' : 'Job not found')
+      return
+    }
+    case 'applied': {
+      const j = await jh.markApplied(user, rest[0] || '')
+      console.log(`${c.green('✓')} Marked as applied: ${j.title} @ ${j.company}`)
       return
     }
     default:
