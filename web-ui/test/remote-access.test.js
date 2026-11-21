@@ -165,7 +165,9 @@ test('opening a pairing link does not use the code; only the same-origin "Sign i
 test('revoking a device ends its session on every guard, including the synchronous ones', async () => {
   process.env.AUTH_SECRET = process.env.AUTH_SECRET || 'remote-test-secret-0123456789abcdef'
   const auth = require('../lib/auth.ts')
-  const user = { id: 'u9', username: 'frank', role: 'admin' }
+  const users = require('../lib/users.ts')
+  // Sessions are checked against the stored account, so frank must exist.
+  const user = (await users.getUserByUsername('frank')) || await users.createUser({ name: 'Frank', username: 'frank', password: 'frank-password-123', role: 'admin' })
   const { code } = await store.createPairing('frank')
   const device = await store.redeemPairing(code, 'Pixel · Chrome')
   const token = auth.createSessionToken(user, { deviceId: device.id })
