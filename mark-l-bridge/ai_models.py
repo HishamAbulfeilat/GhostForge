@@ -119,9 +119,31 @@ def get_model_info(model_id: str) -> dict[str, Any]:
     }
 
 
+def resolve_download_dir(model_id: str, local_dir: Optional[str] = None) -> Path:
+    """Destination for a snapshot; always a directory strictly under DEFAULT_MODEL_DIR.
+
+    ``local_dir`` may be relative (to DEFAULT_MODEL_DIR) or absolute, but it
+    must resolve inside DEFAULT_MODEL_DIR, so a caller cannot write a snapshot
+    to an arbitrary directory. Raises ValueError otherwise.
+    """
+    root = DEFAULT_MODEL_DIR.resolve()
+    if local_dir:
+        candidate = Path(local_dir).expanduser()
+        dest = (candidate if candidate.is_absolute() else root / candidate).resolve()
+    else:
+        dest = (root / model_id.replace("/", "_")).resolve()
+    if dest == root or root not in dest.parents:
+        raise ValueError(f"local_dir must be a directory under {DEFAULT_MODEL_DIR}")
+    return dest
+
+
 def download_model(model_id: str, local_dir: Optional[str] = None) -> dict[str, Any]:
-    """Download a model snapshot to a local directory."""
-    dest = Path(local_dir) if local_dir else DEFAULT_MODEL_DIR / model_id.replace("/", "_")
+    """Download a model snapshot to a directory under DEFAULT_MODEL_DIR.
+
+    The download runs synchronously in the request (no background job); large
+    repositories keep the worker busy until huggingface_hub finishes.
+    """
+    dest = resolve_download_dir(model_id, local_dir)
     dest.mkdir(parents=True, exist_ok=True)
 
     _snapshot_download(repo_id=model_id, local_dir=str(dest))
@@ -248,14 +270,18 @@ def install_model(model_id: str) -> dict[str, Any]:
             # Create a basic Modelfile
             modelfile_path.write_text(f"FROM {Path(local_path)}\n")
 
-        subprocess.run(
+        proc = subprocess.run(
             ["ollama", "create", model_id.replace("/", "-"), "-f", str(modelfile_path)],
             capture_output=True,
             text=True,
             timeout=120,
         )
-        ollama_result["ollama_registered"] = True
-        ollama_result["ollama_name"] = model_id.replace("/", "-")
+        if proc.returncode == 0:
+            ollama_result["ollama_registered"] = True
+            ollama_result["ollama_name"] = model_id.replace("/", "-")
+        else:
+            detail = (proc.stderr or proc.stdout or "").strip()[-500:] or f"exit code {proc.returncode}"
+            ollama_result["note"] = f"Ollama registration failed: {detail}"
     except FileNotFoundError:
         ollama_result["note"] = "Ollama is not installed — model downloaded but not registered"
     except subprocess.TimeoutExpired:

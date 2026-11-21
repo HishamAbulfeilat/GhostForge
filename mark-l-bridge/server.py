@@ -352,6 +352,7 @@ try:
         get_model_recommendations as _ai_get_model_recommendations,
         install_model as _ai_install_model,
         compare_models as _ai_compare_models,
+        resolve_download_dir as _ai_resolve_download_dir,
     )
 
     _HAS_AI_MODELS = True
@@ -1882,6 +1883,10 @@ def model_info_endpoint(model_id: str):
 @app.post("/api/mark-l/models/download", dependencies=[Depends(require_token)])
 def model_download_endpoint(req: ModelDownloadRequest):
     _require_module("ai_models", _HAS_AI_MODELS)
+    try:
+        _ai_resolve_download_dir(req.model_id, req.local_dir)
+    except ValueError as exc:
+        raise _err(str(exc), status=400) from exc
     return _safe_call(_ai_download_model, req.model_id, req.local_dir)
 
 
