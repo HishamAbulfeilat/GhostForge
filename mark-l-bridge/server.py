@@ -429,20 +429,47 @@ _TOKEN_DIR = Path.home() / ".ghostforge" / "bridge"
 _TOKEN_FILE = _TOKEN_DIR / "token"
 
 
+def _create_or_read_token_file(path: Path) -> str:
+    """Create the token file atomically with mode 0600, or read the existing one.
+
+    ``O_CREAT | O_EXCL`` means the file is never visible with default (umask)
+    permissions, and when the bridge and the voice pipeline start together only
+    one of them creates it; the other gets FileExistsError and reads that value.
+    A reader that wins the race against the writer may briefly see an empty
+    file, so it retries for up to a second.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        token = secrets.token_hex(32)
+        try:
+            with os.fdopen(fd, "w") as handle:
+                handle.write(token)
+        except OSError:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            raise
+        return token
+    for _ in range(20):
+        value = path.read_text().strip()
+        if value:
+            return value
+        time.sleep(0.05)
+    return ""
+
+
 def _read_bridge_token() -> str:
     """Return the shared bridge secret (env var first, then the token file)."""
     env_token = (os.environ.get("MARKL_BRIDGE_TOKEN") or "").strip()
     if env_token:
         return env_token
     try:
-        _TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-        if not _TOKEN_FILE.exists():
-            _TOKEN_FILE.write_text(secrets.token_hex(32))
-            try:
-                _TOKEN_FILE.chmod(0o600)
-            except OSError:
-                pass
-        return _TOKEN_FILE.read_text().strip()
+        return _create_or_read_token_file(_TOKEN_FILE)
     except OSError:
         return ""
 
@@ -1963,15 +1990,22 @@ def mark_liv_tools():
 
 @app.post("/api/mark-liv/run", dependencies=[Depends(require_token)])
 def mark_liv_run(req: MarkLivRunRequest):
-    registry = _mark_liv_registry()
-    if req.name not in registry.names():
+    try:
+        registry = _mark_liv_registry()
+        names = registry.names()
+    except Exception:
+        logger.exception("mark-liv tool discovery failed")
+        raise _err("Mark-LIV tool discovery failed")
+    if req.name not in names:
         raise HTTPException(status_code=404, detail=f"Unknown Mark-LIV tool: {req.name}")
     try:
         result = registry.run(req.name, req.parameters)
         return _ok({"tool": req.name, "result": str(result) if result is not None else "Done"})
-    except Exception as exc:
+    except Exception:
+        # Details stay in the server log; clients get no exception text (same
+        # policy as _safe_call).
         logger.exception("mark-liv %s failed", req.name)
-        return _ok({"tool": req.name, "result": f"{req.name} failed: {exc}", "error": True})
+        return _ok({"tool": req.name, "result": f"{req.name} failed: internal error", "error": True})
 
 
 # ---------------------------------------------------------------------------
@@ -2009,6 +2043,11 @@ def openjarvis_doctor():
 @app.post("/api/openjarvis/ask", dependencies=[Depends(require_token)])
 def openjarvis_ask(req: OpenJarvisAskRequest):
     _require_module("openjarvis", _HAS_OPENJARVIS)
+    # The prompt is a positional argv entry; one starting with "-" would be
+    # parsed by the jarvis CLI as an option. We cannot rely on the CLI honouring
+    # "--", so such prompts are refused instead.
+    if req.prompt.startswith("-"):
+        raise _err("Prompt must not start with '-'", status=400)
     try:
         response = _run_openjarvis_cli("ask", req.prompt, timeout_s=req.timeout_s)
         return _ok({"response": response})
