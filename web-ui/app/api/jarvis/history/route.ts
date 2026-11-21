@@ -1,89 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { homedir } from 'os'
-import { join } from 'path'
-import { mkdir, readFile, writeFile } from 'fs/promises'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
+import { JarvisStoreError, normalizeMessage, readHistory, updateHistory, type HistoryMessage, type HistorySession } from '@/lib/jarvis-store'
 
 export const dynamic = 'force-dynamic'
 
-const HISTORY_DIR = join(homedir(), '.ghostforge', 'jarvis')
-const HISTORY_FILE = join(HISTORY_DIR, 'history.json')
-const MAX_SESSIONS = 100
-
-type HistoryRole = 'user' | 'ai'
-
-interface HistoryMessage {
-  role: HistoryRole
-  content: string
-  ts: number
-}
-
-interface HistorySession {
-  id: string
-  startedAt: string
-  endedAt: string
-  messages: HistoryMessage[]
-}
-
-function isAuthorized(req: NextRequest) {
-  return isAuthorizedRequest(req)
-}
-
-function normalizeMessage(input: unknown): HistoryMessage | null {
-  if (!input || typeof input !== 'object') return null
-  const candidate = input as Partial<HistoryMessage>
-  if ((candidate.role !== 'user' && candidate.role !== 'ai') || typeof candidate.content !== 'string' || typeof candidate.ts !== 'number') {
-    return null
-  }
-
-  return {
-    role: candidate.role,
-    content: candidate.content,
-    ts: candidate.ts,
-  }
-}
-
-function normalizeSession(input: unknown): HistorySession | null {
-  if (!input || typeof input !== 'object') return null
-  const candidate = input as Partial<HistorySession>
-  if (typeof candidate.id !== 'string' || typeof candidate.startedAt !== 'string' || typeof candidate.endedAt !== 'string' || !Array.isArray(candidate.messages)) {
-    return null
-  }
-
-  const messages = candidate.messages
-    .map(normalizeMessage)
-    .filter((message): message is HistoryMessage => message !== null)
-
-  return {
-    id: candidate.id,
-    startedAt: candidate.startedAt,
-    endedAt: candidate.endedAt,
-    messages,
-  }
-}
-
-async function readHistory(): Promise<HistorySession[]> {
-  try {
-    const raw = await readFile(HISTORY_FILE, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) return []
-
-    return parsed
-      .map(normalizeSession)
-      .filter((session): session is HistorySession => session !== null)
-      .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime())
-  } catch {
-    return []
-  }
-}
-
-async function writeHistory(sessions: HistorySession[]) {
-  await mkdir(HISTORY_DIR, { recursive: true })
-  const trimmed = [...sessions]
-    .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime())
-    .slice(0, MAX_SESSIONS)
-  await writeFile(HISTORY_FILE, JSON.stringify(trimmed, null, 2), 'utf8')
-  return trimmed
+/**
+ * Each user's own JARVIS sessions (~/.ghostforge/users/<username>/jarvis/history.json).
+ * Every method needs the `conversation_history` permission and only ever sees
+ * or changes the caller's sessions.
+ */
+function storeError(err: unknown) {
+  const message = err instanceof JarvisStoreError ? err.message : 'Could not read conversation history'
+  return NextResponse.json({ error: message }, { status: 500 })
 }
 
 function matchesDate(session: HistorySession, date: string) {
@@ -96,7 +24,8 @@ function matchesDate(session: HistorySession, date: string) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!isAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const user = await requirePermission(req, 'conversation_history')
+  if (user instanceof NextResponse) return user
 
   const searchParams = req.nextUrl.searchParams
   const q = searchParams.get('q')?.trim().toLowerCase() ?? ''
@@ -104,7 +33,12 @@ export async function GET(req: NextRequest) {
   const from = searchParams.get('from')?.trim() ?? ''
   const to = searchParams.get('to')?.trim() ?? ''
 
-  let sessions = await readHistory()
+  let sessions: HistorySession[]
+  try {
+    sessions = await readHistory(user)
+  } catch (err) {
+    return storeError(err)
+  }
 
   if (q) {
     sessions = sessions.filter(session => session.messages.some(message => message.content.toLowerCase().includes(q)))
@@ -126,7 +60,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const user = await requirePermission(req, 'conversation_history')
+  if (user instanceof NextResponse) return user
 
   let payload: Partial<HistorySession>
   try {
@@ -153,22 +88,27 @@ export async function POST(req: NextRequest) {
     messages,
   }
 
-  const history = await readHistory()
-  const deduped = history.filter(existing => existing.id !== session.id)
-  const sessions = await writeHistory([session, ...deduped])
-  return NextResponse.json({ ok: true, session, sessions })
+  try {
+    const sessions = await updateHistory(user, history => [session, ...history.filter(existing => existing.id !== session.id)])
+    return NextResponse.json({ ok: true, session, sessions })
+  } catch (err) {
+    return storeError(err)
+  }
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!isAuthorized(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const user = await requirePermission(req, 'conversation_history')
+  if (user instanceof NextResponse) return user
 
   const id = req.nextUrl.searchParams.get('id')?.trim()
   if (!id) {
     return NextResponse.json({ error: 'Session id is required' }, { status: 400 })
   }
 
-  const history = await readHistory()
-  const sessions = history.filter(session => session.id !== id)
-  await writeHistory(sessions)
-  return NextResponse.json({ ok: true, removedId: id, sessions })
+  try {
+    const sessions = await updateHistory(user, history => history.filter(session => session.id !== id))
+    return NextResponse.json({ ok: true, removedId: id, sessions })
+  } catch (err) {
+    return storeError(err)
+  }
 }
