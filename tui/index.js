@@ -19,7 +19,7 @@ import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { filterMenuChoices, groupCommandChoices } from './lib/menu-search.js';
 import { readRecentCommands, rememberCommand } from './lib/recent-commands.js';
-import { applyEffectiveMarketplaceState } from './lib/marketplace-state.js';
+import { applyEffectiveMarketplaceState, recordGenerated, recordInstalled, recordMarked } from './lib/marketplace-state.js';
 import { resolveInstallCommand, explainMissingCommand } from '../marketplace/install-commands.mjs';
 import { crossPlatformCopy, crossPlatformOpen, crossPlatformAlert, crossPlatformCapOpen, crossPlatformCleanupTempFiles, crossPlatformFlushDNS, crossPlatformDiskUsage, crossPlatformSysInfo, crossPlatformScreenshot, getLocalIP } from './lib/platform-utils.js';
 import { askGFAI } from './lib/gfai-client.js';
@@ -3714,8 +3714,11 @@ async function screenMarketplace() {
   // registry.json is the single source of truth for install state (shared with
   // the web UI). Seed it from any catalog items shipped as installed, minus any
   // the user explicitly removed, then reflect that onto each item for display.
-  const { installedSet, catalog: effectiveCatalog } = applyEffectiveMarketplaceState(catalog, registry);
-  const removedSet = new Set((registry.removed || []).filter(Boolean));
+  // Items only *marked* installed (web "Mark installed") stay installable here,
+  // because nothing actually ran. normalizeRegistry also moves any generated
+  // objects out of installed[] (older files) into generated[].
+  const { catalog: effectiveCatalog, registry: normalizedRegistry } = applyEffectiveMarketplaceState(catalog, registry);
+  registry = normalizedRegistry;
   catalog.items = effectiveCatalog.items;
 
   const action = await select({
@@ -3815,7 +3818,7 @@ async function screenMarketplace() {
         T.white.bold(item.name),
         T.muted(item.type),
         T.dim((item.description || '').substring(0, 38)),
-        item.installed ? T.success('✅ installed') : T.muted('available'),
+        item.installed ? T.success('✅ installed') : item.marked ? T.warning('☑ marked') : T.muted('available'),
       ]);
     });
     console.log(table.toString());
@@ -3839,7 +3842,7 @@ async function screenMarketplace() {
       results.forEach(item => {
         console.log(`  ${T.accent.bold(item.name)} ${T.muted('[' + item.type + ']')}`);
         console.log(`  ${T.dim(item.description)}`);
-        console.log(`  ${item.installed ? T.success('✅ installed') : T.muted('available')}  ${T.muted(item.tags?.join(', ') || '')}`);
+        console.log(`  ${item.installed ? T.success('✅ installed') : item.marked ? T.warning('☑ marked installed (not verified)') : T.muted('available')}  ${T.muted(item.tags?.join(', ') || '')}`);
         console.log();
       });
     }
@@ -3856,7 +3859,7 @@ async function screenMarketplace() {
     const itemChoice = await select({
       message: 'Choose item to install:',
       choices: [
-        ...available.map(i => ({ name: `${i.name} — ${T.muted((i.description || '').substring(0, 45))}`, value: i.id })),
+        ...available.map(i => ({ name: `${i.name}${i.marked ? T.warning(' (marked, not verified)') : ''} — ${T.muted((i.description || '').substring(0, 45))}`, value: i.id })),
         { name: T.muted('← Cancel'), value: '__cancel__' },
       ],
       pageSize: 10,
@@ -3876,11 +3879,9 @@ async function screenMarketplace() {
           execSync(platformInstallCommand, { stdio: 'inherit', cwd: ROOT });
           console.log(T.success(`\n  ✅ ${item.name} installed successfully!`));
           item.installed = true;
+          item.marked = false;
           // Persist to registry.json (source of truth shared with the web UI).
-          installedSet.add(item.id);
-          removedSet.delete(item.id);
-          registry.installed = [...installedSet];
-          registry.removed = [...removedSet];
+          registry = recordInstalled(registry, item.id);
           writeFileSync(registryPath, JSON.stringify(registry, null, 2));
         } catch {
           console.log(T.danger(`\n  ✖ Installation failed. Try manually: ${platformInstallCommand}`));
@@ -3909,7 +3910,7 @@ async function screenMarketplace() {
       message: T.white.bold('Choose a tool:'),
       choices: [
         ...pool.map(i => ({
-          name: `${i.installed ? T.success('✅') : T.muted('  ')} ${T.white.bold(i.name)} ${T.muted('[' + i.category + ']')} — ${T.dim((i.description || '').substring(0, 44))}`,
+          name: `${i.installed ? T.success('✅') : i.marked ? T.warning('☑') : T.muted('  ')} ${T.white.bold(i.name)} ${T.muted('[' + i.category + ']')} — ${T.dim((i.description || '').substring(0, 44))}`,
           value: i.id,
         })),
         { name: T.muted('← Back'), value: '__back__' },
@@ -3924,19 +3925,21 @@ async function screenMarketplace() {
       if (item.installed) {
         console.log(T.success('\n  ✅ Already installed.'));
       } else {
+        if (item.marked) console.log(T.warning('\n  ☑ Marked installed by hand — not verified. Run the command below if it is not actually installed.'));
         // Security tools: show the command for review rather than piping
         // catalog data straight into a shell. Copy/paste to run.
         const platformInstallCommand = resolveInstallCommand(item);
         if (platformInstallCommand) {
           console.log(T.yellow('\n  Install command (review, then run in your shell):'));
           console.log(T.cyan(`    ${platformInstallCommand}`));
-          const mark = await confirm({ message: 'Mark as installed?', default: false });
+          const mark = item.marked ? false : await confirm({ message: 'Mark as installed?', default: false });
           if (mark) {
-            item.installed = true;
-            installedSet.add(item.id); removedSet.delete(item.id);
-            registry.installed = [...installedSet]; registry.removed = [...removedSet];
+            // A hand-made mark: nothing ran here, so record it in marked[]
+            // rather than installed[] (same meaning as the web UI's mark).
+            item.marked = true;
+            registry = recordMarked(registry, item.id);
             writeFileSync(registryPath, JSON.stringify(registry, null, 2));
-            console.log(T.success(`  ✅ Marked ${item.name} as installed.`));
+            console.log(T.success(`  ☑ Marked ${item.name} as installed.`));
           }
         } else {
           const hint = explainMissingCommand(item);
@@ -5671,6 +5674,18 @@ async function screenMarketplace() {
       });
       console.log();
     }
+    const markedItems = catalog.items.filter(i => i.marked);
+    if (markedItems.length > 0) {
+      console.log(T.warning.bold('  Marked installed (not verified — use Install Item to run the install):'));
+      markedItems.forEach(item => console.log(`  ${T.warning('☑')} ${T.white(item.name)} ${T.muted('[' + item.type + ']')}`));
+      console.log();
+    }
+    const generatedItems = registry.generated || [];
+    if (generatedItems.length > 0) {
+      console.log(T.accent.bold('  Generated:'));
+      generatedItems.forEach(g => console.log(`  ${T.success('✅')} ${T.white(g.name || g.id)} ${T.muted('[' + (g.type || '?') + ']')} — ${T.dim(g.file || '')}`));
+      console.log();
+    }
     const customAgents = registry.custom_agents || [];
     if (customAgents.length > 0) {
       console.log(T.accent.bold('  Custom Agents:'));
@@ -5796,9 +5811,11 @@ async function screenGenerate() {
       console.log(T.muted(`  Open in VS Code: code "${outputFile}"`));
 
       const registryPath = resolve(ROOT, 'marketplace/registry.json');
-      const reg = existsSync(registryPath) ? JSON.parse(readFileSync(registryPath, 'utf8')) : { installed: [], custom_agents: [], custom_models: [] };
-      reg.installed = reg.installed || [];
-      reg.installed.push({ id: cleanName, type: typeChoice, name, file: outputFile.replace(ROOT + '/', ''), createdAt: new Date().toISOString() });
+      let reg = { installed: [], custom_agents: [], custom_models: [] };
+      try { reg = JSON.parse(readFileSync(registryPath, 'utf8')); } catch {}
+      // Generated items live in generated[]; installed[] stays string ids only
+      // (the web UI and the TUI both read it as a list of catalog ids).
+      reg = recordGenerated(reg, { id: cleanName, type: typeChoice, name, file: outputFile.replace(ROOT + '/', ''), createdAt: new Date().toISOString() });
       if (typeChoice === 'agent') {
         reg.custom_agents = reg.custom_agents || [];
         reg.custom_agents.push({ name, file: outputFile.replace(ROOT + '/', ''), addedAt: new Date().toISOString() });
