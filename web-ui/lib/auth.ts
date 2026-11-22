@@ -15,7 +15,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import type { NextRequest } from 'next/server'
 import { getAuthSecret } from './auth-secret'
 import { AUTH_COOKIE, AUTH_COOKIE_NAME, type SessionRole } from './auth-edge'
-import { ensureUserStore, getUserById, type GhostUser, type Role, toPublicUser, touchLastSeen } from './users'
+import { ensureUserStore, getUserById, getUserByIdSync, sessionVersionOf, type GhostUser, type Role, toPublicUser, touchLastSeen } from './users'
 import { isDeviceActive, touchDevice } from './remote/store'
 
 export { getAuthSecret, AUTH_COOKIE, AUTH_COOKIE_NAME }
@@ -32,6 +32,12 @@ export interface SessionPayload {
   exp: number
   /** Set on sessions created by pairing a phone/tablet; revoking the device ends the session. */
   dev?: string
+  /**
+   * The account's sessionVersion when the token was issued. Deactivating the
+   * account or changing its password bumps the stored version, which ends the
+   * session on every guard. Tokens from before this field existed count as 0.
+   */
+  sv?: number
 }
 
 let devPin: string | undefined
@@ -74,7 +80,7 @@ function sign(payload: string): string {
 }
 
 /** Create a signed session token for a user (sync, Node runtime) */
-export function createSessionToken(user: Pick<GhostUser, 'id' | 'name' | 'username' | 'role'>, opts: { deviceId?: string } = {}): string {
+export function createSessionToken(user: Pick<GhostUser, 'id' | 'name' | 'username' | 'role' | 'sessionVersion'>, opts: { deviceId?: string } = {}): string {
   const now = Date.now()
   const payload: SessionPayload = {
     sub: user.id,
@@ -83,6 +89,7 @@ export function createSessionToken(user: Pick<GhostUser, 'id' | 'name' | 'userna
     role: user.role,
     iat: Math.floor(now / 1000),
     exp: Math.floor((now + SESSION_TTL_MS) / 1000),
+    sv: sessionVersionOf(user),
     ...(opts.deviceId ? { dev: opts.deviceId } : {}),
   }
   const body = b64url(JSON.stringify(payload))
@@ -125,16 +132,35 @@ export function sessionTokenStatus(token?: string | null): 'missing' | 'forged' 
   }
 }
 
+/**
+ * True when the session still belongs to this stored account: the account
+ * exists, is active, has the same username, and has not had its sessions
+ * ended (deactivation or a password change bump its sessionVersion).
+ */
+export function sessionMatchesUser(payload: SessionPayload, user: GhostUser | null | undefined): user is GhostUser {
+  if (!user || user.active !== true) return false
+  if (user.username !== payload.username) return false
+  const tokenVersion = typeof payload.sv === 'number' && Number.isInteger(payload.sv) ? payload.sv : 0
+  return tokenVersion === sessionVersionOf(user)
+}
+
+/**
+ * Synchronous check used by every guard: signature and expiry, then the
+ * account itself (re-read from users.json whenever it changes on disk), then
+ * the paired device for device sessions.
+ */
 export function isValidAuthToken(token?: string | null) {
   const payload = token ? verifySessionToken(token) : null
   if (!payload) return false
+  if (!sessionMatchesUser(payload, getUserByIdSync(payload.sub))) return false
   // A paired device's session ends the moment the device is revoked, on every guard.
   return !payload.dev || isDeviceActive(payload.dev)
 }
 
 /**
- * Synchronous auth guard used by the existing API routes. Verifies a valid
- * session token in the request cookie. (Does not re-load the user from disk.)
+ * Synchronous auth guard used by the existing API routes. Verifies the session
+ * token in the request cookie and that its account is still active and has
+ * not had its sessions ended (deleted, deactivated, password changed).
  */
 export function isAuthorizedRequest(req: NextRequest) {
   return isValidAuthToken(req.cookies.get(AUTH_COOKIE_NAME)?.value)
@@ -157,8 +183,7 @@ export async function getCurrentUser(req: NextRequest): Promise<GhostUser | null
   const payload = verifySessionToken(req.cookies.get(AUTH_COOKIE_NAME)?.value)
   if (!payload) return null
   const user = await getUserById(payload.sub)
-  if (!user || !user.active) return null
-  if (user.username !== payload.username) return null
+  if (!sessionMatchesUser(payload, user)) return null
   if (payload.dev && !(await deviceSessionValid(payload.dev))) return null
   void touchLastSeen(user.id).catch(() => {})
   return user
@@ -186,7 +211,7 @@ export async function getSessionUser(): Promise<GhostUser | null> {
   const payload = verifySessionToken(store.get(AUTH_COOKIE_NAME)?.value)
   if (!payload) return null
   const user = await getUserById(payload.sub)
-  if (!user || !user.active) return null
+  if (!sessionMatchesUser(payload, user)) return null
   if (payload.dev && !(await deviceSessionValid(payload.dev))) return null
   return user
 }

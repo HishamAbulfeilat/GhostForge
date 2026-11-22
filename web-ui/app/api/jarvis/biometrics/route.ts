@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { writeFile, readFile, unlink, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { getCurrentUser, isAdmin, isAuthorizedRequest } from '@/lib/auth'
 import { homedir } from 'os'
 import { join } from 'path'
 import { exec } from 'child_process'
@@ -165,6 +165,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Failed to parse request: ${(e as Error).message}` }, { status: 400 })
   }
   const { action, audio, typingData } = body
+
+  // Enrolling replaces the single voice profile / identity record (and the
+  // typing profile) everyone is checked against: admins only.
+  if (action === 'enroll-voice' || action === 'update-typing-profile') {
+    const user = await getCurrentUser(req)
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!isAdmin(user)) {
+      void auditLog({ level: 'security', event: 'biometric_enroll_denied', params: { username: user.username, action }, risk: 70 })
+      return NextResponse.json({ error: 'Only an admin can enroll the voice profile' }, { status: 403 })
+    }
+  }
 
   // ── Check if Resemblyzer is available ────────────────────────────────────
   let hasResemblyzer = false

@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'child_process'
 import { NextRequest, NextResponse } from 'next/server'
 import { bridgeArgv, resolveBridgeLauncher } from '@/lib/bridge-launcher'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -15,6 +15,7 @@ export const maxDuration = 60
  *  - macOS/Linux: runs scripts/bridge.sh via bash
  *
  * Body: { action: 'start' | 'stop' } (defaults to start)
+ * Needs the `admin_tools` permission.
  *
  * The launcher is a constant path inside the validated repository root
  * (lib/bridge-launcher): the root is resolved server-side and only accepted
@@ -26,9 +27,10 @@ export const maxDuration = 60
  * /api/bridge-status to confirm the bridge state changed.
  */
 export async function POST(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  // Starting or stopping the bridge affects every user's terminal, Copilot and
+  // remote features: admin tools only.
+  const user = await requirePermission(req, 'admin_tools')
+  if (user instanceof NextResponse) return user
 
   const body = await req.json().catch(() => ({})) as { action?: string }
   const action = body.action === 'stop' ? 'stop' : 'start'

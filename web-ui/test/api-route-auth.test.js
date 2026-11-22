@@ -255,6 +255,7 @@ test('webhook POST rejects unsigned, unauthenticated non-GitHub deliveries', asy
     '@/lib/auth': { isAuthorizedRequest: () => false, getAuthSecret: () => 'secret' },
     '../jarvis/route': { POST: async () => { jarvisCalls++; return { text: async () => '' } } },
     '@/lib/internal-request': { markServiceRequest: req => req },
+    '@/lib/access': { requirePermission: async () => ({ status: 401 }) },
     'next/server': {
       NextRequest: class {},
       NextResponse: { json: (body, init = {}) => ({ status: init.status ?? 200, body }) },

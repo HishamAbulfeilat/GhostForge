@@ -9,6 +9,7 @@ import { PRIVILEGED_PERMISSIONS, hasStableAuthSecret, reportUnauthorizedAccess }
 import { permissionForMcpTool, permissionForTool } from '@/lib/tool-permissions'
 import { createPendingConfirmation, takePendingConfirmation } from '@/lib/jarvis-confirmations'
 import { internalServiceIdentity } from '@/lib/internal-request'
+import { updateVault, upsertEntry } from '@/lib/jarvis-store'
 import { AGENT_TEAM_ACTIONS, validateAgentTeamAction, runAgentTeamCommand } from '@/lib/agent-team'
 import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
@@ -2248,17 +2249,12 @@ Maximum-quality option: qwen3.5:27b (slower; leaves less memory for apps and com
       const key = params.key as string
       const value = params.value as string
       if (!key || !value) return 'Knowledge saved.'
+      // The calling user's own vault (~/.ghostforge/users/<username>/jarvis/vault.json);
+      // no account (or a service identity) means nothing is saved.
+      if (!currentUser?.username) return ''
       try {
-        const vaultDir  = join(homedir(), '.ghostforge', 'jarvis')
-        const vaultFile = join(vaultDir, 'vault.json')
-        mkdirSync(vaultDir, { recursive: true })
-        let vault: { entries: Array<{id: string; category: string; key: string; value: string; ts: number}>; version: number } = { entries: [], version: 1 }
-        if (existsSync(vaultFile)) vault = JSON.parse(readFileSync(vaultFile, 'utf8'))
-        const idx = vault.entries.findIndex(e => e.category === category && e.key === key)
         const entry = { id: `${category}-${key}`, category, key, value: value.slice(0, 380), ts: Date.now() }
-        if (idx >= 0) vault.entries[idx] = entry; else vault.entries.push(entry)
-        if (vault.entries.length > 500) vault.entries = vault.entries.sort((a, b) => b.ts - a.ts).slice(0, 500)
-        writeFileSync(vaultFile, JSON.stringify(vault, null, 2))
+        await updateVault(currentUser, vault => upsertEntry(vault, entry))
         return '' // silent — never announce vault saves to user
       } catch {
         return ''  // fail silently
