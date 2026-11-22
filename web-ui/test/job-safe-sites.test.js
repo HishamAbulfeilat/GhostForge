@@ -35,6 +35,8 @@ const { AUTO_SUBMIT_ATS } = require('../lib/job-hunter/apply.ts')
 
 /** The message's words, so a host name is checked as a whole word, not a substring. */
 const words = text => String(text).split(/[\s,;:()"'`]+/).map(w => w.replace(/\.$/, ''))
+// Exact host match on each word, so a host is never accepted as a substring of a longer one.
+const mentionsHost = (text, host) => words(text).some(w => w === host)
 
 test.after(() => {
   hooks.deregister()
@@ -159,7 +161,7 @@ test('safe mode never presses Submit when a "Greenhouse" listing landed on the c
   const out = await runFormAgent(page, ctx({ submitAts: SAFE }))
   assert.equal(out.status, 'needs_user')
   assert.equal(page.presses, 0)
-  assert.ok(words(out.message).includes('careers.beta-corp.com'), out.message)
+  assert.ok(mentionsHost(out.message, 'careers.beta-corp.com'), out.message)
   assert.match(out.message, /has not been submitted/)
   // The form was still filled in for the user to finish
   assert.equal(page.doc.getElementById('n').value, 'Jane Example')
@@ -176,7 +178,7 @@ test('safe mode hands back when "Apply on company site" opens the form on anothe
   const out = await runFormAgent(listing, ctx({ submitAts: SAFE }))
   assert.equal(out.status, 'needs_user')
   assert.equal(popup.presses, 0)
-  assert.ok(words(out.message).includes('jobs.beta-corp.com'), out.message)
+  assert.ok(mentionsHost(out.message, 'jobs.beta-corp.com'), out.message)
 
   // A popup that stays on an allowed ATS is fine
   const listing2 = fakePage('<h1>Engineer at Beta</h1><button type="button" id="ext">Apply on company site</button>', 'https://www.beta-corp.com/jobs/1')
@@ -201,7 +203,7 @@ test('the page address is read right before Submit, after any redirect during th
   const out = await runFormAgent(page, ctx({ submitAts: SAFE }))
   assert.equal(out.status, 'needs_user')
   assert.equal(page.presses, 0)
-  assert.ok(words(out.message).includes('apply.beta-corp.com'), out.message)
+  assert.ok(mentionsHost(out.message, 'apply.beta-corp.com'), out.message)
 })
 
 test('submitSiteMessage: allowed ATS hosts only, look-alike hosts refused', () => {
