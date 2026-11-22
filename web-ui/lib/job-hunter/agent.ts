@@ -305,7 +305,7 @@ You MUST use "stop" (never click or type) for: captchas; sign-in or account-crea
   } else if (act.action === 'type' && act.text) {
     if (await visionTargetBlocked(page, null)) { ctx.log?.('Computer use stopped: that field is a signature or consent'); return false }
     ctx.log?.(`Computer use: type${act.why ? ` (${String(act.why).slice(0, 80)})` : ''}`)
-    await page.keyboard.type(String(act.text).slice(0, 500))
+    await page.keyboard.type(computerUseText(act.text))
   } else if (act.action === 'scroll') {
     ctx.log?.(`Computer use: scroll${act.why ? ` (${String(act.why).slice(0, 80)})` : ''}`)
     await page.mouse.wheel(0, 600)
@@ -338,6 +338,12 @@ async function toggleLabels(page: Page): Promise<string[]> {
       const labelled = by ? by.split(/\s+/).map(x => document.getElementById(x)?.textContent || '').join(' ') : ''
       return (el.getAttribute('aria-label') || labelled || el.closest('label')?.textContent || el.textContent || el.parentElement?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300)
     })).catch(() => [])
+}
+
+/** Text the computer-use fallback may type: one line, no control keys, so a newline can never press Enter and submit. */
+export function computerUseText(text: unknown): string {
+  // eslint-disable-next-line no-control-regex
+  return String(text ?? '').replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').slice(0, 500)
 }
 
 /**
