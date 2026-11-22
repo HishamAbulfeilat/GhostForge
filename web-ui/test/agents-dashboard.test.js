@@ -239,16 +239,19 @@ test('blocked and review cards carry failure reason, attempts and last update wi
     failure: 'Reviewer rejected: tests fail see log',
     attempts: 3,
     updatedAt: '2026-10-01T02:15:00.000Z',
+    estimatedMinutes: null,
+    startedAt: null,
   })
   // Missing or malformed fields degrade to null instead of throwing or rendering junk.
-  assert.deepEqual(getTaskCardDetails(tasks[4]), { failure: null, attempts: null, updatedAt: null })
+  assert.deepEqual(getTaskCardDetails(tasks[4]), { failure: null, attempts: null, updatedAt: null, estimatedMinutes: null, startedAt: null })
   assert.deepEqual(getTaskCardDetails({
-    ...tasks[4], lastFailure: '  \n\t ', attempts: -1, updatedAt: 'not-a-date',
-  }), { failure: null, attempts: null, updatedAt: null })
+    ...tasks[4], lastFailure: '  \n\t ', attempts: -1, updatedAt: 'not-a-date', estimatedMinutes: -5, startedAt: 'not-a-date',
+  }), { failure: null, attempts: null, updatedAt: null, estimatedMinutes: null, startedAt: null })
   assert.deepEqual(getTaskCardDetails({
-    ...tasks[4], lastFailure: { html: '<b>x</b>' }, attempts: 1.5, updatedAt: 42,
-  }), { failure: null, attempts: null, updatedAt: null })
+    ...tasks[4], lastFailure: { html: '<b>x</b>' }, attempts: 1.5, updatedAt: 42, estimatedMinutes: '10', startedAt: 7,
+  }), { failure: null, attempts: null, updatedAt: null, estimatedMinutes: null, startedAt: null })
   assert.equal(getTaskCardDetails({ ...tasks[4], attempts: 0 }).attempts, 0)
+  assert.equal(getTaskCardDetails({ ...tasks[4], estimatedMinutes: 12.4 }).estimatedMinutes, 12)
 
   const now = Date.parse('2026-10-01T03:00:00.000Z')
   assert.equal(formatUpdatedAgo('2026-10-01T02:15:00.000Z', now), '45m ago')

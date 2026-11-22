@@ -120,6 +120,20 @@ test('dealbreakers and salary floor mark jobs as Skip', () => {
   assert.equal(match.dealbreaker({ title: 'Engineer', company: 'A', description: '', salary: 'Competitive' }, prefs), null)
 })
 
+test('belowMinSalary flags only stated salaries under the minimum', () => {
+  assert.equal(match.belowMinSalary({ salary: '$60k-$80k' }, { minSalary: 100000 }), true)
+  assert.equal(match.belowMinSalary({ salary: 'USD 90000-120000' }, { minSalary: 100000 }), false)
+  assert.equal(match.belowMinSalary({ salary: '' }, { minSalary: 100000 }), false, 'unstated salary is kept')
+  assert.equal(match.belowMinSalary({ salary: '$60k-$80k' }, { minSalary: null }), false, 'no minimum configured')
+})
+
+test('a slow job source times out without holding the process open', async () => {
+  const started = Date.now()
+  await assert.rejects(sources.withSourceTimeout('Slow board', () => new Promise(() => {}), 20), /Slow board timed out/)
+  assert.ok(Date.now() - started < 1000)
+  assert.equal(await sources.withSourceTimeout('Fast board', async () => 'ok', 1000), 'ok', 'the timer is cleared once the source answers')
+})
+
 test('HTML entities decode once (no double unescaping)', () => {
   assert.equal(sources.stripHtml('<p>A &amp;lt;b&amp;gt; tag &amp; more</p>'), 'A &lt;b&gt; tag & more')
   assert.equal(sources.stripHtml('x &lt; y'), 'x < y')
@@ -345,6 +359,7 @@ test('search → prepare → approve guards, end to end with mocked sources', as
           { title: 'Senior Frontend Engineer', company_name: 'Acme', candidate_required_location: 'Worldwide', url: 'https://jobs.lever.co/acme/1', salary: '', description: '<p>React TypeScript Next.js</p>', publication_date: '2026-09-01' },
           { title: 'Frontend Developer', company_name: 'Singa', candidate_required_location: 'Singapore', url: 'https://example.com/2', salary: '', description: 'React', publication_date: '2026-09-01' },
           { title: 'Freelance Writer', company_name: 'Words', candidate_required_location: 'Worldwide', url: 'https://example.com/3', salary: '', description: 'Blog posts', publication_date: '2026-09-01' },
+          { title: 'Junior Frontend Developer', company_name: 'Cheap', candidate_required_location: 'Worldwide', url: 'https://example.com/4', salary: '$40k-$50k', description: 'React', publication_date: '2026-09-01' },
         ] }
       : host === 'remoteok.com' ? [{ legal: 'notice' }]
       : host === 'www.arbeitnow.com' ? { data: [] }
@@ -358,13 +373,15 @@ test('search → prepare → approve guards, end to end with mocked sources', as
     const user = 'pipeline'
     await jh.importCv(user, 'cv.txt', Buffer.from('Jane Example\njane@example.com | +81 90 1234 5678\nSenior Frontend Engineer | Acme | 2021 - Present\nReact TypeScript Next.js Tailwind'), null)
     await jh.saveProfile(user, {
-      preferences: { ...profile.preferences, titles: ['frontend'], locations: ['Remote'], remote: 'remote' },
+      preferences: { ...profile.preferences, titles: ['frontend'], locations: ['Remote'], remote: 'remote', minSalary: 100000 },
       applicant: { city: 'Tokyo', country: 'Japan', firstName: 'Jane', lastName: 'Example', email: 'jane@example.com', phone: '+81 90 1234 5678' },
     })
 
     const r = await jh.runSearch(user, { generate: null, autoPrepare: 0 })
-    assert.equal(r.found, 3)
-    assert.equal(r.matched, 1, 'Singapore-only and irrelevant jobs are filtered out')
+    assert.equal(r.found, 4)
+    assert.equal(r.matched, 2, 'Singapore-only and irrelevant jobs are filtered out')
+    assert.equal(r.salaryFiltered, 1, 'the listing below the minimum salary is dropped before scoring')
+    assert.equal((await jh.listJobs(user)).length, 1)
     const [found] = await jh.listJobs(user)
     assert.equal(found.company, 'Acme')
     assert.equal(found.ats, 'lever')

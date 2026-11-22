@@ -13,6 +13,9 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
+/** In-flight model-list requests, kept for one second so identical calls share a fetch. */
+const _fetchCache = new Map<string, { promise: Promise<unknown>; started: number }>()
+
 export type ProviderId =
   | 'pollinations' | 'omniroute' | 'openai' | 'anthropic' | 'google'
   | 'openrouter' | 'groq' | 'cerebras' | 'nvidia' | 'together' | 'huggingface'
@@ -276,9 +279,20 @@ const _modelCache = new Map<ProviderId, { ts: number; list: ProviderModelList }>
 const NON_CHAT = /(embed|embedding|whisper|tts|audio|realtime|transcribe|dall-e|image|moderation|search|computer-use|guard|rerank|davinci|babbage)/i
 
 async function fetchJSON<T>(url: string, headers: Record<string, string> = {}): Promise<T> {
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) })
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-  return res.json() as Promise<T>
+  // Share one request between identical calls made within a second (e.g. several panels loading model lists)
+  const key = url + JSON.stringify(headers)
+  const now = Date.now()
+  const cached = _fetchCache.get(key)
+  if (cached && now - cached.started < 1000) return cached.promise as Promise<T>
+  const promise = (async () => {
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) })
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+    return res.json() as Promise<T>
+  })()
+  const entry = { promise, started: now }
+  _fetchCache.set(key, entry)
+  setTimeout(() => { if (_fetchCache.get(key) === entry) _fetchCache.delete(key) }, 1000).unref?.()
+  return promise
 }
 
 type OpenAIModelsResponse = { data?: Array<{ id: string; name?: string; pricing?: { prompt?: string; completion?: string } }> }

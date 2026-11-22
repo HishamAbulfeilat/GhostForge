@@ -19,12 +19,16 @@ export type Task = {
   lastFailure?: string | null
   attempts?: number | null
   updatedAt?: string | null
+  estimatedMinutes?: number | null
+  startedAt?: string | null
 }
 
 export type TaskCardDetails = {
   failure: string | null
   attempts: number | null
   updatedAt: string | null
+  estimatedMinutes: number | null
+  startedAt: string | null
 }
 
 export type DependencyGraphNode = {
@@ -212,7 +216,15 @@ export function getTaskCardDetails(task: Task): TaskCardDetails {
   const updatedAt = typeof task.updatedAt === 'string' && Number.isFinite(Date.parse(task.updatedAt))
     ? task.updatedAt
     : null
-  return { failure: summarizeFailure(task.lastFailure), attempts, updatedAt }
+  return {
+    failure: summarizeFailure(task.lastFailure),
+    attempts,
+    updatedAt,
+    estimatedMinutes: typeof task.estimatedMinutes === 'number' && Number.isFinite(task.estimatedMinutes) && task.estimatedMinutes >= 0
+      ? Math.round(task.estimatedMinutes)
+      : null,
+    startedAt: typeof task.startedAt === 'string' && Number.isFinite(Date.parse(task.startedAt)) ? task.startedAt : null,
+  }
 }
 
 export function formatUpdatedAgo(updatedAt: string | null, now: number): string {

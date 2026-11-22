@@ -1,8 +1,20 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, memo } from 'react'
 import type { AutopilotSettings, JobRecord, ModelChoice } from '@/lib/job-hunter/store'
+
+interface JobRowProps {
+  job: JobRecord;
+}
+const JobRow = memo(function JobRow({ job }: JobRowProps) {
+  return (
+    <li className="flex items-center justify-between gap-2 text-xs">
+      <span className="truncate text-gray-300">{job.title} <span className="text-gray-600">@ {job.company}</span></span>
+      <span className="shrink-0 tabular-nums text-emerald-400">{job.score}</span>
+    </li>
+  );
+});
 
 interface JobsSummary {
   jobs: JobRecord[]
@@ -12,7 +24,7 @@ interface JobsSummary {
 }
 
 /** Dashboard card for Job Hunter. Hidden for users without the job_hunter permission. */
-export function JobHunterWidget() {
+export const JobHunterWidget = memo(function JobHunterWidget() {
   const [data, setData] = useState<JobsSummary | null>(null)
   const [hidden, setHidden] = useState(false)
 
@@ -68,10 +80,7 @@ export function JobHunterWidget() {
           {ready.length > 0 && (
             <ul className="flex flex-col gap-1">
               {ready.map(j => (
-                <li key={j.id} className="flex items-center justify-between gap-2 text-xs">
-                  <span className="truncate text-gray-300">{j.title} <span className="text-gray-600">@ {j.company}</span></span>
-                  <span className="shrink-0 tabular-nums text-emerald-400">{j.score}</span>
-                </li>
+                <JobRow key={j.id} job={j} />
               ))}
             </ul>
           )}
@@ -84,4 +93,4 @@ export function JobHunterWidget() {
       )}
     </div>
   )
-}
+});

@@ -36,6 +36,7 @@ export interface AutopilotReport {
   reason?: string
   found?: number
   matched?: number
+  salaryFiltered?: number
   prepared?: number
   submitted?: number
   needsUser?: number
@@ -241,13 +242,13 @@ export async function runAutopilot(
     : ''
   const result = remaining === 0
     ? `Daily limit reached (${ap.dailyLimit}). Found ${search.found}, prepared ${prepared}.`
-    : `Found ${search.found}, ${search.matched} in your locations. Prepared ${prepared}, submitted ${submitted}${linkedinSent ? ` (${linkedinSent} on LinkedIn)` : ''}${needsUser ? `, ${needsUser} need you` : ''}${failed ? `, ${failed} failed` : ''}.${stoppedOff ? ' Stopped: autopilot was turned off during the run.' : ''}${hint}`
+    : `Found ${search.found}, ${search.matched} in your locations${search.salaryFiltered ? ` (${search.salaryFiltered} below your minimum salary)` : ''}. Prepared ${prepared}, submitted ${submitted}${linkedinSent ? ` (${linkedinSent} on LinkedIn)` : ''}${needsUser ? `, ${needsUser} need you` : ''}${failed ? `, ${failed} failed` : ''}.${stoppedOff ? ' Stopped: autopilot was turned off during the run.' : ''}${hint}`
   await record(username, now, result)
-  void auditLog({ level: 'info', event: 'job_autopilot_run', params: { username, found: search.found, matched: search.matched, prepared, submitted, linkedin: linkedinSent, needsUser, failed, mode: ap.mode } })
+  void auditLog({ level: 'info', event: 'job_autopilot_run', params: { username, found: search.found, matched: search.matched, salaryFiltered: search.salaryFiltered, prepared, submitted, linkedin: linkedinSent, needsUser, failed, mode: ap.mode } })
 
   const after = (await getProfile(username)).autopilot
   return {
-    ran: true, found: search.found, matched: search.matched, prepared, submitted, needsUser, failed,
+    ran: true, found: search.found, matched: search.matched, salaryFiltered: search.salaryFiltered, prepared, submitted, needsUser, failed,
     remainingToday: Math.max(0, after.dailyLimit - submittedToday(after, now)),
   }
   }
