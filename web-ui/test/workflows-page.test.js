@@ -2,6 +2,19 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
+const Module = require('node:module')
+
+const hooks = Module.registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context)
+    } catch (error) {
+      if (specifier.startsWith('.')) return nextResolve(specifier + '.ts', context)
+      throw error
+    }
+  },
+})
+test.after(() => hooks.deregister())
 
 const { RUNNABLE_COMMAND_REFS, SUGGESTED_COMMAND_REFS, isRunnableStep, unsupportedSteps, summarizeRun } = require('../app/workflows/runnable.ts')
 
@@ -12,19 +25,23 @@ const bridge = readFileSync(resolve(__dirname, '../../mark-l-bridge/server.py'),
 const step = (id, kind, ref, extra = {}) => ({ id, title: id, kind, ref, deps: [], status: 'pending', notes: '', log: [], ...extra })
 
 test('client run allowlist mirrors the bridge allowlist exactly', () => {
-  const fn = bridge.slice(bridge.indexOf('def _run_workflow('), bridge.indexOf('def _workflow_step('))
-  const tuple = fn.match(/kind == "command" and ref in \(([\s\S]*?)\)/)
-  assert.ok(tuple, 'bridge allowlist tuple not found')
-  const bridgeRefs = [...tuple[1].matchAll(/"([^"]+)"/g)].map(m => m[1])
+  const fn = bridge.slice(bridge.indexOf('def _parse_workflow_command('), bridge.indexOf('def _run_workflow('))
+  const tuple = fn.match(/if ref in \(([^)]*)\):/)
+  const aliases = bridge.match(/_WORKFLOW_DEPLOY_ALIASES = \{([^}]*)\}/)
+  assert.ok(tuple && aliases, 'bridge allowlist not found')
+  const bridgeRefs = [...`${tuple[1]} ${aliases[1]}`.matchAll(/"([^"]+)"/g)].map(m => m[1])
   assert.deepEqual([...RUNNABLE_COMMAND_REFS].sort(), bridgeRefs.sort())
-  assert.match(fn, /ref\.startswith\("bridge:deploy"\)/)
+  assert.match(bridge, /_WORKFLOW_DEPLOY_ENVIRONMENTS = \{"staging", "dev"\}/)
+  assert.match(fn, /if environment == "production":\s*raise ValueError/)
   for (const ref of SUGGESTED_COMMAND_REFS) assert.ok(RUNNABLE_COMMAND_REFS.includes(ref))
 })
 
 test('runnable steps are manual, allow-listed bridge commands, or already finished', () => {
   assert.equal(isRunnableStep(step('a', 'manual', 'sign off')), true)
   assert.equal(isRunnableStep(step('b', 'command', 'bridge:health')), true)
-  assert.equal(isRunnableStep(step('c', 'command', 'bridge:deploy:prod:static')), true)
+  assert.equal(isRunnableStep(step('c', 'command', 'bridge:deploy:staging:static')), true)
+  assert.equal(isRunnableStep(step('c2', 'command', 'bridge:deploy:production:static')), false)
+  assert.equal(isRunnableStep(step('c3', 'command', 'bridge:deployx')), false)
   assert.equal(isRunnableStep(step('d', 'command', 'npm test')), false)
   assert.equal(isRunnableStep(step('e', 'agent', 'ecc:code-reviewer')), false)
   assert.equal(isRunnableStep(step('f', 'skill', 'x', { status: 'done' })), true)

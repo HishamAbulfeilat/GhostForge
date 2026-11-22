@@ -8,6 +8,7 @@ common software-engineering workflows.
 from __future__ import annotations
 
 import sys
+import threading
 import uuid
 from typing import Any, Optional
 
@@ -32,6 +33,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 _crews: dict[str, dict[str, Any]] = {}
+# Guards status transitions so a cancel and a finishing kickoff cannot race.
+_crews_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Built-in crew templates
@@ -271,7 +274,10 @@ def run_crew(crew_id: str, inputs: Optional[dict[str, Any]] = None) -> dict[str,
         raise KeyError(f"Crew {crew_id} not found")
 
     record = _crews[crew_id]
-    record["status"] = "running"
+    run_token = uuid.uuid4().hex
+    with _crews_lock:
+        record["status"] = "running"
+        record["_run"] = run_token
 
     if not _HAS_CREWAI:
         record["status"] = "completed"
@@ -289,11 +295,15 @@ def run_crew(crew_id: str, inputs: Optional[dict[str, Any]] = None) -> dict[str,
 
     try:
         result = crew_obj.kickoff(inputs=inputs or {})
-        record["status"] = "completed"
-        record["result"] = str(result)
+        outcome = ("completed", str(result))
     except Exception as exc:
-        record["status"] = "failed"
-        record["result"] = str(exc)
+        outcome = ("failed", str(exc))
+
+    with _crews_lock:
+        # A cancel (or a newer run) while kickoff was in flight wins: the
+        # finished kickoff must not flip "cancelled" back to completed/failed.
+        if record.get("_run") == run_token and record["status"] != "cancelled":
+            record["status"], record["result"] = outcome
 
     return {k: v for k, v in record.items() if not k.startswith("_")}
 
@@ -315,11 +325,18 @@ def list_crews() -> list[dict[str, Any]]:
 
 
 def cancel_crew(crew_id: str) -> dict[str, Any]:
-    """Mark a crew as cancelled (best-effort)."""
+    """Mark a crew as cancelled. Best-effort only.
+
+    crewAI's ``kickoff`` cannot be interrupted, so a crew that is already
+    running keeps running to the end in its worker thread (and may still have
+    side effects). What cancel guarantees is that the status stays
+    "cancelled": the finishing kickoff does not overwrite it.
+    """
     if crew_id not in _crews:
         raise KeyError(f"Crew {crew_id} not found")
-    _crews[crew_id]["status"] = "cancelled"
-    return {"crew_id": crew_id, "status": "cancelled"}
+    with _crews_lock:
+        _crews[crew_id]["status"] = "cancelled"
+    return {"crew_id": crew_id, "status": "cancelled", "note": "best-effort: a running crew is not interrupted"}
 
 
 # ---------------------------------------------------------------------------

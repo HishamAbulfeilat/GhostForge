@@ -4,6 +4,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { net } from 'electron';
 import { getBridgeAuthHeaders, getHealthEndpoint } from './bridge-auth';
+import { FAST_POLL_WINDOW_MS, bridgeSpawnCommand, nextHealthPollDelay } from './bridge-manager-policy';
 
 const BRIDGE_PORT = 8765;
 const BRIDGE_URL = `http://localhost:${BRIDGE_PORT}`;
@@ -114,21 +115,8 @@ class BridgeManager extends EventEmitter {
 
   private spawnProcess(): void {
     const bridgeDir = this.resolveBridgeDir();
-    const isWin = process.platform === 'win32';
-
-    let cmd: string;
-    let args: string[];
+    const { cmd, args } = bridgeSpawnCommand(process.platform, bridgeDir, BRIDGE_PORT, join);
     const opts = { cwd: bridgeDir, stdio: ['ignore', 'pipe', 'pipe'] as any };
-
-    if (isWin) {
-      cmd = 'python';
-      args = ['-m', 'uvicorn', 'server:app', '--host', '0.0.0.0', '--port', String(BRIDGE_PORT)];
-    } else {
-      // Run through bash so a lost exec bit in the packaged copy doesn't matter
-      cmd = 'bash';
-      args = [join(bridgeDir, 'start.sh')];
-      opts.cwd = bridgeDir;
-    }
 
     this.appendLog(`[bridge-manager] Spawning: ${cmd} ${args.join(' ')}`);
     const child = spawn(cmd, args, opts);
@@ -170,13 +158,30 @@ class BridgeManager extends EventEmitter {
       }
     });
 
-    this.pollHealth(30_000);
+    this.pollHealth(child);
   }
 
-  private pollHealth(timeout: number): void {
+  /**
+   * Probe /health until the bridge answers, this child exits, or the status
+   * leaves "starting". After the first 30 s it keeps probing more slowly
+   * instead of giving up, so a slow first start (venv + pip install) still
+   * ends in "running" rather than staying "starting" forever.
+   */
+  private pollHealth(child: ChildProcess): void {
     const start = Date.now();
+    let warnedSlow = false;
+    const scheduleNext = () => {
+      const elapsed = Date.now() - start;
+      const delay = nextHealthPollDelay(elapsed, this.status, this.process === child);
+      if (delay === null) return;
+      if (!warnedSlow && elapsed >= FAST_POLL_WINDOW_MS) {
+        warnedSlow = true;
+        this.appendLog('[bridge-manager] Bridge not healthy after 30s — still starting, polling less often.');
+      }
+      setTimeout(attempt, delay);
+    };
     const attempt = () => {
-      if (Date.now() - start > timeout || this.status === 'error' || this.status === 'stopped') return;
+      if (nextHealthPollDelay(Date.now() - start, this.status, this.process === child) === null) return;
       const req = net.request({
         url: HEALTH_ENDPOINT,
         headers: getBridgeAuthHeaders(),
@@ -189,9 +194,9 @@ class BridgeManager extends EventEmitter {
           this.emit('started');
           return;
         }
-        setTimeout(attempt, 1000);
+        scheduleNext();
       });
-      req.on('error', () => setTimeout(attempt, 1000));
+      req.on('error', scheduleNext);
       req.end();
     };
     setTimeout(attempt, 2000);

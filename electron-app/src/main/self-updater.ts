@@ -6,6 +6,13 @@ import { EventEmitter } from 'events';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import {
+  pullFastForward,
+  rollbackUpdate,
+  snapshotBeforeUpdate,
+  type GitRunner,
+  type UpdateSnapshot,
+} from './update-git';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -39,6 +46,11 @@ export class SelfUpdater extends EventEmitter {
   private autoCheckTimer: ReturnType<typeof setInterval> | null = null;
   private autoCheckIntervalMs = 6 * 60 * 60 * 1000;
   private lastCheckTime = 0;
+  private snapshot: UpdateSnapshot | null = null;
+  private readonly git: GitRunner = async (args) => {
+    const { stdout } = await execFileAsync('git', args, { cwd: PROJECT_ROOT, timeout: 60_000 });
+    return { stdout: String(stdout) };
+  };
 
   constructor() {
     super();
@@ -201,18 +213,12 @@ export class SelfUpdater extends EventEmitter {
     try {
       mkdirSync(backupPath, { recursive: true });
 
-      await execAsync(
-        `git stash push -m "auto-backup-${backupName}"`,
-        { cwd: PROJECT_ROOT }
-      );
+      // Records HEAD (restored on rollback) and stashes local changes under a
+      // unique message, so rollback pops only this stash, never an older one.
+      this.snapshot = await snapshotBeforeUpdate(this.git);
+      writeFileSync(join(backupPath, 'snapshot.json'), JSON.stringify(this.snapshot, null, 2));
 
-      const { stdout: stashList } = await execAsync(
-        'git stash list',
-        { cwd: PROJECT_ROOT }
-      );
-      writeFileSync(join(backupPath, 'stash-info.txt'), stashList);
-
-      this.log(`Backup created: ${backupPath}`);
+      this.log(`Backup created: ${backupPath}`, this.snapshot);
       return backupPath;
     } catch (err) {
       this.log('Backup creation failed', err);
@@ -227,11 +233,8 @@ export class SelfUpdater extends EventEmitter {
     this.log('Pulling updates from origin/main');
 
     try {
-      const { stdout, stderr } = await execAsync(
-        'git pull origin main',
-        { cwd: PROJECT_ROOT, timeout: 60_000 }
-      );
-      this.log('Git pull output', { stdout: stdout.trim(), stderr: stderr.trim() });
+      const stdout = await pullFastForward(this.git);
+      this.log('Git pull output', { stdout: stdout.trim() });
     } catch (err) {
       this.log('Git pull failed', err);
       throw err;
@@ -283,19 +286,16 @@ export class SelfUpdater extends EventEmitter {
     this.log('Rolling back changes');
     this.emit('phase', { phase: 'error', message: 'Rolling back...', percent: 90 });
 
+    const snapshot = this.snapshot;
+    if (!snapshot) {
+      // The backup step itself failed, so nothing was pulled or stashed.
+      this.log('Rollback skipped: no snapshot was taken');
+      return;
+    }
     try {
-      await execAsync('git checkout .', { cwd: PROJECT_ROOT });
-
-      const { stdout: stashList } = await execAsync(
-        'git stash list',
-        { cwd: PROJECT_ROOT }
-      );
-
-      if (stashList.trim()) {
-        await execAsync('git stash pop', { cwd: PROJECT_ROOT });
-      }
-
-      this.log('Rollback complete');
+      const steps = await rollbackUpdate(this.git, snapshot);
+      this.snapshot = null;
+      this.log('Rollback complete', steps);
     } catch (err) {
       this.log('Rollback failed', err);
     }
@@ -334,6 +334,7 @@ export class SelfUpdater extends EventEmitter {
     }
 
     this.isUpdating = true;
+    this.snapshot = null;
 
     try {
       await this.createBackup();
