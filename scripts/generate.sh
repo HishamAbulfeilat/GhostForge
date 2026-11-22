@@ -25,13 +25,14 @@ slugify() { echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed
 register_item() {
   local type="$1" name="$2" file="$3"
   if command -v node >/dev/null 2>&1 && [[ -f "$REGISTRY" ]]; then
-    node -e "
-const fs = require('fs');
-const reg = JSON.parse(fs.readFileSync('$REGISTRY', 'utf8'));
-reg.installed = reg.installed || [];
-reg.installed.push({ id: '$(slugify "$name")', type: '$type', name: '$name', file: '$file', createdAt: new Date().toISOString() });
-fs.writeFileSync('$REGISTRY', JSON.stringify(reg, null, 2));
-" 2>/dev/null || true
+    GF_REG="$REGISTRY" GF_ID="$(slugify "$name")" GF_TYPE="$type" GF_NAME="$name" GF_FILE="$file" node -e '
+const fs = require("fs");
+const e = process.env;
+const reg = JSON.parse(fs.readFileSync(e.GF_REG, "utf8"));
+reg.generated = Array.isArray(reg.generated) ? reg.generated : [];
+reg.generated.push({ id: e.GF_ID, type: e.GF_TYPE, name: e.GF_NAME, file: e.GF_FILE, createdAt: new Date().toISOString() });
+fs.writeFileSync(e.GF_REG, JSON.stringify(reg, null, 2));
+' 2>/dev/null || true
   fi
 }
 
