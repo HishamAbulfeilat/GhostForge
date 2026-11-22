@@ -275,6 +275,12 @@ export interface ApplyOptions {
   headless?: boolean
   /** Press the final Submit when the form is complete */
   allowSubmit?: boolean
+  /**
+   * Submit only while the form is on one of these ATSes (checked on the page's
+   * current address right before Submit). Defaults to AUTO_SUBMIT_ATS when
+   * allowSubmit is not given, since that default trusts the listing's ATS.
+   */
+  submitAts?: readonly string[]
   /** LinkedIn Easy Apply is allowed for this run */
   linkedin?: boolean
   generate?: AgentContext['generate']
@@ -337,6 +343,7 @@ export async function applyToJob(job: JobRecord, profile: JobProfile, username: 
         generate: opts.generate ?? null,
         vision: opts.vision ?? null,
         allowSubmit: opts.allowSubmit ?? AUTO_SUBMIT_ATS.has(job.ats),
+        submitAts: opts.submitAts ?? (opts.allowSubmit === undefined ? [...AUTO_SUBMIT_ATS] : undefined),
         onPage: current => trackApplicationPage(username, job.id, current),
         log: message => {
           updateApplicationActivity(username, job.id, message)
