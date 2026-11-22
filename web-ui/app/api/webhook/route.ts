@@ -4,6 +4,7 @@ import { homedir } from 'os'
 import path from 'path'
 import crypto from 'crypto'
 import { isAuthorizedRequest } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
 import { markServiceRequest } from '@/lib/internal-request'
 import { POST as jarvisPost } from '../jarvis/route'
 
@@ -133,6 +134,23 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url)
+
+  // Replacing the shared trigger config (~/.ghostforge/webhooks.json) is an
+  // admin action; a signed delivery or an ordinary session can't do it.
+  if (searchParams.get('config') === '1') {
+    const user = await requirePermission(req, 'admin_tools')
+    if (user instanceof NextResponse) return user
+    let config: unknown
+    try {
+      config = JSON.parse(await req.text())
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    }
+    ensureConfigDir()
+    writeFileSync(WEBHOOKS_FILE, JSON.stringify(config, null, 2))
+    return NextResponse.json({ ok: true })
+  }
+
   const rawBody = await req.text().catch(() => '')
 
   // GitHub deliveries must be HMAC-signed with WEBHOOK_SECRET. Any other
@@ -160,13 +178,6 @@ export async function POST(req: NextRequest) {
     body = {}
   }
 
-  if (searchParams.get('config') === '1') {
-    if (!isAuthorizedRequest(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    ensureConfigDir()
-    writeFileSync(WEBHOOKS_FILE, JSON.stringify(body, null, 2))
-    return NextResponse.json({ ok: true })
-  }
-
   const event = ghEvent || 'unknown'
   const source = req.headers.get('x-source') || 'generic'
   const typedBody = (body && typeof body === 'object' ? body : {}) as GitHubWebhookPayload
@@ -185,9 +196,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  // Clearing the shared delivery log is an admin action too.
+  const user = await requirePermission(req, 'admin_tools')
+  if (user instanceof NextResponse) return user
 
   ensureConfigDir()
   writeFileSync(LOG_FILE, '[]')

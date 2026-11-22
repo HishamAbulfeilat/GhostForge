@@ -38,7 +38,12 @@ class NextResponse {
 }
 const stubs = {
   'next/server': { NextResponse },
-  '@/lib/auth': { isAuthorizedRequest: () => true },
+  // Enrollment is admin-only; this suite enrolls as the owner.
+  '@/lib/auth': {
+    isAuthorizedRequest: () => true,
+    getCurrentUser: async () => ({ username: 'owner', role: 'admin', active: true }),
+    isAdmin: user => user?.role === 'admin',
+  },
   '@/lib/audit': { auditLog: async () => {} },
 }
 const originalLoad = Module._load

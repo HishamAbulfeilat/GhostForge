@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { spawn } from 'child_process'
 import { requirePermission } from '@/lib/access'
 import { LOCAL_MODELS, RUNNER_META, type RunnerId } from '@/lib/local-models'
+import { startOllamaPull } from '@/lib/ollama-pull'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,11 +35,10 @@ export async function POST(req: NextRequest) {
   }
 
   if (runner === 'ollama') {
-    const child = spawn('ollama', ['pull', model.name], {
-      detached: true,
-      stdio: 'ignore',
-    })
-    child.unref()
+    const started = await startOllamaPull(model.name)
+    if (!started.ok) {
+      return NextResponse.json({ ok: false, runner, model: model.name, status: 'failed', error: started.error }, { status: 503 })
+    }
 
     return NextResponse.json({
       ok: true,
