@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import HFModelCard, { type HFModel } from '@/components/HFModelCard'
+import { NETWORK_FAILURE, markRequestBody, readMarkResponse, type MarkResult } from '@/lib/marketplace-client'
 
 interface MarketplaceItem {
   id: string
@@ -135,45 +136,102 @@ export default function MarketplacePage() {
   )
 }
 
-/* ─────────────────────── Claude Marketplace Tab ─────────────────────── */
+/* ─────────────────────── Shared install-mark state ─────────────────────── */
 
-function ClaudeTab() {
+interface MarketplaceResponse {
+  items?: MarketplaceItem[]
+  sources?: Source[]
+  installed?: string[]
+  marked?: string[]
+  canEdit?: boolean
+}
+
+/**
+ * Loads /api/marketplace and owns the installed/marked sets for a tab.
+ * installed = verified installs (the TUI ran the command, or the catalog ships
+ * it); marked = marked installed by hand on the web (nothing ran). Busy ids are
+ * tracked in a Set so several cards can be in flight at once, and every
+ * failure is shown instead of swallowed.
+ */
+function useMarketplaceMarks() {
   const router = useRouter()
-  const [sources, setSources] = useState<Source[]>([])
+  const [data, setData] = useState<MarketplaceResponse>({})
   const [installed, setInstalled] = useState<Set<string>>(new Set())
+  const [marked, setMarked] = useState<Set<string>>(new Set())
+  const [canEdit, setCanEdit] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [category, setCategory] = useState('all')
-  const [copied, setCopied] = useState<string | null>(null)
-  const [actionId, setActionId] = useState<string | null>(null)
+  const [busy, setBusy] = useState<Set<string>>(new Set())
+  const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetch('/api/marketplace')
       if (res.status === 401) { router.push('/login'); return }
-      const data = await res.json() as { sources: Source[]; installed: string[] }
-      setSources(data.sources ?? [])
-      setInstalled(new Set(data.installed ?? []))
-    } catch { /* keep empty */ }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const body = await res.json() as MarketplaceResponse
+      setData(body)
+      setInstalled(new Set(body.installed ?? []))
+      setMarked(new Set(body.marked ?? []))
+      setCanEdit(body.canEdit === true)
+    } catch {
+      setError('Could not load the marketplace. Reload the page to try again.')
+    }
     setLoading(false)
   }, [router])
 
   useEffect(() => { void load() }, [load])
 
-  const toggle = useCallback(async (id: string, isInstalled: boolean) => {
-    setActionId(id)
+  const toggle = useCallback(async (id: string, mark: boolean) => {
+    setBusy(prev => new Set(prev).add(id))
+    setError(null)
+    let result: MarkResult
     try {
       const res = await fetch('/api/marketplace', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: isInstalled ? 'remove' : 'install', id }),
+        body: markRequestBody(id, mark),
       })
-      const data = await res.json() as { installed?: string[] }
-      if (data.installed) setInstalled(new Set(data.installed))
-    } catch { /* ignore */ }
-    setActionId(null)
-  }, [])
+      result = await readMarkResponse(res)
+    } catch {
+      result = NETWORK_FAILURE
+    }
+    if (result.ok) {
+      setInstalled(new Set(result.installed))
+      setMarked(new Set(result.marked))
+    } else if (result.unauthorized) {
+      router.push('/login')
+    } else {
+      setError(result.error)
+    }
+    setBusy(prev => {
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+  }, [router])
+
+  return { data, installed, marked, canEdit, loading, busy, error, setError, toggle }
+}
+
+function MarkError({ error, onDismiss }: { error: string | null; onDismiss: () => void }) {
+  if (!error) return null
+  return (
+    <div role="alert" className="mx-4 mb-2 flex items-start gap-2 rounded-lg border border-red-800/50 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+      <span className="flex-1">{error}</span>
+      <button type="button" onClick={onDismiss} aria-label="Dismiss error" className="text-red-400 hover:text-white">✕</button>
+    </div>
+  )
+}
+
+/* ─────────────────────── Claude Marketplace Tab ─────────────────────── */
+
+function ClaudeTab() {
+  const { data, installed, marked, canEdit, loading, busy, error, setError, toggle } = useMarketplaceMarks()
+  const sources = useMemo(() => data.sources ?? [], [data.sources])
+  const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('all')
+  const [copied, setCopied] = useState<string | null>(null)
 
   const copy = useCallback((id: string, cmd: string) => {
     void navigator.clipboard?.writeText(cmd).then(() => {
@@ -218,6 +276,7 @@ function ClaudeTab() {
         </div>
         <span className="text-[10px] text-gray-600">{filtered.length} of {sources.length} entries</span>
       </div>
+      <MarkError error={error} onDismiss={() => setError(null)} />
 
       <div className="px-4 pb-8 max-w-6xl mx-auto">
         {loading ? (
@@ -230,15 +289,17 @@ function ClaudeTab() {
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.map(s => {
-              const isInstalled = installed.has(s.id)
-              const isBusy = actionId === s.id
+              const isVerified = installed.has(s.id)
+              const isMarked = marked.has(s.id)
+              const isInstalled = isVerified || isMarked
+              const isBusy = busy.has(s.id)
               const cmd = s.install_claude_code || s.install_command || ''
               return (
                 <div key={s.id}
                   className={`flex min-w-0 flex-col gap-2 break-words rounded-lg border p-3 transition ${isInstalled ? 'border-emerald-800/40 bg-emerald-950/10' : 'border-white/[0.06] bg-[#080d18] hover:border-white/[0.12]'}`}>
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-semibold text-gray-100 leading-tight">{s.name}</p>
-                    {isInstalled && <span className="shrink-0 text-[10px] text-emerald-500">✓ installed</span>}
+                    {isInstalled && <span className="shrink-0 text-[10px] text-emerald-500">{isVerified ? '✓ installed' : '✓ marked installed'}</span>}
                   </div>
                   <p className="text-[11px] text-gray-500 leading-snug line-clamp-4">{s.description}</p>
                   {s.categories && s.categories.length > 0 && (
@@ -256,14 +317,16 @@ function ClaudeTab() {
                     </button>
                   )}
                   <div className="mt-auto flex gap-1.5">
-                    <button type="button" onClick={() => toggle(s.id, isInstalled)} disabled={isBusy}
-                      className={`flex-1 rounded border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
-                        isInstalled
-                          ? 'border-red-800/50 bg-red-950/30 text-red-400 hover:bg-red-900/40'
-                          : 'border-sky-800/50 bg-sky-950/30 text-sky-300 hover:bg-sky-900/40'
-                      }`}>
-                      {isBusy ? '…' : isInstalled ? 'Mark not installed' : 'Mark installed'}
-                    </button>
+                    {canEdit && (
+                      <button type="button" onClick={() => toggle(s.id, !isInstalled)} disabled={isBusy} aria-busy={isBusy}
+                        className={`flex-1 rounded border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                          isInstalled
+                            ? 'border-red-800/50 bg-red-950/30 text-red-400 hover:bg-red-900/40'
+                            : 'border-sky-800/50 bg-sky-950/30 text-sky-300 hover:bg-sky-900/40'
+                        }`}>
+                        {isBusy ? '…' : isInstalled ? 'Mark not installed' : 'Mark installed'}
+                      </button>
+                    )}
                     {s.url && (
                       <a href={s.url} target="_blank" rel="noopener noreferrer"
                         className="rounded border border-white/[0.08] px-3 py-1.5 text-center text-xs font-medium text-gray-400 hover:border-white/20 hover:text-white">
@@ -284,48 +347,28 @@ function ClaudeTab() {
 /* ─────────────────────── Commands Tab ─────────────────────── */
 
 function CommandsTab() {
-  const router = useRouter()
-  const [items, setItems] = useState<MarketplaceItem[]>([])
-  const [installed, setInstalled] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(true)
+  const { data, installed, marked, canEdit, loading, busy, error, setError, toggle } = useMarketplaceMarks()
+  const items = useMemo(() => data.items ?? [], [data.items])
   const [filter, setFilter] = useState<'all' | 'installed' | string>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [search, setSearch] = useState('')
-  const [actionId, setActionId] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch('/api/marketplace')
-      if (res.status === 401) { router.push('/login'); return }
-      const data = await res.json() as { items: MarketplaceItem[]; installed: string[] }
-      setItems(data.items ?? [])
-      setInstalled(new Set(data.installed ?? []))
-    } catch { /* keep empty */ }
-    setLoading(false)
-  }, [router])
-
-  useEffect(() => { void load() }, [load])
-
-  const toggle = useCallback(async (id: string, isInstalled: boolean) => {
-    setActionId(id)
-    try {
-      const res = await fetch('/api/marketplace', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: isInstalled ? 'remove' : 'install', id }),
-      })
-      const data = await res.json() as { installed?: string[] }
-      if (data.installed) setInstalled(new Set(data.installed))
-    } catch { /* ignore */ }
-    setActionId(null)
+  const copy = useCallback((id: string, cmd: string) => {
+    void navigator.clipboard?.writeText(cmd).then(() => {
+      setCopied(id)
+      setTimeout(() => setCopied(c => (c === id ? null : c)), 1500)
+    }).catch(() => {})
   }, [])
+
+  const isListed = (id: string) => installed.has(id) || marked.has(id)
+  const listedCount = items.filter(i => isListed(i.id)).length
 
   const categories = [...new Set(items.map(i => i.category))]
   const types = [...new Set(items.map(i => i.type))]
 
   const filtered = items.filter(item => {
-    if (filter === 'installed' && !installed.has(item.id)) return false
+    if (filter === 'installed' && !isListed(item.id)) return false
     if (filter !== 'all' && filter !== 'installed' && item.category !== filter) return false
     if (typeFilter !== 'all' && item.type !== typeFilter) return false
     if (search && !item.name.toLowerCase().includes(search.toLowerCase()) &&
@@ -350,7 +393,7 @@ function CommandsTab() {
           {['all', 'installed'].map(f => (
             <button key={f} type="button" onClick={() => setFilter(f)}
               className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition ${filter === f ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
-              {f === 'all' ? 'All' : `✅ Installed (${installed.size})`}
+              {f === 'all' ? 'All' : `✅ Installed (${listedCount})`}
             </button>
           ))}
           <div className="w-px bg-white/[0.06] mx-1 shrink-0" />
@@ -370,7 +413,12 @@ function CommandsTab() {
           ))}
         </div>
         <span className="text-[10px] text-gray-600">{filtered.length} items</span>
+        <p className="text-[10px] text-gray-600">
+          The web UI does not run installers. Copy the command and run it in your terminal, or install from the TUI
+          (Marketplace → Install Item); &quot;Mark installed&quot; only records it here.
+        </p>
       </div>
+      <MarkError error={error} onDismiss={() => setError(null)} />
 
       <div className="px-4 pb-8 max-w-6xl mx-auto">
         {loading ? (
@@ -383,8 +431,10 @@ function CommandsTab() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map(item => {
-              const isInstalled = installed.has(item.id)
-              const isBusy = actionId === item.id
+              const isVerified = installed.has(item.id)
+              const isMarked = !isVerified && marked.has(item.id)
+              const isInstalled = isVerified || isMarked
+              const isBusy = busy.has(item.id)
               return (
                 <div key={item.id}
                   className={`flex flex-col gap-2 rounded-lg border p-3 transition ${isInstalled ? 'border-emerald-800/40 bg-emerald-950/10' : 'border-white/[0.06] bg-[#080d18] hover:border-white/[0.12]'}`}>
@@ -395,7 +445,8 @@ function CommandsTab() {
                       </span>
                       <span className="text-[10px] text-gray-600">{CATEGORY_ICONS[item.category] ?? ''} {item.category}</span>
                     </div>
-                    {isInstalled && <span className="text-[10px] text-emerald-500 shrink-0">✓ installed</span>}
+                    {isVerified && <span className="text-[10px] text-emerald-500 shrink-0">✓ installed</span>}
+                    {isMarked && <span className="text-[10px] text-amber-400 shrink-0" title="Marked by hand; no installer ran">☑ marked</span>}
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-100">{item.name}</p>
@@ -408,14 +459,23 @@ function CommandsTab() {
                       ))}
                     </div>
                   )}
-                  <button type="button" onClick={() => toggle(item.id, isInstalled)} disabled={isBusy}
-                    className={`mt-auto rounded border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
-                      isInstalled
-                        ? 'border-red-800/50 bg-red-950/30 text-red-400 hover:bg-red-900/40'
-                        : 'border-sky-800/50 bg-sky-950/30 text-sky-300 hover:bg-sky-900/40'
-                    }`}>
-                    {isBusy ? '…' : isInstalled ? 'Remove' : 'Install'}
-                  </button>
+                  {item.install_command && (
+                    <button type="button" onClick={() => copy(item.id, item.install_command ?? '')}
+                      title="Copy install command"
+                      className="rounded border border-white/[0.08] bg-black/30 px-2 py-1 text-start font-mono text-[10px] text-gray-400 hover:border-white/20 truncate">
+                      {copied === item.id ? '✓ copied' : `$ ${item.install_command}`}
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button type="button" onClick={() => toggle(item.id, !isInstalled)} disabled={isBusy} aria-busy={isBusy}
+                      className={`mt-auto rounded border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                        isInstalled
+                          ? 'border-red-800/50 bg-red-950/30 text-red-400 hover:bg-red-900/40'
+                          : 'border-sky-800/50 bg-sky-950/30 text-sky-300 hover:bg-sky-900/40'
+                      }`}>
+                      {isBusy ? '…' : isInstalled ? 'Mark not installed' : 'Mark installed'}
+                    </button>
+                  )}
                 </div>
               )
             })}
