@@ -6,7 +6,7 @@
  * verified in lib/auth.ts.
  */
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'crypto'
-import { readFileSync, statSync } from 'fs'
+import { closeSync, fstatSync, openSync, readFileSync } from 'fs'
 import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
@@ -203,25 +203,34 @@ let _syncSnapshot: { key: string; byId: Map<string, GhostUser> } | null = null
  * session is refused rather than guessed at).
  */
 export function getUserByIdSync(id: string): GhostUser | null {
-  let key: string
+  // One file descriptor for both the identity check and the read, so the key
+  // and the contents always describe the same file.
+  let fd: number
   try {
-    const st = statSync(USERS_FILE)
-    key = `${st.ino}:${st.mtimeMs}:${st.size}`
+    fd = openSync(USERS_FILE, 'r')
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
     return _syncSnapshot?.byId.get(id) ?? null
   }
-  if (!_syncSnapshot || _syncSnapshot.key !== key) {
-    try {
-      const parsed = JSON.parse(readFileSync(USERS_FILE, 'utf8')) as UserFile
-      if (!parsed || !Array.isArray(parsed.users)) throw new Error('users.json has no "users" array')
-      _syncSnapshot = { key, byId: new Map(parsed.users.filter(u => u && typeof u.id === 'string').map(u => [u.id, u])) }
-    } catch (err) {
-      console.error(`[users] ${USERS_FILE} is unreadable (${(err as Error).message}); keeping the last good copy for session checks`)
-      return _syncSnapshot?.byId.get(id) ?? null
+  try {
+    const st = fstatSync(fd)
+    const key = `${st.ino}:${st.mtimeMs}:${st.size}`
+    if (!_syncSnapshot || _syncSnapshot.key !== key) {
+      try {
+        const parsed = JSON.parse(readFileSync(fd, 'utf8')) as UserFile
+        if (!parsed || !Array.isArray(parsed.users)) throw new Error('users.json has no "users" array')
+        _syncSnapshot = { key, byId: new Map(parsed.users.filter(u => u && typeof u.id === 'string').map(u => [u.id, u])) }
+      } catch (err) {
+        console.error(`[users] ${USERS_FILE} is unreadable (${(err as Error).message}); keeping the last good copy for session checks`)
+        return _syncSnapshot?.byId.get(id) ?? null
+      }
     }
+    return _syncSnapshot.byId.get(id) ?? null
+  } catch {
+    return _syncSnapshot?.byId.get(id) ?? null
+  } finally {
+    closeSync(fd)
   }
-  return _syncSnapshot.byId.get(id) ?? null
 }
 
 // ── bootstrap ──────────────────────────────────────────────────────────────

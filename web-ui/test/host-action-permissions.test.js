@@ -117,6 +117,7 @@ const bridgeStart = loadRoute('app/api/bridge-start/route.ts')
 const llmfit = loadRoute('app/api/llmfit/route.ts')
 const install = loadRoute('app/api/models/install/route.ts')
 const webhook = loadRoute('app/api/webhook/route.ts')
+const webhookConfig = loadRoute('app/api/webhook/config/route.ts')
 const biometrics = loadRoute('app/api/jarvis/biometrics/route.ts')
 
 function request(user, url, body) {
@@ -186,12 +187,16 @@ function firstOllamaModelId() {
 
 test('webhook config and log clearing need admin_tools', async () => {
   const file = path.join(fakeHome, '.ghostforge', 'webhooks.json')
-  const url = 'http://localhost/api/webhook?config=1'
-  assert.equal((await webhook.POST(request('guest', url, [{ id: 'evil' }]))).status, 403)
+  const url = 'http://localhost/api/webhook/config'
+  assert.equal((await webhookConfig.POST(request('guest', url, [{ id: 'evil' }]))).status, 403)
   assert.equal(fs.existsSync(file), false, 'config not written')
+  // The delivery route no longer writes config at all, whoever asks.
+  assert.equal((await webhook.POST(request('ops', 'http://localhost/api/webhook?config=1', [{ id: 'x', source: 'github', eventType: 'push', action: 'notify' }]))).status, 410)
+  assert.equal(fs.existsSync(file), false, 'config not written by the delivery route')
+  assert.equal((await webhookConfig.POST(request('ops', url, [{ id: 'bad' }]))).status, 400)
   assert.equal((await webhook.DELETE(request('guest', 'http://localhost/api/webhook'))).status, 403)
 
-  assert.equal((await webhook.POST(request('ops', url, [{ id: 't1', source: 'github', eventType: 'push', action: 'notify' }]))).status, 200)
+  assert.equal((await webhookConfig.POST(request('ops', url, [{ id: 't1', source: 'github', eventType: 'push', action: 'notify' }]))).status, 200)
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).map(t => t.id), ['t1'])
   assert.equal((await webhook.DELETE(request('ops', 'http://localhost/api/webhook'))).status, 200)
 })

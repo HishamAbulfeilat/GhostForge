@@ -14,7 +14,7 @@
  * A running pass refreshes it before each application.
  */
 import { randomUUID } from 'crypto'
-import { mkdir, open, readFile, stat, unlink, writeFile } from 'fs/promises'
+import { mkdir, open, unlink, writeFile } from 'fs/promises'
 import { hostname } from 'os'
 import { join } from 'path'
 import { userDir } from './store'
@@ -60,13 +60,21 @@ export function staleReason(info: RunLockInfo | null, mtimeMs: number, now = Dat
 }
 
 async function readLock(path: string): Promise<{ info: RunLockInfo | null; mtimeMs: number } | null> {
-  let mtimeMs: number
-  try { mtimeMs = (await stat(path)).mtimeMs } catch { return null }
+  // One open file handle for both the mtime and the contents, so they describe the same file.
+  let fh
+  try { fh = await open(path, 'r') } catch { return null }
   try {
-    const info = JSON.parse(await readFile(path, 'utf8')) as RunLockInfo
-    return { info: info && typeof info === 'object' && typeof info.token === 'string' ? info : null, mtimeMs }
+    const mtimeMs = (await fh.stat()).mtimeMs
+    try {
+      const info = JSON.parse(await fh.readFile('utf8')) as RunLockInfo
+      return { info: info && typeof info === 'object' && typeof info.token === 'string' ? info : null, mtimeMs }
+    } catch {
+      return { info: null, mtimeMs }
+    }
   } catch {
-    return { info: null, mtimeMs }
+    return null
+  } finally {
+    await fh.close().catch(() => {})
   }
 }
 

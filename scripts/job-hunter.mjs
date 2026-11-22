@@ -270,7 +270,7 @@ Dealbreakers: ${p.dealbreakers.join(', ') || 'none'} · company boards: ${p.comp
         // directory that the web server's scheduler and "Run now" respect too (and vice versa).
         const rl = await import(pathToFileURL(join(WEB, 'lib', 'job-hunter', 'run-lock.ts')).href)
         const busy = await rl.activeRunLock(user)
-        if (busy) { console.log(c.yellow(`An autopilot run is already in progress for ${user} (pid ${busy.pid} on ${busy.host}, started ${busy.startedAt.slice(0, 16).replace('T', ' ')}). Try again when it finishes.`)); return }
+        if (busy) { console.log(c.yellow(`An autopilot run is already in progress (started ${String(busy.startedAt).slice(0, 16).replace('T', ' ')}). Try again when it finishes.`)); return }
         if (!flags.yes && !(await confirm(
           `Run autopilot now? It will search and SUBMIT up to ${Math.max(0, a.dailyLimit - ap.submittedToday(a))} more application(s) today ` +
           `(High fit, score ${a.minScore}+, ${a.mode === 'full' ? 'any site it can complete' : 'Lever/Greenhouse/Ashby'}) using your CV and details.`))) { console.log('Cancelled.'); return }
@@ -285,7 +285,7 @@ Dealbreakers: ${p.dealbreakers.join(', ') || 'none'} · company boards: ${p.comp
       const rl = await import(pathToFileURL(join(WEB, 'lib', 'job-hunter', 'run-lock.ts')).href)
       const busy = await rl.activeRunLock(user)
       console.log(`Autopilot: ${a.enabled ? c.green('on') : 'off'} · every ${a.intervalHours}h · max ${a.dailyLimit}/day (${ap.submittedToday(a)} today) · min score ${a.minScore}`)
-      if (busy) console.log(c.yellow(`A run is in progress now (pid ${busy.pid} on ${busy.host}).`))
+      if (busy) console.log(c.yellow(`A run is in progress now (started ${String(busy.startedAt).slice(0, 16).replace("T", " ")}).`))
       if (a.lastRunAt) console.log(c.dim(`Last run ${a.lastRunAt.slice(0, 16).replace('T', ' ')}: ${a.lastResult}`))
       return
     }

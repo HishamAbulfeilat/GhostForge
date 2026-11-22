@@ -135,20 +135,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url)
 
-  // Replacing the shared trigger config (~/.ghostforge/webhooks.json) is an
-  // admin action; a signed delivery or an ordinary session can't do it.
-  if (searchParams.get('config') === '1') {
-    const user = await requirePermission(req, 'admin_tools')
-    if (user instanceof NextResponse) return user
-    let config: unknown
-    try {
-      config = JSON.parse(await req.text())
-    } catch {
-      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
-    }
-    ensureConfigDir()
-    writeFileSync(WEBHOOKS_FILE, JSON.stringify(config, null, 2))
-    return NextResponse.json({ ok: true })
+  // The trigger config has its own admin-only route; nothing here writes it.
+  if (searchParams.has('config')) {
+    return NextResponse.json({ error: 'Trigger config moved to /api/webhook/config' }, { status: 410 })
   }
 
   const rawBody = await req.text().catch(() => '')
