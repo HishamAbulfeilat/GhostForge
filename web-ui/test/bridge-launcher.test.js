@@ -169,9 +169,18 @@ test('bridge-start route validates the launcher and never spawns an env-derived 
 // mocked, so each case below drives it through the shared state.
 const spawnCalls = []
 const state = { authed: true, launcher: null }
+class StubResponse {
+  constructor(body, init = {}) { this.status = init.status ?? 200; this._body = body }
+  static json(body, init = {}) { return new StubResponse(body, init) }
+  async json() { return this._body }
+}
 const route = loadTs(path.join(WEB_UI, 'app', 'api', 'bridge-start', 'route.ts'), {
-  'next/server': { NextResponse: { json: (b, i = {}) => ({ status: i.status ?? 200, json: async () => b }) } },
+  'next/server': { NextResponse: StubResponse },
   '@/lib/auth': { isAuthorizedRequest: () => state.authed },
+  // The route needs admin_tools; `authed` stands for a caller who holds it.
+  '@/lib/access': {
+    requirePermission: async () => (state.authed ? { username: 'owner', role: 'admin' } : StubResponse.json({ error: 'Unauthorized' }, { status: 401 })),
+  },
   // The route calls resolveBridgeLauncher() with no arguments; the mock
   // supplies the outcome so both the found and missing cases are exercised.
   '@/lib/bridge-launcher': {
