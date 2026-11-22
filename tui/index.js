@@ -2589,8 +2589,15 @@ async function screenSecurity() {
   } else if (action === 'npm-audit') {
     const cwd = await input({ message: T.white('Project path (leave blank for current directory):'), default: '.' });
     try {
-      const out = execSync(`cd "${cwd}" && npm audit --json 2>/dev/null`, { timeout: 15000 }).toString();
-      const data = JSON.parse(out);
+      // No shell: the path is a cwd option, never part of a command line.
+      // npm audit exits non-zero when it finds vulnerabilities, so read stdout
+      // whatever the status. On Windows npm is npm.cmd, which needs a shell;
+      // the argument list there is fixed.
+      const res = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['audit', '--json'], {
+        cwd: resolve(cwd || '.'), encoding: 'utf8', timeout: 15000, shell: process.platform === 'win32',
+      });
+      const data = JSON.parse(res.stdout || '');
+      if (!data.metadata?.vulnerabilities) throw new Error(data.error?.summary || 'npm audit returned no vulnerability metadata');
       const { critical = 0, high = 0, moderate = 0, low = 0 } = data.metadata?.vulnerabilities || {};
       console.log(boxen(
         T.danger.bold(`Critical: ${critical}`) + '  ' + T.warning.bold(`High: ${high}`) + '\n' +
@@ -2601,7 +2608,8 @@ async function screenSecurity() {
       console.log(T.warning('\n  ⚠  Could not run npm audit. Make sure you are in a Node.js project.'));
     }
   } else if (action === 'secrets') {
-    const out = execSync(`cd "${process.cwd()}" && git log --all --full-history -- "*.env" 2>/dev/null | head -20`).toString();
+    const res = spawnSync('git', ['log', '--all', '--full-history', '--', '*.env'], { cwd: process.cwd(), encoding: 'utf8', timeout: 15000 });
+    const out = (res.stdout || '').split('\n').slice(0, 20).join('\n').trim();
     console.log(T.warning('\n  Git history .env references:\n'));
     console.log(T.dim(out || '  None found ✔'));
   } else if (action === 'prompt') {
@@ -2653,7 +2661,9 @@ async function screenTest() {
     console.log(T.success(`\n  ► Detected command: `) + T.white.bold(cmd));
     const ok = await confirm({ message: T.white('Run now?'), default: true });
     if (ok) {
-      try { execSync(`cd "${cwd}" && ${cmd}`, { stdio: 'inherit', timeout: 120000 }); }
+      // cmd is one of the fixed strings above; the user's path goes in cwd,
+      // not into the shell line.
+      try { execSync(cmd, { cwd: resolve(cwd || '.'), stdio: 'inherit', timeout: 120000 }); }
       catch { console.log(T.danger('\n  Tests failed (see output above)')); }
     }
   } else {
