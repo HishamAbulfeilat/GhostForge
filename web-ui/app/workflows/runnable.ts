@@ -1,6 +1,9 @@
-// Client-side mirror of the bridge's run allowlist (`_run_workflow` in
-// mark-l-bridge/server.py). It is informational only: the bridge stays the
-// authority and rejects anything else with 422.
+import { bridgeRefError } from '../../lib/workflows/bridge-refs'
+
+// Client-side mirror of the bridge's run allowlist (`_parse_workflow_command`
+// in mark-l-bridge/server.py). It is informational only: the bridge stays the
+// authority and rejects anything else with 422. Production deploys are never
+// runnable from a workflow.
 export const RUNNABLE_COMMAND_REFS = [
   'bridge:health',
   'bridge:release-status',
@@ -25,7 +28,8 @@ export function isRunnableStep(step: Pick<StepLike, 'kind' | 'ref' | 'status'>):
   if (step.status === 'done' || step.status === 'skipped') return true
   if (step.kind === 'manual') return true
   if (step.kind !== 'command') return false
-  return (RUNNABLE_COMMAND_REFS as readonly string[]).includes(step.ref) || step.ref.startsWith('bridge:deploy')
+  if ((RUNNABLE_COMMAND_REFS as readonly string[]).includes(step.ref)) return true
+  return step.ref.startsWith('bridge:deploy:') && bridgeRefError(step.ref) === null
 }
 
 export function unsupportedSteps<T extends Pick<StepLike, 'kind' | 'ref' | 'status'>>(steps: T[]): T[] {

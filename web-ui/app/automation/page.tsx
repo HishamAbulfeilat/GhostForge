@@ -59,7 +59,7 @@ export default function AutomationPage() {
   const persistTriggers = async (nextTriggers: Trigger[]) => {
     setSaving(true)
     try {
-      const response = await fetch('/api/webhook?config=1', {
+      const response = await fetch('/api/webhook/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(nextTriggers),

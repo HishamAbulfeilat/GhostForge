@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { spawn } from 'child_process'
 import { MODEL_DATABASE, scoreModels, detectHardware, tryLLMFitCLI } from '@/lib/llmfit-models'
 import { chooseBestInstalledModel } from '@/lib/local-runtime'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { isAuthorizedRequest, isAdmin } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
+import { SAFE_MODEL_NAME, isCatalogOllamaModel, startOllamaPull } from '@/lib/ollama-pull'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,32 +60,30 @@ export async function GET(req: NextRequest) {
   })
 }
 
-// ── POST /api/llmfit/pull — trigger ollama pull ───────────────────────────────
+// ── POST /api/llmfit — trigger ollama pull ────────────────────────────────────
+// Downloads onto the host, so it needs `ai_models`. Regular users can pull only
+// models from the app's catalogs (as /api/models/install); admins may also pull
+// a custom model name.
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const user = await requirePermission(req, 'ai_models')
+  if (user instanceof NextResponse) return user
 
-  const { modelId, customModel } = await req.json().catch(() => ({}))
+  const { modelId, customModel } = await req.json().catch(() => ({})) as { modelId?: unknown; customModel?: unknown }
   const targetModel = customModel || modelId
   if (!targetModel) return NextResponse.json({ error: 'modelId or customModel required' }, { status: 400 })
 
-  // Sanitize model name — only allow safe ollama model format (no shell injection)
-  const SAFE_MODEL_RE = /^[a-zA-Z0-9_./:@-]{1,120}$/
-  if (!SAFE_MODEL_RE.test(targetModel)) {
+  // Only a plain ollama model reference: no shell, no option flags
+  if (typeof targetModel !== 'string' || !SAFE_MODEL_NAME.test(targetModel)) {
     return NextResponse.json({ error: 'Invalid model name format' }, { status: 400 })
   }
+  if (!isCatalogOllamaModel(targetModel) && !isAdmin(user)) {
+    return NextResponse.json({ error: 'Unknown model selection: only models from the catalog can be installed (an admin can pull a custom model)' }, { status: 400 })
+  }
 
-  try {
-    const child = spawn('ollama', ['pull', targetModel], {
-      detached: true,
-      stdio: 'ignore',
-      env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:${process.env.PATH || ''}` },
-    })
-    child.unref()
-  } catch (error) {
-    return NextResponse.json({ error: `Could not start Ollama: ${String(error).slice(0, 120)}` }, { status: 503 })
+  const started = await startOllamaPull(targetModel)
+  if (!started.ok) {
+    return NextResponse.json({ error: started.error, status: 'failed' }, { status: 503 })
   }
 
   const known = MODEL_DATABASE.find(m => m.id === targetModel)

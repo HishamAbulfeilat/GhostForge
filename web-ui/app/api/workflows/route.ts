@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requirePermission } from '@/lib/access'
 import {
   createWorkflow, deleteWorkflow, getWorkflow, listWorkflows, progress, readySteps,
-  updateStep, updateWorkflow, type WorkflowInput, type WorkflowStatus, type WorkflowStep,
+  updateStep, updateWorkflow, WorkflowValidationError, type WorkflowInput, type WorkflowStatus, type WorkflowStep,
 } from '@/lib/workflows/store'
 import { ensureMarkLivBridge } from '@/lib/mark-liv-bridge'
 import { getMarkLBridgeToken } from '@/lib/bridge-token'
@@ -44,8 +44,18 @@ export async function POST(req: NextRequest) {
   if (!body.name || !String(body.name).trim()) {
     return NextResponse.json({ error: 'A workflow name is required' }, { status: 400 })
   }
-  const wf = await createWorkflow(user.username, body)
-  return NextResponse.json({ workflow: wf })
+  try {
+    const wf = await createWorkflow(user.username, body)
+    return NextResponse.json({ workflow: wf })
+  } catch (error) {
+    return validationResponse(error)
+  }
+}
+
+/** Invalid step data (e.g. an unknown or production `bridge:` ref) is a 400; anything else rethrows. */
+function validationResponse(error: unknown) {
+  if (error instanceof WorkflowValidationError) return NextResponse.json({ error: error.message }, { status: 400 })
+  throw error
 }
 
 /**
@@ -69,17 +79,21 @@ export async function PUT(req: NextRequest) {
   }
   if (!body.id) return NextResponse.json({ error: 'Workflow id required' }, { status: 400 })
 
-  if (body.stepId && body.step) {
-    const wf = await updateStep(user.username, body.id, body.stepId, body.step, body.log)
-    if (!wf) return NextResponse.json({ error: 'Workflow or step not found' }, { status: 404 })
-    return NextResponse.json({ workflow: wf, progress: progress(wf) })
-  }
+  try {
+    if (body.stepId && body.step) {
+      const wf = await updateStep(user.username, body.id, body.stepId, body.step, body.log)
+      if (!wf) return NextResponse.json({ error: 'Workflow or step not found' }, { status: 404 })
+      return NextResponse.json({ workflow: wf, progress: progress(wf) })
+    }
 
-  const wf = await updateWorkflow(user.username, body.id, {
-    name: body.name, goal: body.goal, status: body.status, steps: body.steps,
-  })
-  if (!wf) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
-  return NextResponse.json({ workflow: wf, progress: progress(wf) })
+    const wf = await updateWorkflow(user.username, body.id, {
+      name: body.name, goal: body.goal, status: body.status, steps: body.steps,
+    })
+    if (!wf) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
+    return NextResponse.json({ workflow: wf, progress: progress(wf) })
+  } catch (error) {
+    return validationResponse(error)
+  }
 }
 
 /** DELETE /api/workflows?id=<id> */

@@ -21,7 +21,7 @@ import {
   applicationRunner, getJob, getProfile, listJobs, saveCvFile, saveProfile, updateJob, upsertJobs, withJobOperation,
   type JobProfile, type JobRecord, type ModelChoice,
 } from './store'
-import { applyToJob } from './apply'
+import { AUTO_SUBMIT_ATS, applyToJob } from './apply'
 import { updateApplicationActivity } from './live'
 import { notifyJob } from './notifications'
 import { buildAnswers, missingApplicantFields, normalizeLabel, reusableAnswer, tailorResume, templateCoverLetter, writeCoverLetter } from './writer'
@@ -189,7 +189,7 @@ async function prepareJobMaterials(username: string, id: string, generate?: Gene
 export function approveJob(
   username: string,
   id: string,
-  opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean } = {},
+  opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean; submitAts?: readonly string[] } = {},
 ): Promise<{ job: JobRecord; message: string; missing: string[] }> {
   return withJobOperation(username, id, () => applyApprovedJob(username, id, opts))
 }
@@ -197,7 +197,7 @@ export function approveJob(
 async function applyApprovedJob(
   username: string,
   id: string,
-  opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean } = {},
+  opts: { headless?: boolean; by?: 'user' | 'autopilot'; allowSubmit?: boolean; submitAts?: readonly string[] } = {},
 ): Promise<{ job: JobRecord; message: string; missing: string[] }> {
   const job = await getJob(username, id)
   if (!job) throw new Error('Job not found')
@@ -235,6 +235,8 @@ async function applyApprovedJob(
       headless,
       // The user's own approval is consent to submit; autopilot decides per site.
       allowSubmit: opts.allowSubmit ?? by === 'user',
+      // Autopilot in "Safe sites" mode submits only while the form is really on Lever/Greenhouse/Ashby
+      submitAts: opts.submitAts ?? (by === 'autopilot' && ap.mode !== 'full' ? [...AUTO_SUBMIT_ATS] : undefined),
       linkedin: by === 'user' || (ap.linkedinEasyApply && Boolean(profile.linkedin?.connectedAt)),
       generate, vision,
       log: message => {

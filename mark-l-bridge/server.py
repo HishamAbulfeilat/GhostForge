@@ -352,6 +352,7 @@ try:
         get_model_recommendations as _ai_get_model_recommendations,
         install_model as _ai_install_model,
         compare_models as _ai_compare_models,
+        resolve_download_dir as _ai_resolve_download_dir,
     )
 
     _HAS_AI_MODELS = True
@@ -428,20 +429,47 @@ _TOKEN_DIR = Path.home() / ".ghostforge" / "bridge"
 _TOKEN_FILE = _TOKEN_DIR / "token"
 
 
+def _create_or_read_token_file(path: Path) -> str:
+    """Create the token file atomically with mode 0600, or read the existing one.
+
+    ``O_CREAT | O_EXCL`` means the file is never visible with default (umask)
+    permissions, and when the bridge and the voice pipeline start together only
+    one of them creates it; the other gets FileExistsError and reads that value.
+    A reader that wins the race against the writer may briefly see an empty
+    file, so it retries for up to a second.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        token = secrets.token_hex(32)
+        try:
+            with os.fdopen(fd, "w") as handle:
+                handle.write(token)
+        except OSError:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            raise
+        return token
+    for _ in range(20):
+        value = path.read_text().strip()
+        if value:
+            return value
+        time.sleep(0.05)
+    return ""
+
+
 def _read_bridge_token() -> str:
     """Return the shared bridge secret (env var first, then the token file)."""
     env_token = (os.environ.get("MARKL_BRIDGE_TOKEN") or "").strip()
     if env_token:
         return env_token
     try:
-        _TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-        if not _TOKEN_FILE.exists():
-            _TOKEN_FILE.write_text(secrets.token_hex(32))
-            try:
-                _TOKEN_FILE.chmod(0o600)
-            except OSError:
-                pass
-        return _TOKEN_FILE.read_text().strip()
+        return _create_or_read_token_file(_TOKEN_FILE)
     except OSError:
         return ""
 
@@ -1093,6 +1121,40 @@ def _fail_workflow(workflow: dict[str, Any], message: str) -> None:
     workflow.setdefault("log", []).append({"at": workflow["updatedAt"], "msg": message})
 
 
+# Command refs a workflow may run. Deploys are limited to non-production
+# environments: a workflow is user-authored data, so a production deploy is
+# never runnable from one (no confirmation step exists on that path) and has
+# to be started from the CLI by a person.
+_WORKFLOW_DEPLOY_ALIASES = {"bridge:deploy", "bridge:deploy-azure", "bridge:azure-deploy"}
+_WORKFLOW_DEPLOY_ENVIRONMENTS = {"staging", "dev"}
+PRODUCTION_WORKFLOW_DEPLOY_ERROR = (
+    "Production deploys cannot run from a workflow; deploy from the CLI "
+    "(scripts/deploy-azure.sh --env production)"
+)
+
+
+def _parse_workflow_command(ref: str) -> tuple[str, Optional[tuple[str, str]]]:
+    """Map a workflow command ref to an allow-listed action.
+
+    Returns ``(action, deploy_args)``; raises ValueError for anything that is
+    not allow-listed, including any production deploy.
+    """
+    if ref in ("bridge:health", "bridge:release-status"):
+        return ref, None
+    if ref in _WORKFLOW_DEPLOY_ALIASES:
+        return "bridge:deploy", ("staging", "static")
+    parts = ref.split(":")
+    if len(parts) in (3, 4) and parts[0] == "bridge" and parts[1] == "deploy":
+        environment = parts[2].strip().lower()
+        if environment == "production":
+            raise ValueError(PRODUCTION_WORKFLOW_DEPLOY_ERROR)
+        if environment not in _WORKFLOW_DEPLOY_ENVIRONMENTS:
+            raise ValueError("Unsupported workflow deploy environment; allowed: staging, dev")
+        target = _normalize_deploy_target(parts[3] if len(parts) == 4 else "static")
+        return "bridge:deploy", (environment, target)
+    raise ValueError(f"Unsupported workflow step: kind='command', ref={ref!r}")
+
+
 def _run_workflow(workflow: dict[str, Any], max_steps: int) -> dict[str, Any]:
     steps = workflow.get("steps") or []
     if len(steps) > max_steps:
@@ -1104,6 +1166,25 @@ def _run_workflow(workflow: dict[str, Any], max_steps: int) -> dict[str, Any]:
         unknown = [dep for dep in step.get("deps", []) if dep not in by_id]
         if unknown:
             raise ValueError(f"Step {step['id']} references missing dependency {unknown[0]}")
+    # Validate every step that would run before running any of them, so a
+    # disallowed step late in the plan cannot leave earlier deploys half done.
+    plan: dict[str, tuple[str, Optional[tuple[str, str]]]] = {}
+    for step in steps:
+        if step.get("status") in ("done", "skipped"):
+            continue
+        kind = step.get("kind", "manual")
+        ref = step.get("ref", "")
+        try:
+            if kind == "manual":
+                plan[step["id"]] = ("manual", None)
+            elif kind == "command":
+                plan[step["id"]] = _parse_workflow_command(ref)
+            else:
+                raise ValueError(f"Unsupported workflow step: kind={kind!r}, ref={ref!r}")
+        except ValueError as exc:
+            step["status"] = "failed"
+            step.setdefault("log", []).append({"at": _iso_now(), "msg": str(exc)})
+            raise
     completed: set[str] = set()
     for _ in steps:
         progressed = False
@@ -1113,44 +1194,27 @@ def _run_workflow(workflow: dict[str, Any], max_steps: int) -> dict[str, Any]:
                 continue
             if any(dep not in completed for dep in step.get("deps", [])):
                 continue
-            kind = step.get("kind", "manual")
+            action, deploy_args = plan[step["id"]]
             ref = step.get("ref", "")
-            if kind == "manual":
+            if action == "manual":
                 step["status"] = "skipped"
                 message = "Skipped: manual steps require a human"
-            elif kind == "command" and ref in (
-                "bridge:health",
-                "bridge:release-status",
-                "bridge:deploy",
-                "bridge:deploy-azure",
-                "bridge:azure-deploy",
-            ):
+            else:
                 step["status"] = "running"
-                if ref == "bridge:health":
-                    result = health()
-                elif ref == "bridge:release-status":
-                    result = _release_status()
-                else:
-                    result = _deploy_azure()
+                try:
+                    if action == "bridge:health":
+                        result = health()
+                    elif action == "bridge:release-status":
+                        result = _release_status()
+                    else:
+                        environment, target = deploy_args  # type: ignore[misc]
+                        result = _deploy_azure(environment=environment, target=target)
+                except Exception as exc:
+                    step["status"] = "failed"
+                    step.setdefault("log", []).append({"at": _iso_now(), "msg": f"Failed {ref}: {exc}"[:1000]})
+                    raise
                 step["status"] = "done"
                 message = f"Completed {ref}" if result is None else f"Completed {ref}: {str(result)[:500]}"
-            elif kind == "command" and ref.startswith("bridge:deploy"):
-                step["status"] = "running"
-                ref_parts = ref.split(":")
-                environment = "staging"
-                target = "static"
-                if len(ref_parts) > 2:
-                    environment = ref_parts[2]
-                if len(ref_parts) > 3:
-                    target = ref_parts[3]
-                result = _deploy_azure(environment=environment, target=target)
-                step["status"] = "done"
-                message = f"Completed {ref}: {str(result)[:500]}"
-            else:
-                step["status"] = "failed"
-                message = f"Unsupported workflow step: kind={kind!r}, ref={ref!r}"
-                step.setdefault("log", []).append({"at": _iso_now(), "msg": message})
-                raise ValueError(message)
             step.setdefault("log", []).append({"at": _iso_now(), "msg": message})
             completed.add(step["id"])
             progressed = True
@@ -1211,6 +1275,13 @@ def _normalize_deploy_target(value: str) -> str:
     return target
 
 
+def _sanitize_deploy_output(text: str) -> str:
+    """ANSI-strip and secret-redact deploy output, as the other script runners do."""
+    import security_scan
+
+    return security_scan.sanitize(text.encode("utf-8", errors="replace"), False).strip()
+
+
 def _deploy_azure(environment: str = "staging", target: str = "static") -> dict[str, Any]:
     normalized_environment = _normalize_deploy_environment(environment)
     normalized_target = _normalize_deploy_target(target)
@@ -1239,9 +1310,9 @@ def _deploy_azure(environment: str = "staging", target: str = "static") -> dict[
     except (OSError, subprocess.SubprocessError) as exc:
         raise RuntimeError(f"Azure deployment is unavailable: {exc}") from exc
     if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "deployment command failed").strip()
+        detail = _sanitize_deploy_output(proc.stderr or proc.stdout or "deployment command failed")
         raise RuntimeError(f"Azure deployment failed: {detail[:1000]}")
-    out = (proc.stdout or proc.stderr or "Deployment started").strip()
+    out = _sanitize_deploy_output(proc.stdout or proc.stderr or "Deployment started")
     return {
         "environment": normalized_environment,
         "target": normalized_target,
@@ -1839,6 +1910,10 @@ def model_info_endpoint(model_id: str):
 @app.post("/api/mark-l/models/download", dependencies=[Depends(require_token)])
 def model_download_endpoint(req: ModelDownloadRequest):
     _require_module("ai_models", _HAS_AI_MODELS)
+    try:
+        _ai_resolve_download_dir(req.model_id, req.local_dir)
+    except ValueError as exc:
+        raise _err(str(exc), status=400) from exc
     return _safe_call(_ai_download_model, req.model_id, req.local_dir)
 
 
@@ -1915,15 +1990,22 @@ def mark_liv_tools():
 
 @app.post("/api/mark-liv/run", dependencies=[Depends(require_token)])
 def mark_liv_run(req: MarkLivRunRequest):
-    registry = _mark_liv_registry()
-    if req.name not in registry.names():
+    try:
+        registry = _mark_liv_registry()
+        names = registry.names()
+    except Exception:
+        logger.exception("mark-liv tool discovery failed")
+        raise _err("Mark-LIV tool discovery failed")
+    if req.name not in names:
         raise HTTPException(status_code=404, detail=f"Unknown Mark-LIV tool: {req.name}")
     try:
         result = registry.run(req.name, req.parameters)
         return _ok({"tool": req.name, "result": str(result) if result is not None else "Done"})
-    except Exception as exc:
+    except Exception:
+        # Details stay in the server log; clients get no exception text (same
+        # policy as _safe_call).
         logger.exception("mark-liv %s failed", req.name)
-        return _ok({"tool": req.name, "result": f"{req.name} failed: {exc}", "error": True})
+        return _ok({"tool": req.name, "result": f"{req.name} failed: internal error", "error": True})
 
 
 # ---------------------------------------------------------------------------
@@ -1961,6 +2043,11 @@ def openjarvis_doctor():
 @app.post("/api/openjarvis/ask", dependencies=[Depends(require_token)])
 def openjarvis_ask(req: OpenJarvisAskRequest):
     _require_module("openjarvis", _HAS_OPENJARVIS)
+    # The prompt is a positional argv entry; one starting with "-" would be
+    # parsed by the jarvis CLI as an option. We cannot rely on the CLI honouring
+    # "--", so such prompts are refused instead.
+    if req.prompt.startswith("-"):
+        raise _err("Prompt must not start with '-'", status=400)
     try:
         response = _run_openjarvis_cli("ask", req.prompt, timeout_s=req.timeout_s)
         return _ok({"response": response})
@@ -2285,6 +2372,13 @@ def workflows_create(req: WorkflowRequest):
             _fail_workflow(workflow, str(exc))
             _write_store("workflows", user_id, workflows)
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            # A step's backing script failed (e.g. the deploy exited non-zero):
+            # persist the failed state and log, then report a bad gateway.
+            logger.warning("workflow %s failed: %s", workflow.get("id"), exc)
+            _fail_workflow(workflow, str(exc)[:1000])
+            _write_store("workflows", user_id, workflows)
+            raise HTTPException(status_code=502, detail=str(exc)[:1000]) from exc
         _write_store("workflows", user_id, workflows)
         return {"workflow": workflow, "progress": _workflow_progress(workflow)}
     if not req.name or not req.name.strip():

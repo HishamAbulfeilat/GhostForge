@@ -23,6 +23,7 @@
 import type { Page } from 'playwright-core'
 import { extractJson } from './match'
 import type { FieldAnswer, JobProfile, JobRecord } from './store'
+import { detectAts } from './sources'
 import { answerFor, isConsentOrLegal, needsUserAnswer, normalizeLabel, reusableAnswer } from './writer'
 
 type Generate = (opts: { system?: string; prompt?: string; maxTokens?: number }) => Promise<string>
@@ -40,6 +41,12 @@ export interface AgentContext {
   generate: Generate | null
   /** Press the final Submit when everything required is answered */
   allowSubmit: boolean
+  /**
+   * When set, Submit is pressed only while the form itself is on one of these
+   * ATSes (detectAts of the page's current address), e.g. autopilot's "Safe
+   * sites" mode. A redirect or popup to any other site is handed back instead.
+   */
+  submitAts?: readonly string[]
   /** Screenshot model for the computer-use fallback (only when the user allowed it) */
   vision?: Vision | null
   log?: (msg: string) => void
@@ -298,7 +305,7 @@ You MUST use "stop" (never click or type) for: captchas; sign-in or account-crea
   } else if (act.action === 'type' && act.text) {
     if (await visionTargetBlocked(page, null)) { ctx.log?.('Computer use stopped: that field is a signature or consent'); return false }
     ctx.log?.(`Computer use: type${act.why ? ` (${String(act.why).slice(0, 80)})` : ''}`)
-    await page.keyboard.type(String(act.text).slice(0, 500))
+    await page.keyboard.type(computerUseText(act.text))
   } else if (act.action === 'scroll') {
     ctx.log?.(`Computer use: scroll${act.why ? ` (${String(act.why).slice(0, 80)})` : ''}`)
     await page.mouse.wheel(0, 600)
@@ -331,6 +338,12 @@ async function toggleLabels(page: Page): Promise<string[]> {
       const labelled = by ? by.split(/\s+/).map(x => document.getElementById(x)?.textContent || '').join(' ') : ''
       return (el.getAttribute('aria-label') || labelled || el.closest('label')?.textContent || el.textContent || el.parentElement?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 300)
     })).catch(() => [])
+}
+
+/** Text the computer-use fallback may type: one line, no control keys, so a newline can never press Enter and submit. */
+export function computerUseText(text: unknown): string {
+  // eslint-disable-next-line no-control-regex
+  return String(text ?? '').replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').slice(0, 500)
 }
 
 /**
@@ -372,6 +385,22 @@ async function visionTargetBlocked(page: Page, point: { x: number; y: number } |
   if (!info) return false
   return SUBMIT.test(info.text) || /\bsubmit\b|send application/i.test(info.text) || (APPLY.test(info.text) && info.inForm)
     || isConsentOrLegal(info.text) || isConsentOrLegal(info.label)
+}
+
+const ATS_NAMES: Record<string, string> = { lever: 'Lever', greenhouse: 'Greenhouse', ashby: 'Ashby', workday: 'Workday', linkedin: 'LinkedIn' }
+
+/**
+ * May Submit be pressed on this page? With an allowed ATS list (autopilot's
+ * "Safe sites"), only when the page's own address is on one of them. Returns
+ * the hand-back message, or null when Submit may be pressed.
+ */
+export function submitSiteMessage(url: string, submitAts: readonly string[] | undefined): string | null {
+  if (!submitAts) return null
+  if (submitAts.includes(detectAts(url))) return null
+  let host = ''
+  try { host = new URL(url).hostname } catch { /* not a web address */ }
+  const names = submitAts.map(a => ATS_NAMES[a] || a).join(', ')
+  return `The application form is on ${host || 'another site'}, not on ${names}, the sites GhostForge may submit on unattended. It is filled in; review it and press Submit yourself in the browser. The application has not been submitted.`
 }
 
 /**
@@ -498,6 +527,9 @@ export async function runFormAgent(page: Page, ctx: AgentContext): Promise<Agent
     const next = btns.find(b => NEXT.test(b.text))
     if (submit) {
       if (!ctx.allowSubmit) return outcome('needs_user', 'Everything is filled in and ready. Review it and press Submit.')
+      // Where the form actually is now, after any redirect or popup: not where the listing said
+      const offSite = submitSiteMessage(pg.url(), ctx.submitAts)
+      if (offSite) return outcome('needs_user', offSite)
       // Submit is pressed at most once per run: a second press can send a duplicate application
       if (submitPressed) return outcome('needs_user', SUBMIT_UNCONFIRMED)
       ctx.log?.(`Submitting (${submit.text})`)

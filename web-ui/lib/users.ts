@@ -6,6 +6,7 @@
  * verified in lib/auth.ts.
  */
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'crypto'
+import { closeSync, fstatSync, openSync, readFileSync } from 'fs'
 import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { homedir } from 'os'
@@ -33,6 +34,12 @@ export interface GhostUser {
    * leaves them exactly as assigned instead of applying a job-title profile.
    */
   permissionsAssigned?: boolean
+  /**
+   * Carried in every session token. Bumped when the account is deactivated or
+   * its password changes, which ends every session issued before. Missing
+   * (accounts and tokens from before this field existed) counts as 0.
+   */
+  sessionVersion?: number
 }
 
 export interface PublicUser {
@@ -84,8 +91,29 @@ export function isOwner(user?: Pick<GhostUser, 'username' | 'role'> | null): boo
   return Boolean(user && user.role === 'admin' && user.username.toLowerCase() === ownerUsername())
 }
 
+/**
+ * The id older versions derived from the username. Existing accounts keep
+ * these ids (they are only ever looked up, never recomputed); new accounts get
+ * random ids, so deleting "sara" and creating a new "sara" can't make the old
+ * person's session cookie valid for the new account.
+ */
 export function userIdFor(username: string): string {
   return 'u_' + createHash('sha1').update(username.toLowerCase()).digest('hex').slice(0, 12)
+}
+
+/** A fresh random user id that no existing account (or legacy id) uses. */
+export function newUserId(existing: Pick<GhostUser, 'id'>[] = []): string {
+  const taken = new Set(existing.map(u => u.id))
+  for (;;) {
+    const id = 'u_' + randomBytes(10).toString('hex')
+    if (!taken.has(id)) return id
+  }
+}
+
+/** The account's current session version (0 when never set). */
+export function sessionVersionOf(user: Pick<GhostUser, 'sessionVersion'>): number {
+  const v = user.sessionVersion
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : 0
 }
 
 // ── store read/write ───────────────────────────────────────────────────────
@@ -155,6 +183,54 @@ async function writeUsers(users: GhostUser[]): Promise<void> {
     throw err
   }
   _cache = { users, ts: Date.now() }
+  _syncSnapshot = null
+}
+
+// ── synchronous lookup for the per-request token check ─────────────────────
+
+/**
+ * The token check in lib/auth.ts (isAuthorizedRequest / isValidAuthToken) is
+ * synchronous and runs on every API request, so it reads users.json
+ * synchronously and keeps the parsed copy until the file changes on disk
+ * (writes are atomic renames, so any change gives a new inode / mtime).
+ */
+let _syncSnapshot: { key: string; byId: Map<string, GhostUser> } | null = null
+
+/**
+ * The stored account with this id, read synchronously, or null when there is
+ * none. Never seeds: a missing store has no accounts, and a store that can't
+ * be parsed keeps the last good copy (or, with none, has no accounts, so every
+ * session is refused rather than guessed at).
+ */
+export function getUserByIdSync(id: string): GhostUser | null {
+  // One file descriptor for both the identity check and the read, so the key
+  // and the contents always describe the same file.
+  let fd: number
+  try {
+    fd = openSync(USERS_FILE, 'r')
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+    return _syncSnapshot?.byId.get(id) ?? null
+  }
+  try {
+    const st = fstatSync(fd)
+    const key = `${st.ino}:${st.mtimeMs}:${st.size}`
+    if (!_syncSnapshot || _syncSnapshot.key !== key) {
+      try {
+        const parsed = JSON.parse(readFileSync(fd, 'utf8')) as UserFile
+        if (!parsed || !Array.isArray(parsed.users)) throw new Error('users.json has no "users" array')
+        _syncSnapshot = { key, byId: new Map(parsed.users.filter(u => u && typeof u.id === 'string').map(u => [u.id, u])) }
+      } catch (err) {
+        console.error(`[users] ${USERS_FILE} is unreadable (${(err as Error).message}); keeping the last good copy for session checks`)
+        return _syncSnapshot?.byId.get(id) ?? null
+      }
+    }
+    return _syncSnapshot.byId.get(id) ?? null
+  } catch {
+    return _syncSnapshot?.byId.get(id) ?? null
+  } finally {
+    closeSync(fd)
+  }
 }
 
 // ── bootstrap ──────────────────────────────────────────────────────────────
@@ -196,7 +272,7 @@ async function loadUsersLocked(): Promise<GhostUser[]> {
   }
   const name = process.env.ADMIN_NAME || DEFAULT_ADMIN_NAME
   const admin: GhostUser = {
-    id: userIdFor(username),
+    id: newUserId(users),
     name,
     username,
     role: 'admin',
@@ -252,7 +328,7 @@ export async function createUser(input: {
     if (!username || !input.password) throw new Error('Username and password are required')
     if (users.some(u => u.username === username)) throw new Error('Username already exists')
     const user: GhostUser = {
-      id: userIdFor(username),
+      id: newUserId(users),
       name: input.name.trim() || username,
       username,
       role: input.role === 'admin' ? 'admin' : 'user',
@@ -286,6 +362,10 @@ export async function updateUser(
     const basePermissions = patch.permissions ?? current.permissions
     const permissions = role === 'admin' ? ['*'] : basePermissions.filter(p => p !== '*')
     const updated: GhostUser = { ...current, ...patch, role, permissions }
+    // Deactivating the account or changing its password ends its sessions.
+    const deactivated = current.active !== false && updated.active === false
+    const passwordChanged = patch.passwordHash !== undefined && patch.passwordHash !== current.passwordHash
+    if (deactivated || passwordChanged) updated.sessionVersion = sessionVersionOf(current) + 1
     users[idx] = updated
     await writeUsers(users)
     return updated
@@ -298,6 +378,8 @@ export async function setUserPassword(id: string, newPassword: string): Promise<
     const idx = users.findIndex(u => u.id === id)
     if (idx === -1) return false
     users[idx].passwordHash = hashPassword(newPassword)
+    // A new password ends every session signed in with the old one.
+    users[idx].sessionVersion = sessionVersionOf(users[idx]) + 1
     await writeUsers(users)
     return true
   })
@@ -340,6 +422,6 @@ export async function touchLastSeen(id: string, nowMs = Date.now()): Promise<voi
 }
 
 export function toPublicUser(u: GhostUser): PublicUser {
-  const { passwordHash: _ph, ...rest } = u
+  const { passwordHash: _ph, sessionVersion: _sv, ...rest } = u
   return rest
 }

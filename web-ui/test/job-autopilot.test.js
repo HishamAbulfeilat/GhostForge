@@ -144,7 +144,9 @@ test('autopilot searches, prepares and submits only auto-submittable jobs, headl
   const r = await ap.runAutopilot(user, { generate: fakeAi, approve })
   assert.equal(r.ran, true)
   assert.equal(r.submitted, 2, 'both Lever jobs')
-  assert.deepEqual(calls.map(c => c.opts), [{ headless: true, by: 'autopilot', allowSubmit: true }, { headless: true, by: 'autopilot', allowSubmit: true }])
+  // Safe mode (the default): Submit only while the form itself is on Lever/Greenhouse/Ashby
+  const safeOpts = { headless: true, by: 'autopilot', allowSubmit: true, submitAts: ['lever', 'greenhouse', 'ashby'] }
+  assert.deepEqual(calls.map(c => c.opts), [safeOpts, safeOpts])
   const jobs = await jh.listJobs(user)
   const linkedin = jobs.find(j => j.ats === 'linkedin')
   assert.notEqual(linkedin.status, 'submitted', 'LinkedIn is never auto-submitted')

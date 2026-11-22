@@ -13,12 +13,19 @@
  * answer truthfully stop that application and are sent to the user; once
  * answered, the job is retried on the next run. Captchas and sign-in walls are
  * never bypassed. Nothing is submitted when required details are missing.
+ *
+ * Only one pass per user runs at a time, across the scheduler, "Run now" and
+ * the CLI (an in-process set plus a lock file, see ./run-lock.ts), and the
+ * daily limit, the on/off switch and the mode are re-read before every submit.
+ * In "safe" mode Submit is pressed only while the form itself is on Lever,
+ * Greenhouse or Ashby, wherever the listing's link led.
  */
 import { auditLog } from '../audit'
 import { AUTO_SUBMIT_ATS } from './apply'
 import {
   approveJob, generatorFor, getProfile, listJobs, missingApplicantFields, prepareJob, runSearch, saveProfile,
 } from './index'
+import { acquireRunLock, type RunLock } from './run-lock'
 import { listJobUsers, recoverAllInterruptedJobs, type AutopilotSettings } from './store'
 
 type Generate = (opts: { system?: string; prompt?: string; maxTokens?: number }) => Promise<string>
@@ -52,22 +59,41 @@ export function submittedToday(ap: AutopilotSettings, now = Date.now()): number 
   return ap.submittedByDay?.[dayKey(now)] ?? 0
 }
 
-async function record(username: string, now: number, result: string, submitted = 0, linkedin = 0) {
+// Keep two weeks of history
+const last14 = (m: Record<string, number>) => Object.fromEntries(Object.keys(m).sort().slice(-14).map(k => [k, m[k]]))
+
+async function record(username: string, now: number, result: string) {
+  // Patch only the run-result fields, onto the CURRENT profile (saveProfile merges).
+  // Otherwise a run that started minutes ago would write a stale `enabled`/`dailyLimit`
+  // back over a change the user just made (e.g. they turned autopilot off mid-run).
+  await saveProfile(username, { autopilot: { lastRunAt: new Date(now).toISOString(), lastResult: result } })
+}
+
+/**
+ * Count one submitted application at once, not at the end of the pass, so the
+ * daily limit check before the next submit (here or in any other process)
+ * already sees it, and a pass cut off midway still counts what it sent.
+ */
+async function countSubmission(username: string, now: number, linkedin: boolean) {
   const today = dayKey(now)
-  // Re-read the CURRENT settings rather than an at-start snapshot, and patch only
-  // the run-result fields. Otherwise a run that started minutes ago would write a
-  // stale `enabled`/`dailyLimit` back over a change the user just made (e.g. they
-  // turned autopilot off mid-run). saveProfile merges onto the fresh profile.
-  const current = await getProfile(username)
-  const byDay = { ...(current.autopilot.submittedByDay || {}) }
-  if (submitted) byDay[today] = (byDay[today] || 0) + submitted
-  const liDay = { ...(current.autopilot.linkedinByDay || {}) }
-  if (linkedin) liDay[today] = (liDay[today] || 0) + linkedin
-  // Keep two weeks of history
-  const last14 = (m: Record<string, number>) => Object.fromEntries(Object.keys(m).sort().slice(-14).map(k => [k, m[k]]))
-  await saveProfile(username, {
-    autopilot: { lastRunAt: new Date(now).toISOString(), lastResult: result, submittedByDay: last14(byDay), linkedinByDay: last14(liDay) },
-  })
+  const current = (await getProfile(username)).autopilot
+  const byDay = { ...(current.submittedByDay || {}) }
+  byDay[today] = (byDay[today] || 0) + 1
+  const liDay = { ...(current.linkedinByDay || {}) }
+  if (linkedin) liDay[today] = (liDay[today] || 0) + 1
+  await saveProfile(username, { autopilot: { submittedByDay: last14(byDay), linkedinByDay: last14(liDay) } })
+}
+
+// Users with a pass running in this process. On globalThis so a Next.js dev reload
+// of this module doesn't forget a pass that is still running.
+const runtime = globalThis as typeof globalThis & { ghostforgeAutopilotRuns?: Set<string> }
+const activeRuns = runtime.ghostforgeAutopilotRuns ??= new Set<string>()
+
+export const RUN_IN_PROGRESS = 'Another autopilot run is already in progress for this account (in GhostForge or from the command line). This one was not started, so the daily limit still holds.'
+
+/** Is an autopilot pass for this user running in this process right now? */
+export function autopilotRunning(username: string): boolean {
+  return activeRuns.has(username)
 }
 
 /**
@@ -80,13 +106,35 @@ export async function runAutopilot(
   opts: { force?: boolean; now?: number; generate?: Generate | null; approve?: Approve; linkedinGapMs?: number } = {},
 ): Promise<AutopilotReport> {
   const now = opts.now ?? Date.now()
-  const profile = await getProfile(username)
-  const ap = profile.autopilot
+  const offReason = opts.force ? 'Autopilot is off. Turn it on first: Run now submits applications only while autopilot is on.' : 'Autopilot is off'
+  const atStart = (await getProfile(username)).autopilot
 
   // `force` skips only the schedule, never the on/off switch: a pass submits applications,
   // so "Run now" works only after the user turned autopilot on (and confirmed what it does).
-  if (!ap.enabled) return { ran: false, reason: opts.force ? 'Autopilot is off. Turn it on first: Run now submits applications only while autopilot is on.' : 'Autopilot is off' }
-  if (!opts.force && !isDue(ap, now)) return { ran: false, reason: 'Not due yet' }
+  if (!atStart.enabled) return { ran: false, reason: offReason }
+  if (!opts.force && !isDue(atStart, now)) return { ran: false, reason: 'Not due yet' }
+
+  // One pass per user at a time: a second "Run now", the scheduler and the CLI each
+  // computing the day's remaining submissions on their own could exceed the limit.
+  // The in-process check is synchronous (no await between test and add).
+  if (activeRuns.has(username)) return { ran: false, reason: RUN_IN_PROGRESS }
+  activeRuns.add(username)
+  let lock: RunLock | null = null
+  try {
+    lock = await acquireRunLock(username, now)
+    if (!lock) return { ran: false, reason: RUN_IN_PROGRESS }
+    return await lockedRun(lock)
+  } finally {
+    await lock?.release().catch(() => {})
+    activeRuns.delete(username)
+  }
+
+  async function lockedRun(lock: RunLock): Promise<AutopilotReport> {
+  // Read the profile again now that no other pass can run: one that just finished
+  // has counted its submissions, and the user may have turned autopilot off meanwhile.
+  const profile = await getProfile(username)
+  const ap = profile.autopilot
+  if (!ap.enabled) return { ran: false, reason: offReason }
 
   const missing = missingApplicantFields(profile)
   if (missing.length) {
@@ -142,25 +190,38 @@ export async function runAutopilot(
 
   let submitted = 0, needsUser = 0, failed = 0, linkedinSent = 0
   let queueLen = 0
+  let stoppedOff = false
   if (remaining > 0) {
     // "ready" includes jobs whose questions the user has since answered.
     const queue = (await listJobs(username))
       .filter(j => j.status === 'ready' && !j.preparationWarning && eligible(j))
       .sort((a, b) => b.score - a.score)
     queueLen = queue.length
-    let budget = remaining
     for (const j of queue) {
-      if (budget <= 0) break
+      // Re-check from a fresh profile right before each submit: the user may have
+      // turned autopilot off or lowered the limit, and every submission so far
+      // (this pass's and any other's) is already counted there.
+      const fresh = (await getProfile(username)).autopilot
+      if (!fresh.enabled) { stoppedOff = true; break }
+      if (submittedToday(fresh, now) >= fresh.dailyLimit) break
       if (j.ats === 'linkedin') {
+        linkedinLeft = linkedinOn ? Math.min(linkedinLeft, Math.max(0, fresh.linkedinDailyLimit - (fresh.linkedinByDay?.[dayKey(now)] ?? 0))) : 0
         if (linkedinLeft <= 0) continue
         // Space LinkedIn applications out instead of sending them back to back.
         if (linkedinSent > 0) await pause(opts.linkedinGapMs ?? 30_000)
       }
+      await lock.refresh()
       try {
-        const r = await approve(username, j.id, { headless: !ap.laptopControl, by: 'autopilot', allowSubmit: true })
+        const r = await approve(username, j.id, {
+          headless: !ap.laptopControl, by: 'autopilot', allowSubmit: true,
+          // "Safe sites": Submit only while the form itself is on Lever/Greenhouse/Ashby, not
+          // wherever a listing's redirect or "Apply on company site" popup leads.
+          ...(ap.mode === 'full' && fresh.mode === 'full' ? {} : { submitAts: [...AUTO_SUBMIT_ATS] }),
+        })
         if (r.job.status === 'submitted') {
-          submitted++; budget--
+          submitted++
           if (j.ats === 'linkedin') { linkedinSent++; linkedinLeft-- }
+          await countSubmission(username, now, j.ats === 'linkedin')
         } else if (r.job.status === 'needs_user') needsUser++
         else failed++
       } catch {
@@ -180,13 +241,15 @@ export async function runAutopilot(
     : ''
   const result = remaining === 0
     ? `Daily limit reached (${ap.dailyLimit}). Found ${search.found}, prepared ${prepared}.`
-    : `Found ${search.found}, ${search.matched} in your locations. Prepared ${prepared}, submitted ${submitted}${linkedinSent ? ` (${linkedinSent} on LinkedIn)` : ''}${needsUser ? `, ${needsUser} need you` : ''}${failed ? `, ${failed} failed` : ''}.${hint}`
-  await record(username, now, result, submitted, linkedinSent)
+    : `Found ${search.found}, ${search.matched} in your locations. Prepared ${prepared}, submitted ${submitted}${linkedinSent ? ` (${linkedinSent} on LinkedIn)` : ''}${needsUser ? `, ${needsUser} need you` : ''}${failed ? `, ${failed} failed` : ''}.${stoppedOff ? ' Stopped: autopilot was turned off during the run.' : ''}${hint}`
+  await record(username, now, result)
   void auditLog({ level: 'info', event: 'job_autopilot_run', params: { username, found: search.found, matched: search.matched, prepared, submitted, linkedin: linkedinSent, needsUser, failed, mode: ap.mode } })
 
+  const after = (await getProfile(username)).autopilot
   return {
     ran: true, found: search.found, matched: search.matched, prepared, submitted, needsUser, failed,
-    remainingToday: Math.max(0, remaining - submitted),
+    remainingToday: Math.max(0, after.dailyLimit - submittedToday(after, now)),
+  }
   }
   }
 }

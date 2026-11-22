@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUser, isAdmin } from '@/lib/auth'
+import { AUTH_COOKIE_NAME, createSessionToken, getCurrentUser, isAdmin, verifySessionToken } from '@/lib/auth'
 import {
   listUsers,
   createUser,
@@ -136,7 +136,25 @@ export async function PATCH(req: NextRequest) {
   }
 
   const refreshed = await listUsers().then(users => users.find(u => u.id === id))
-  return NextResponse.json({ user: refreshed ? storeToPublic(refreshed) : storeToPublic(updated) })
+  const response = NextResponse.json({ user: refreshed ? storeToPublic(refreshed) : storeToPublic(updated) })
+  // A new password ends every session of that account. The caller's own
+  // browser always gets a fresh cookie from their stored account, so an owner
+  // who changed their own password stays signed in here (other devices are
+  // signed out); for any other edit it is only a renewed session.
+  const self = await listUsers().then(users => users.find(u => u.id === me.id))
+  if (self) {
+    const current = verifySessionToken(req.cookies.get(AUTH_COOKIE_NAME)?.value)
+    const forwardedProto = req.headers.get('x-forwarded-proto')
+    const isSecure = forwardedProto ? forwardedProto === 'https' : req.nextUrl.protocol === 'https:'
+    response.cookies.set(AUTH_COOKIE_NAME, createSessionToken(self, current?.dev ? { deviceId: current.dev } : {}), {
+      httpOnly: true,
+      secure: isSecure,
+      sameSite: 'strict',
+      maxAge: 30 * 24 * 60 * 60,
+      path: '/',
+    })
+  }
+  return response
 }
 
 export async function DELETE(req: NextRequest) {

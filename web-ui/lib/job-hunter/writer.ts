@@ -116,6 +116,40 @@ const WORK_ELIGIBILITY = /authori[sz]ed to work|work authori[sz]ation|legally (e
 /** Sponsorship wording only: "Do you hold a valid UK visa?" is a different question. */
 const SPONSORSHIP = /sponsor(ship)?\b|(require|need)s? (a )?(work |employment )?visa\b|visa (support|transfer)/i
 const PREVIOUS_EMPLOYMENT = /previously (worked|been employed)|former (employee|employer)|worked (for|at|with) (us|this company|[A-Z][\w&.' -]*) (before|previously)|ever (worked|been employed) (for|at|by)/i
+/**
+ * Legal-status and history questions the profile holds no answer for, so only
+ * the user may answer them (a saved or per-job answer of theirs): immigration
+ * status (a visa held, work permit, citizenship, residency), age, driving
+ * licence, security clearance and export control, criminal history, and
+ * employment history such as earlier applications, dismissals, relatives at the
+ * employer or a non-compete. Never filled by a fixed rule or the AI.
+ * Visa wording inside a sponsorship or work-authorization question stays with those rules.
+ */
+const IMMIGRATION_STATUS = String.raw`\bvisas?\b|\bwork (permit|pass)\b|\bcitizen(s|ship)?\b|\bnationalit(y|ies)\b|permanent residen|green card|immigration|residen(cy|ce|t) (status|permit|card|visa)|right of abode`
+const EMPLOYER_HISTORY = String.raw`\b(previously|ever|already) applied\b|\bapplied (to|for|with)\b[^?]{0,60}\b(before|previously)\b|\brelatives?\b|\bfamily members?\b[^?]{0,40}\b(work|employ)|\brelated to (any(one)?|an?) (current )?employee|non-?compete|non-?solicit|restrictive covenant`
+const LEGAL_STATUS = new RegExp([
+  IMMIGRATION_STATUS,
+  EMPLOYER_HISTORY,
+  String.raw`\b(1[6-9]|2[01]) years of age\b|\byears old\b|\b(legal|minimum|working) age\b|\bage of (majority|1[6-9]|2[01])\b|\bover (the age of )?(1[6-9]|2[01])\b|\b(1[6-9]|2[01]) (or|and) (older|over|above)\b|\bat least (1[6-9]|2[01])\b(?!\s*\+?\s*(years?|months?) (of|in|with|experience|working|professional)(?! age))`,
+  String.raw`\bdriver'?s? licen[cs]e|\bdriving licen[cs]e`,
+  String.raw`\bsecurity clearance\b|\bclearance (level|status)\b|\b(active|current|valid) clearance\b|export control|\bitar\b|\bu\.?\s?s\.? person\b`,
+  String.raw`\bcriminal\b|\bconvict|\bfelon(y|ies)\b|\bmisdemeanou?rs?\b|\bguilty\b|\boffen[cs]es?\b|pending charges|background check`,
+  String.raw`\b(been|were you|was) (terminated|dismissed|fired|discharged|let go|asked to resign)\b|\b(terminated|dismissed|fired) (from|by)\b`,
+].join('|'), 'i')
+const EMPLOYER_HISTORY_RE = new RegExp(EMPLOYER_HISTORY, 'i')
+/** "Which country / countries …" asks for a place, not Yes/No: the profile can't answer it truthfully. */
+const WHICH_COUNTRY = /^(in )?(which|what) countr|^countr(y|ies)\b/i
+
+/** True for a legal-status or history question only the user can answer (see LEGAL_STATUS). */
+export function isLegalStatusQuestion(label: string): boolean {
+  const clean = normalizeLabel(label)
+  const eligibility = WORK_ELIGIBILITY.test(clean) || SPONSORSHIP.test(clean)
+  // "Country you are authorized to work in" / "Which countries can you work in without a visa?"
+  if (eligibility && WHICH_COUNTRY.test(clean)) return true
+  // "…require sponsorship for an employment visa?" is a sponsorship question, answered by that rule
+  return LEGAL_STATUS.test(eligibility ? clean.replace(/\bvisas?\b/gi, ' ') : clean)
+}
+
 /** "Where you live / your country of residence" refers to the applicant's own country. */
 const RESIDENCE = /where you (currently )?(live|reside)|country (of|where you) (residence|live|reside)|your (current |home )?country( of residence)?\b/i
 
@@ -160,7 +194,9 @@ export function asksAboutOwnCountry(label: string, p: JobProfile, job: Pick<JobR
 
 /** Labels whose answer depends on the employer or the country, so a saved answer must not carry over. */
 function isJobRelative(label: string): boolean {
-  if (PREVIOUS_EMPLOYMENT.test(label)) return true
+  if (PREVIOUS_EMPLOYMENT.test(label) || EMPLOYER_HISTORY_RE.test(label)) return true
+  // "Do you hold a visa for this country?" depends on where the job is
+  if (isLegalStatusQuestion(label) && /\b(this|that|the) (country|location|region)\b|\bhere\b/i.test(label)) return true
   return (WORK_ELIGIBILITY.test(label) || SPONSORSHIP.test(label)) && !namedWorkCountry(label)
 }
 
@@ -211,12 +247,15 @@ export function reusableAnswer(label: string): boolean {
 
 /**
  * Questions the user must answer themselves when the profile has no answer:
- * consent and legal wording, work eligibility, sponsorship and previous
- * employment. They are never sent to the AI.
+ * consent and legal wording, work eligibility, sponsorship, previous
+ * employment, and legal-status or history questions (citizenship, visas held,
+ * age, clearance, criminal record, earlier applications, dismissals). They are
+ * never sent to the AI.
  */
 export function needsUserAnswer(label: string): boolean {
   const clean = normalizeLabel(label)
   return isConsentOrLegal(clean) || PREVIOUS_EMPLOYMENT.test(clean) || WORK_ELIGIBILITY.test(clean) || SPONSORSHIP.test(clean)
+    || isLegalStatusQuestion(clean)
 }
 
 /**
@@ -233,6 +272,9 @@ export function answerFor(label: string, profile: JobProfile, job: JobRecord): s
   if (PREVIOUS_EMPLOYMENT.test(clean)) return ''
   const cached = reusableAnswer(clean) ? Object.entries(profile.customAnswers).find(([k]) => answerKey(k) === key) : undefined
   if (cached) return cached[1]
+  // Citizenship, visas held, age, clearance, criminal or employment history:
+  // no fixed rule may answer these ("Country of citizenship" is not where they live).
+  if (isLegalStatusQuestion(clean)) return ''
   const rule = FIELD_RULES.find(r => r.pattern.test(clean))
   return rule ? rule.value(profile, job, clean) : ''
 }

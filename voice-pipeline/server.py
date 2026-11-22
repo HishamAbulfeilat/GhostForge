@@ -18,6 +18,7 @@ import hmac
 import logging
 import os
 import secrets
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -49,20 +50,47 @@ _TOKEN_FILE = _TOKEN_DIR / "token"
 MAX_AUDIO_BYTES = 25 * 1024 * 1024
 
 
+def _create_or_read_token_file(path: Path) -> str:
+    """Create the token file atomically with mode 0600, or read the existing one.
+
+    ``O_CREAT | O_EXCL`` means the file is never visible with default (umask)
+    permissions, and when the bridge and the voice pipeline start together only
+    one of them creates it; the other gets FileExistsError and reads that value.
+    A reader that wins the race against the writer may briefly see an empty
+    file, so it retries for up to a second.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        token = secrets.token_hex(32)
+        try:
+            with os.fdopen(fd, "w") as handle:
+                handle.write(token)
+        except OSError:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            raise
+        return token
+    for _ in range(20):
+        value = path.read_text().strip()
+        if value:
+            return value
+        time.sleep(0.05)
+    return ""
+
+
 def _read_token() -> str:
     for var in ("MARKL_BRIDGE_TOKEN", "GHOSTFORGE_VOICE_TOKEN"):
         env_token = (os.environ.get(var) or "").strip()
         if env_token:
             return env_token
     try:
-        _TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-        if not _TOKEN_FILE.exists():
-            _TOKEN_FILE.write_text(secrets.token_hex(32))
-            try:
-                _TOKEN_FILE.chmod(0o600)
-            except OSError:
-                pass
-        return _TOKEN_FILE.read_text().strip()
+        return _create_or_read_token_file(_TOKEN_FILE)
     except OSError:
         return ""
 

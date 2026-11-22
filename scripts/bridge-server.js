@@ -167,6 +167,39 @@ function runCopilot(prompt) {
   }).toString().trim()
 }
 
+/**
+ * `ghostforge` subcommands /execute may run: exactly the ones the web UI's
+ * /api/execute route sends (its GHOSTFORGE_SCRIPT_MAP plus `doctor`). Anything
+ * else, including deploy/update/tunnel scripts and path-like names, is refused,
+ * so a token holder cannot reach every script under scripts/.
+ */
+const EXECUTE_SUBCOMMANDS = new Set([
+  'doctor',
+  'carbon',
+  'health-score',
+  'dep-health',
+  'bundle',
+  'coverage',
+  'ai-review',
+  'standup',
+  'explain',
+  'tech-debt',
+  'commit',
+  'release',
+  'upgrade',
+  'pr-description',
+  'git-hooks-setup',
+  'component-gen',
+  'api-docs',
+  'api-types',
+  'api-mock',
+  'docker-gen',
+  'schema-viz',
+  'marketplace',
+  'lighthouse',
+  'a11y',
+])
+
 function runGhostforge(args) {
   return execFileSync('bash', [path.join(ROOT, 'ghostforge'), ...args], {
     cwd: ROOT,
@@ -239,12 +272,12 @@ const server = http.createServer((req, res) => {
       const command = typeof payload.command === 'string' ? payload.command.trim() : ''
       const args = tokenize(command)
       try {
-        if (args[0] === 'ghostforge' && args.length > 1) {
+        if (args[0] === 'ghostforge' && args.length > 1 && EXECUTE_SUBCOMMANDS.has(args[1])) {
           respond(res, 200, { output: runGhostforge(args.slice(1)), command })
         } else if (args[0] === 'gh' && args[1] === 'copilot' && args[2] === '-p' && args.length === 4) {
           respond(res, 200, { output: runCopilot(args[3]), command })
         } else {
-          respond(res, 403, { error: 'Only ghostforge commands are allowed' })
+          respond(res, 403, { error: 'Only allow-listed ghostforge commands are allowed' })
         }
       } catch (error) {
         logError('execute failed', error)

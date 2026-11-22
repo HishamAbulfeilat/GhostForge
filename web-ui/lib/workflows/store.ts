@@ -11,6 +11,9 @@ import { mkdir, readFile, writeFile, rename, readdir } from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
+import { assertBridgeRef } from './bridge-refs'
+
+export { WorkflowValidationError } from './bridge-refs'
 
 export type StepKind = 'agent' | 'skill' | 'command' | 'manual'
 export type StepStatus = 'pending' | 'running' | 'done' | 'failed' | 'blocked' | 'skipped'
@@ -91,13 +94,15 @@ const sid = () => randomUUID().slice(0, 8)
 
 function normalizeStep(s: Partial<WorkflowStep> & { title: string }, knownIds: Set<string>): WorkflowStep {
   const kind: StepKind = (['agent', 'skill', 'command', 'manual'] as const).includes(s.kind as StepKind) ? s.kind as StepKind : 'manual'
+  const ref = String(s.ref || '').slice(0, 2000)
+  assertBridgeRef(ref)
   const id = s.id && !knownIds.has(s.id) ? s.id : sid()
   knownIds.add(id)
   return {
     id,
     title: String(s.title || 'Untitled step').slice(0, 200),
     kind,
-    ref: String(s.ref || '').slice(0, 2000),
+    ref,
     deps: Array.isArray(s.deps) ? s.deps.map(String) : [],
     status: (['pending', 'running', 'done', 'failed', 'blocked', 'skipped'] as const).includes(s.status as StepStatus) ? s.status as StepStatus : 'pending',
     notes: String(s.notes || '').slice(0, 4000),
@@ -177,7 +182,11 @@ export function updateStep(
     }
     if (patch.notes !== undefined) step.notes = String(patch.notes).slice(0, 4000)
     if (patch.title !== undefined) step.title = String(patch.title).slice(0, 200)
-    if (patch.ref !== undefined) step.ref = String(patch.ref).slice(0, 2000)
+    if (patch.ref !== undefined) {
+      const ref = String(patch.ref).slice(0, 2000)
+      assertBridgeRef(ref)
+      step.ref = ref
+    }
     if (logMsg) step.log = [...(step.log || []), { at: now(), msg: String(logMsg).slice(0, 500) }].slice(-50)
     // Roll workflow status up from its steps
     if (wf.steps.some(s => s.status === 'running')) wf.status = 'running'

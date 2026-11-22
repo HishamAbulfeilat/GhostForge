@@ -6,49 +6,18 @@
  * POST /api/jarvis/vault  { action: 'clear' }
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
-import { join } from 'path'
-import { homedir } from 'os'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
+import { JarvisStoreError, readVault, updateVault, upsertEntry, type VaultCategory, type VaultEntry, type VaultStore } from '@/lib/jarvis-store'
 
 export const dynamic = 'force-dynamic'
 
-type VaultCategory = 'identity' | 'preferences' | 'projects' | 'relationships' | 'notes' | 'facts'
-
-interface VaultEntry {
-  id: string
-  category: VaultCategory
-  key: string
-  value: string
-  ts: number
-}
-
-interface VaultStore {
-  entries: VaultEntry[]
-  version: number
-}
-
-const VAULT_DIR  = join(homedir(), '.ghostforge', 'jarvis')
-const VAULT_FILE = join(VAULT_DIR, 'vault.json')
-const MAX_ENTRIES = 500
+// Each user has their own vault (~/.ghostforge/users/<username>/jarvis/vault.json);
+// every action needs the `semantic_memory` permission.
 const MAX_VALUE_CHARS = 500
 
-function loadVault(): VaultStore {
-  try {
-    if (existsSync(VAULT_FILE)) {
-      return JSON.parse(readFileSync(VAULT_FILE, 'utf8')) as VaultStore
-    }
-  } catch { /* corrupted — start fresh */ }
-  return { entries: [], version: 1 }
-}
-
-function saveVault(store: VaultStore): void {
-  mkdirSync(VAULT_DIR, { recursive: true })
-  // Keep only most recent MAX_ENTRIES
-  if (store.entries.length > MAX_ENTRIES) {
-    store.entries = store.entries.sort((a, b) => b.ts - a.ts).slice(0, MAX_ENTRIES)
-  }
-  writeFileSync(VAULT_FILE, JSON.stringify(store, null, 2))
+function storeError(err: unknown) {
+  const message = err instanceof JarvisStoreError ? err.message : 'Could not open the knowledge vault'
+  return NextResponse.json({ error: message }, { status: 500 })
 }
 
 function searchVault(store: VaultStore, query: string): VaultEntry[] {
@@ -74,13 +43,17 @@ function formatVaultForPrompt(store: VaultStore): string {
 }
 
 export async function GET(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const user = await requirePermission(req, 'semantic_memory')
+  if (user instanceof NextResponse) return user
 
   const url = new URL(req.url)
   const query = url.searchParams.get('query') || ''
-  const vault = loadVault()
+  let vault: VaultStore
+  try {
+    vault = await readVault(user)
+  } catch (err) {
+    return storeError(err)
+  }
 
   if (query) {
     return NextResponse.json({ results: searchVault(vault, query), total: vault.entries.length })
@@ -94,9 +67,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const user = await requirePermission(req, 'semantic_memory')
+  if (user instanceof NextResponse) return user
 
   const body = await req.json().catch(() => ({})) as {
     action?: string
@@ -107,55 +79,58 @@ export async function POST(req: NextRequest) {
     entries?: Array<{ category: VaultCategory; key: string; value: string }>
   }
 
-  const vault = loadVault()
-
-  if (body.action === 'save' || body.action === 'upsert') {
-    const { category = 'notes', key, value } = body
-    if (!key || !value) return NextResponse.json({ error: 'key and value required' }, { status: 400 })
-
-    // Upsert: replace existing entry for same category+key
-    const existing = vault.entries.findIndex(e => e.category === category && e.key === key)
-    const entry: VaultEntry = {
-      id: `${category}-${key}-${Date.now()}`,
-      category,
-      key,
-      value: value.slice(0, MAX_VALUE_CHARS),
-      ts: Date.now(),
+  try {
+    if (body.action === 'save' || body.action === 'upsert') {
+      const { category = 'notes', key, value } = body
+      if (typeof key !== 'string' || typeof value !== 'string' || !key || !value) {
+        return NextResponse.json({ error: 'key and value required' }, { status: 400 })
+      }
+      // Upsert: replace existing entry for same category+key
+      const entry: VaultEntry = {
+        id: `${category}-${key}-${Date.now()}`,
+        category,
+        key,
+        value: value.slice(0, MAX_VALUE_CHARS),
+        ts: Date.now(),
+      }
+      await updateVault(user, vault => upsertEntry(vault, entry))
+      return NextResponse.json({ ok: true, entry })
     }
-    if (existing >= 0) vault.entries[existing] = entry
-    else vault.entries.push(entry)
-    saveVault(vault)
-    return NextResponse.json({ ok: true, entry })
-  }
 
-  if (body.action === 'batch') {
-    // Batch save multiple entries at once (used by AI for silent memory saving)
-    const { entries = [] } = body
-    for (const e of entries.slice(0, 20)) {
-      const idx = vault.entries.findIndex(v => v.category === e.category && v.key === e.key)
-      const entry: VaultEntry = { id: `${e.category}-${e.key}-${Date.now()}`, ...e, value: e.value.slice(0, MAX_VALUE_CHARS), ts: Date.now() }
-      if (idx >= 0) vault.entries[idx] = entry
-      else vault.entries.push(entry)
+    if (body.action === 'batch') {
+      // Batch save multiple entries at once (used by AI for silent memory saving)
+      const entries = (Array.isArray(body.entries) ? body.entries : [])
+        .filter(e => e && typeof e.key === 'string' && typeof e.value === 'string' && e.key && e.value)
+        .slice(0, 20)
+      await updateVault(user, vault => {
+        for (const e of entries) {
+          const category = e.category || 'notes'
+          upsertEntry(vault, { id: `${category}-${e.key}-${Date.now()}`, category, key: e.key, value: e.value.slice(0, MAX_VALUE_CHARS), ts: Date.now() })
+        }
+      })
+      return NextResponse.json({ ok: true, saved: entries.length })
     }
-    saveVault(vault)
-    return NextResponse.json({ ok: true, saved: entries.length })
-  }
 
-  if (body.action === 'search') {
-    const { query = '' } = body
-    return NextResponse.json({ results: searchVault(vault, query), total: vault.entries.length })
-  }
+    if (body.action === 'search') {
+      const { query = '' } = body
+      const vault = await readVault(user)
+      return NextResponse.json({ results: searchVault(vault, String(query)), total: vault.entries.length })
+    }
 
-  if (body.action === 'delete') {
-    const { key, category } = body
-    vault.entries = vault.entries.filter(e => !(e.key === key && e.category === category))
-    saveVault(vault)
-    return NextResponse.json({ ok: true })
-  }
+    if (body.action === 'delete') {
+      const { key, category } = body
+      await updateVault(user, vault => {
+        vault.entries = vault.entries.filter(e => !(e.key === key && e.category === category))
+      })
+      return NextResponse.json({ ok: true })
+    }
 
-  if (body.action === 'clear') {
-    saveVault({ entries: [], version: 1 })
-    return NextResponse.json({ ok: true, message: 'Vault cleared' })
+    if (body.action === 'clear') {
+      await updateVault(user, () => ({ entries: [], version: 1 }))
+      return NextResponse.json({ ok: true, message: 'Vault cleared' })
+    }
+  } catch (err) {
+    return storeError(err)
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
