@@ -58,11 +58,22 @@ export function resolveProjectPath(projectPath, allowedRoot = defaultAllowedRoot
   return realCandidate;
 }
 
-export async function runNpmAudit(projectPath) {
+// npm is a .cmd shim on Windows, which execFile can only start through a
+// shell (Node refuses .cmd/.bat without one). The argument list is fixed, so
+// no caller data ever reaches that shell; the project path is the cwd option.
+export function npmInvocation(platform = process.platform) {
+  return platform === 'win32' ? { file: 'npm.cmd', shell: true } : { file: 'npm', shell: false };
+}
+
+export async function runNpmAudit(projectPath, { exec = execFileAsync, platform = process.platform } = {}) {
+  const npm = npmInvocation(platform);
   try {
-    const { stdout } = await execFileAsync('npm', ['audit', '--json'], {
+    const { stdout } = await exec(npm.file, ['audit', '--json'], {
       cwd: projectPath,
-      maxBuffer: 10 * 1024 * 1024
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 120000,
+      shell: npm.shell,
+      windowsHide: true
     });
 
     return stdout ? JSON.parse(stdout) : {};
@@ -78,6 +89,23 @@ export async function runNpmAudit(projectPath) {
 
     return { error: error.message };
   }
+}
+
+/**
+ * Whether an npm audit result can be trusted. A failed audit (no lockfile,
+ * registry unreachable, npm missing) has no metadata.vulnerabilities; treating
+ * that as zero vulnerabilities would report a project as healthy unchecked.
+ */
+export function auditFailure(auditResult) {
+  if (!auditResult || typeof auditResult !== 'object') return 'npm audit returned no result';
+  if (auditResult.error) {
+    const { error } = auditResult;
+    if (typeof error === 'string') return error;
+    return [error.code, error.summary].filter(Boolean).join(': ') || 'npm audit failed';
+  }
+  const vulnerabilities = auditResult.metadata?.vulnerabilities;
+  if (!vulnerabilities || typeof vulnerabilities !== 'object') return 'npm audit output has no vulnerability counts';
+  return null;
 }
 
 function summarizeAudit(auditResult) {
@@ -151,20 +179,39 @@ export function registerHealthTool(server, context = {}) {
       }
 
       const auditResult = await runNpmAudit(resolvedPath);
-      const vulnerabilitySummary = summarizeAudit(auditResult);
-      const score = Math.max(
-        0,
-        100 - vulnerabilitySummary.critical * 25 - vulnerabilitySummary.high * 10 - vulnerabilitySummary.moderate * 5 - vulnerabilitySummary.low * 2
-      );
-
-      return asToolResult({
-        ok: true,
-        projectPath: resolvedPath,
-        summary: score >= 80 ? 'Healthy' : score >= 60 ? 'Needs attention' : 'At risk',
-        score,
-        packageJson: packageInfo,
-        vulnerabilities: vulnerabilitySummary
-      });
+      return asToolResult(buildHealthReport(resolvedPath, packageInfo, auditResult));
     }
   );
+}
+
+export function buildHealthReport(resolvedPath, packageInfo, auditResult) {
+  const failure = auditFailure(auditResult);
+  if (failure) {
+    return {
+      ok: false,
+      status: 'unknown',
+      projectPath: resolvedPath,
+      summary: 'Unknown: npm audit could not run',
+      score: null,
+      packageJson: packageInfo,
+      vulnerabilities: null,
+      error: failure
+    };
+  }
+
+  const vulnerabilitySummary = summarizeAudit(auditResult);
+  const score = Math.max(
+    0,
+    100 - vulnerabilitySummary.critical * 25 - vulnerabilitySummary.high * 10 - vulnerabilitySummary.moderate * 5 - vulnerabilitySummary.low * 2
+  );
+
+  return {
+    ok: true,
+    status: 'ok',
+    projectPath: resolvedPath,
+    summary: score >= 80 ? 'Healthy' : score >= 60 ? 'Needs attention' : 'At risk',
+    score,
+    packageJson: packageInfo,
+    vulnerabilities: vulnerabilitySummary
+  };
 }
