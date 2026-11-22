@@ -265,8 +265,12 @@ jobs:
           done
           echo "result=${OUT# }" >> $GITHUB_OUTPUT
 
-      # Outputs go through env, never interpolated into the script (injection-safe)
+      # Outputs go through env, never interpolated into the script (injection-safe).
+      # Advisory only: on fork PRs the GITHUB_TOKEN is read-only, so the comment
+      # is skipped (the table still goes to the job summary) and any API error
+      # here must not turn the job red.
       - name: Post PR comment
+        continue-on-error: true
         uses: actions/github-script@v7
         env:
           LINT: ${{ steps.lint.outputs.result }}
@@ -317,12 +321,23 @@ jobs:
               `*Powered by [GhostForge](https://github.com/ghostforge-copilot-business/GhostForge)*`,
             ].join('\n');
 
-            const { data: comments } = await github.rest.issues.listComments({
+            await core.summary.addRaw(body).write();
+
+            const headRepo = context.payload.pull_request?.head?.repo?.full_name;
+            if (headRepo !== `${context.repo.owner}/${context.repo.repo}`) {
+              core.info('Fork PR: the token is read-only, so the results are in the job summary instead of a comment.');
+              return;
+            }
+
+            // listComments returns 30 per page by default; on busy PRs the
+            // existing summary can be past page 1, so read every page.
+            const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
+              per_page: 100,
             });
-            const existing = comments.find(c => c.body.includes('GhostForge PR Quality Check'));
+            const existing = comments.find(c => (c.body || '').includes('GhostForge PR Quality Check'));
 
             if (existing) {
               await github.rest.issues.updateComment({
