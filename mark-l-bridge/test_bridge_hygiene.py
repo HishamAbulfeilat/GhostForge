@@ -29,7 +29,7 @@ class TokenFileTests(unittest.TestCase):
         modes = []
         real_open = os.open
 
-        def spy(path, flags, mode=0o777, *args, **kwargs):
+        def spy(path, flags, mode=0o600, *args, **kwargs):
             if str(path) == str(self.path):
                 modes.append((flags, mode))
             return real_open(path, flags, mode, *args, **kwargs)

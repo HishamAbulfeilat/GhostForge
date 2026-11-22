@@ -127,11 +127,15 @@ def resolve_download_dir(model_id: str, local_dir: Optional[str] = None) -> Path
     to an arbitrary directory. Raises ValueError otherwise.
     """
     root = DEFAULT_MODEL_DIR.resolve()
-    if local_dir:
-        candidate = Path(local_dir).expanduser()
-        dest = (candidate if candidate.is_absolute() else root / candidate).resolve()
-    else:
-        dest = (root / model_id.replace("/", "_")).resolve()
+    root_str = str(root)
+    name = os.path.expanduser(local_dir) if local_dir else model_id.replace("/", "_")
+    # Normalise as a string first (os.path.join keeps an absolute name as is) and
+    # check containment before anything touches the filesystem.
+    dest_str = os.path.normpath(os.path.join(root_str, name))
+    if not dest_str.startswith(root_str + os.sep):
+        raise ValueError(f"local_dir must be a directory under {DEFAULT_MODEL_DIR}")
+    dest = Path(dest_str).resolve()
+    # Re-check after resolving symlinks inside the model directory.
     if dest == root or root not in dest.parents:
         raise ValueError(f"local_dir must be a directory under {DEFAULT_MODEL_DIR}")
     return dest

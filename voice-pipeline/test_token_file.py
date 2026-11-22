@@ -35,7 +35,7 @@ class VoiceTokenFileTests(unittest.TestCase):
         flags_seen = []
         real_open = os.open
 
-        def spy(path, flags, mode=0o777, *args, **kwargs):
+        def spy(path, flags, mode=0o600, *args, **kwargs):
             if str(path) == str(self.path):
                 flags_seen.append((flags, mode))
             return real_open(path, flags, mode, *args, **kwargs)
