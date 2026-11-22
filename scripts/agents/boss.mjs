@@ -230,6 +230,27 @@ export function blockTasksWithUnavailableDependencies(tasks) {
  * large diffs, where review quality matters most; the cheaper `boss.reviewModel`
  * for routine changes. Saves boss tokens without thinning high-risk reviews.
  */
+/**
+ * Turn a reviewer run into a verdict. Fails closed: only a clean exit with a
+ * final `{"approve": boolean}` line counts. A missing or unparseable verdict, a
+ * non-zero exit (timeout, crash, quota) or a rate-limit message without a
+ * verdict means the change is unreviewed and must be held, never approved —
+ * for every task kind, not only security.
+ */
+export function reviewOutcome(run, task = {}) {
+  const verdict = lastJSON(run?.output ?? '')
+  const hasVerdict = !!verdict && typeof verdict.approve === 'boolean'
+  if (run?.code !== 0) {
+    const limited = RATE_LIMIT_RE.test(run?.output ?? '')
+    return { approve: false, hold: true, reason: limited ? 'reviewer was rate-limited' : `reviewer exited ${run?.code ?? 'abnormally'}` }
+  }
+  if (!hasVerdict) {
+    const limited = RATE_LIMIT_RE.test(run?.output ?? '')
+    return { approve: false, hold: true, reason: limited ? 'reviewer was rate-limited' : `reviewer gave no verdict${task.kind ? ` on this ${task.kind} change` : ''}` }
+  }
+  return verdict
+}
+
 export function bossModelFor(kind, diffLines, boss = {}) {
   if (!boss.reviewModel) return boss.model
   if (kind === 'security' || diffLines > (boss.deepReviewOverLines ?? 600)) return boss.model
@@ -599,16 +620,17 @@ export class Boss {
   }
 
   /**
-   * No reviewer verdict on a security task: park it as todo with a cooldown and
-   * keep the worker's commits (pinned by a ref) for re-review. Unlike bounce(),
-   * this does not burn an attempt.
+   * No usable reviewer verdict (none/unparseable, reviewer exited non-zero or
+   * was rate-limited): park the task as todo with a cooldown, mark it
+   * "unreviewed" on the board, and keep the worker's commits (pinned by a ref)
+   * for re-review. Never merges. Unlike bounce(), this does not burn an attempt.
    */
-  holdForReview(task, agentId, base, head) {
+  holdForReview(task, agentId, base, head, reason = 'reviewer gave no verdict') {
     const holdUntil = new Date(Date.now() + this.cfg.cooldownMinutes * 60_000).toISOString()
     gitTry(this.intWt, 'update-ref', `refs/agent-hold/${task.id}`, head)
-    this.updateTask(task.id, { status: 'todo', owner: null, holdUntil, held: { agent: agentId, base, head } })
-    this.say(agentId, `${task.id} held for re-review until ${holdUntil}: reviewer gave no verdict on this security change.`)
-    this.log(`${task.id} held (${agentId}) until ${holdUntil}; commits kept at refs/agent-hold/${task.id}`)
+    this.updateTask(task.id, { status: 'todo', owner: null, holdUntil, held: { agent: agentId, base, head }, unreviewed: reason })
+    this.say(agentId, `${task.id} unreviewed — held for re-review until ${holdUntil}: ${reason}.`)
+    this.log(`${task.id} unreviewed, held (${agentId}) until ${holdUntil} (${reason}); commits kept at refs/agent-hold/${task.id}`)
   }
 
   // ── Task lifecycle ──
@@ -761,25 +783,17 @@ export class Boss {
     const file = stagePrompt(this.intWt, 'reviews', `${task.id}.md`, content)
     const model = bossModelFor(task.kind, lines, this.cfg.boss)
     const run = await this.readonlyRun(file, 'boss-review.log', 20 * 60_000, 'review', model)
-    const verdict = lastJSON(run.output)
-    if (!verdict || typeof verdict.approve !== 'boolean') {
-      if (task.kind === 'security') {
-        this.log(`review of ${task.id} (security) got no verdict — holding for re-review`)
-        return { approve: false, hold: true }
-      }
-      this.log(`review of ${task.id} unparseable — relying on health checks`)
-      return { approve: true }
-    }
-    return verdict
+    return reviewOutcome(run, task)
   }
 
   async integrate(agentId, task, base, head, result) {
     const a = this.cfg.agents[agentId]
     const verdict = await this.review(task, agentId, base, head)
     if (verdict.hold) {
-      this.holdForReview(task, agentId, base, head)
+      this.holdForReview(task, agentId, base, head, verdict.reason)
       return
     }
+    if (task.unreviewed) this.updateTask(task.id, { unreviewed: null })
     if (!verdict.approve) {
       this.bounce(task, agentId, `Boss review rejected the change:\n- ${(verdict.issues ?? []).join('\n- ')}`)
       return

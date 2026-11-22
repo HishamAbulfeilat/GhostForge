@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { routeModel, classifyTask, KIND_TIER, workerRoute } from './lib/models.mjs'
 import { addTask, areasOverlap, say, readMessages, writeResult, takeResult, loadBoard, saveBoard } from './lib/bus.mjs'
 import { commandFor, RATE_LIMIT_RE, winQuote } from './lib/providers.mjs'
-import { Boss, describeGitError, lastJSON, pickTask, reviewDiff, shouldRestartBoss, stagePrompt } from './boss.mjs'
+import { Boss, describeGitError, lastJSON, pickTask, reviewDiff, reviewOutcome, shouldRestartBoss, stagePrompt } from './boss.mjs'
 import { scoreOf, checks, needsDeps, pythonProbe, run, BRIDGE_TEST_MODULES } from './health.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -377,7 +377,7 @@ test('pickTask skips tasks with incomplete dependencies or an active hold cooldo
   assert.equal(pickTask(tasks, 'x', [], Date.parse('2026-10-02T11:00:00Z')).id, 'T-3', 'hold expired')
 })
 
-test('a security review with no verdict is held (no attempt burned); other kinds rely on health checks', async () => {
+test('a review with no verdict is held (no attempt burned) for every task kind, never approved', async () => {
   const stub = {
     cfg: { boss: { review: true }, cooldownMinutes: 10 },
     log() {}, intWt: fs.mkdtempSync(path.join(os.tmpdir(), 'gf-hold-')),
@@ -387,8 +387,13 @@ test('a security review with no verdict is held (no attempt burned); other kinds
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()
   const review = Boss.prototype.review.bind(stub)
-  assert.deepEqual(await review({ id: 'T-1', kind: 'security', title: 't', area: [] }, 'a', head, head), { approve: false, hold: true })
-  assert.deepEqual(await review({ id: 'T-2', kind: 'feature', title: 't', area: [] }, 'a', head, head), { approve: true })
+  const security = await review({ id: 'T-1', kind: 'security', title: 't', area: [] }, 'a', head, head)
+  assert.equal(security.approve, false)
+  assert.equal(security.hold, true)
+  const feature = await review({ id: 'T-2', kind: 'feature', title: 't', area: [] }, 'a', head, head)
+  assert.equal(feature.approve, false, 'no verdict must not approve a feature change')
+  assert.equal(feature.hold, true)
+  assert.match(feature.reason, /no verdict/)
 
   const updates = []
   const holder = {
@@ -403,11 +408,47 @@ test('a security review with no verdict is held (no attempt burned); other kinds
     assert.equal(patch.owner, null)
     assert.ok(Date.parse(patch.holdUntil) > Date.now())
     assert.deepEqual(patch.held, { agent: 'claude-2', base: 'base1', head })
+    assert.equal(patch.unreviewed, 'reviewer gave no verdict', 'the board shows the task as unreviewed')
     assert.ok(!('attempts' in patch), 'hold must not burn an attempt')
     assert.equal(execFileSync('git', ['rev-parse', holdRef], { cwd: root, encoding: 'utf8' }).trim(), head, 'commits pinned by ref')
   } finally {
     spawnSync('git', ['update-ref', '-d', holdRef], { cwd: root })
   }
+})
+
+test('reviewOutcome fails closed on non-zero exit, rate limits and missing verdicts', () => {
+  const ok = '{"approve": true, "issues": []}'
+  assert.deepEqual(reviewOutcome({ code: 0, output: `looks fine\n${ok}` }, { kind: 'feature' }), { approve: true, issues: [] })
+  assert.deepEqual(reviewOutcome({ code: 0, output: '{"approve": false, "issues": ["x"]}' }), { approve: false, issues: ['x'] })
+
+  const crashed = reviewOutcome({ code: 1, output: ok }, { kind: 'feature' })
+  assert.equal(crashed.approve, false)
+  assert.equal(crashed.hold, true, 'a verdict from a reviewer that exited non-zero is not trusted')
+
+  const limited = reviewOutcome({ code: 1, output: 'Error: 429 rate limit exceeded' }, { kind: 'docs' })
+  assert.deepEqual([limited.approve, limited.hold], [false, true])
+  assert.match(limited.reason, /rate-limited/)
+
+  const timedOut = reviewOutcome({ code: null, output: '' }, { kind: 'chore' })
+  assert.deepEqual([timedOut.approve, timedOut.hold], [false, true])
+
+  for (const output of ['', 'no json', '{"approve": "yes"}']) {
+    const r = reviewOutcome({ code: 0, output }, { kind: 'refactor' })
+    assert.deepEqual([r.approve, r.hold], [false, true], output)
+  }
+})
+
+test('integrate holds an unreviewed change instead of merging it', async () => {
+  const calls = []
+  const stub = {
+    cfg: { agents: { a: { branch: 'agent/a' } } },
+    review: async () => ({ approve: false, hold: true, reason: 'reviewer was rate-limited' }),
+    holdForReview: (...args) => calls.push(['hold', ...args]),
+    bounce: () => calls.push(['bounce']),
+    updateTask: () => calls.push(['update']),
+  }
+  await Boss.prototype.integrate.call(stub, 'a', { id: 'T-9', title: 't', area: [] }, 'b', 'h', null)
+  assert.deepEqual(calls, [['hold', { id: 'T-9', title: 't', area: [] }, 'a', 'b', 'h', 'reviewer was rate-limited']])
 })
 
 test('reviewDiff stays bounded for a commit deleting many large files', () => {
