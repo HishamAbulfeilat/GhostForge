@@ -2,7 +2,7 @@
 // health polling that slows down instead of silently giving up.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { posix, win32 } from 'node:path'
 import { test } from 'node:test'
 
 import {
@@ -14,14 +14,14 @@ import {
 } from '../src/main/bridge-manager-policy.ts'
 
 test('the bridge binds loopback on Windows as well', () => {
-  const win = bridgeSpawnCommand('win32', 'C:\\gf\\mark-l-bridge', 8765, join)
+  const win = bridgeSpawnCommand('win32', 'C:\\gf\\mark-l-bridge', 8765, win32.join)
   assert.equal(win.cmd, 'python')
   const host = win.args[win.args.indexOf('--host') + 1]
   assert.equal(host, '127.0.0.1')
   assert.equal(BRIDGE_HOST, '127.0.0.1')
   assert.ok(!win.args.includes('0.0.0.0'))
 
-  const unix = bridgeSpawnCommand('linux', '/gf/mark-l-bridge', 8765, join)
+  const unix = bridgeSpawnCommand('linux', '/gf/mark-l-bridge', 8765, posix.join)
   assert.deepEqual(unix, { cmd: 'bash', args: ['/gf/mark-l-bridge/start.sh'] })
 })
 
