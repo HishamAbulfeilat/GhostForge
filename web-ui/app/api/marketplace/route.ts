@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { isAuthorizedRequest } from '@/lib/auth'
+import { getCurrentUser, hasPermission, isAuthorizedRequest } from '@/lib/auth'
+import { requirePermission } from '@/lib/access'
+import { getEffectiveMarketplaceState, recordMarked, recordRemoved } from '@/lib/marketplace-state'
 
 function readJSON<T>(filePath: string, fallback: T): T {
   try {
@@ -33,6 +35,8 @@ function marketplaceDir(): string {
 
 // registry.json sits beside catalog.json — the same file the TUI reads
 // (ROOT/marketplace/registry.json), so both surfaces share install state (ADR-004).
+// The effective sets are computed by lib/marketplace-state.ts, which mirrors
+// tui/lib/marketplace-state.js (parity-tested).
 const MARKETPLACE_DIR = marketplaceDir()
 const CATALOG_PATH = path.join(MARKETPLACE_DIR, 'catalog.json')
 const SOURCES_PATH = path.join(MARKETPLACE_DIR, 'sources.json')
@@ -50,35 +54,42 @@ interface Source {
   verify_command?: string; categories?: string[]; trusted?: boolean; default?: boolean
 }
 
+// Install/remove marks are shared by every user of this server (and the TUI),
+// so changing them is an admin action.
+const EDIT_PERMISSION = 'admin_tools'
+
 export async function GET(req: NextRequest) {
   if (!isAuthorizedRequest(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const catalog = readJSON<{ items: CatalogItem[] }>(CATALOG_PATH, { items: [] })
-  const registry = readJSON<{ installed: string[]; removed?: string[] }>(REGISTRY_PATH, { installed: [], removed: [] })
+  const registryRaw = readJSON<unknown>(REGISTRY_PATH, {})
 
-  // registry.json is the source of truth, seeded by any catalog items that
-  // ship pre-installed (installed: true) so the TUI and web UI never disagree.
-  // Items the user explicitly removed (registry.removed) are not re-added.
-  const removed = new Set(registry.removed ?? [])
-  const installed = new Set((registry.installed ?? []).filter(id => !removed.has(id)))
-  for (const item of catalog.items) {
-    if (item?.installed && item.id && !removed.has(item.id)) installed.add(item.id)
-  }
+  // installed: verified installs (TUI ran the command) + catalog-seeded items,
+  // minus registry.removed. marked: ids someone marked installed by hand on the
+  // web — nothing ran, so they are reported separately. Non-string entries in
+  // registry.installed (older "Generate" records) are ignored, exactly like the TUI.
+  const { installedSet, markedSet } = getEffectiveMarketplaceState(catalog, registryRaw)
 
   // "Claude Marketplace" entries: every trusted external source (skills, plugins,
   // MCP, tools, memory, optimizers).
   const sourcesFile = readJSON<{ sources: Source[] }>(SOURCES_PATH, { sources: [] })
   const sources = (sourcesFile.sources ?? []).filter(s => s.type !== 'local')
 
-  return NextResponse.json({ items: catalog.items ?? [], sources, installed: [...installed] })
+  const user = await getCurrentUser(req).catch(() => null)
+  return NextResponse.json({
+    items: catalog.items ?? [],
+    sources,
+    installed: [...installedSet],
+    marked: [...markedSet],
+    canEdit: hasPermission(user, EDIT_PERMISSION),
+  })
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorizedRequest(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requirePermission(req, EDIT_PERMISSION)
+  if (access instanceof NextResponse) return access
 
   let parsed: { action?: string; id?: string }
   try {
@@ -86,39 +97,35 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-  const { action, id } = parsed
-  if (!id || (action !== 'install' && action !== 'remove')) {
+  const { action, id } = parsed ?? {}
+  // 'install' is accepted as an alias of 'mark' for older clients: the web UI
+  // never runs an install command, it only records a mark.
+  const op = action === 'mark' || action === 'install' ? 'mark' : action === 'unmark' || action === 'remove' ? 'unmark' : null
+  if (typeof id !== 'string' || !id || id.length > 200 || !op) {
     return NextResponse.json({ error: 'Invalid action or id' }, { status: 400 })
   }
 
   const catalog = readJSON<{ items: { id: string; installed?: boolean }[] }>(CATALOG_PATH, { items: [] })
-  const registry = readJSON<{ installed: string[]; removed?: string[] }>(REGISTRY_PATH, { installed: [], removed: [] })
-  const installed = new Set(registry.installed ?? [])
-  const removed = new Set(registry.removed ?? [])
-  const seededByCatalog = catalog.items.some(i => i?.id === id && i.installed)
-
-  if (action === 'install') {
-    installed.add(id)
-    removed.delete(id)
-  } else {
-    installed.delete(id)
-    // Catalog-seeded items aren't in registry.installed, so record an explicit
-    // removal to keep GET's catalog-seed merge from re-adding them.
-    if (seededByCatalog) removed.add(id)
+  // A registry that exists but can't be parsed is left untouched rather than
+  // overwritten (it also holds custom_agents, custom_models and generated[]).
+  let registryRaw: unknown = {}
+  try {
+    registryRaw = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'))
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      return NextResponse.json({ error: 'The marketplace registry (registry.json) could not be read' }, { status: 500 })
+    }
   }
+  const seededByCatalog = (catalog.items ?? []).some(i => i?.id === id && i.installed)
 
-  registry.installed = [...installed]
-  registry.removed = [...removed]
+  const registry = op === 'mark' ? recordMarked(registryRaw, id) : recordRemoved(registryRaw, id, seededByCatalog)
   try {
     fs.mkdirSync(path.dirname(REGISTRY_PATH), { recursive: true })
     fs.writeFileSync(REGISTRY_PATH, JSON.stringify(registry, null, 2))
   } catch {
-    return NextResponse.json({ error: 'Cannot write registry' }, { status: 500 })
+    return NextResponse.json({ error: 'Cannot write the marketplace registry (registry.json)' }, { status: 500 })
   }
 
-  const effective = new Set(registry.installed)
-  for (const item of catalog.items) {
-    if (item?.installed && item.id && !removed.has(item.id)) effective.add(item.id)
-  }
-  return NextResponse.json({ ok: true, installed: [...effective] })
+  const { installedSet, markedSet } = getEffectiveMarketplaceState(catalog, registry)
+  return NextResponse.json({ ok: true, installed: [...installedSet], marked: [...markedSet] })
 }

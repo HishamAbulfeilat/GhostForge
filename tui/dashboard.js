@@ -6,30 +6,16 @@ const require = typeof globalThis.require === 'function'
 
 const blessed = require('blessed');
 const contrib = require('blessed-contrib');
-const { execSync } = require('child_process');
 const { existsSync, readFileSync } = require('fs');
 const { basename, resolve } = require('path');
 
 const DASHBOARD_FILE = typeof __filename === 'string' ? __filename : process.argv[1];
 const ROOT = resolve(DASHBOARD_FILE, '..', '..');
-const GITHUB_USER = (() => {
-  try {
-    return execSync('gh api user --jq .login 2>/dev/null', { encoding: 'utf8', stdio: ['pipe','pipe','pipe'] }).trim() || 'ghostforge';
-  } catch { return 'ghostforge'; }
-})();
-
-function safeExec(cmd, opts = {}) {
-  try {
-    return execSync(cmd, {
-      cwd: ROOT,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      ...opts,
-    }).trim();
-  } catch {
-    return '';
-  }
-}
+// External commands (git, gh, python3) run without a shell and with a timeout;
+// see lib/dashboard-data.cjs. Tag names and other repo data are never put in a
+// command line.
+const data = require(resolve(DASHBOARD_FILE, '..', 'lib', 'dashboard-data.cjs'));
+const GITHUB_USER = data.fetchGithubUser();
 
 function truncateText(value, max) {
   const text = String(value || '');
@@ -78,91 +64,11 @@ function getRegisteredProjects() {
     .filter(Boolean);
 }
 
-function fetchTickets() {
-  const raw = safeExec('gh issue list --assignee @me --json number,title,labels,state,updatedAt,url --limit 15 2>/dev/null');
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const issues = JSON.parse(raw);
-    return issues.map(issue => ({
-      number: `#${issue.number}`,
-      title: (issue.title || '').substring(0, 38),
-      labels: (issue.labels || []).map(label => label.name).join(',').substring(0, 18) || 'none',
-      state: issue.state || 'open',
-      updated: issue.updatedAt ? issue.updatedAt.substring(0, 10) : '?',
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function fetchPipelines() {
-  const raw = safeExec('gh run list --limit 12 --json name,status,conclusion,updatedAt,databaseId,headBranch 2>/dev/null');
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const runs = JSON.parse(raw);
-    return runs.map(run => {
-      const icon = run.conclusion === 'success'
-        ? '✅'
-        : run.conclusion === 'failure'
-          ? '❌'
-          : run.status === 'in_progress'
-            ? '🔄'
-            : ['queued', 'requested', 'waiting', 'pending'].includes(run.status)
-              ? '⏸'
-              : '⏸';
-
-      return {
-        icon,
-        name: (run.name || '').substring(0, 22),
-        branch: (run.headBranch || '').substring(0, 16),
-        conclusion: run.conclusion || run.status || '?',
-        updated: run.updatedAt ? run.updatedAt.substring(0, 10) : '?',
-      };
-    });
-  } catch {
-    return [];
-  }
-}
-
-function fetchOpenPRs() {
-  const raw = safeExec('gh pr list --json number,title,author,reviewDecision,createdAt --limit 12 2>/dev/null');
-  if (!raw) return [];
-  try {
-    const prs = JSON.parse(raw);
-    return prs.map(pr => ({
-      number: `#${pr.number}`,
-      title: (pr.title || '').substring(0, 30),
-      author: (pr.author?.login || '?').substring(0, 12),
-      review: pr.reviewDecision === 'APPROVED' ? '✅' : pr.reviewDecision === 'CHANGES_REQUESTED' ? '⚠' : '⏳',
-    }));
-  } catch { return []; }
-}
-
-function fetchReleases() {
-  const raw = safeExec(`git -C "${ROOT}" tag -l --sort=-version:refname 2>/dev/null | head -8`);
-  if (!raw) {
-    return [];
-  }
-
-  return raw
-    .split('\n')
-    .filter(Boolean)
-    .map(tag => {
-      const date = safeExec(`git -C "${ROOT}" log -1 --format=%ai "${tag}" 2>/dev/null`).substring(0, 10);
-      const message = safeExec(`git -C "${ROOT}" tag -l -n1 "${tag}" 2>/dev/null`)
-        .replace(tag, '')
-        .trim()
-        .substring(0, 35) || 'Release';
-
-      return { tag, date, msg: message };
-    });
-}
+const fetchTickets = () => data.fetchTickets(ROOT);
+const fetchPipelines = () => data.fetchPipelines(ROOT);
+const fetchOpenPRs = () => data.fetchOpenPRs(ROOT);
+const fetchReleases = () => data.fetchReleases(ROOT);
+const fetchActivity = () => data.fetchActivity(ROOT);
 
 function fetchCarbonStatus() {
   const os = require('os');
@@ -178,16 +84,12 @@ function fetchCarbonStatus() {
     status: 'Not set up', statusIcon: '⚫', history: [],
   };
 
-  try {
-    execSync('python3 -c "import codecarbon" 2>/dev/null', { stdio: 'pipe' });
-    result.installed = true;
-  } catch { return result; }
+  if (!data.hasCodecarbon()) return result;
+  result.installed = true;
 
   if (existsSync(pidFile)) {
     try {
-      const pid = readFileSync(pidFile, 'utf8').trim();
-      execSync(`kill -0 ${pid} 2>/dev/null`, { stdio: 'pipe' });
-      result.running = true;
+      result.running = data.isPidRunning(readFileSync(pidFile, 'utf8'));
     } catch { /* not running */ }
   }
 
@@ -224,20 +126,6 @@ function fetchCarbonStatus() {
   else { result.status = '✅ Under threshold'; result.statusIcon = '🟢'; }
 
   return result;
-}
-
-function fetchActivity() {  const raw = safeExec(`git -C "${ROOT}" log --oneline -20 --no-merges 2>/dev/null`);
-  if (!raw) {
-    return ['No commits found'];
-  }
-
-  return raw
-    .split('\n')
-    .filter(Boolean)
-    .map(line => {
-      const [hash, ...rest] = line.split(' ');
-      return `{cyan-fg}${hash}{/cyan-fg} ${rest.join(' ').substring(0, 60)}`;
-    });
 }
 
 function fetchHealthScores() {
