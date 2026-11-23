@@ -26,6 +26,17 @@ export interface RawJob {
 
 const UA = { 'User-Agent': 'GhostForge-JobHunter/1.0 (+https://github.com/HishamAbulfeilat/GhostForge)' }
 const TIMEOUT = 15_000
+/** A source can make several requests; cap the whole source so one slow board can't stall the search. */
+const SOURCE_TIMEOUT = 30_000
+
+/** Settle `run` or reject after `ms`, always clearing the timer so it can't hold the process open. */
+export function withSourceTimeout<T>(source: string, run: () => Promise<T>, ms = SOURCE_TIMEOUT): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${source} timed out after ${Math.round(ms / 1000)}s`)), ms)
+  })
+  return Promise.race([run(), timeout]).finally(() => clearTimeout(timer))
+}
 
 async function getJson<T>(url: string, headers: Record<string, string> = {}): Promise<T> {
   const res = await fetch(url, { headers: { ...UA, ...headers }, signal: AbortSignal.timeout(TIMEOUT) })
@@ -217,7 +228,7 @@ export async function searchSources(prefs: JobPreferences, terms: string[]): Pro
     tasks.push({ source: `Lever ${c}`, run: () => leverBoard(c) })
   }
 
-  const settled = await Promise.allSettled(tasks.map(t => t.run()))
+  const settled = await Promise.allSettled(tasks.map(t => withSourceTimeout(t.source, t.run)))
   const report: SourceReport[] = []
   const byKey = new Map<string, RawJob>()
   settled.forEach((r, i) => {
